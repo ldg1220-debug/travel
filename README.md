@@ -103,23 +103,40 @@ signed-out — the login modal only appears at the moment you tap **저장**
   A provider is only registered once its `AUTH_<PROVIDER>_ID` env var is
   set (`src/auth.ts`), so a partially-configured setup doesn't break.
 - **DB**: PostgreSQL via the pure-JS `pg` driver + `@auth/pg-adapter`,
-  **not Prisma** — this sandbox's network policy lets `pg`/`npm` traffic
-  through a proxy, but Prisma's engine postinstall downloader dials
-  `binaries.prisma.sh` directly (confirmed via `NODE_DEBUG=https`) and gets
-  reset by the sandbox firewall every time, even though the exact same file
-  downloads fine over the proxy with `curl`. `pg` has no native-binary
-  install step, so it was used instead. Schema
-  (`src/server/db/schema.sql`) is the standard Auth.js Postgres adapter
-  tables (`users`, `accounts`, `sessions`, `verification_token`) plus one
-  app table, `itineraries` (`userId`, `title`, `region`, `items JSONB`).
-  Run `npm run db:migrate` against `DATABASE_URL` to apply it. If your
-  deployment environment can reach Prisma's binary CDN, swapping back to
-  Prisma is a straightforward, isolated change — only `src/lib/server/db.ts`,
-  `src/auth.ts`'s adapter line, and the two `pool.query` call sites
-  (`src/app/api/itineraries/route.ts`, `src/app/share/[id]/page.tsx`) touch
-  the DB layer.
+  **not Prisma** — retried twice, same result both times: this sandbox's
+  network policy lets `pg`/`npm` traffic through a proxy, but Prisma's
+  engine postinstall downloader dials `binaries.prisma.sh` directly
+  (confirmed via `NODE_DEBUG=https`) and gets reset by the sandbox firewall
+  every time, even though the exact same file downloads fine over the
+  proxy with `curl`. `pg` has no native-binary install step, so it was used
+  instead. Schema (`src/server/db/schema.sql`) is the standard Auth.js
+  Postgres adapter tables (`users`, `accounts`, `sessions`,
+  `verification_token`) plus one app table, `itineraries` (`userId`,
+  `title`, `region`, `placesData JSONB` — holds the frontend's `schedule`
+  array as-is). Run `npm run db:migrate` against `DATABASE_URL` to apply
+  it. If your deployment environment can reach Prisma's binary CDN,
+  swapping back to Prisma is a straightforward, isolated change — only
+  `src/lib/server/db.ts`, `src/auth.ts`'s adapter line, and the two
+  `pool.query` call sites (`src/app/api/itineraries/route.ts`,
+  `src/app/share/[id]/page.tsx`) touch the DB layer.
 - **Save**: `저장` POSTs the current region + itinerary items to
   `/api/itineraries`, which upserts one row per user.
 - **Share**: `공유` saves, then copies `/share/{id}` to the clipboard — a
   public, read-only page listing the trip's stops by date
   (`src/app/share/[id]/page.tsx`).
+
+## /travel-scheduler (shadcn/ui + real Google Maps prototype)
+
+A second screen (`src/app/travel-scheduler/`) built from a shadcn/ui +
+lucide-react + framer-motion mockup, wired to the same `useItineraryStore`
+as the main page — scheduling here updates the same global `items` array.
+Its `places` slice is seeded with real Fukuoka/Yufuin coordinates
+(`src/lib/mockPlacesFukuokaYufuin.ts`, ~55km apart) instead of the main
+app's demo Kyoto list, so `<MapProvider>` (`src/app/travel-scheduler/MapProvider.tsx`)
+renders a real, unconditional Google Map — no CSS fallback here — with
+`fitBounds` on load and an ordered `<Polyline>` route. Requires
+`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`; without it the map area shows a clean
+"Failed to load Google Maps" state (this sandbox has no key to test
+against, and its headless-browser QA setup doesn't route through the
+outbound proxy the way `curl`/`npm` do, so live tile rendering here is
+unverified — the loader's error handling is, though).

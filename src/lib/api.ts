@@ -17,13 +17,13 @@ export async function searchPlaces(region: Region, query: string): Promise<Place
 
 export async function saveItinerary(
   region: Region,
-  items: ItineraryItem[],
+  placesData: ItineraryItem[],
   title?: string,
 ): Promise<{ id: number }> {
   const res = await fetch("/api/itineraries", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ region, items, title }),
+    body: JSON.stringify({ region, placesData, title }),
   });
   if (!res.ok) throw new Error("Failed to save itinerary");
   return res.json();

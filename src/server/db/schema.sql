@@ -39,15 +39,15 @@ CREATE TABLE IF NOT EXISTS verification_token (
   PRIMARY KEY (identifier, token)
 );
 
--- App table: one saved itinerary per user. Individual stops are kept as a
--- JSONB array (matches the client-side ItineraryItem shape) rather than a
+-- App table: one saved itinerary per user. Individual stops (the frontend's
+-- `schedule` array of ItineraryItem) are kept as a JSONB blob rather than a
 -- normalized child table, per spec.
 CREATE TABLE IF NOT EXISTS itineraries (
   id SERIAL PRIMARY KEY,
   "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title VARCHAR(255) NOT NULL DEFAULT 'My Trip',
   region VARCHAR(20) NOT NULL DEFAULT 'international',
-  items JSONB NOT NULL DEFAULT '[]',
+  "placesData" JSONB NOT NULL DEFAULT '[]',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

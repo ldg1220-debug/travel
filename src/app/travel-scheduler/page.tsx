@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { GoogleMap, OverlayView, Polyline } from "@react-google-maps/api";
 import {
   Coffee,
   Landmark,
@@ -17,7 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useItineraryStore } from "@/store/itineraryStore";
-import { projectPlacesToPercent } from "@/lib/geo";
+import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
 import { TIMELINE_HOURS, MINUTE_STEPS, pad2, formatTime, hourFromTime, formatDateLabel } from "@/lib/timeline";
 import type { Place, PlaceIcon } from "@/lib/types";
 
@@ -36,6 +37,15 @@ const ICONS: Record<PlaceIcon, LucideIcon> = {
 
 // ─────────────────────────────────────────────────────────────
 export default function TravelScheduler() {
+  return (
+    <MapProvider>
+      <TravelSchedulerInner />
+    </MapProvider>
+  );
+}
+
+function TravelSchedulerInner() {
+  const { isLoaded: mapsLoaded, loadError: mapsError } = useGoogleMapsStatus();
   const phoneRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
@@ -70,8 +80,6 @@ export default function TravelScheduler() {
   const firedLong = useRef(false);
   const startPos = useRef<{ x: number; y: number } | null>(null);
   const last = useRef({ x: 0, y: 0 });
-
-  const positions = projectPlacesToPercent(places);
 
   const orderByPlace: Record<string, number> = {};
   schedule.forEach((s, i) => (orderByPlace[s.placeId] = i + 1));
@@ -176,7 +184,27 @@ export default function TravelScheduler() {
   const routePoints = schedule
     .map((s) => places.find((p) => p.id === s.placeId))
     .filter((p): p is Place => Boolean(p))
-    .map((p) => `${positions[p.id]?.x ?? 0},${positions[p.id]?.y ?? 0}`);
+    .map((p) => ({ lat: p.lat, lng: p.lng }));
+
+  const mapCenter =
+    places.length === 0
+      ? { lat: 33.5904, lng: 130.4017 } // Fukuoka
+      : {
+          lat: places.reduce((sum, p) => sum + p.lat, 0) / places.length,
+          lng: places.reduce((sum, p) => sum + p.lng, 0) / places.length,
+        };
+
+  // Fit every seeded place in view on load — Fukuoka and Yufuin are ~55km
+  // apart, so a fixed center/zoom wouldn't reliably show both clusters.
+  const onMapLoad = useCallback(
+    (map: google.maps.Map) => {
+      if (places.length === 0) return;
+      const bounds = new google.maps.LatLngBounds();
+      places.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
+      map.fitBounds(bounds, 48);
+    },
+    [places],
+  );
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-200 p-6 font-sans">
@@ -193,7 +221,7 @@ export default function TravelScheduler() {
             <p className="text-[11px] font-medium uppercase tracking-widest text-slate-500">
               {formatDateLabel(activeDate)}
             </p>
-            <h1 className="text-lg font-bold leading-tight text-slate-900">Kyoto — Day 2</h1>
+            <h1 className="text-lg font-bold leading-tight text-slate-900">Fukuoka × Yufuin</h1>
           </div>
           <button
             onClick={() => clearDate(activeDate)}
@@ -203,93 +231,58 @@ export default function TravelScheduler() {
           </button>
         </div>
 
-        {/* ── MAP AREA (top ~50%) ── */}
-        <div
-          className="absolute inset-x-0 top-[92px] h-[330px] overflow-hidden bg-[#eef2f4]"
-          style={{
-            backgroundImage:
-              "linear-gradient(to right,rgba(148,163,184,.1) 1px,transparent 1px),linear-gradient(to bottom,rgba(148,163,184,.1) 1px,transparent 1px)",
-            backgroundSize: "24px 24px",
-          }}
-        >
-          {/* soft landmasses / roads */}
-          <div className="absolute left-[-10%] top-[55%] h-[35%] w-[55%] rounded-[40%_60%_55%_45%/45%_55%_45%_55%] bg-gradient-to-br from-sky-200 to-sky-300/80 opacity-70" />
-          <div className="absolute left-[22%] top-[58%] h-[22%] w-[22%] rounded-[52%_48%_60%_40%/55%_45%_55%_45%] bg-emerald-200/80" />
-          <div className="absolute left-[30%] top-[-4%] h-[110%] w-2 rounded bg-white ring-1 ring-slate-200" />
-          <div className="absolute left-[-4%] top-[45%] h-2 w-[110%] rotate-[-2deg] rounded bg-white ring-1 ring-slate-200" />
-
-          {/* route line */}
-          <AnimatePresence>
-            {routePoints.length >= 2 && (
-              <motion.svg
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.75 }}
-                exit={{ opacity: 0 }}
-                className="pointer-events-none absolute inset-0 h-full w-full"
-                viewBox="0 0 100 100"
-                preserveAspectRatio="none"
-              >
-                <polyline
-                  points={routePoints.join(" ")}
-                  fill="none"
-                  stroke="#111827"
-                  strokeWidth={0.6}
-                  strokeDasharray="1.6 1.4"
-                  strokeLinecap="round"
-                  vectorEffect="non-scaling-stroke"
+        {/* ── MAP AREA (top ~50%) — real Google Maps ── */}
+        <div className="absolute inset-x-0 top-[92px] h-[330px] overflow-hidden bg-[#eef2f4]">
+          {mapsError ? (
+            <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-500">
+              Failed to load Google Maps.
+            </div>
+          ) : !mapsLoaded ? (
+            <div className="flex h-full items-center justify-center text-sm text-slate-500">Loading map…</div>
+          ) : (
+            <GoogleMap
+              mapContainerStyle={{ width: "100%", height: "100%" }}
+              center={mapCenter}
+              zoom={11}
+              onLoad={onMapLoad}
+              options={{ disableDefaultUI: true, zoomControl: true }}
+            >
+              {routePoints.length >= 2 && (
+                <Polyline
+                  path={routePoints}
+                  options={{
+                    strokeOpacity: 0,
+                    icons: [
+                      {
+                        icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#111827", scale: 3 },
+                        offset: "0",
+                        repeat: "14px",
+                      },
+                    ],
+                  }}
                 />
-              </motion.svg>
-            )}
-          </AnimatePresence>
+              )}
 
-          {/* markers */}
-          {places.map((p) => {
-            const pos = positions[p.id];
-            if (!pos) return null;
-            const order = orderByPlace[p.id];
-            const pressing = pressingId === p.id;
-            const hidden = drag?.place.id === p.id;
-            return (
-              <div
-                key={p.id}
-                className="absolute -translate-x-1/2 -translate-y-full touch-none select-none"
-                style={{ left: `${pos.x}%`, top: `${pos.y}%`, opacity: hidden ? 0 : 1 }}
-              >
-                <motion.div
-                  onPointerDown={(e) => onDown(p, e)}
-                  onPointerUp={() => onUp(p)}
-                  onPointerMove={onMove}
-                  onPointerCancel={cancelPress}
-                  animate={{ scale: pressing ? 1.12 : 1 }}
-                  transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                  className="relative cursor-pointer"
+              {places.map((p) => (
+                <OverlayView
+                  key={p.id}
+                  position={{ lat: p.lat, lng: p.lng }}
+                  mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
                 >
-                  {pressing && (
-                    <motion.span
-                      initial={{ scale: 0.6, opacity: 0.9 }}
-                      animate={{ scale: 1.4, opacity: 0 }}
-                      transition={{ duration: 0.5 }}
-                      className="absolute left-1/2 top-3.5 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
-                      style={{ borderColor: p.color }}
-                    />
-                  )}
-                  <div className="drop-shadow-lg">
-                    <Pin place={p} />
-                  </div>
-                  {order && (
-                    <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-slate-900 text-[11px] font-bold text-white">
-                      {order}
-                    </span>
-                  )}
-                </motion.div>
-                <div className="absolute left-1/2 top-[46px] -translate-x-1/2 whitespace-nowrap">
-                  <span className="rounded-full border border-slate-200/70 bg-white/95 px-2 py-px text-[10px] font-medium text-slate-700 shadow-sm">
-                    {p.name}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+                  <MarkerContent
+                    place={p}
+                    order={orderByPlace[p.id]}
+                    pressing={pressingId === p.id}
+                    hidden={drag?.place.id === p.id}
+                    onDown={onDown}
+                    onUp={onUp}
+                    onMove={onMove}
+                    onCancel={cancelPress}
+                  />
+                </OverlayView>
+              ))}
+            </GoogleMap>
+          )}
         </div>
 
         {/* ── TIMELINE AREA (bottom ~50%) ── */}
@@ -519,6 +512,63 @@ export default function TravelScheduler() {
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+interface MarkerContentProps {
+  place: Place;
+  order?: number;
+  pressing: boolean;
+  hidden: boolean;
+  onDown: (place: Place, e: React.PointerEvent) => void;
+  onUp: (place: Place) => void;
+  onMove: (e: React.PointerEvent) => void;
+  onCancel: () => void;
+}
+
+// Rendered inside an <OverlayView>, which already anchors its wrapper div
+// at the marker's projected lat/lng pixel (top-left) — the translate here
+// shifts that to a bottom-center pin anchor, same convention as the main
+// app's GoogleMapEngine.
+function MarkerContent({ place, order, pressing, hidden, onDown, onUp, onMove, onCancel }: MarkerContentProps) {
+  return (
+    <div
+      className="absolute -translate-x-1/2 -translate-y-full touch-none select-none"
+      style={{ left: 0, top: 0, opacity: hidden ? 0 : 1 }}
+    >
+      <motion.div
+        onPointerDown={(e) => onDown(place, e)}
+        onPointerUp={() => onUp(place)}
+        onPointerMove={onMove}
+        onPointerCancel={onCancel}
+        animate={{ scale: pressing ? 1.12 : 1 }}
+        transition={{ type: "spring", stiffness: 500, damping: 20 }}
+        className="relative cursor-pointer"
+      >
+        {pressing && (
+          <motion.span
+            initial={{ scale: 0.6, opacity: 0.9 }}
+            animate={{ scale: 1.4, opacity: 0 }}
+            transition={{ duration: 0.5 }}
+            className="absolute left-1/2 top-3.5 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
+            style={{ borderColor: place.color }}
+          />
+        )}
+        <div className="drop-shadow-lg">
+          <Pin place={place} />
+        </div>
+        {order && (
+          <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-slate-900 text-[11px] font-bold text-white">
+            {order}
+          </span>
+        )}
+      </motion.div>
+      <div className="absolute left-1/2 top-[46px] -translate-x-1/2 whitespace-nowrap">
+        <span className="rounded-full border border-slate-200/70 bg-white/95 px-2 py-px text-[10px] font-medium text-slate-700 shadow-sm">
+          {place.name}
+        </span>
       </div>
     </div>
   );

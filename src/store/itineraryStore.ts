@@ -1,16 +1,20 @@
 import { create } from "zustand";
 import type { ItineraryItem, Place, Region } from "@/lib/types";
 import { hourFromTime, todayISODate } from "@/lib/timeline";
-import { FALLBACK_PLACES } from "@/lib/mockPlaces";
+import { FUKUOKA_YUFUIN_PLACES } from "@/lib/mockPlacesFukuokaYufuin";
 
 interface ItineraryState {
   items: ItineraryItem[];
   activeDate: string;
   region: Region;
   /**
-   * Places available to schedule. Seeded with mock data until a real
-   * trends/search API is wired into a given screen (see fetchTrendingPlaces
-   * in src/lib/api.ts for the ISR-backed version used on the main page).
+   * Places available to schedule. Seeded with real Fukuoka/Yufuin
+   * coordinates (~55km apart) so the /travel-scheduler prototype's Google
+   * Maps view — the only current reader of this slice — has a genuine
+   * spread of points to fit-bounds and draw a route across, until a real
+   * trends/search API is wired in (see fetchTrendingPlaces in
+   * src/lib/api.ts for the ISR-backed version used on the main page, which
+   * manages its own place list independently of this store slice).
    */
   places: Place[];
   setActiveDate: (date: string) => void;
@@ -26,7 +30,7 @@ export const useItineraryStore = create<ItineraryState>((set, get) => ({
   items: [],
   activeDate: todayISODate(),
   region: "international",
-  places: FALLBACK_PLACES,
+  places: FUKUOKA_YUFUIN_PLACES,
 
   setActiveDate: (date) => set({ activeDate: date }),
   setRegion: (region) => set({ region }),

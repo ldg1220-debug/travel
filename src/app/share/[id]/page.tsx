@@ -6,12 +6,12 @@ import { formatDateLabel } from "@/lib/timeline";
 interface SharedItineraryRow {
   title: string;
   region: string;
-  items: ItineraryItem[];
+  placesData: ItineraryItem[];
 }
 
 async function getSharedItinerary(id: string): Promise<SharedItineraryRow | null> {
   if (!/^\d+$/.test(id)) return null;
-  const result = await pool.query(`select title, region, items from itineraries where id = $1`, [id]);
+  const result = await pool.query(`select title, region, "placesData" from itineraries where id = $1`, [id]);
   return result.rows[0] ?? null;
 }
 
@@ -21,7 +21,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
   if (!itinerary) notFound();
 
   const byDate = new Map<string, ItineraryItem[]>();
-  for (const item of itinerary.items) {
+  for (const item of itinerary.placesData) {
     const list = byDate.get(item.date) ?? [];
     list.push(item);
     byDate.set(item.date, list);
