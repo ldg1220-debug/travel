@@ -28,7 +28,7 @@ export function useGoogleMapsStatus() {
  */
 export function MapProvider({ children }: { children: React.ReactNode }) {
   const { isLoaded, loadError } = useJsApiLoader({
-    id: "travel-scheduler-google-map",
+    id: "planner-google-map",
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
     libraries: LIBRARIES,
   });

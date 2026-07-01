@@ -4,7 +4,7 @@
  *   - src/lib/geo.ts               (haversineDistanceMeters)
  *   - src/lib/mockPlacesFukuokaYufuin.ts (seed coordinates)
  * against the same budget-sum expression used in
- * src/app/travel-scheduler/TravelSchedulerBoard.tsx, plus the same
+ * src/app/(app)/planner/PlannerBoard.tsx, plus the same
  * shareToken generation used in src/app/api/itineraries/route.ts.
  *
  * Run: npx tsx verify-phase5.ts
@@ -125,7 +125,7 @@ console.log("\n\n### 3. 공유 토큰(Share Token) 생성 검증 ###");
 // Same generation as src/app/api/itineraries/route.ts's POST handler:
 //   const shareToken = randomUUID();
 const shareToken = randomUUID();
-const shareUrl = `https://<host>/travel-scheduler/${shareToken}`;
+const shareUrl = `https://<host>/planner/${shareToken}`;
 const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 console.log(`  생성된 shareToken: ${shareToken}`);
@@ -140,7 +140,7 @@ console.log(
 );
 console.log(
   `  (실제 라우트: /api/itineraries POST가 이 토큰을 itineraries."shareToken" 컬럼에 저장하고,\n` +
-    `   /travel-scheduler/[shareToken] 페이지 + /api/itineraries/shared/[shareToken] GET/PUT이\n` +
+    `   /planner/[shareToken] 페이지 + /api/itineraries/shared/[shareToken] GET/PUT이\n` +
     `   이 토큰으로 동일 페이로드를 읽고 쓰는 구조 — 여기서는 라이브 DB 없이 토큰 생성/형식만 검증)`,
 );
 

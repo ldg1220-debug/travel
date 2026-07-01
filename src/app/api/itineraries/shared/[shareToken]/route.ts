@@ -10,7 +10,7 @@ interface PushBody {
 /**
  * Capability-URL sharing: anyone holding the shareToken can view or edit —
  * there's no per-collaborator identity, so neither handler here checks
- * `auth()`. Polled every 3s by /travel-scheduler/[shareToken] as the
+ * `auth()`. Polled every 3s by /planner/[shareToken] as the
  * "fastest reliable given current infra" sync mechanism (no WebSocket
  * server / Supabase in this stack).
  */

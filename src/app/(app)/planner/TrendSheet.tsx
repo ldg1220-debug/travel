@@ -9,15 +9,15 @@ import type { TrendCard } from "@/lib/mockTrends";
 import type { Place } from "@/lib/types";
 
 async function fetchTrends(): Promise<TrendCard[]> {
-  const res = await fetch("/api/travel-scheduler/trends");
+  const res = await fetch("/api/planner/trends");
   if (!res.ok) throw new Error("Failed to load trends");
   const data = (await res.json()) as { trends: TrendCard[] };
   return data.trends;
 }
 
 interface TrendSheetProps {
-  /** Portal target so the sheet stays inside the phone-frame mockup instead of the full viewport. */
-  container: HTMLElement | null;
+  /** Optional portal target — defaults to document.body (a real full-viewport bottom sheet). */
+  container?: HTMLElement | null;
   /**
    * Controlled open state, owned by the parent — a card press needs to be
    * able to dismiss the sheet at the *right* moment (once a click resolves
@@ -48,7 +48,7 @@ export function TrendSheet({
   onTrendsLoaded,
 }: TrendSheetProps) {
   const { data: trends = [] } = useQuery({
-    queryKey: ["travel-scheduler-trends"],
+    queryKey: ["planner-trends"],
     queryFn: fetchTrends,
   });
 

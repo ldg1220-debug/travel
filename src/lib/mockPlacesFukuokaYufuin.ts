@@ -1,7 +1,7 @@
 import type { Place } from "./types";
 
 /**
- * Seed data for the /travel-scheduler prototype (src/app/travel-scheduler),
+ * Seed data for the /planner screen (src/app/(app)/planner/),
  * used to exercise real Google Maps rendering + Polyline route drawing.
  * Fukuoka (Tenjin/Hakata) and Yufuin are ~55km apart, spanning two
  * prefectures, so the map has to actually fit/zoom to a real spread of

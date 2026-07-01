@@ -10,7 +10,7 @@ interface ItineraryState {
   region: Region;
   /**
    * Places available to schedule. Seeded with real Fukuoka/Yufuin
-   * coordinates (~55km apart) so the /travel-scheduler prototype's Google
+   * coordinates (~55km apart) so the /planner screen's Google
    * Maps view — the only current reader of this slice — has a genuine
    * spread of points to fit-bounds and draw a route across, until a real
    * trends/search API is wired in (see fetchTrendingPlaces in

@@ -7,7 +7,7 @@ export interface TrendCard {
 }
 
 /**
- * Mock "trend curation" feed for the /travel-scheduler prototype — stands
+ * Mock "trend curation" feed for the /planner screen — stands
  * in for a real self-hosted DB of hashtag-filtered SNS posts (see
  * src/server/pipeline for the actual scrape → regex-filter → LLM-verify →
  * Places-resolve pipeline the main app uses for its international list).

@@ -125,14 +125,14 @@ signed-out — the login modal only appears at the moment you tap **저장**
   public, read-only page listing the trip's stops by date
   (`src/app/share/[id]/page.tsx`).
 
-## /travel-scheduler (shadcn/ui + real Google Maps prototype)
+## /planner (shadcn/ui + real Google Maps prototype)
 
-A second screen (`src/app/travel-scheduler/`) built from a shadcn/ui +
+A second screen (`src/app/(app)/planner/`) built from a shadcn/ui +
 lucide-react + framer-motion mockup, wired to the same `useItineraryStore`
 as the main page — scheduling here updates the same global `items` array.
 Its `places` slice is seeded with real Fukuoka/Yufuin coordinates
 (`src/lib/mockPlacesFukuokaYufuin.ts`, ~55km apart) instead of the main
-app's demo Kyoto list, so `<MapProvider>` (`src/app/travel-scheduler/MapProvider.tsx`)
+app's demo Kyoto list, so `<MapProvider>` (`src/app/(app)/planner/MapProvider.tsx`)
 renders a real, unconditional Google Map — no CSS fallback here — with
 `fitBounds` on load and an ordered `<Polyline>` route. Requires
 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`; without it the map area shows a clean
@@ -141,12 +141,17 @@ against, and its headless-browser QA setup doesn't route through the
 outbound proxy the way `curl`/`npm` do, so live tile rendering here is
 unverified — the loader's error handling is, though).
 
+> This screen originally lived at the standalone route `/travel-scheduler`;
+> Phase 7 (below) split it into `/planner` alongside two sibling screens
+> under a shared App Bar. Everything in this section and the "Phase 4/5/6"
+> sections below describes what was built there — only the route/file paths
+> changed, not the behavior.
+
 ### Trend curation sheet + Places search (Phase 4)
 
-- **Trend sheet** (`src/app/travel-scheduler/TrendSheet.tsx`): a shadcn
-  `Sheet` (`src/components/ui/sheet.tsx`, portaled into the phone-frame
-  mockup rather than the full viewport) listing hashtag-style trend cards
-  from `/api/travel-scheduler/trends` — a mock endpoint
+- **Trend sheet** (`src/app/(app)/planner/TrendSheet.tsx`): a shadcn
+  `Sheet` (`src/components/ui/sheet.tsx`) listing hashtag-style trend cards
+  from `/api/planner/trends` — a mock endpoint
   (`src/lib/mockTrends.ts`) standing in for a real curated-DB read, and
   deliberately *not* named `/api/trends` since that path is already the
   main app's real pipeline-backed endpoint. Each card reuses the exact same
@@ -154,7 +159,7 @@ unverified — the loader's error handling is, though).
   modal and a ~0.5s hold drags it onto the timeline, identically. Cards are
   merged onto the map (`addPlaces` in the store) as soon as they're
   fetched.
-- **Places search** (`src/app/travel-scheduler/PlacesSearchInput.tsx`):
+- **Places search** (`src/app/(app)/planner/PlacesSearchInput.tsx`):
   Google Places Autocomplete (New) via the JS SDK
   (`google.maps.places.AutocompleteSuggestion`, loaded through
   `MapProvider`'s `libraries: ["places"]`). One
@@ -187,12 +192,12 @@ unverified — the loader's error handling is, though).
   (already derived from the sorted schedule) redraws untangled for free.
   Triggered by the timeline's `[✨ 동선 최적화]` button (needs ≥3 stops),
   which shows a toast on completion.
-- **Sharing & sync** (`src/app/travel-scheduler/[shareToken]/`): `초대하기`
-  (top-right, auth-gated the same way as the main app's 저장/공유) saves
+- **Sharing & sync** (`src/app/(app)/planner/[shareToken]/`): `초대하기`
+  (auth-gated the same way as the main app's 저장/공유) saves
   the itinerary and ensures a `shareToken` (`crypto.randomUUID()`, unique
-  column on `itineraries`) exists, then copies `/travel-scheduler/{token}`
-  to the clipboard. That route mounts the same `TravelSchedulerBoard`
-  (extracted from `page.tsx` so both routes share one implementation) with
+  column on `itineraries`) exists, then copies `/planner/{token}`
+  to the clipboard. That route mounts the same `PlannerBoard`
+  (shared by both routes) with
   `shareToken` set, which polls `/api/itineraries/shared/[shareToken]`
   every 3s (`refetchInterval` — the fastest option that doesn't need a
   WebSocket server or a service like Supabase, per spec) and pushes local
@@ -207,7 +212,8 @@ unverified — the loader's error handling is, though).
 
 ### Design-shell merge (post-Phase 5)
 
-The design team's restyled mockup was merged into `TravelSchedulerBoard.tsx`
+The design team's restyled mockup was merged into what was then
+`TravelSchedulerBoard.tsx` (renamed `PlannerBoard.tsx` in Phase 7)
 as a pure re-skin — every stateful behavior (Zustand store, `optimizeRoute`,
 the polling/push sync effects, search, trend sheet, DnD) is untouched;
 only Tailwind classes/layout changed:
@@ -222,7 +228,7 @@ only Tailwind classes/layout changed:
   needs them.
 - **Dummy `[동선 최적화]` / `[초대하기]` buttons** in the mockup were wired to
   the real `handleOptimizeRoute` (→ `optimizeRoute(activeDate)`) and
-  `handleInvite` (→ save + copy `/travel-scheduler/{shareToken}`) handlers,
+  `handleInvite` (→ save + copy `/planner/{shareToken}`) handlers,
   keeping their existing disabled/login-gated behavior — only the button's
   visual treatment (gradient border pill / circular icon button) came from
   the mockup.
@@ -245,7 +251,7 @@ only Tailwind classes/layout changed:
   hour between them, produces one `TransitBlock` in the first free hour
   after the earlier stop (a pair with no gap — back-to-back hourly slots —
   has nowhere to render one, since every hour is already spoken for).
-  `TravelSchedulerBoard.tsx` recomputes this from `schedule` on every
+  `PlannerBoard.tsx` recomputes this from `schedule` on every
   render, the same plain-derived-value pattern already used for
   `orderByPlace`/`totalBudget` in that file — no extra Zustand state or
   `useEffect` needed (and a `useMemo` version was tried first, but the
@@ -270,4 +276,50 @@ only Tailwind classes/layout changed:
   apart produced 4 transit blocks whose durations matched hand-computed
   Haversine distances exactly (e.g. a 13.4km Hakata→Dazaifu leg → "약 35분
   소요"), with no console errors beyond the sandbox's expected
+  no-`AUTH_SECRET` auth noise.
+
+### Drawer-based routing split (Phase 7)
+
+The single `/travel-scheduler` route was split into three top-level
+screens under a shared App Bar, so each can grow independently instead of
+competing for space on one page:
+
+- **Route group** `src/app/(app)/` — `(app)` doesn't appear in the URL, so
+  this only wraps `/discover`, `/planner`, `/planner/[shareToken]`, and
+  `/scrapbook` with the new App Bar (`src/app/(app)/layout.tsx`). The
+  original `/` demo and `/share/[id]` read-only page are outside this
+  group and untouched.
+- **`/planner`** is the full board that used to live at `/travel-scheduler`
+  — moved wholesale to `src/app/(app)/planner/` (`TravelSchedulerBoard` was
+  renamed `PlannerBoard`; `/api/travel-scheduler/trends` became
+  `/api/planner/trends`). `/discover` and `/scrapbook`
+  (`src/app/(app)/discover/page.tsx`, `.../scrapbook/page.tsx`) are
+  placeholder screens per spec — "Trending & Feed (공사중)" / "My
+  Scrapbook (공사중)" — ready for their own routes to grow into later.
+- **`src/components/AppBar.tsx`**: a hamburger button opens a left-side
+  shadcn `Sheet` listing all three screens (탐색/Search icon, 계획/Calendar
+  icon, 보관함/Book icon) with the active one highlighted via
+  `usePathname()`. The center title and the right-side invite button are
+  both route-aware: `/planner` shows the date (+ "· Shared" when on the
+  `[shareToken]` sub-route) and the trip title, with the invite button
+  wired to the same save-and-copy-link `handleInvite` flow the board used
+  to own directly; `/discover` and `/scrapbook` show their own page name
+  and hide the invite button, since there's nothing yet to invite anyone
+  to on either.
+- **Space optimization**: `PlannerBoard` no longer renders itself inside a
+  fixed 390×844 phone-frame mockup centered on a gray page — it now fills
+  whatever height `(app)/layout.tsx`'s `<main>` gives it (full viewport
+  minus the 56px App Bar), split into the map (`h-[57%]`) and a
+  `flex-1` timeline that scrolls independently. The old per-page header
+  (title, date, invite/Clear buttons) is gone now that the App Bar owns
+  the title and invite button; the `Clear` schedule button moved next to
+  the search input at the top of the map instead (a small icon button —
+  there was no longer a good spot for it in the timeline's header row now
+  that the App Bar owns that space).
+- Verified in-browser: navigating 계획→탐색→보관함→계획 via the hamburger
+  Sheet works with no full page reload and correct active-item
+  highlighting; re-tested the full `/planner` flow (trend-sheet
+  scheduling, transit blocks, route optimization, the relocated Clear
+  button, and the App-Bar invite button's login gate) against the new
+  layout with no console errors beyond the sandbox's expected
   no-`AUTH_SECRET` auth noise.
