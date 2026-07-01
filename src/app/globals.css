@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.no-scrollbar::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 999px;
+}
+.no-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.map-bg {
+  background-color: #eef2f4;
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.1) 1px, transparent 1px),
+    radial-gradient(circle at 25% 30%, rgba(74, 144, 226, 0.06), transparent 40%),
+    radial-gradient(circle at 75% 70%, rgba(255, 107, 107, 0.05), transparent 45%);
+  background-size:
+    24px 24px,
+    24px 24px,
+    100% 100%,
+    100% 100%;
+}
+.map-road-h {
+  position: absolute;
+  height: 8px;
+  background: #ffffff;
+  border-top: 1px solid #e2e6ec;
+  border-bottom: 1px solid #e2e6ec;
+  border-radius: 2px;
+}
+.map-road-v {
+  position: absolute;
+  width: 8px;
+  background: #ffffff;
+  border-left: 1px solid #e2e6ec;
+  border-right: 1px solid #e2e6ec;
+  border-radius: 2px;
+}
+.map-block {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 6px;
+}
+.map-water {
+  position: absolute;
+  background: linear-gradient(135deg, #cfe4f5, #b9d6ef);
+  opacity: 0.7;
+}
+.map-park {
+  position: absolute;
+  background: radial-gradient(circle at 40% 40%, #d3ecd6, #bde0c3);
+  opacity: 0.85;
+}
+
+.marker-pop {
+  filter: drop-shadow(0 6px 10px rgba(15, 23, 42, 0.18));
+}
+
+.timeline-slot-highlight {
+  background: linear-gradient(90deg, rgba(255, 107, 107, 0.1), rgba(255, 107, 107, 0.03));
+  border-color: #ff6b6b !important;
+}
+
+@keyframes lpRing {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+.lp-ring {
+  animation: lpRing 0.5s ease-out forwards;
+}
+
+.drag-ghost {
+  filter: drop-shadow(0 14px 20px rgba(15, 23, 42, 0.35));
+  pointer-events: none;
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 24px;
+  background: rgba(17, 24, 39, 0.92);
+  color: white;
+  font-size: 12px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  z-index: 60;
+  letter-spacing: 0.01em;
+}
