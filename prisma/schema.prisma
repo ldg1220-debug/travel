@@ -1,0 +1,174 @@
+// Phase 8 platform schema.
+//
+// NOTE ON HOW THIS FILE IS ACTUALLY APPLIED: the Prisma CLI cannot run in
+// this sandbox — `npx prisma db push` (and even a plain `npm install
+// prisma`) needs the `@prisma/engines` postinstall download, which dials
+// `binaries.prisma.sh` directly instead of going through this environment's
+// outbound proxy and gets reset (`ECONNRESET`), confirmed three times
+// across this project's history (see README's "Auth & saved itineraries"
+// section) — and there is no live `DATABASE_URL` here to push to either
+// way. This file is authored by hand as the canonical schema definition
+// (ready to `npx prisma format` / `npx prisma db push` the moment a real
+// environment with network + DB access is available) and is kept in sync
+// with the actually-applied migration at src/server/db/schema.sql, which
+// defines the identical tables/columns via raw SQL run through `pg`
+// (`npm run db:migrate`) — see that file's header for the mapping.
+//
+// Every model below maps (via @@map/@map) onto the exact table/column
+// names schema.sql already uses, including its SERIAL (Int autoincrement)
+// primary keys — not the cuid()/uuid() String ids Prisma examples usually
+// default to — so switching the running app from `pg` to
+// `@prisma/client` later (already called out as an "isolated change" in
+// the README) wouldn't require a data migration.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth.js (@auth/pg-adapter) tables — column names/casing must match
+// the adapter's raw SQL exactly (node_modules/@auth/pg-adapter). ───
+
+model User {
+  id            Int         @id @default(autoincrement())
+  name          String?
+  email         String?     @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  itineraries   Itinerary[]
+  reviews       Review[]
+
+  @@map("users")
+}
+
+model Account {
+  id                Int     @id @default(autoincrement())
+  userId            Int
+  type              String
+  provider          String
+  providerAccountId String
+  refreshToken      String? @map("refresh_token")
+  accessToken       String? @map("access_token")
+  expiresAt         BigInt? @map("expires_at")
+  idToken           String? @map("id_token")
+  scope             String?
+  sessionState      String? @map("session_state")
+  tokenType         String? @map("token_type")
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  expires      DateTime
+  sessionToken String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  expires    DateTime
+  token      String
+
+  @@id([identifier, token])
+  @@map("verification_token")
+}
+
+// ─── App tables ───
+
+// One saved itinerary per user today; `placesData` holds the frontend's
+// `ItineraryItem[]` schedule (src/lib/types.ts) as JSONB rather than a
+// normalized child table, per the original spec.
+model Itinerary {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  title      String   @default("My Trip")
+  region     String   @default("international")
+  placesData Json     @default("[]")
+  // App-generated (crypto.randomUUID()), not gen_random_uuid(), so this
+  // doesn't depend on pgcrypto/PG13+. Capability-URL model: anyone with
+  // this token can view AND edit — see src/app/api/itineraries/shared/.
+  shareToken String?  @unique
+
+  // Phase 8: groundwork for community features (review/fork/like), not
+  // yet read or written by any route — every new column has a default so
+  // existing INSERTs (which don't mention them) are unaffected.
+  isPublic     Boolean @default(false)
+  likesCount   Int     @default(0)
+  forksCount   Int     @default(0)
+  forkedFromId Int?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Self-relation: the trip this one was forked from, and the trips that
+  // were forked from this one. SetNull (not Cascade) so deleting an
+  // original doesn't cascade-delete everyone's forks of it.
+  forkedFrom Itinerary?  @relation("ItineraryForks", fields: [forkedFromId], references: [id], onDelete: SetNull)
+  forks      Itinerary[] @relation("ItineraryForks")
+
+  @@index([userId])
+  @@index([shareToken])
+  @@index([isPublic])
+  @@map("itineraries")
+}
+
+// A review only left by someone who actually visited (isVerified — GPS or
+// receipt check, not yet implemented, defaults false until that lands).
+// `placeId` is an external id (Google Place ID etc.), not a local FK —
+// this app has no normalized `places` table, matching how Itinerary's
+// `placesData` JSONB stores places by that same external id today.
+model Review {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  placeId    String
+  content    String
+  rating     Float
+  isVerified Boolean  @default(false)
+  // Uploaded proof-of-visit photo URLs/paths.
+  images     Json     @default("[]")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([placeId])
+  @@index([userId])
+  @@map("reviews")
+}
+
+// Server-side cache of place-to-place transit estimates, so a repeated
+// A→B lookup (whether from src/lib/transit.ts's Haversine fallback or a
+// real Google Distance Matrix call once one is wired in) doesn't re-pay
+// the computation/API cost. Not yet read or written by any route.
+model TransitRoute {
+  id           Int    @id @default(autoincrement())
+  fromPlaceId  String
+  toPlaceId    String
+  durationMins Int
+  // "WALKING" | "TRANSIT" — matches the TransitMode union in
+  // src/lib/transit.ts ("walk" | "transit") in spirit; kept as a plain
+  // String here rather than a Prisma enum so new modes (e.g. "DRIVING")
+  // don't need a schema migration to add.
+  transitMode String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@unique([fromPlaceId, toPlaceId, transitMode])
+  @@map("transit_routes")
+}

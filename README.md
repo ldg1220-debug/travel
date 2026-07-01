@@ -103,9 +103,9 @@ signed-out — the login modal only appears at the moment you tap **저장**
   A provider is only registered once its `AUTH_<PROVIDER>_ID` env var is
   set (`src/auth.ts`), so a partially-configured setup doesn't break.
 - **DB**: PostgreSQL via the pure-JS `pg` driver + `@auth/pg-adapter`,
-  **not Prisma** — retried twice, same result both times: this sandbox's
-  network policy lets `pg`/`npm` traffic through a proxy, but Prisma's
-  engine postinstall downloader dials `binaries.prisma.sh` directly
+  **not Prisma** — retried three times now, same result every time: this
+  sandbox's network policy lets `pg`/`npm` traffic through a proxy, but
+  Prisma's engine postinstall downloader dials `binaries.prisma.sh` directly
   (confirmed via `NODE_DEBUG=https`) and gets reset by the sandbox firewall
   every time, even though the exact same file downloads fine over the
   proxy with `curl`. `pg` has no native-binary install step, so it was used
@@ -323,3 +323,53 @@ competing for space on one page:
   button, and the App-Bar invite button's login gate) against the new
   layout with no console errors beyond the sandbox's expected
   no-`AUTH_SECRET` auth noise.
+
+### Platform schema expansion (Phase 8)
+
+Groundwork for community features (discover feed, forking, reviews) —
+`Itinerary` extended, `Review` and `TransitRoute` added as new tables. No
+route reads or writes the new fields yet; this is schema only.
+
+- **`prisma/schema.prisma`** is the canonical, hand-authored schema (`npx
+  prisma db push`/`prisma generate` still can't run here — attempted a
+  third time for this phase, same `ECONNRESET` on the `@prisma/engines`
+  postinstall as every previous attempt). It's written to be a drop-in
+  match for the existing `pg`-managed tables: `@@map`/`@map` point every
+  model at `schema.sql`'s exact table/column names, and ids are
+  `Int @default(autoincrement())` (matching the existing `SERIAL` columns)
+  rather than the `String @default(cuid())` a fresh Prisma project would
+  normally scaffold — so a future switch from `pg` to `@prisma/client`
+  (already called an "isolated change" above) stays a driver swap, not a
+  data migration.
+- **`Itinerary`** gained `isPublic` (for the `/discover` feed),
+  `forkedFromId` (self-relation, `ON DELETE SET NULL` — deleting an
+  original doesn't cascade-delete everyone's forks), `likesCount`, and
+  `forksCount`, all defaulted so existing rows and existing `INSERT`
+  statements are unaffected.
+- **`Review`**: one row per visit-verified review. `placeId` is an
+  external id (Google Place ID etc.), matching how `Itinerary.placesData`
+  already references places — there's still no normalized `places` table.
+- **`TransitRoute`**: a cache table keyed on
+  `(fromPlaceId, toPlaceId, transitMode)` so a repeated lookup — whether
+  from `src/lib/transit.ts`'s Haversine fallback or a real Google Distance
+  Matrix call once wired in — doesn't re-pay the computation/API cost.
+- **Actually verified, not just documented**: this sandbox turned out to
+  have a local PostgreSQL 16 install (unused, not part of the deployed
+  app — no `DATABASE_URL` is configured for it outside this one
+  verification session). Started it, pointed a throwaway `.env.local`
+  (gitignored, not committed) at it, and ran the real
+  `src/server/db/schema.sql` migration end-to-end: confirmed every new
+  table/column/constraint via `psql \d`, confirmed the migration is safe
+  to re-run against an *already-migrated* database (seeded a row on the
+  pre-Phase-8 schema, re-ran the new `schema.sql`, and confirmed the row
+  survived with the new columns correctly defaulted via the added
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements), and exercised the
+  actual API routes against it end-to-end with a real session cookie —
+  `POST /api/itineraries` → `GET /api/itineraries` → `GET
+  /api/itineraries/shared/[shareToken]` — all returning correct data
+  against the live, Phase-8-migrated schema.
+- **`src/lib/types.ts`** gained `Itinerary`, `Review`, and `TransitRoute`
+  interfaces mirroring the new schema, for future community-feature code
+  to build against — checked for naming collisions against the rest of
+  `src/` first (none). `tsc --noEmit`, `eslint`, and `next build` all stay
+  clean.
