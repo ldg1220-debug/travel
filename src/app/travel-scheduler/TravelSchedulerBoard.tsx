@@ -5,8 +5,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { GoogleMap, OverlayView, Polyline } from "@react-google-maps/api";
-import { Clock, X, Plus, Wallet, Sparkles, Share2 } from "lucide-react";
+import { Clock, X, Plus, Wallet, Sparkles, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { LoginModal } from "@/components/LoginModal";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
@@ -344,16 +346,17 @@ function TravelSchedulerInner({ shareToken }: TravelSchedulerBoardProps) {
           </div>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={handleInvite}
-              className="flex items-center gap-1 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 backdrop-blur"
-            >
-              <Share2 size={11} /> 초대하기
-            </button>
-            <button
               onClick={() => clearDate(activeDate)}
               className="rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-500 backdrop-blur"
             >
               Clear
+            </button>
+            <button
+              onClick={handleInvite}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white/80 text-slate-600 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-900"
+              aria-label="초대하기"
+            >
+              <UserPlus size={15} />
             </button>
           </div>
         </div>
@@ -436,31 +439,28 @@ function TravelSchedulerInner({ shareToken }: TravelSchedulerBoardProps) {
                 <Clock size={12} color="white" />
               </span>
               <span className="text-[13px] font-semibold text-slate-900">Today&apos;s Plan</span>
-              <span className="text-[11px] text-slate-500">
-                {schedule.length} stop{schedule.length === 1 ? "" : "s"}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
               {totalBudget > 0 && (
-                <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-700">
-                  <Wallet size={11} /> ¥{totalBudget.toLocaleString()}
-                </span>
+                <Badge className="gap-1 rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 hover:bg-emerald-50">
+                  <Wallet size={11} />
+                  ¥{totalBudget.toLocaleString()}
+                </Badge>
               )}
-              <span className="text-[10px] font-medium uppercase text-slate-400">09:00 — 21:00</span>
             </div>
-          </div>
 
-          <div className="px-5 pb-2">
             <button
               onClick={handleOptimizeRoute}
               disabled={schedule.length < 3}
-              className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="group relative inline-flex items-center gap-1.5 rounded-full p-[1.5px] text-[11px] font-semibold shadow-sm transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
+              style={{ background: "linear-gradient(120deg,#FF6B6B,#F5A524,#4A90E2)" }}
             >
-              <Sparkles size={12} /> 동선 최적화
+              <span className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-slate-800 transition-colors group-hover:bg-transparent group-hover:text-white">
+                <Sparkles size={12} />
+                동선 최적화
+              </span>
             </button>
           </div>
 
-          <div className="h-[340px] overflow-y-auto px-4 pb-6">
+          <div className="h-[378px] overflow-y-auto px-4 pb-6">
             <div className="relative">
               <div className="absolute bottom-2 left-[50px] top-2 w-px bg-slate-200" />
               {TIMELINE_HOURS.map((h) => {
@@ -514,16 +514,19 @@ function TravelSchedulerInner({ shareToken }: TravelSchedulerBoardProps) {
                               </p>
                             </div>
                             {item.budget != null && (
-                              <span className="flex items-center gap-0.5 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600">
+                              <Badge
+                                variant="outline"
+                                className="gap-0.5 rounded-full border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600"
+                              >
                                 <Wallet size={10} /> ¥{item.budget.toLocaleString()}
-                              </span>
+                              </Badge>
                             )}
-                            <span
+                            <Badge
                               className="rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums text-white"
                               style={{ background: display.color }}
                             >
                               #{orderByPlace[item.placeId]}
-                            </span>
+                            </Badge>
                             <button
                               onClick={() => removeItem(item.id)}
                               className="flex h-6 w-6 items-center justify-center rounded-full"
@@ -648,11 +651,14 @@ function TravelSchedulerInner({ shareToken }: TravelSchedulerBoardProps) {
                 </div>
 
                 {/* budget */}
-                <div className="mt-3">
-                  <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                    <Wallet size={12} /> Estimated budget (¥)
-                  </label>
-                  <input
+                <label className="mb-2 mt-4 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                  <Wallet size={12} /> Estimated budget (¥)
+                </label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">
+                    ¥
+                  </span>
+                  <Input
                     type="number"
                     inputMode="numeric"
                     min={0}
@@ -660,7 +666,7 @@ function TravelSchedulerInner({ shareToken }: TravelSchedulerBoardProps) {
                     value={modalBudget}
                     onChange={(e) => setModalBudget(e.target.value)}
                     placeholder="0"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[14px] tabular-nums outline-none focus:border-slate-400"
+                    className="h-11 rounded-xl pl-7 text-sm font-semibold tabular-nums"
                   />
                 </div>
 

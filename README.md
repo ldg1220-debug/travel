@@ -204,3 +204,36 @@ unverified — the loader's error handling is, though).
   collaborator whose local `places` catalog is missing a referenced spot
   (e.g. found via the trip owner's own search) gets a synthesized marker
   for it rather than a silently-missing pin.
+
+### Design-shell merge (post-Phase 5)
+
+The design team's restyled mockup was merged into `TravelSchedulerBoard.tsx`
+as a pure re-skin — every stateful behavior (Zustand store, `optimizeRoute`,
+the polling/push sync effects, search, trend sheet, DnD) is untouched;
+only Tailwind classes/layout changed:
+
+- **`npx shadcn@latest add input badge` couldn't run**: `ui.shadcn.com` is
+  blocked by this sandbox's network policy (`403` at the proxy gateway, same
+  class of block as the Prisma binary CDN). `src/components/ui/input.tsx`
+  and `badge.tsx` were hand-authored to match the standard shadcn source
+  exactly (same `cva`/`cn`/`data-slot` conventions already used by the
+  existing hand-authored `button.tsx`/`sheet.tsx`), and `--input` /
+  `--muted-foreground` tokens were added to `globals.css` since `Input`
+  needs them.
+- **Dummy `[동선 최적화]` / `[초대하기]` buttons** in the mockup were wired to
+  the real `handleOptimizeRoute` (→ `optimizeRoute(activeDate)`) and
+  `handleInvite` (→ save + copy `/travel-scheduler/{shareToken}`) handlers,
+  keeping their existing disabled/login-gated behavior — only the button's
+  visual treatment (gradient border pill / circular icon button) came from
+  the mockup.
+- **The mockup's fake `MEMBERS` avatar stack was intentionally dropped**,
+  not merged: it renders hardcoded "You/Aki/Ren" presence avatars with no
+  backing data — this app has no real-time "who's currently viewing"
+  channel (only itinerary-content polling), so wiring it up would show
+  collaborators who aren't actually there.
+- Verified with a Playwright pass: registering 3 trend-sheet places through
+  the restyled modal (shadcn `Input` with a ¥ prefix) produced correct
+  per-stop and total `Badge` amounts (¥1,500 + ¥3,000 + ¥12,000 = ¥16,500),
+  clicking the restyled optimize button reordered the timeline and showed
+  the toast, and the restyled invite button correctly opened the login gate
+  when signed out.
