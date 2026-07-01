@@ -140,3 +140,33 @@ renders a real, unconditional Google Map — no CSS fallback here — with
 against, and its headless-browser QA setup doesn't route through the
 outbound proxy the way `curl`/`npm` do, so live tile rendering here is
 unverified — the loader's error handling is, though).
+
+### Trend curation sheet + Places search (Phase 4)
+
+- **Trend sheet** (`src/app/travel-scheduler/TrendSheet.tsx`): a shadcn
+  `Sheet` (`src/components/ui/sheet.tsx`, portaled into the phone-frame
+  mockup rather than the full viewport) listing hashtag-style trend cards
+  from `/api/travel-scheduler/trends` — a mock endpoint
+  (`src/lib/mockTrends.ts`) standing in for a real curated-DB read, and
+  deliberately *not* named `/api/trends` since that path is already the
+  main app's real pipeline-backed endpoint. Each card reuses the exact same
+  `onDown/onUp/onMove` handlers as map pins, so a tap opens the time-picker
+  modal and a ~0.5s hold drags it onto the timeline, identically. Cards are
+  merged onto the map (`addPlaces` in the store) as soon as they're
+  fetched.
+- **Places search** (`src/app/travel-scheduler/PlacesSearchInput.tsx`):
+  Google Places Autocomplete (New) via the JS SDK
+  (`google.maps.places.AutocompleteSuggestion`, loaded through
+  `MapProvider`'s `libraries: ["places"]`). One
+  `AutocompleteSessionToken` is reused across every keystroke of a search
+  and discarded once a place is selected; the actual prediction fetch is
+  debounced ~400ms. Selecting a result calls `Place.fetchFields()` with an
+  explicit field list (`displayName, location, id, types` — name/geometry/
+  place_id/category, nothing billed-for that isn't used) rather than
+  fetching everything.
+- **Adapter** (`src/lib/placeAdapters.ts`): `placeFromGoogleDetails()`
+  converts the fetched `google.maps.places.Place` into the app's shared
+  `Place` shape (`id, name, category, color, lat, lng, icon`) — the same
+  shape every other source (seed data, trend cards, the main app's
+  pipeline) produces, so a place from search is indistinguishable from any
+  other once it's in the store.

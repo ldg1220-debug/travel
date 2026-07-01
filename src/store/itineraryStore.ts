@@ -20,6 +20,8 @@ interface ItineraryState {
   setActiveDate: (date: string) => void;
   setRegion: (region: Region) => void;
   setPlaces: (places: Place[]) => void;
+  /** Merges places in by id (e.g. trend-sheet results, search selections) without duplicating existing ones. */
+  addPlaces: (newPlaces: Place[]) => void;
   isHourTaken: (date: string, hour: number) => boolean;
   addItem: (item: Omit<ItineraryItem, "id">) => void;
   removeItem: (id: string) => void;
@@ -35,6 +37,12 @@ export const useItineraryStore = create<ItineraryState>((set, get) => ({
   setActiveDate: (date) => set({ activeDate: date }),
   setRegion: (region) => set({ region }),
   setPlaces: (places) => set({ places }),
+  addPlaces: (newPlaces) =>
+    set((state) => {
+      const existingIds = new Set(state.places.map((p) => p.id));
+      const toAdd = newPlaces.filter((p) => !existingIds.has(p.id));
+      return toAdd.length > 0 ? { places: [...state.places, ...toAdd] } : state;
+    }),
 
   isHourTaken: (date, hour) =>
     get().items.some(

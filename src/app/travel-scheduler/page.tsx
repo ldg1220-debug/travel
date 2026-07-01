@@ -3,37 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { GoogleMap, OverlayView, Polyline } from "@react-google-maps/api";
-import {
-  Coffee,
-  Landmark,
-  Trees,
-  Ship,
-  Utensils,
-  Camera,
-  Clock,
-  X,
-  Plus,
-  MapPin,
-  type LucideIcon,
-} from "lucide-react";
+import { Clock, X, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
+import { PlaceGlyph } from "./icons";
+import { PlacesSearchInput } from "./PlacesSearchInput";
+import { TrendSheet } from "./TrendSheet";
 import { TIMELINE_HOURS, MINUTE_STEPS, pad2, formatTime, hourFromTime, formatDateLabel } from "@/lib/timeline";
-import type { Place, PlaceIcon } from "@/lib/types";
-
-// Design-system icons for each place category (Place.icon is the shared
-// string enum used by the whole app; the shadcn/lucide prototype UI wants
-// real components, so this is the only translation layer needed).
-const ICONS: Record<PlaceIcon, LucideIcon> = {
-  coffee: Coffee,
-  museum: Landmark,
-  tree: Trees,
-  boat: Ship,
-  utensils: Utensils,
-  camera: Camera,
-  pin: MapPin,
-};
+import type { Place } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────
 export default function TravelScheduler() {
@@ -46,7 +24,15 @@ export default function TravelScheduler() {
 
 function TravelSchedulerInner() {
   const { isLoaded: mapsLoaded, loadError: mapsError } = useGoogleMapsStatus();
-  const phoneRef = useRef<HTMLDivElement>(null);
+  const phoneRef = useRef<HTMLDivElement | null>(null);
+  // The Sheet's portal container needs the phone-frame DOM node as a prop,
+  // which means it has to come from state (set via a ref callback), not a
+  // plain ref read during render.
+  const [phoneEl, setPhoneEl] = useState<HTMLDivElement | null>(null);
+  const setPhoneNode = useCallback((node: HTMLDivElement | null) => {
+    phoneRef.current = node;
+    setPhoneEl(node);
+  }, []);
   const slotRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
   // Places to schedule + the single global itinerary come straight from
@@ -60,6 +46,7 @@ function TravelSchedulerInner() {
   const addItem = useItineraryStore((s) => s.addItem);
   const removeItem = useItineraryStore((s) => s.removeItem);
   const clearDate = useItineraryStore((s) => s.clearDate);
+  const addPlaces = useItineraryStore((s) => s.addPlaces);
 
   const schedule = items
     .filter((i) => i.date === activeDate)
@@ -111,6 +98,14 @@ function TravelSchedulerInner() {
     if (pressTimer.current) clearTimeout(pressTimer.current);
     pressTimer.current = null;
     setPressingId(null);
+  };
+
+  // Search result / trend-sheet selection adapter target: both land here as
+  // an already-normalized Place, get merged into the map's place list, and
+  // immediately become schedulable like any seeded/trend marker.
+  const handlePlaceDiscovered = (place: Place) => {
+    addPlaces([place]);
+    showToast(`${place.name} added to map`);
   };
 
   // ── slot hit-testing ──
@@ -209,7 +204,7 @@ function TravelSchedulerInner() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-200 p-6 font-sans">
       <div
-        ref={phoneRef}
+        ref={setPhoneNode}
         className="relative h-[844px] w-[390px] overflow-hidden rounded-[44px] bg-white shadow-[0_0_0_8px_#111318,0_40px_80px_-20px_rgba(15,23,42,0.35)]"
       >
         {/* notch */}
@@ -233,6 +228,20 @@ function TravelSchedulerInner() {
 
         {/* ── MAP AREA (top ~50%) — real Google Maps ── */}
         <div className="absolute inset-x-0 top-[92px] h-[330px] overflow-hidden bg-[#eef2f4]">
+          <div className="absolute inset-x-3 top-3 z-20">
+            <PlacesSearchInput onSelect={handlePlaceDiscovered} />
+          </div>
+
+          <TrendSheet
+            container={phoneEl}
+            onDown={onDown}
+            onUp={onUp}
+            onMove={onMove}
+            onCancel={cancelPress}
+            pressingId={pressingId}
+            onTrendsLoaded={addPlaces}
+          />
+
           {mapsError ? (
             <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-500">
               Failed to load Google Maps.
@@ -572,11 +581,6 @@ function MarkerContent({ place, order, pressing, hidden, onDown, onUp, onMove, o
       </div>
     </div>
   );
-}
-
-function PlaceGlyph({ icon, size, color }: { icon: PlaceIcon; size?: number; color?: string }) {
-  const Icon = ICONS[icon];
-  return <Icon size={size} color={color} />;
 }
 
 // ── teardrop pin ──
