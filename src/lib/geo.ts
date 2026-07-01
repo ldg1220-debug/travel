@@ -1,5 +1,21 @@
 import type { Place } from "./types";
 
+const EARTH_RADIUS_METERS = 6371000;
+
+/** Great-circle distance between two coordinates, in meters. */
+export function haversineDistanceMeters(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const h = sinLat * sinLat + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sinLng * sinLng;
+  return 2 * EARTH_RADIUS_METERS * Math.asin(Math.sqrt(h));
+}
+
 /**
  * Projects lat/lng onto a padded 0-100 percentage box, purely for the
  * offline decorative fallback map (no Google Maps API key configured).

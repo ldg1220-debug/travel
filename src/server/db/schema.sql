@@ -40,15 +40,25 @@ CREATE TABLE IF NOT EXISTS verification_token (
 );
 
 -- App table: one saved itinerary per user. Individual stops (the frontend's
--- `schedule` array of ItineraryItem) are kept as a JSONB blob rather than a
--- normalized child table, per spec.
+-- `schedule` array of ItineraryItem, src/lib/types.ts) are kept as a JSONB
+-- blob rather than a normalized child table, per spec. Each element:
+--   { id, placeId, name, date, time, coordinates: {lat, lng}, budget? }
+-- `budget` (JPY, optional) was added for Phase 5's cost-tracking feature —
+-- JSONB has no per-field migration to run, existing rows without it just
+-- read back as `undefined` on the frontend.
 CREATE TABLE IF NOT EXISTS itineraries (
   id SERIAL PRIMARY KEY,
   "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title VARCHAR(255) NOT NULL DEFAULT 'My Trip',
   region VARCHAR(20) NOT NULL DEFAULT 'international',
   "placesData" JSONB NOT NULL DEFAULT '[]',
+  -- App-generated (crypto.randomUUID(), see src/app/api/itineraries/route.ts)
+  -- rather than gen_random_uuid() so this doesn't depend on pgcrypto/PG13+.
+  -- Anyone with this token can view AND edit the trip — a capability-URL
+  -- share model, not per-collaborator accounts.
+  "shareToken" VARCHAR(64) UNIQUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS itineraries_user_id_idx ON itineraries ("userId");
+CREATE INDEX IF NOT EXISTS itineraries_share_token_idx ON itineraries ("shareToken");

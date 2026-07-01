@@ -19,7 +19,7 @@ export async function saveItinerary(
   region: Region,
   placesData: ItineraryItem[],
   title?: string,
-): Promise<{ id: number }> {
+): Promise<{ id: number; shareToken: string }> {
   const res = await fetch("/api/itineraries", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -27,4 +27,30 @@ export async function saveItinerary(
   });
   if (!res.ok) throw new Error("Failed to save itinerary");
   return res.json();
+}
+
+export interface SharedItinerary {
+  title: string;
+  region: Region;
+  placesData: ItineraryItem[];
+  updatedAt: string;
+}
+
+export async function fetchSharedItinerary(shareToken: string): Promise<SharedItinerary> {
+  const res = await fetch(`/api/itineraries/shared/${shareToken}`);
+  if (!res.ok) throw new Error("Failed to load shared itinerary");
+  return res.json();
+}
+
+export async function pushSharedItinerary(
+  shareToken: string,
+  region: Region,
+  placesData: ItineraryItem[],
+): Promise<void> {
+  const res = await fetch(`/api/itineraries/shared/${shareToken}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ region, placesData }),
+  });
+  if (!res.ok) throw new Error("Failed to sync shared itinerary");
 }

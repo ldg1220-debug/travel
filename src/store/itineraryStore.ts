@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ItineraryItem, Place, Region } from "@/lib/types";
-import { hourFromTime, todayISODate } from "@/lib/timeline";
+import { formatTime, hourFromTime, todayISODate } from "@/lib/timeline";
+import { haversineDistanceMeters } from "@/lib/geo";
 import { FUKUOKA_YUFUIN_PLACES } from "@/lib/mockPlacesFukuokaYufuin";
 
 interface ItineraryState {
@@ -26,6 +27,15 @@ interface ItineraryState {
   addItem: (item: Omit<ItineraryItem, "id">) => void;
   removeItem: (id: string) => void;
   clearDate: (date: string) => void;
+  /** Bulk-replaces the whole itinerary — used to hydrate from a shared/collaborative session. */
+  setItems: (items: ItineraryItem[]) => void;
+  /**
+   * Reassigns a day's stops to minimize total travel distance (nearest-
+   * neighbor heuristic), keeping them in the same set of hour slots they
+   * already occupied — just reshuffling which stop lands in which slot.
+   * Returns false (no-op) if there's nothing meaningful to reorder.
+   */
+  optimizeRoute: (date: string) => boolean;
 }
 
 export const useItineraryStore = create<ItineraryState>((set, get) => ({
@@ -76,6 +86,52 @@ export const useItineraryStore = create<ItineraryState>((set, get) => ({
   removeItem: (id) =>
     set((state) => ({ items: state.items.filter((i) => i.id !== id) })),
 
+  setItems: (items) => set({ items }),
+
   clearDate: (date) =>
     set((state) => ({ items: state.items.filter((i) => i.date !== date) })),
+
+  optimizeRoute: (date) => {
+    const state = get();
+    const dayItems = state.items
+      .filter((i) => i.date === date)
+      .sort((a, b) => a.time.localeCompare(b.time));
+    if (dayItems.length < 3) return false;
+
+    // Nearest-neighbor TSP heuristic: start from the currently-earliest
+    // stop, then repeatedly hop to whichever unvisited stop is closest.
+    const remaining = dayItems.slice(1);
+    const route: ItineraryItem[] = [dayItems[0]];
+    let current = dayItems[0];
+    while (remaining.length > 0) {
+      let nearestIndex = 0;
+      let nearestDistance = Infinity;
+      remaining.forEach((candidate, index) => {
+        const distance = haversineDistanceMeters(current.coordinates, candidate.coordinates);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+      const [next] = remaining.splice(nearestIndex, 1);
+      route.push(next);
+      current = next;
+    }
+
+    // Keep the same hour slots that were already in use — just reassign
+    // which stop occupies which one, in the newly-optimized order.
+    const hours = dayItems.map((i) => hourFromTime(i.time));
+    const reordered = route.map((item, index) => ({
+      ...item,
+      time: formatTime(hours[index], 0),
+    }));
+
+    const otherItems = state.items.filter((i) => i.date !== date);
+    set({
+      items: [...otherItems, ...reordered].sort((a, b) =>
+        a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date),
+      ),
+    });
+    return true;
+  },
 }));

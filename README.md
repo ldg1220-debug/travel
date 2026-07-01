@@ -170,3 +170,37 @@ unverified — the loader's error handling is, though).
   shape every other source (seed data, trend cards, the main app's
   pipeline) produces, so a place from search is indistinguishable from any
   other once it's in the store.
+
+### Budgeting, route optimization, sharing (Phase 5)
+
+- **Budget**: `ItineraryItem.budget?` (JPY, `src/lib/types.ts`) is set from
+  a number input in the schedule modal, shown as a per-stop badge on
+  timeline cards and summed into a total badge in the timeline header. The
+  `placesData` JSONB column's expected per-item shape is documented in
+  `src/server/db/schema.sql` — JSONB itself needs no migration for a new
+  optional field.
+- **Route optimization** (`optimizeRoute` in `src/store/itineraryStore.ts`):
+  a nearest-neighbor TSP heuristic (`haversineDistanceMeters`,
+  `src/lib/geo.ts`) starting from the day's earliest-scheduled stop. It
+  reassigns the *same set* of hour slots already in use to the newly
+  ordered stops — it doesn't invent new times — so the map's `<Polyline>`
+  (already derived from the sorted schedule) redraws untangled for free.
+  Triggered by the timeline's `[✨ 동선 최적화]` button (needs ≥3 stops),
+  which shows a toast on completion.
+- **Sharing & sync** (`src/app/travel-scheduler/[shareToken]/`): `초대하기`
+  (top-right, auth-gated the same way as the main app's 저장/공유) saves
+  the itinerary and ensures a `shareToken` (`crypto.randomUUID()`, unique
+  column on `itineraries`) exists, then copies `/travel-scheduler/{token}`
+  to the clipboard. That route mounts the same `TravelSchedulerBoard`
+  (extracted from `page.tsx` so both routes share one implementation) with
+  `shareToken` set, which polls `/api/itineraries/shared/[shareToken]`
+  every 3s (`refetchInterval` — the fastest option that doesn't need a
+  WebSocket server or a service like Supabase, per spec) and pushes local
+  changes back (debounced 800ms) via a direct `useItineraryStore.subscribe`
+  in an effect. An equality-checked snapshot guards both directions against
+  feedback loops (applying our own echoed write back, or re-pushing a write
+  we just received). It's a capability-URL model — anyone with the link can
+  view *and* edit, there's no per-collaborator identity — and a
+  collaborator whose local `places` catalog is missing a referenced spot
+  (e.g. found via the trip owner's own search) gets a synthesized marker
+  for it rather than a silently-missing pin.

@@ -18,6 +18,15 @@ async function fetchTrends(): Promise<TrendCard[]> {
 interface TrendSheetProps {
   /** Portal target so the sheet stays inside the phone-frame mockup instead of the full viewport. */
   container: HTMLElement | null;
+  /**
+   * Controlled open state, owned by the parent — a card press needs to be
+   * able to dismiss the sheet at the *right* moment (once a click resolves
+   * to modal-or-not, or once a long-press genuinely starts dragging), not
+   * on raw pointerdown, which would shift the cards mid-tap and could
+   * cause the matching pointerup to land on the wrong element entirely.
+   */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onDown: (place: Place, e: React.PointerEvent) => void;
   onUp: (place: Place) => void;
   onMove: (e: React.PointerEvent) => void;
@@ -27,7 +36,17 @@ interface TrendSheetProps {
 }
 
 /** Bottom sheet listing hashtag-curated trend spots — cards support the same tap/long-press-drag as map pins. */
-export function TrendSheet({ container, onDown, onUp, onMove, onCancel, pressingId, onTrendsLoaded }: TrendSheetProps) {
+export function TrendSheet({
+  container,
+  open,
+  onOpenChange,
+  onDown,
+  onUp,
+  onMove,
+  onCancel,
+  pressingId,
+  onTrendsLoaded,
+}: TrendSheetProps) {
   const { data: trends = [] } = useQuery({
     queryKey: ["travel-scheduler-trends"],
     queryFn: fetchTrends,
@@ -40,7 +59,7 @@ export function TrendSheet({ container, onDown, onUp, onMove, onCancel, pressing
   }, [trends, onTrendsLoaded]);
 
   return (
-    <Sheet>
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
         <button className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 px-3.5 py-2 text-[12px] font-semibold text-slate-700 shadow-md">
           <Sparkles size={13} /> Trending spots

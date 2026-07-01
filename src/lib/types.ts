@@ -33,4 +33,6 @@ export interface ItineraryItem {
   /** HH:mm */
   time: string;
   coordinates: { lat: number; lng: number };
+  /** Estimated cost for this stop, in JPY. */
+  budget?: number;
 }
