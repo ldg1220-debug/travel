@@ -292,10 +292,9 @@ competing for space on one page:
 - **`/planner`** is the full board that used to live at `/travel-scheduler`
   — moved wholesale to `src/app/(app)/planner/` (`TravelSchedulerBoard` was
   renamed `PlannerBoard`; `/api/travel-scheduler/trends` became
-  `/api/planner/trends`). `/discover` and `/scrapbook`
-  (`src/app/(app)/discover/page.tsx`, `.../scrapbook/page.tsx`) are
-  placeholder screens per spec — "Trending & Feed (공사중)" / "My
-  Scrapbook (공사중)" — ready for their own routes to grow into later.
+  `/api/planner/trends`). `/discover` (see below) and `/scrapbook`
+  (`src/app/(app)/scrapbook/page.tsx`, still a "My Scrapbook (공사중)"
+  placeholder) round out the three screens.
 - **`src/components/AppBar.tsx`**: a hamburger button opens a left-side
   shadcn `Sheet` listing all three screens (탐색/Search icon, 계획/Calendar
   icon, 보관함/Book icon) with the active one highlighted via
@@ -373,3 +372,24 @@ route reads or writes the new fields yet; this is schema only.
   to build against — checked for naming collisions against the rest of
   `src/` first (none). `tsc --noEmit`, `eslint`, and `next build` all stay
   clean.
+
+### /discover design merge
+
+The design team's `/discover` mockup (search bar, 국내/해외 segmented toggle,
+Trending Now / All-Time Favorites / Recommended Routes sections, all backed
+by dummy data) was merged into `src/app/(app)/discover/page.tsx` as-is,
+with one deliberate omission: its own `<header className="sticky top-0
+...">` was **not** brought over, since `src/components/AppBar.tsx`
+(Phase 7) already renders one global header above every screen in this
+group — copying the mockup's header too would have stacked two headers.
+Instead, `AppBar.tsx`'s `PAGE_TITLES` map got one line added so the App
+Bar's center title reads "어디로 떠나시나요?" specifically on `/discover`
+(every other route-specific title, e.g. `/planner`'s trip name, was
+already driven the same way). The `[+]` buttons on spot cards and each
+route template's `[+ 내 일정에 담기]` button are wired to a shared
+`handleAdd` that shows a temporary toast — "일정에 추가되었습니다! (실제
+연동은 곧 업데이트됩니다)" — until a real add-to-itinerary flow exists.
+Verified in a real browser: exactly one `<header>` renders on `/discover`
+(and still exactly one on `/planner` after navigating there), the 국내/해외
+toggle switches datasets with the animated pill, and both toast triggers
+fire correctly.
