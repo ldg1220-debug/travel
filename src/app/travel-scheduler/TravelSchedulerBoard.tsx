@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { GoogleMap, OverlayView, Polyline } from "@react-google-maps/api";
-import { Clock, X, Plus, Wallet, Sparkles, UserPlus } from "lucide-react";
+import { Clock, X, Plus, Wallet, Sparkles, UserPlus, Footprints, TrainFront } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import { PlacesSearchInput } from "./PlacesSearchInput";
 import { TrendSheet } from "./TrendSheet";
 import { TIMELINE_HOURS, MINUTE_STEPS, pad2, formatTime, hourFromTime, formatDateLabel } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
+import { calculateTransits } from "@/lib/transit";
 import { saveItinerary, fetchSharedItinerary, pushSharedItinerary } from "@/lib/api";
 import type { Place } from "@/lib/types";
 
@@ -92,6 +93,14 @@ function TravelSchedulerInner({ shareToken }: TravelSchedulerBoardProps) {
   schedule.forEach((s, i) => (orderByPlace[s.placeId] = i + 1));
 
   const totalBudget = schedule.reduce((sum, s) => sum + (s.budget ?? 0), 0);
+
+  // Phase 6: one transit estimate per consecutive pair of stops with a free
+  // hour between them, recalculated from `schedule` on every render — same
+  // pattern as `orderByPlace`/`totalBudget` above, and cheap enough (≤13
+  // hourly slots) that memoizing it would just add indirection.
+  const transitBlocks = calculateTransits(schedule, hourFromTime);
+  const transitByHour: Record<number, (typeof transitBlocks)[number]> = {};
+  transitBlocks.forEach((block) => (transitByHour[block.hour] = block));
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -472,6 +481,7 @@ function TravelSchedulerInner({ shareToken }: TravelSchedulerBoardProps) {
                 // a real, scheduled stop.
                 const display = item ? place ?? fallbackDisplay(item.name) : null;
                 const highlighted = hoverHour === h;
+                const transit = !item ? transitByHour[h] : undefined;
                 return (
                   <div key={h} className="relative flex h-14 items-stretch">
                     <div className="flex w-[50px] shrink-0 justify-end pr-3 pt-1">
@@ -540,6 +550,11 @@ function TravelSchedulerInner({ shareToken }: TravelSchedulerBoardProps) {
                           {highlighted ? (
                             <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[#FF6B6B]">
                               <Plus size={12} /> Drop here to schedule
+                            </span>
+                          ) : transit ? (
+                            <span className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-[10.5px] font-medium text-slate-500">
+                              {transit.mode === "walk" ? <Footprints size={11} /> : <TrainFront size={11} />}
+                              약 {transit.minutes}분 소요
                             </span>
                           ) : (
                             <span className="text-[11px] font-medium text-slate-300">— empty</span>

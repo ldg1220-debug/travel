@@ -237,3 +237,37 @@ only Tailwind classes/layout changed:
   clicking the restyled optimize button reordered the timeline and showed
   the toast, and the restyled invite button correctly opened the login gate
   when signed out.
+
+### Transit routing (Phase 6)
+
+- **`calculateTransits`** (`src/lib/transit.ts`) walks the day's sorted
+  `schedule` and, for every consecutive pair of stops with at least one free
+  hour between them, produces one `TransitBlock` in the first free hour
+  after the earlier stop (a pair with no gap — back-to-back hourly slots —
+  has nowhere to render one, since every hour is already spoken for).
+  `TravelSchedulerBoard.tsx` recomputes this from `schedule` on every
+  render, the same plain-derived-value pattern already used for
+  `orderByPlace`/`totalBudget` in that file — no extra Zustand state or
+  `useEffect` needed (and a `useMemo` version was tried first, but the
+  React Compiler rejected it: `schedule` is a fresh array every render, so
+  the memoization couldn't be proven stable).
+- **`estimateTransit`** is the actual fallback used everywhere: Haversine
+  distance (`haversineDistanceMeters`, already used by `optimizeRoute`) at a
+  flat per-mode average speed — walking under 1.2km, transit (bus/subway,
+  with an 8-minute wait/transfer buffer) beyond that. No network call, no
+  API key, so the timeline never blocks on anything to paint.
+- **`estimateTransitViaGoogle`** shows the real Distance Matrix integration
+  (gated on `google.maps.DistanceMatrixService` actually being loaded) but
+  is intentionally not wired into any render path — this sandbox has no
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to test it against, and it's designed to
+  *upgrade* an already-painted `estimateTransit()` result asynchronously
+  rather than block on it, so wiring it up later is additive.
+- **UI**: empty timeline hours that fall inside a transit gap render a
+  `slate-100` capsule (`Footprints`/`TrainFront` from `lucide-react`,
+  "약 N분 소요") instead of the "— empty" placeholder; an hour actively
+  being dragged over for a drop still shows the drop-target state first.
+- Verified in-browser: scheduling 5 Fukuoka/Yufuin trend spots two hours
+  apart produced 4 transit blocks whose durations matched hand-computed
+  Haversine distances exactly (e.g. a 13.4km Hakata→Dazaifu leg → "약 35분
+  소요"), with no console errors beyond the sandbox's expected
+  no-`AUTH_SECRET` auth noise.
