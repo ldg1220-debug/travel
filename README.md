@@ -92,3 +92,34 @@ it to a real Naver blog/Place pipeline the same way when needed.
 ```ts
 { id, placeId, name, date, time, coordinates: { lat, lng } }
 ```
+
+## Auth & saved itineraries (Phase 1.5)
+
+Browsing the trend list and drag-and-drop planning both work fully
+signed-out — the login modal only appears at the moment you tap **저장**
+(save) or **공유** (share), per spec.
+
+- **Auth**: Auth.js v5 (`next-auth@beta`) with Google/Kakao/Apple providers.
+  A provider is only registered once its `AUTH_<PROVIDER>_ID` env var is
+  set (`src/auth.ts`), so a partially-configured setup doesn't break.
+- **DB**: PostgreSQL via the pure-JS `pg` driver + `@auth/pg-adapter`,
+  **not Prisma** — this sandbox's network policy lets `pg`/`npm` traffic
+  through a proxy, but Prisma's engine postinstall downloader dials
+  `binaries.prisma.sh` directly (confirmed via `NODE_DEBUG=https`) and gets
+  reset by the sandbox firewall every time, even though the exact same file
+  downloads fine over the proxy with `curl`. `pg` has no native-binary
+  install step, so it was used instead. Schema
+  (`src/server/db/schema.sql`) is the standard Auth.js Postgres adapter
+  tables (`users`, `accounts`, `sessions`, `verification_token`) plus one
+  app table, `itineraries` (`userId`, `title`, `region`, `items JSONB`).
+  Run `npm run db:migrate` against `DATABASE_URL` to apply it. If your
+  deployment environment can reach Prisma's binary CDN, swapping back to
+  Prisma is a straightforward, isolated change — only `src/lib/server/db.ts`,
+  `src/auth.ts`'s adapter line, and the two `pool.query` call sites
+  (`src/app/api/itineraries/route.ts`, `src/app/share/[id]/page.tsx`) touch
+  the DB layer.
+- **Save**: `저장` POSTs the current region + itinerary items to
+  `/api/itineraries`, which upserts one row per user.
+- **Share**: `공유` saves, then copies `/share/{id}` to the clipboard — a
+  public, read-only page listing the trip's stops by date
+  (`src/app/share/[id]/page.tsx`).

@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSession } from "next-auth/react";
 import {
   DndContext,
   DragOverlay,
@@ -19,10 +20,11 @@ import { MarkerPin } from "./MarkerPin";
 import { Icon } from "./Icon";
 import { RegionTabs } from "./RegionTabs";
 import { TrendBottomSheet } from "./TrendBottomSheet";
+import { LoginModal } from "./LoginModal";
 import { useItineraryStore } from "@/store/itineraryStore";
 import type { Place } from "@/lib/types";
 import { formatDateLabel, formatTime, shiftISODate } from "@/lib/timeline";
-import { fetchTrendingPlaces } from "@/lib/api";
+import { fetchTrendingPlaces, saveItinerary } from "@/lib/api";
 
 interface TravelSchedulerAppProps {
   /** ISR-cached trending places for each region, fetched server-side so first paint is free. */
@@ -31,6 +33,7 @@ interface TravelSchedulerAppProps {
 }
 
 export function TravelSchedulerApp({ internationalPlaces, domesticPlaces }: TravelSchedulerAppProps) {
+  const { data: session } = useSession();
   const region = useItineraryStore((s) => s.region);
   const setRegion = useItineraryStore((s) => s.setRegion);
   const activeDate = useItineraryStore((s) => s.activeDate);
@@ -74,6 +77,7 @@ export function TravelSchedulerApp({ internationalPlaces, domesticPlaces }: Trav
   const [toast, setToast] = useState<string | null>(null);
   const [mapInteractive, setMapInteractive] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [loginReason, setLoginReason] = useState<string | null>(null);
 
   const placesById = useMemo(
     () => Object.fromEntries(places.map((p) => [p.id, p])),
@@ -103,6 +107,37 @@ export function TravelSchedulerApp({ internationalPlaces, domesticPlaces }: Trav
     setToast(message);
     window.setTimeout(() => setToast(null), 1800);
   }, []);
+
+  // Browsing the trend list and drag-and-drop planning both work fully
+  // signed-out (local Zustand state only). The login modal only shows up
+  // at the moment the user actually tries to persist or share the trip.
+  const handleSave = useCallback(async () => {
+    if (!session?.user) {
+      setLoginReason("일정을 저장하려면 로그인해주세요.");
+      return;
+    }
+    try {
+      await saveItinerary(region, items);
+      showToast("Itinerary saved");
+    } catch {
+      showToast("Failed to save itinerary");
+    }
+  }, [session, region, items, showToast]);
+
+  const handleShare = useCallback(async () => {
+    if (!session?.user) {
+      setLoginReason("일정을 공유하려면 로그인해주세요.");
+      return;
+    }
+    try {
+      const { id } = await saveItinerary(region, items);
+      const url = `${window.location.origin}/share/${id}`;
+      await navigator.clipboard.writeText(url);
+      showToast("Share link copied");
+    } catch {
+      showToast("Failed to create share link");
+    }
+  }, [session, region, items, showToast]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { delay: 500, tolerance: 8 } }),
@@ -204,6 +239,26 @@ export function TravelSchedulerApp({ internationalPlaces, domesticPlaces }: Trav
           </div>
         </header>
 
+        <div className="flex items-center gap-2 px-5 pt-2 shrink-0">
+          <button
+            onClick={handleSave}
+            className="text-[11px] font-semibold text-white px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800"
+          >
+            저장
+          </button>
+          <button
+            onClick={handleShare}
+            className="text-[11px] font-semibold text-slate-700 px-3 py-1.5 rounded-full border border-slate-200 bg-white hover:bg-slate-50"
+          >
+            공유
+          </button>
+          {session?.user && (
+            <span className="ml-auto text-[11px] text-slate-400 truncate max-w-[140px]">
+              {session.user.name ?? session.user.email}
+            </span>
+          )}
+        </div>
+
         <RegionTabs region={region} onChange={handleRegionChange} />
 
         <div className="h-1/2 shrink-0 min-h-0 relative mt-3">
@@ -261,6 +316,8 @@ export function TravelSchedulerApp({ internationalPlaces, domesticPlaces }: Trav
           trendingPlaces={trendingPlaces}
           onSelectPlace={handleSelectFromSheet}
         />
+
+        {loginReason && <LoginModal reason={loginReason} onClose={() => setLoginReason(null)} />}
 
         {toast && <div className="toast">{toast}</div>}
       </div>
