@@ -52,6 +52,24 @@ interface GooglePlaceResult {
 }
 
 async function searchInternational(query: string, apiKey: string, includedTypes?: string[]): Promise<Place[]> {
+  const places = await callGoogleSearchText(query, apiKey, includedTypes);
+  if (places === null) return filterByName(await getTrendingPlaces(), query);
+
+  // Fall back to an unfiltered search if a category filter zeroed out the
+  // results — Google's includedTypes is an exact-match allowlist, so a
+  // narrow/misclassified query (e.g. a specific restaurant name under the
+  // "관광지" filter) can legitimately return nothing even though the place
+  // itself exists.
+  if (places.length === 0 && includedTypes) {
+    console.log("[places/search] 0 results with includedTypes — retrying without category filter");
+    const unfiltered = await callGoogleSearchText(query, apiKey);
+    if (unfiltered !== null) return unfiltered;
+  }
+  return places;
+}
+
+/** Returns null on a non-ok response (caller decides the offline fallback), otherwise the mapped place list (possibly empty). */
+async function callGoogleSearchText(query: string, apiKey: string, includedTypes?: string[]): Promise<Place[] | null> {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     cache: "no-store",
@@ -67,14 +85,14 @@ async function searchInternational(query: string, apiKey: string, includedTypes?
       ...(includedTypes ? { includedTypes } : {}),
     }),
   });
-  console.log("[places/search] Google response status:", res.status);
-  if (res.ok) {
-    const data = (await res.json()) as { places?: GooglePlaceResult[] };
-    console.log("[places/search] Google API Response:", JSON.stringify(data));
-    return (data.places ?? []).slice(0, 8).map(googlePlaceToPlace);
+  console.log("[places/search] Google response status:", res.status, "includedTypes:", includedTypes ?? "none");
+  if (!res.ok) {
+    console.error("[places/search] Google API error:", res.status, res.statusText, await res.text());
+    return null;
   }
-  console.error("[places/search] Google API error:", res.status, res.statusText, await res.text());
-  return filterByName(await getTrendingPlaces(), query);
+  const data = (await res.json()) as { places?: GooglePlaceResult[] };
+  console.log("[places/search] Google API Response:", JSON.stringify(data));
+  return (data.places ?? []).slice(0, 8).map(googlePlaceToPlace);
 }
 
 function googlePlaceToPlace(p: GooglePlaceResult): Place {

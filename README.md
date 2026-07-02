@@ -529,10 +529,13 @@ A new, reusable multi-provider map foundation — not wired into `/planner`
   element — all the way through for both providers and both the explicit-
   `provider` and derived-from-`region` code paths.
 
-### Search API QA harness (`/dev/search-test`)
+### Search API QA harness (`/dev/search-test`) — retired, see below
 
 A direct-URL-only page (no nav link) to manually confirm
-`/api/places/search` returns usable data from both branches:
+`/api/places/search` returns usable data from both branches. **Deleted**
+once `/planner`'s 관심 장소 tab got its own real search UI calling this
+same route (see "Search consolidated into `/planner`" further down) —
+kept here as a record of what it verified:
 
 - One region toggle (국내/해외), one text input, one 검색 button — calls
   `GET /api/places/search?region=...&q=...` on click or Enter.
@@ -562,8 +565,7 @@ International (Google) search now accepts a `category` param —
 `"all" | "attraction" | "lodging" | "restaurant"` — mapped to Google
 Places `includedTypes` (`restaurant` → `["restaurant", "cafe"]`,
 `attraction` → `["tourist_attraction", "park"]`, `lodging` →
-`["lodging"]`). `maxResultCount` is fixed at 10. `/dev/search-test` got a
-category pill row alongside the region toggle to exercise it.
+`["lodging"]`). `maxResultCount` is fixed at 10.
 
 ### 관심 장소 (saved places) tab on `/planner`
 
@@ -625,3 +627,31 @@ place without leaving whatever the planner was showing underneath:
   memo, saved — the overlay closed, the saved-place list showed the new
   entry with its memo, and switching back to 일정 showed the timeline
   completely unaffected.
+
+### Search consolidated into `/planner`, `/dev/search-test` retired
+
+- **`/api/places/search`'s category fall-back**: when a
+  category-filtered Google search comes back with zero results,
+  `searchInternational` now retries once with `includedTypes` dropped
+  before giving up — a narrow/misclassified query (e.g. a specific
+  restaurant name under the "관광명소" filter) can legitimately return
+  nothing from Google's exact-match `includedTypes` allowlist even though
+  the place itself exists. `"전체"` (category `"all"`) already sent no
+  `includedTypes` at all (it was never a key in `CATEGORY_TYPE_MAP`), so
+  that part of the ask was already correct going in.
+- **`PlaceSearchPanel.tsx`** (new): the 관심 장소 tab's search box is no
+  longer the Google Autocomplete-SDK-based `PlacesSearchInput` (still used
+  as-is by the 일정 tab's map-discovery search, untouched) — it's a
+  region + category picker, a text input, and a real
+  `GET /api/places/search` call rendering results as a tappable card
+  list. Tapping a card opens the same `PlaceDetailOverlay` used
+  everywhere else in this tab (search selection, saved-list rows, trend
+  cards), so search → review/edit → save is one consistent flow.
+- **`/dev/search-test` deleted** — its job (prove the search route works)
+  is now provable directly in the real product surface.
+- Verified in the browser end-to-end on the offline (no real API key in
+  this sandbox) Kakao fall-back path: searched "Coffee" under 국내 in the
+  관심 장소 tab, got a result card, tapped it, the detail overlay opened,
+  saved, and the place appeared in the saved-places list. The
+  Google-branch category fall-back itself needs a real
+  `GOOGLE_PLACES_API_KEY` to exercise — only testable on Vercel.

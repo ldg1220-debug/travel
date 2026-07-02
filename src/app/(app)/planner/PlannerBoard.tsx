@@ -12,6 +12,7 @@ import { useItineraryStore } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
 import { PlacesSearchInput } from "./PlacesSearchInput";
+import { PlaceSearchPanel } from "./PlaceSearchPanel";
 import { TrendSheet } from "./TrendSheet";
 import { PlaceDetailOverlay } from "./PlaceDetailOverlay";
 import { TIMELINE_HOURS, MINUTE_STEPS, pad2, formatTime, hourFromTime } from "@/lib/timeline";
@@ -61,6 +62,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const clearDate = useItineraryStore((s) => s.clearDate);
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const optimizeRoute = useItineraryStore((s) => s.optimizeRoute);
+  const region = useItineraryStore((s) => s.region);
   const setRegion = useItineraryStore((s) => s.setRegion);
   const setItems = useItineraryStore((s) => s.setItems);
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
@@ -641,7 +643,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           </>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-6 pt-3">
-            <PlacesSearchInput onSelect={handleSavedPlaceDiscovered} />
+            <PlaceSearchPanel region={region} onRegionChange={setRegion} onSelect={handleSavedPlaceDiscovered} />
             {savedPlaces.length === 0 ? (
               <p className="mt-6 text-center text-[12px] text-slate-400">
                 아직 저장한 장소가 없어요. 위에서 검색해서 담아보세요.
