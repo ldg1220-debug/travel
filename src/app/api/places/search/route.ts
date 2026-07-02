@@ -4,6 +4,8 @@ import { DOMESTIC_PLACES } from "@/lib/mockPlacesDomestic";
 import { styleForCategory } from "@/lib/placeStyle";
 import type { Place, Region } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Region-branching place search:
  *  - international → Google Places (New) `searchText`
