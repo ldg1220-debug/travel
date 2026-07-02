@@ -1,16 +1,19 @@
 # Travel Scheduler
 
-Mobile-first trip planner: pick a **🇰🇷 국내 / ✈️ 해외** region, then plan on a
-live map (top half) + drag-and-drop daily timeline (bottom half).
+Mobile-first trip platform with three screens under one App Bar —
+**`/discover`** (browse), **`/planner`** (map + drag-and-drop daily
+timeline), **`/scrapbook`** (saved trips) — plus a **`/`** home dashboard
+that fans out into all three.
 
 ## Stack
 
 - Next.js (App Router) + TailwindCSS
-- Zustand — itinerary + region state (`src/store/itineraryStore.ts`)
-- React Query — trending-places & search data (`src/lib/api.ts`)
-- `@dnd-kit/core` — long-press-to-drag scheduling
-- Map engines: `@react-google-maps/api` (international) and the Kakao Maps
-  JS SDK (domestic), behind a shared `<MapProvider>` (`src/components/map/`)
+- Zustand — itinerary state (`src/store/itineraryStore.ts`)
+- React Query — trending-places & shared-itinerary polling (`src/lib/api.ts`)
+- `@react-google-maps/api` — `/planner`'s live map
+  (`src/app/(app)/planner/MapProvider.tsx`)
+- shadcn/ui (hand-authored, see below) + `framer-motion` for the
+  `/discover`/`/scrapbook`/home screens
 
 ## Getting started
 
@@ -19,48 +22,36 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000. Without map API keys, both engines fall back to
-an offline decorative map so every interaction (tap-to-schedule,
-long-press-to-drag, search, region switching) still works end to end. Copy
-`.env.example` to `.env.local` and set the relevant keys to see the real
-maps:
+Open http://localhost:3000 — this is now the home dashboard, linking out to
+`/discover`, `/planner`, and `/scrapbook`. Without
+`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` set, `/planner`'s map area shows a clean
+"Failed to load Google Maps" state, but every other interaction (scheduling,
+search, trend sheet, budget, route optimization) still works end to end.
+Copy `.env.example` to `.env.local` and set the relevant keys:
 
-- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` → real Google Maps for the 해외 tab
-- `NEXT_PUBLIC_KAKAO_MAP_KEY` → real Kakao Maps for the 국내 tab
-- `GOOGLE_PLACES_API_KEY` / `KAKAO_REST_API_KEY` → real search results
-  instead of the offline name-filtered fallback
+- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` → real Google Maps in `/planner`
+- `GOOGLE_PLACES_API_KEY` → real results for the legacy `/api/trends` +
+  `/api/places/search` pipeline endpoints (see below) instead of offline
+  fixtures — no current screen calls these directly, `/planner`'s own
+  search/trend sheet use separate, screen-local implementations instead
+  (see the Phase 4 section further down)
 
-## Region architecture
-
-`region: 'domestic' | 'international'` lives in the Zustand store
-(`itineraryStore.ts`) and drives three things simultaneously:
-
-1. **Map engine** — `<MapProvider region={region} .../>` renders
-   `GoogleMapEngine` or `KakaoMapEngine`. Both share one interface
-   (`src/components/map/types.ts`) and reuse the exact same `<PlaceMarker>`
-   component (tap → modal, long-press → drag), so scheduling UX is
-   identical regardless of which map is mounted.
-2. **Trend list** — `/api/trends?region=...` returns the Google-Places-backed
-   pipeline output for `international`, or a dummy Seoul dataset
-   (`src/lib/mockPlacesDomestic.ts`) for `domestic`.
-3. **Search** — `/api/places/search?region=...&q=...` branches to Google
-   Places (New) `searchText` or Kakao Local keyword search, falling back to
-   an offline name/category filter when the relevant key isn't set.
-
-The itinerary itself (`itineraryState`) isn't region-scoped — its schema
-matches the spec exactly (`id, placeId, name, date, time, coordinates`).
-
-## Interactions
+## Interactions (`/planner`)
 
 - **Tap** a pin → time/date picker modal → **Register Schedule**.
-- **Press and hold** a pin (~0.5s, via dnd-kit's `activationConstraint.delay`)
-  → the pin lifts (haptic + map panning pauses) → drag it onto an hour slot
-  in the timeline to schedule it there.
-- **✨ Trending spots** button opens a bottom sheet with the region's
-  curated list plus a search box; tapping a result opens the same
-  time-picker modal.
+- **Press and hold** a pin (~0.5s) → the pin lifts → drag it onto an hour
+  slot in the timeline to schedule it there.
+- **✨ Trending spots** button opens a bottom sheet with curated spots plus
+  a search box; tapping a result opens the same time-picker modal.
 
-## Trend data pipeline (international)
+## Trend data pipeline
+
+This was the international trend source for the very first version of this
+app (a single `/` page, since replaced by the `/discover`+`/planner`+
+`/scrapbook` platform below — see the "Drawer-based routing split" and
+"design merge" sections for how that happened). The pipeline itself, and
+the `/api/trends` + `/api/places/search` routes it backs, are kept as-is:
+still fully runnable, just not currently called by any screen's UI.
 
 `src/server/pipeline/` implements the zero-cost trend data flow described in
 the spec: mock SNS scrape → regex ad-filter (drops `협찬`/`소정의 원고료`/
@@ -73,9 +64,9 @@ npm run pipeline
 ```
 
 This writes `data/trending-places.json`, which `src/lib/server/getTrendingPlaces.ts`
-serves to both `/` (ISR, `revalidate = 3600`) and `/api/trends`, so the app
-never calls a paid Places API on a user request — only the offline pipeline
-run does. Without `GOOGLE_PLACES_API_KEY` / `LLM_API_KEY` set, the pipeline
+serves via `/api/trends`, so the app never calls a paid Places API on a
+user request — only the offline pipeline run does. Without
+`GOOGLE_PLACES_API_KEY` / `LLM_API_KEY` set, the pipeline
 resolves against small offline fixtures so it's fully testable here; in
 production point it at real credentials and run it on a schedule (cron /
 GitHub Actions / Vercel Cron).
@@ -457,3 +448,35 @@ already renders one), and `AppBar.tsx`'s `PAGE_TITLES` map gained
   the hamburger menu), the Switch toggles between checked/unchecked with
   the matching 공개/비공개 badge and label updating in lockstep, and the
   tab pill slides correctly between "다녀온 여행" and the empty-state tabs.
+
+### Home dashboard at `/`
+
+`/` moved from a standalone page to `src/app/(app)/page.tsx` — inside the
+same route group as `/discover`/`/planner`/`/scrapbook`, so it gets the
+global App Bar (title: "홈") instead of owning its own header. It's a
+greeting ("안녕하세요, Yuna님 👋"), three big quick-access cards linking to
+each of the three screens, and a one-card "Trending Now" preview linking
+to `/discover`.
+
+Originally this repo's `/` was the very first version of this app (a
+single-page Kyoto demo with its own region toggle, `GoogleMapEngine`/
+`KakaoMapEngine`, dnd-kit scheduling, etc.) — fully superseded by
+`/discover`+`/planner`+`/scrapbook` several phases ago, but the file itself
+was never removed. Replacing it with the dashboard finally made the old
+component tree (`TravelSchedulerApp`, `TravelSchedulerAppLoader`,
+`RegionTabs`, `TimeModal`, `TimelineView`, `TrendBottomSheet`, `MarkerPin`,
+`PlaceMarker`, `src/components/map/*`, `useKakaoMapsLoader`) fully
+unreachable — confirmed via a full-repo grep that nothing else imported any
+of it — so all of it was deleted rather than left as dead code. The
+`GOOGLE_PLACES_API_KEY`-backed trend pipeline, `/api/trends`,
+`/api/places/search`, and `/share/[id]` were untouched (still real,
+independently working features — see their sections above/below), even
+though nothing currently calls the first two from the UI.
+
+No `/` → `/discover` redirect was added (briefly considered, since the
+task description asked for one, but that would make the new dashboard
+completely unreachable — confirmed with the user that the dashboard should
+win). Verified in a real browser: all three quick-access cards and the
+Trending Now preview card navigate to the right screen, exactly one
+`<header>` renders on `/`, and the hamburger Sheet still opens correctly
+from it. `tsc --noEmit`, `eslint`, and `next build` all stay clean.
