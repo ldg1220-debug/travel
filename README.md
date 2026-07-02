@@ -480,3 +480,51 @@ win). Verified in a real browser: all three quick-access cards and the
 Trending Now preview card navigate to the right screen, exactly one
 `<header>` renders on `/`, and the hamburger Sheet still opens correctly
 from it. `tsc --noEmit`, `eslint`, and `next build` all stay clean.
+
+### Shared Google + Kakao map infra
+
+A new, reusable multi-provider map foundation — not wired into `/planner`
+(which keeps its own existing, working, Google-only
+`src/app/(app)/planner/MapProvider.tsx` untouched) but available for
+`/discover`/`/scrapbook` or any future screen that wants a real map:
+
+- **`src/lib/maps/google-map.ts`** / **`kakao-map.ts`**: each SDK's loading
+  config as plain functions/constants — the API key, the script URL
+  builder, and a readiness check (`google-map.ts`), plus Kakao's extra
+  `kakao.maps.load(callback)` step that `autoload=false` requires
+  (`kakao-map.ts`, which also declares the minimal `Window.kakao` type
+  this app actually calls — Kakao ships no official TypeScript types).
+  Split out of the component below because `next/script` is JSX and can't
+  live in a plain `.ts` file.
+- **`src/components/map/MapProvider.tsx`**: loads **exactly one** SDK via
+  `next/script` — never both — resolved from an explicit `provider` prop
+  or, if omitted, from a `region` prop using the same
+  international→Google / domestic→Kakao convention
+  `src/store/itineraryStore.ts`'s `region` field already uses elsewhere.
+  Exposes `{ isLoaded, loadError, isConfigured }` via `useMapStatus()` —
+  `isConfigured` is a distinct false state (missing env var) from "still
+  loading," so a consumer isn't stuck guessing why nothing rendered.
+- **`src/components/map/TestMap.tsx`** + **`/dev/map-test`** (not linked
+  from any nav — a direct-URL-only QA harness): mounts a real
+  `google.maps.Map`/`kakao.maps.Map` once the SDK is ready, or a clear
+  status placeholder otherwise.
+- **`/api/places/search/route.ts`** already branched between Google
+  Places (New) `searchText` and Kakao Local keyword search by `region`,
+  with an offline fallback for each when the relevant key isn't set — this
+  was built back in the v2 국내/해외 phase and needed no changes here.
+- `.env.example` gained `NEXT_PUBLIC_KAKAO_MAP_KEY` (was entirely
+  undocumented before, even though the search route's
+  `KAKAO_REST_API_KEY` — a *different* Kakao key type — already was).
+- Verified two ways, since this sandbox has neither real key configured:
+  (1) with no keys, `/dev/map-test` shows a clear "env var not set" state
+  for both providers and — confirmed via inspecting the DOM — **no**
+  `<script>` tag gets injected for either SDK (no wasted network request
+  for a provider that isn't configured); (2) with dummy keys set and the
+  real `maps.googleapis.com`/`dapi.kakao.com` script requests intercepted
+  and replaced with a stub that fills in minimal fake `google.maps`/
+  `kakao.maps` globals, confirmed the *whole* real code path — script
+  injection with the correctly-built URL, `onLoad` firing, `isLoaded`
+  flipping true, the canvas mounting, and `new google.maps.Map(...)` /
+  `new kakao.maps.Map(...)` actually getting called with the container
+  element — all the way through for both providers and both the explicit-
+  `provider` and derived-from-`region` code paths.
