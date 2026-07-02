@@ -385,11 +385,47 @@ group — copying the mockup's header too would have stacked two headers.
 Instead, `AppBar.tsx`'s `PAGE_TITLES` map got one line added so the App
 Bar's center title reads "어디로 떠나시나요?" specifically on `/discover`
 (every other route-specific title, e.g. `/planner`'s trip name, was
-already driven the same way). The `[+]` buttons on spot cards and each
-route template's `[+ 내 일정에 담기]` button are wired to a shared
-`handleAdd` that shows a temporary toast — "일정에 추가되었습니다! (실제
-연동은 곧 업데이트됩니다)" — until a real add-to-itinerary flow exists.
+already driven the same way). The `[+]` buttons were initially wired to a
+placeholder toast only — see Phase 9 below for the real store wiring.
 Verified in a real browser: exactly one `<header>` renders on `/discover`
-(and still exactly one on `/planner` after navigating there), the 국내/해외
-toggle switches datasets with the animated pill, and both toast triggers
-fire correctly.
+(and still exactly one on `/planner` after navigating there), and the
+국내/해외 toggle switches datasets with the animated pill.
+
+### /discover ↔ Zustand wiring (Phase 9)
+
+`/discover`'s cards now actually add to the itinerary instead of just
+toasting a placeholder:
+
+- **`addPlace`/`addRouteBundle`** (`src/store/itineraryStore.ts`) are new
+  actions built on top of the existing `addPlaces`/`addItem` — neither
+  duplicates their logic, they just call them. `addPlace` merges one
+  place into the map catalog (`places`) and schedules it in `activeDate`'s
+  next free hour (there's no time-picker modal on this page to ask the
+  user which hour they want, unlike `/planner`'s own flow).
+  `addRouteBundle` does the same for an ordered list of places, walking
+  the free hours forward one at a time so a route's stop order is
+  preserved in the resulting schedule.
+- Every dummy `Spot` and `RouteStop` in `/discover/page.tsx` gained real
+  `lat`/`lng` (plus a solid accent `color` for spots) so the "[+]"
+  buttons can build genuine `Place` objects — `spotToPlace`/
+  `routeStopToPlace` do that conversion, including mapping this page's
+  decorative lucide icon components onto the store's `PlaceIcon` string
+  enum. This was necessary for *every* card, not just the one below, since
+  `addPlace`/`addRouteBundle` require real coordinates.
+- **"후쿠오카-유후인 핵심 동선"** replaced the old "후쿠오카 감성 투어" dummy
+  route: Tenjin Airbnb (숙소) → Clio Court (클리오 코트) → Yufuin Floral
+  Village → Yufuin Ryokan. The Yufuin stops reuse this project's existing
+  Fukuoka/Yufuin seed coordinates (`src/lib/mockPlacesFukuokaYufuin.ts`)
+  for consistency; Tenjin/Clio Court got plausible real-world coordinates
+  in the same two clusters.
+- A spot's `[+]` calls `addPlace` and toasts "일정에 추가되었습니다."; a
+  route's `[+ 내 일정에 담기]` calls `addRouteBundle` with all of its stops
+  and then `router.push("/planner")` (`next/navigation`) — `addRouteBundle`
+  is a synchronous Zustand update, so the schedule is already populated by
+  the time the navigation lands.
+- Verified in a real browser: clicking the Fukuoka/Yufuin route's button
+  navigated to `/planner` with all 4 stops rendered on the timeline in
+  order (#1–#4, 09:00–12:00, auto-assigned into consecutive free hours),
+  and a spot's `[+]` button added it without navigating away, showing
+  exactly the requested toast text. `tsc --noEmit`, `eslint`, and
+  `next build` all stay clean.

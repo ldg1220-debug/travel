@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Search,
@@ -22,11 +23,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useItineraryStore } from "@/store/itineraryStore";
+import type { Place, PlaceIcon } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────
 // Dummy data (국내 🇰🇷 / 국외 🌐)
 // ─────────────────────────────────────────────────────────────
 type Scope = "domestic" | "overseas";
+
+type SpotIcon = React.ComponentType<{ size?: number; className?: string }>;
 
 type Spot = {
   id: string;
@@ -35,10 +40,17 @@ type Spot = {
   tag: string;
   saves: number;
   gradient: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: SpotIcon;
+  // Real coordinates + a solid accent color, so the "[+]" button can push
+  // this spot into the itinerary store as a genuine Place (see
+  // spotToPlace below) — the store only understands real Place shapes,
+  // not this page's purely-visual gradient/icon-component fields.
+  lat: number;
+  lng: number;
+  color: string;
 };
 
-type RouteStop = { time: string; name: string };
+type RouteStop = { time: string; name: string; lat: number; lng: number };
 type RouteCard = {
   id: string;
   title: string;
@@ -58,16 +70,16 @@ type Bundle = {
 const DATA: Record<Scope, Bundle> = {
   domestic: {
     trending: [
-      { id: "d-t1", name: "애월 감성 카페거리", region: "제주 · 애월", tag: "카페", saves: 1240, gradient: "from-rose-400 to-orange-300", icon: Coffee },
-      { id: "d-t2", name: "성수동 팝업 스트리트", region: "서울 · 성수", tag: "핫플", saves: 980, gradient: "from-violet-400 to-fuchsia-300", icon: Camera },
-      { id: "d-t3", name: "해운대 블루라인 파크", region: "부산 · 해운대", tag: "바다", saves: 872, gradient: "from-sky-400 to-cyan-300", icon: Waves },
-      { id: "d-t4", name: "익선동 한옥골목", region: "서울 · 종로", tag: "골목", saves: 640, gradient: "from-amber-400 to-yellow-300", icon: Landmark },
+      { id: "d-t1", name: "애월 감성 카페거리", region: "제주 · 애월", tag: "카페", saves: 1240, gradient: "from-rose-400 to-orange-300", icon: Coffee, lat: 33.4623, lng: 126.3096, color: "#fb7185" },
+      { id: "d-t2", name: "성수동 팝업 스트리트", region: "서울 · 성수", tag: "핫플", saves: 980, gradient: "from-violet-400 to-fuchsia-300", icon: Camera, lat: 37.5445, lng: 127.0557, color: "#a78bfa" },
+      { id: "d-t3", name: "해운대 블루라인 파크", region: "부산 · 해운대", tag: "바다", saves: 872, gradient: "from-sky-400 to-cyan-300", icon: Waves, lat: 35.1587, lng: 129.1604, color: "#38bdf8" },
+      { id: "d-t4", name: "익선동 한옥골목", region: "서울 · 종로", tag: "골목", saves: 640, gradient: "from-amber-400 to-yellow-300", icon: Landmark, lat: 37.573, lng: 126.991, color: "#fbbf24" },
     ],
     favorites: [
-      { id: "d-f1", name: "경복궁", region: "서울 · 종로", tag: "궁궐", saves: 5200, gradient: "from-emerald-400 to-teal-300", icon: Landmark },
-      { id: "d-f2", name: "성산일출봉", region: "제주 · 서귀포", tag: "자연", saves: 4800, gradient: "from-lime-400 to-green-300", icon: Waves },
-      { id: "d-f3", name: "광장시장 먹자골목", region: "서울 · 종로", tag: "맛집", saves: 4100, gradient: "from-orange-400 to-red-300", icon: UtensilsCrossed },
-      { id: "d-f4", name: "감천문화마을", region: "부산 · 사하", tag: "포토", saves: 3600, gradient: "from-pink-400 to-rose-300", icon: Camera },
+      { id: "d-f1", name: "경복궁", region: "서울 · 종로", tag: "궁궐", saves: 5200, gradient: "from-emerald-400 to-teal-300", icon: Landmark, lat: 37.5796, lng: 126.977, color: "#34d399" },
+      { id: "d-f2", name: "성산일출봉", region: "제주 · 서귀포", tag: "자연", saves: 4800, gradient: "from-lime-400 to-green-300", icon: Waves, lat: 33.4586, lng: 126.9425, color: "#a3e635" },
+      { id: "d-f3", name: "광장시장 먹자골목", region: "서울 · 종로", tag: "맛집", saves: 4100, gradient: "from-orange-400 to-red-300", icon: UtensilsCrossed, lat: 37.5701, lng: 126.9997, color: "#fb923c" },
+      { id: "d-f4", name: "감천문화마을", region: "부산 · 사하", tag: "포토", saves: 3600, gradient: "from-pink-400 to-rose-300", icon: Camera, lat: 35.0975, lng: 129.0107, color: "#f472b6" },
     ],
     routes: [
       {
@@ -78,10 +90,10 @@ const DATA: Record<Scope, Bundle> = {
         duration: "당일치기 · 4곳",
         gradient: "from-emerald-500 to-teal-400",
         stops: [
-          { time: "10:00", name: "경복궁" },
-          { time: "13:00", name: "광장시장" },
-          { time: "15:30", name: "익선동 한옥골목" },
-          { time: "18:00", name: "청계천 야경" },
+          { time: "10:00", name: "경복궁", lat: 37.5796, lng: 126.977 },
+          { time: "13:00", name: "광장시장", lat: 37.5701, lng: 126.9997 },
+          { time: "15:30", name: "익선동 한옥골목", lat: 37.573, lng: 126.991 },
+          { time: "18:00", name: "청계천 야경", lat: 37.5696, lng: 126.9784 },
         ],
       },
       {
@@ -92,25 +104,25 @@ const DATA: Record<Scope, Bundle> = {
         duration: "당일치기 · 3곳",
         gradient: "from-sky-500 to-cyan-400",
         stops: [
-          { time: "11:00", name: "애월 카페거리" },
-          { time: "14:00", name: "협재해수욕장" },
-          { time: "18:30", name: "곽지 노을 스팟" },
+          { time: "11:00", name: "애월 카페거리", lat: 33.4623, lng: 126.3096 },
+          { time: "14:00", name: "협재해수욕장", lat: 33.3937, lng: 126.2394 },
+          { time: "18:30", name: "곽지 노을 스팟", lat: 33.4498, lng: 126.2989 },
         ],
       },
     ],
   },
   overseas: {
     trending: [
-      { id: "o-t1", name: "도톤보리 글리코 사인", region: "일본 · 오사카", tag: "핫플", saves: 3120, gradient: "from-fuchsia-400 to-pink-300", icon: Camera },
-      { id: "o-t2", name: "유후인 플로랄 빌리지", region: "일본 · 오이타", tag: "감성", saves: 2540, gradient: "from-rose-400 to-amber-300", icon: Landmark },
-      { id: "o-t3", name: "하노이 구시가지 나이트", region: "베트남 · 하노이", tag: "야시장", saves: 1980, gradient: "from-amber-400 to-orange-300", icon: UtensilsCrossed },
-      { id: "o-t4", name: "캐널시티 하카타", region: "일본 · 후쿠오카", tag: "쇼핑", saves: 1670, gradient: "from-cyan-400 to-blue-300", icon: MapPin },
+      { id: "o-t1", name: "도톤보리 글리코 사인", region: "일본 · 오사카", tag: "핫플", saves: 3120, gradient: "from-fuchsia-400 to-pink-300", icon: Camera, lat: 34.6688, lng: 135.5019, color: "#e879f9" },
+      { id: "o-t2", name: "유후인 플로랄 빌리지", region: "일본 · 오이타", tag: "감성", saves: 2540, gradient: "from-rose-400 to-amber-300", icon: Landmark, lat: 33.2668, lng: 131.3717, color: "#fb7185" },
+      { id: "o-t3", name: "하노이 구시가지 나이트", region: "베트남 · 하노이", tag: "야시장", saves: 1980, gradient: "from-amber-400 to-orange-300", icon: UtensilsCrossed, lat: 21.0343, lng: 105.8508, color: "#fbbf24" },
+      { id: "o-t4", name: "캐널시티 하카타", region: "일본 · 후쿠오카", tag: "쇼핑", saves: 1670, gradient: "from-cyan-400 to-blue-300", icon: MapPin, lat: 33.5898, lng: 130.4103, color: "#22d3ee" },
     ],
     favorites: [
-      { id: "o-f1", name: "오사카성", region: "일본 · 오사카", tag: "명소", saves: 8900, gradient: "from-teal-400 to-emerald-300", icon: Landmark },
-      { id: "o-f2", name: "이치란 라멘 본점", region: "일본 · 후쿠오카", tag: "맛집", saves: 7300, gradient: "from-red-400 to-orange-300", icon: UtensilsCrossed },
-      { id: "o-f3", name: "호안끼엠 호수", region: "베트남 · 하노이", tag: "자연", saves: 6100, gradient: "from-green-400 to-lime-300", icon: Waves },
-      { id: "o-f4", name: "나라 사슴공원", region: "일본 · 나라", tag: "힐링", saves: 5400, gradient: "from-yellow-400 to-amber-300", icon: Camera },
+      { id: "o-f1", name: "오사카성", region: "일본 · 오사카", tag: "명소", saves: 8900, gradient: "from-teal-400 to-emerald-300", icon: Landmark, lat: 34.6873, lng: 135.5259, color: "#2dd4bf" },
+      { id: "o-f2", name: "이치란 라멘 본점", region: "일본 · 후쿠오카", tag: "맛집", saves: 7300, gradient: "from-red-400 to-orange-300", icon: UtensilsCrossed, lat: 33.5958, lng: 130.409, color: "#f87171" },
+      { id: "o-f3", name: "호안끼엠 호수", region: "베트남 · 하노이", tag: "자연", saves: 6100, gradient: "from-green-400 to-lime-300", icon: Waves, lat: 21.0285, lng: 105.8524, color: "#4ade80" },
+      { id: "o-f4", name: "나라 사슴공원", region: "일본 · 나라", tag: "힐링", saves: 5400, gradient: "from-yellow-400 to-amber-300", icon: Camera, lat: 34.6851, lng: 135.843, color: "#facc15" },
     ],
     routes: [
       {
@@ -121,23 +133,24 @@ const DATA: Record<Scope, Bundle> = {
         duration: "당일치기 · 4곳",
         gradient: "from-rose-500 to-orange-400",
         stops: [
-          { time: "11:00", name: "쿠로몬 시장" },
-          { time: "13:30", name: "도톤보리 타코야키" },
-          { time: "16:00", name: "신세카이 쿠시카츠" },
-          { time: "19:00", name: "우메다 라멘 골목" },
+          { time: "11:00", name: "쿠로몬 시장", lat: 34.6656, lng: 135.5065 },
+          { time: "13:30", name: "도톤보리 타코야키", lat: 34.6688, lng: 135.5019 },
+          { time: "16:00", name: "신세카이 쿠시카츠", lat: 34.6524, lng: 135.5063 },
+          { time: "19:00", name: "우메다 라멘 골목", lat: 34.7024, lng: 135.4959 },
         ],
       },
       {
         id: "o-r2",
-        title: "후쿠오카 감성 투어",
-        subtitle: "온천 마을과 야타이 감성 한 스푼",
+        title: "후쿠오카-유후인 핵심 동선",
+        subtitle: "텐진 도심부터 유후인 료칸까지",
         region: "후쿠오카",
-        duration: "1박 2일 · 3곳",
+        duration: "1박 2일 · 4곳",
         gradient: "from-violet-500 to-fuchsia-400",
         stops: [
-          { time: "10:00", name: "유후인 플로랄 빌리지" },
-          { time: "14:00", name: "다자이후 텐만구" },
-          { time: "19:00", name: "나카스 야타이" },
+          { time: "09:00", name: "Tenjin Airbnb (숙소)", lat: 33.5904, lng: 130.3986 },
+          { time: "11:00", name: "Clio Court (클리오 코트)", lat: 33.5895, lng: 130.4207 },
+          { time: "15:00", name: "Yufuin Floral Village", lat: 33.2668, lng: 131.3717 },
+          { time: "18:00", name: "Yufuin Ryokan", lat: 33.2646, lng: 131.3572 },
         ],
       },
     ],
@@ -151,24 +164,81 @@ const SCOPES: { key: Scope; label: string; flag: string }[] = [
 
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
+// Maps this page's purely-visual lucide icon components onto the store's
+// PlaceIcon string enum (src/lib/types.ts) — the closest semantic match
+// for each, since the two aren't the same set of icons.
+const SPOT_ICON_TO_PLACE_ICON = new Map<SpotIcon, PlaceIcon>([
+  [Coffee, "coffee"],
+  [Camera, "camera"],
+  [Waves, "boat"],
+  [Landmark, "museum"],
+  [UtensilsCrossed, "utensils"],
+  [MapPin, "pin"],
+]);
+
+function spotToPlace(spot: Spot): Place {
+  return {
+    id: spot.id,
+    placeId: spot.id,
+    name: spot.name,
+    category: spot.tag,
+    color: spot.color,
+    lat: spot.lat,
+    lng: spot.lng,
+    icon: SPOT_ICON_TO_PLACE_ICON.get(spot.icon) ?? "pin",
+  };
+}
+
+function routeStopToPlace(routeId: string, stop: RouteStop): Place {
+  const slug = stop.name.replace(/[^a-zA-Z0-9가-힣]+/g, "-");
+  const id = `${routeId}-${slug}`;
+  return {
+    id,
+    placeId: id,
+    name: stop.name,
+    category: "Route stop",
+    color: "#818cf8",
+    lat: stop.lat,
+    lng: stop.lng,
+    icon: "pin",
+  };
+}
+
 // ─────────────────────────────────────────────────────────────
 // The global App Bar (hamburger + title + Sheet nav) already lives in
 // src/components/AppBar.tsx, rendered once by src/app/(app)/layout.tsx
 // above every screen in this group — this page owns only the content
 // below it, not another header.
 export default function DiscoverPage() {
+  const router = useRouter();
+  const addPlace = useItineraryStore((s) => s.addPlace);
+  const addRouteBundle = useItineraryStore((s) => s.addRouteBundle);
+
   const [scope, setScope] = useState<Scope>("domestic");
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bundle = DATA[scope];
 
-  // Temporary wiring until a real "add to itinerary" flow exists — every
-  // [+] button on this page routes here for now.
-  const handleAdd = () => {
-    setToast("일정에 추가되었습니다! (실제 연동은 곧 업데이트됩니다)");
+  const showToast = (msg: string) => {
+    setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 1800);
+  };
+
+  const handleAddSpot = (spot: Spot) => {
+    addPlace(spotToPlace(spot));
+    showToast("일정에 추가되었습니다.");
+  };
+
+  // Pushes every stop into the store's schedule in order, then jumps to
+  // /planner so the trip the user just grabbed is immediately visible on
+  // the map + timeline — addRouteBundle is a synchronous Zustand update,
+  // so by the time router.push runs the data is already there to render.
+  const handleAddRoute = (route: RouteCard) => {
+    addRouteBundle(route.stops.map((stop) => routeStopToPlace(route.id, stop)));
+    showToast("일정에 추가되었습니다.");
+    router.push("/planner");
   };
 
   return (
@@ -234,7 +304,7 @@ export default function DiscoverPage() {
             />
             <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
               {bundle.trending.map((spot, i) => (
-                <SpotCard key={spot.id} spot={spot} rank={i + 1} onAdd={handleAdd} />
+                <SpotCard key={spot.id} spot={spot} rank={i + 1} onAdd={() => handleAddSpot(spot)} />
               ))}
             </div>
 
@@ -248,7 +318,7 @@ export default function DiscoverPage() {
             />
             <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
               {bundle.favorites.map((spot) => (
-                <SpotCard key={spot.id} spot={spot} favorite onAdd={handleAdd} />
+                <SpotCard key={spot.id} spot={spot} favorite onAdd={() => handleAddSpot(spot)} />
               ))}
             </div>
 
@@ -262,7 +332,7 @@ export default function DiscoverPage() {
             />
             <div className="-mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
               {bundle.routes.map((route) => (
-                <RouteTemplateCard key={route.id} route={route} onAdd={handleAdd} />
+                <RouteTemplateCard key={route.id} route={route} onAdd={() => handleAddRoute(route)} />
               ))}
             </div>
           </motion.div>

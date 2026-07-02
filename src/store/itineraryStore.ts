@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { ItineraryItem, Place, Region } from "@/lib/types";
-import { formatTime, hourFromTime, todayISODate } from "@/lib/timeline";
+import { TIMELINE_HOURS, formatTime, hourFromTime, todayISODate } from "@/lib/timeline";
 import { haversineDistanceMeters } from "@/lib/geo";
 import { FUKUOKA_YUFUIN_PLACES } from "@/lib/mockPlacesFukuokaYufuin";
 
@@ -23,6 +23,20 @@ interface ItineraryState {
   setPlaces: (places: Place[]) => void;
   /** Merges places in by id (e.g. trend-sheet results, search selections) without duplicating existing ones. */
   addPlaces: (newPlaces: Place[]) => void;
+  /**
+   * Adds one place to the map catalog (`places`) AND schedules it on
+   * `activeDate` in the next free hour slot — used by /discover's
+   * single-spot "[+]" button, where there's no time-picker modal to ask
+   * the user which hour they want.
+   */
+  addPlace: (place: Place) => void;
+  /**
+   * Same as `addPlace`, but for a whole ordered set of stops at once
+   * (e.g. a /discover route template's "[+ 내 일정에 담기]" button) —
+   * each place gets the next free hour in order, so the resulting
+   * schedule preserves the bundle's intended sequence.
+   */
+  addRouteBundle: (places: Place[]) => void;
   isHourTaken: (date: string, hour: number) => boolean;
   addItem: (item: Omit<ItineraryItem, "id">) => void;
   removeItem: (id: string) => void;
@@ -53,6 +67,44 @@ export const useItineraryStore = create<ItineraryState>((set, get) => ({
       const toAdd = newPlaces.filter((p) => !existingIds.has(p.id));
       return toAdd.length > 0 ? { places: [...state.places, ...toAdd] } : state;
     }),
+
+  addPlace: (place) => {
+    const { addPlaces, addItem, activeDate, items } = get();
+    addPlaces([place]);
+    const takenHours = new Set(
+      items.filter((i) => i.date === activeDate).map((i) => hourFromTime(i.time)),
+    );
+    const freeHour = TIMELINE_HOURS.find((h) => !takenHours.has(h)) ?? TIMELINE_HOURS[TIMELINE_HOURS.length - 1];
+    addItem({
+      placeId: place.id,
+      name: place.name,
+      date: activeDate,
+      time: formatTime(freeHour, 0),
+      coordinates: { lat: place.lat, lng: place.lng },
+    });
+  },
+
+  addRouteBundle: (places) => {
+    const { addPlaces, addItem, activeDate } = get();
+    addPlaces(places);
+    // Recomputed after each addItem (via get().items), so this correctly
+    // skips hours the bundle itself just filled in, not just pre-existing ones.
+    for (const place of places) {
+      const takenHours = new Set(
+        get()
+          .items.filter((i) => i.date === activeDate)
+          .map((i) => hourFromTime(i.time)),
+      );
+      const freeHour = TIMELINE_HOURS.find((h) => !takenHours.has(h)) ?? TIMELINE_HOURS[TIMELINE_HOURS.length - 1];
+      addItem({
+        placeId: place.id,
+        name: place.name,
+        date: activeDate,
+        time: formatTime(freeHour, 0),
+        coordinates: { lat: place.lat, lng: place.lng },
+      });
+    }
+  },
 
   isHourTaken: (date, hour) =>
     get().items.some(
