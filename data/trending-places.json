@@ -1,0 +1,46 @@
+[
+  {
+    "id": "ChIJTfake10sHAWARnishikiTeahouseX",
+    "placeId": "ChIJTfake10sHAWARnishikiTeahouseX",
+    "name": "Nishiki Teahouse",
+    "category": "Cafe",
+    "color": "#FF6B6B",
+    "lat": 35.0053,
+    "lng": 135.7645,
+    "rating": 4.6,
+    "icon": "coffee"
+  },
+  {
+    "id": "ChIJTfake11sHAWARarashiyamaBambooX",
+    "placeId": "ChIJTfake11sHAWARarashiyamaBambooX",
+    "name": "Arashiyama Bamboo Walk",
+    "category": "Park",
+    "color": "#22B07D",
+    "lat": 35.0169,
+    "lng": 135.6717,
+    "rating": 4.8,
+    "icon": "tree"
+  },
+  {
+    "id": "ChIJTfake12sHAWARkiyomizuOverlookX",
+    "placeId": "ChIJTfake12sHAWARkiyomizuOverlookX",
+    "name": "Kiyomizu Night Overlook",
+    "category": "Viewpoint",
+    "color": "#EC4899",
+    "lat": 34.9949,
+    "lng": 135.785,
+    "rating": 4.7,
+    "icon": "camera"
+  },
+  {
+    "id": "ChIJTfake13sHAWARbiwakoBoathouseX",
+    "placeId": "ChIJTfake13sHAWARbiwakoBoathouseX",
+    "name": "Biwako Boathouse",
+    "category": "Harbor",
+    "color": "#F5A524",
+    "lat": 35.0212,
+    "lng": 135.8586,
+    "rating": 4.5,
+    "icon": "boat"
+  }
+]
