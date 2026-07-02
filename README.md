@@ -592,3 +592,36 @@ timeline) and 관심 장소 (new) — instead of always showing the timeline:
   search-select → save → marker/InfoWindow round-trip needs a real
   `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, not available in this sandbox — only
   testable on the Vercel deployment.
+
+### "딥 다이브" place detail overlay
+
+A bottom-sheet overlay (`PlaceDetailOverlay.tsx`) for viewing/editing a
+place without leaving whatever the planner was showing underneath:
+
+- **Content**: a mini `<GoogleMap>` centered on the place (reuses the same
+  loaded SDK as the main planner map via `useGoogleMapsStatus()` — no
+  second script load), plus an edit form (category chip-select, a free-text
+  memo textarea) and a "저장하기" button.
+- **Trigger points**, all on the 관심 장소 tab: selecting a search result
+  (`PlacesSearchInput`'s `onSelect`) now opens the overlay pre-filled
+  instead of saving immediately; tapping a saved-place list row opens it
+  in edit mode (existing category/memo pre-filled); tapping a `TrendSheet`
+  card — now rendered on both tabs, not just 일정 — also opens it. The
+  일정 tab's map-pin tap → schedule-time modal is untouched (`onUp`
+  branches on the current `tab`, and map pins are still only rendered on
+  the 일정 tab).
+- **State model**: `Place` gained an optional `memo?: string` field.
+  `itineraryStore` gained `upsertSavedPlace` (add-or-overwrite by id),
+  used by the overlay's save button for both brand-new and already-saved
+  places. The form's local `category`/`memo` state is keyed on `place.id`
+  (remount-to-reset) rather than synced via a `useEffect`, to satisfy the
+  React Compiler's `set-state-in-effect` rule.
+- **State preservation**: the overlay is pure UI layered on top via
+  `AnimatePresence` — opening/closing it never touches `tab`, `activeDate`,
+  or any schedule state, so the 일정 tab is always exactly as it was left.
+- Verified end-to-end in the browser (offline, using the mock
+  `/api/planner/trends` data since no real map key exists in this
+  sandbox): opened a trend card's detail overlay, set a category and a
+  memo, saved — the overlay closed, the saved-place list showed the new
+  entry with its memo, and switching back to 일정 showed the timeline
+  completely unaffected.

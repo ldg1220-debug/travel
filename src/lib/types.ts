@@ -22,6 +22,8 @@ export interface Place {
   lng: number;
   rating?: number;
   address?: string;
+  /** Free-text note, editable from the planner's 관심 장소 detail overlay. */
+  memo?: string;
   icon: PlaceIcon;
 }
 

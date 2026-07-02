@@ -33,6 +33,8 @@ interface ItineraryState {
   /** Adds one place to `savedPlaces` by id, no-op if already saved. */
   addSavedPlace: (place: Place) => void;
   removeSavedPlace: (placeId: string) => void;
+  /** Adds or overwrites a `savedPlaces` entry by id — the detail overlay's "저장하기" action. */
+  upsertSavedPlace: (place: Place) => void;
   /**
    * Adds one place to the map catalog (`places`) AND schedules it on
    * `activeDate` in the next free hour slot — used by /discover's
@@ -88,6 +90,15 @@ export const useItineraryStore = create<ItineraryState>()(
         ),
       removeSavedPlace: (placeId) =>
         set((state) => ({ savedPlaces: state.savedPlaces.filter((p) => p.id !== placeId) })),
+      upsertSavedPlace: (place) =>
+        set((state) => {
+          const exists = state.savedPlaces.some((p) => p.id === place.id);
+          return {
+            savedPlaces: exists
+              ? state.savedPlaces.map((p) => (p.id === place.id ? place : p))
+              : [...state.savedPlaces, place],
+          };
+        }),
 
       addPlace: (place) => {
         const { addPlaces, addItem, activeDate, items } = get();

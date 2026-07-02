@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { GoogleMap, InfoWindow, OverlayView, Polyline } from "@react-google-maps/api";
-import { Clock, X, Plus, Wallet, Sparkles, Trash2, Footprints, TrainFront } from "lucide-react";
+import { Clock, X, Plus, Wallet, Sparkles, Trash2, Footprints, TrainFront, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
 import { PlacesSearchInput } from "./PlacesSearchInput";
 import { TrendSheet } from "./TrendSheet";
+import { PlaceDetailOverlay } from "./PlaceDetailOverlay";
 import { TIMELINE_HOURS, MINUTE_STEPS, pad2, formatTime, hourFromTime } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits } from "@/lib/transit";
@@ -63,8 +64,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const setRegion = useItineraryStore((s) => s.setRegion);
   const setItems = useItineraryStore((s) => s.setItems);
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
-  const addSavedPlace = useItineraryStore((s) => s.addSavedPlace);
   const removeSavedPlace = useItineraryStore((s) => s.removeSavedPlace);
+  const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
 
   // 일정(schedule) vs 관심 장소(saved) — governs both the lower panel's
   // content and which marker set the map above it renders (task: "지도
@@ -74,6 +75,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const [tab, setTab] = useState<PlannerTabKey>("schedule");
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
+
+  // "딥 다이브" detail overlay — opened from a saved-list row, a search
+  // selection, or a trend card tap while on the 관심 장소 tab. Purely
+  // local UI state layered on top of everything else, so opening/closing
+  // it never touches `tab`/`activeDate`/schedule state underneath.
+  const [detailPlace, setDetailPlace] = useState<Place | null>(null);
 
   const schedule = items
     .filter((i) => i.date === activeDate)
@@ -221,12 +228,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     showToast(`${place.name} added to map`);
   };
 
-  // 관심 장소 tab's search — a selection is immediately "saved" (same
-  // select-to-commit UX as handlePlaceDiscovered above), landing in
-  // savedPlaces instead of the schedule-eligible `places` catalog.
+  // 관심 장소 tab's search — a selection opens the detail overlay (mini
+  // map + category/memo edit) rather than saving immediately; the actual
+  // savedPlaces write happens on the overlay's own "저장하기" button.
   const handleSavedPlaceDiscovered = (place: Place) => {
-    addSavedPlace(place);
+    setDetailPlace(place);
+  };
+
+  const handleSaveDetailPlace = (place: Place) => {
+    upsertSavedPlace(place);
     showToast(`${place.name} 저장됨`);
+    setDetailPlace(null);
   };
 
   const panToSavedPlace = (place: Place) => {
@@ -302,7 +314,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       clearTimeout(pressTimer.current);
       pressTimer.current = null;
       setPressingId(null);
-      if (!firedLong.current) openModal(place);
+      if (!firedLong.current) {
+        // Map pins only reach onUp on the 일정 tab (their OverlayView is
+        // tab-gated below), so this branch only matters for TrendSheet
+        // cards, which are shown on both tabs.
+        if (tab === "saved") setDetailPlace(place);
+        else openModal(place);
+      }
       // Close after the click/no-click decision is made, not before —
       // closing on pointerdown would shift the sheet's cards mid-tap and
       // the pointerup could land on the wrong element (or the backdrop).
@@ -364,18 +382,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           </div>
         )}
 
-        {tab === "schedule" && (
-          <TrendSheet
-            open={sheetOpen}
-            onOpenChange={setSheetOpen}
-            onDown={onDown}
-            onUp={onUp}
-            onMove={onMove}
-            onCancel={cancelPress}
-            pressingId={pressingId}
-            onTrendsLoaded={addPlaces}
-          />
-        )}
+        {/* Available on both tabs — a tap routes to the schedule-time
+            modal or the 딥 다이브 detail overlay depending on `tab` (see
+            onUp above); trending spots still merge into the shared
+            `places` catalog either way. */}
+        <TrendSheet
+          open={sheetOpen}
+          onOpenChange={setSheetOpen}
+          onDown={onDown}
+          onUp={onUp}
+          onMove={onMove}
+          onCancel={cancelPress}
+          pressingId={pressingId}
+          onTrendsLoaded={addPlaces}
+        />
 
         {mapsError ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-500">
@@ -631,7 +651,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 {savedPlaces.map((p) => (
                   <div
                     key={p.id}
-                    onClick={() => panToSavedPlace(p)}
+                    onClick={() => setDetailPlace(p)}
                     className={`flex w-full cursor-pointer items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 text-left shadow-sm transition-colors ${
                       selectedSavedId === p.id ? "border-slate-900" : "border-slate-200"
                     }`}
@@ -644,8 +664,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-semibold text-slate-900">{p.name}</p>
-                      <p className="truncate text-[10.5px] text-slate-500">{p.address ?? p.category}</p>
+                      <p className="truncate text-[10.5px] text-slate-500">{p.memo || p.address || p.category}</p>
                     </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        panToSavedPlace(p);
+                      }}
+                      aria-label={`${p.name} 지도에서 보기`}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                    >
+                      <MapPin size={13} color="#94a3b8" />
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -814,6 +844,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <PlaceDetailOverlay place={detailPlace} onClose={() => setDetailPlace(null)} onSave={handleSaveDetailPlace} />
     </div>
   );
 }
@@ -881,7 +913,7 @@ function MarkerContent({ place, order, pressing, hidden, onDown, onUp, onMove, o
 }
 
 // ── teardrop pin ──
-function Pin({ place, solid = false }: { place: Place; solid?: boolean }) {
+export function Pin({ place, solid = false }: { place: Place; solid?: boolean }) {
   return (
     <div className="relative">
       <svg width={40} height={52} viewBox="0 0 40 52">
