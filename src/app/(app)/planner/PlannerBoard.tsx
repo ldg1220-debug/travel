@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { GoogleMap, OverlayView, Polyline } from "@react-google-maps/api";
+import { GoogleMap, InfoWindow, OverlayView, Polyline } from "@react-google-maps/api";
 import { Clock, X, Plus, Wallet, Sparkles, Trash2, Footprints, TrainFront } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,12 @@ interface PlannerBoardProps {
   /** Set when viewing /planner/[shareToken] — enables collaborative polling sync. */
   shareToken?: string;
 }
+
+const PLANNER_TABS = [
+  { key: "schedule", label: "일정" },
+  { key: "saved", label: "관심 장소" },
+] as const;
+type PlannerTabKey = (typeof PLANNER_TABS)[number]["key"];
 
 // ─────────────────────────────────────────────────────────────
 export function PlannerBoard({ shareToken }: PlannerBoardProps) {
@@ -56,6 +62,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const optimizeRoute = useItineraryStore((s) => s.optimizeRoute);
   const setRegion = useItineraryStore((s) => s.setRegion);
   const setItems = useItineraryStore((s) => s.setItems);
+  const savedPlaces = useItineraryStore((s) => s.savedPlaces);
+  const addSavedPlace = useItineraryStore((s) => s.addSavedPlace);
+  const removeSavedPlace = useItineraryStore((s) => s.removeSavedPlace);
+
+  // 일정(schedule) vs 관심 장소(saved) — governs both the lower panel's
+  // content and which marker set the map above it renders (task: "지도
+  // 가시성 제어"). The schedule tab's map behavior is left byte-for-byte
+  // identical to before this feature existed, so the existing search →
+  // catalog → long-press-drag-to-schedule workflow can't regress.
+  const [tab, setTab] = useState<PlannerTabKey>("schedule");
+  const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
+  const mapRef = useRef<google.maps.Map | null>(null);
 
   const schedule = items
     .filter((i) => i.date === activeDate)
@@ -203,6 +221,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     showToast(`${place.name} added to map`);
   };
 
+  // 관심 장소 tab's search — a selection is immediately "saved" (same
+  // select-to-commit UX as handlePlaceDiscovered above), landing in
+  // savedPlaces instead of the schedule-eligible `places` catalog.
+  const handleSavedPlaceDiscovered = (place: Place) => {
+    addSavedPlace(place);
+    showToast(`${place.name} 저장됨`);
+  };
+
+  const panToSavedPlace = (place: Place) => {
+    setSelectedSavedId(place.id);
+    mapRef.current?.panTo({ lat: place.lat, lng: place.lng });
+    mapRef.current?.setZoom(15);
+  };
+
   const handleOptimizeRoute = () => {
     const optimized = optimizeRoute(activeDate);
     showToast(optimized ? "동선이 최적화되었습니다" : "Need at least 3 stops to optimize");
@@ -290,6 +322,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     .filter((p): p is Place => Boolean(p))
     .map((p) => ({ lat: p.lat, lng: p.lng }));
 
+  const selectedSavedPlace = selectedSavedId ? savedPlaces.find((p) => p.id === selectedSavedId) ?? null : null;
+
   const mapCenter =
     places.length === 0
       ? { lat: 33.5904, lng: 130.4017 } // Fukuoka
@@ -302,6 +336,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // apart, so a fixed center/zoom wouldn't reliably show both clusters.
   const onMapLoad = useCallback(
     (map: google.maps.Map) => {
+      mapRef.current = map;
       if (places.length === 0) return;
       const bounds = new google.maps.LatLngBounds();
       places.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
@@ -314,29 +349,33 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     <div ref={boardRef} className="relative flex h-full flex-col overflow-hidden bg-white font-sans">
       {/* ── MAP AREA (~57% of the planner's height) — real Google Maps ── */}
       <div className="relative h-[57%] shrink-0 overflow-hidden bg-[#eef2f4]">
-        <div className="absolute inset-x-3 top-3 z-20 flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <PlacesSearchInput onSelect={handlePlaceDiscovered} />
+        {tab === "schedule" && (
+          <div className="absolute inset-x-3 top-3 z-20 flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <PlacesSearchInput onSelect={handlePlaceDiscovered} />
+            </div>
+            <button
+              onClick={() => clearDate(activeDate)}
+              aria-label="Clear today's schedule"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700"
+            >
+              <Trash2 size={15} />
+            </button>
           </div>
-          <button
-            onClick={() => clearDate(activeDate)}
-            aria-label="Clear today's schedule"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700"
-          >
-            <Trash2 size={15} />
-          </button>
-        </div>
+        )}
 
-        <TrendSheet
-          open={sheetOpen}
-          onOpenChange={setSheetOpen}
-          onDown={onDown}
-          onUp={onUp}
-          onMove={onMove}
-          onCancel={cancelPress}
-          pressingId={pressingId}
-          onTrendsLoaded={addPlaces}
-        />
+        {tab === "schedule" && (
+          <TrendSheet
+            open={sheetOpen}
+            onOpenChange={setSheetOpen}
+            onDown={onDown}
+            onUp={onUp}
+            onMove={onMove}
+            onCancel={cancelPress}
+            pressingId={pressingId}
+            onTrendsLoaded={addPlaces}
+          />
+        )}
 
         {mapsError ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-500">
@@ -352,71 +391,137 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             onLoad={onMapLoad}
             options={{ disableDefaultUI: true, zoomControl: true }}
           >
-            {routePoints.length >= 2 && (
-              <Polyline
-                path={routePoints}
-                options={{
-                  strokeOpacity: 0,
-                  icons: [
-                    {
-                      icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#111827", scale: 3 },
-                      offset: "0",
-                      repeat: "14px",
-                    },
-                  ],
-                }}
-              />
+            {tab === "schedule" && (
+              <>
+                {routePoints.length >= 2 && (
+                  <Polyline
+                    path={routePoints}
+                    options={{
+                      strokeOpacity: 0,
+                      icons: [
+                        {
+                          icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#111827", scale: 3 },
+                          offset: "0",
+                          repeat: "14px",
+                        },
+                      ],
+                    }}
+                  />
+                )}
+
+                {places.map((p) => (
+                  <OverlayView
+                    key={p.id}
+                    position={{ lat: p.lat, lng: p.lng }}
+                    mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                  >
+                    <MarkerContent
+                      place={p}
+                      order={orderByPlace[p.id]}
+                      pressing={pressingId === p.id}
+                      hidden={drag?.place.id === p.id}
+                      onDown={onDown}
+                      onUp={onUp}
+                      onMove={onMove}
+                      onCancel={cancelPress}
+                    />
+                  </OverlayView>
+                ))}
+              </>
             )}
 
-            {places.map((p) => (
-              <OverlayView key={p.id} position={{ lat: p.lat, lng: p.lng }} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
-                <MarkerContent
-                  place={p}
-                  order={orderByPlace[p.id]}
-                  pressing={pressingId === p.id}
-                  hidden={drag?.place.id === p.id}
-                  onDown={onDown}
-                  onUp={onUp}
-                  onMove={onMove}
-                  onCancel={cancelPress}
-                />
-              </OverlayView>
-            ))}
+            {tab === "saved" && (
+              <>
+                {savedPlaces.map((p) => (
+                  <OverlayView
+                    key={p.id}
+                    position={{ lat: p.lat, lng: p.lng }}
+                    mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                  >
+                    <div
+                      className="-translate-x-1/2 -translate-y-full cursor-pointer touch-none select-none"
+                      onClick={() => setSelectedSavedId(p.id)}
+                    >
+                      <Pin place={p} />
+                    </div>
+                  </OverlayView>
+                ))}
+                {selectedSavedPlace && (
+                  <InfoWindow
+                    position={{ lat: selectedSavedPlace.lat, lng: selectedSavedPlace.lng }}
+                    onCloseClick={() => setSelectedSavedId(null)}
+                  >
+                    <div className="px-1 py-0.5">
+                      <p className="text-[13px] font-semibold text-slate-900">{selectedSavedPlace.name}</p>
+                      <p className="text-[11px] text-slate-500">{selectedSavedPlace.category}</p>
+                    </div>
+                  </InfoWindow>
+                )}
+              </>
+            )}
           </GoogleMap>
         )}
       </div>
 
-      {/* ── TIMELINE AREA — fills the rest of the planner's height ── */}
+      {/* ── LOWER PANEL — 일정 timeline vs 관심 장소 search+list, fills the rest of the planner's height ── */}
       <div className="flex min-h-0 flex-1 flex-col border-t border-slate-200 bg-white">
-        <div className="flex items-center justify-between px-5 pb-2 pt-3">
-          <div className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900">
-              <Clock size={12} color="white" />
-            </span>
-            <span className="text-[13px] font-semibold text-slate-900">Today&apos;s Plan</span>
-            {totalBudget > 0 && (
-              <Badge className="gap-1 rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 hover:bg-emerald-50">
-                <Wallet size={11} />
-                ¥{totalBudget.toLocaleString()}
-              </Badge>
-            )}
+        <div className="px-4 pt-3">
+          <div className="inline-flex w-full rounded-2xl bg-slate-100 p-1 shadow-inner">
+            {PLANNER_TABS.map((t) => {
+              const active = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`relative z-10 flex-1 rounded-xl px-3 py-2 text-[13px] font-semibold transition-colors ${
+                    active ? "text-slate-900" : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="plannerTabPill"
+                      className="absolute inset-0 -z-10 rounded-xl bg-white shadow-sm"
+                      transition={{ type: "spring", stiffness: 500, damping: 34 }}
+                    />
+                  )}
+                  {t.label}
+                </button>
+              );
+            })}
           </div>
-
-          <button
-            onClick={handleOptimizeRoute}
-            disabled={schedule.length < 3}
-            className="group relative inline-flex items-center gap-1.5 rounded-full p-[1.5px] text-[11px] font-semibold shadow-sm transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
-            style={{ background: "linear-gradient(120deg,#FF6B6B,#F5A524,#4A90E2)" }}
-          >
-            <span className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-slate-800 transition-colors group-hover:bg-transparent group-hover:text-white">
-              <Sparkles size={12} />
-              동선 최적화
-            </span>
-          </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-          <div className="relative">
+        {tab === "schedule" ? (
+          <>
+            <div className="flex items-center justify-between px-5 pb-2 pt-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900">
+                  <Clock size={12} color="white" />
+                </span>
+                <span className="text-[13px] font-semibold text-slate-900">Today&apos;s Plan</span>
+                {totalBudget > 0 && (
+                  <Badge className="gap-1 rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 hover:bg-emerald-50">
+                    <Wallet size={11} />
+                    ¥{totalBudget.toLocaleString()}
+                  </Badge>
+                )}
+              </div>
+
+              <button
+                onClick={handleOptimizeRoute}
+                disabled={schedule.length < 3}
+                className="group relative inline-flex items-center gap-1.5 rounded-full p-[1.5px] text-[11px] font-semibold shadow-sm transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
+                style={{ background: "linear-gradient(120deg,#FF6B6B,#F5A524,#4A90E2)" }}
+              >
+                <span className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-slate-800 transition-colors group-hover:bg-transparent group-hover:text-white">
+                  <Sparkles size={12} />
+                  동선 최적화
+                </span>
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+              <div className="relative">
             <div className="absolute bottom-2 left-[50px] top-2 w-px bg-slate-200" />
             {TIMELINE_HOURS.map((h) => {
               const item = schedule.find((s) => hourFromTime(s.time) === h);
@@ -511,8 +616,53 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 </div>
               );
             })}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-6 pt-3">
+            <PlacesSearchInput onSelect={handleSavedPlaceDiscovered} />
+            {savedPlaces.length === 0 ? (
+              <p className="mt-6 text-center text-[12px] text-slate-400">
+                아직 저장한 장소가 없어요. 위에서 검색해서 담아보세요.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {savedPlaces.map((p) => (
+                  <div
+                    key={p.id}
+                    onClick={() => panToSavedPlace(p)}
+                    className={`flex w-full cursor-pointer items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 text-left shadow-sm transition-colors ${
+                      selectedSavedId === p.id ? "border-slate-900" : "border-slate-200"
+                    }`}
+                  >
+                    <span
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                      style={{ background: p.color }}
+                    >
+                      <PlaceGlyph icon={p.icon} size={14} color="white" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-semibold text-slate-900">{p.name}</p>
+                      <p className="truncate text-[10.5px] text-slate-500">{p.address ?? p.category}</p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeSavedPlace(p.id);
+                        if (selectedSavedId === p.id) setSelectedSavedId(null);
+                      }}
+                      aria-label={`${p.name} 저장 해제`}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                    >
+                      <X size={12} color="#94a3b8" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* drag ghost */}

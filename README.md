@@ -555,3 +555,40 @@ A direct-URL-only page (no nav link) to manually confirm
   console and rendered as cards. Testing the real Google/Kakao API-call
   branches requires the actual keys, only available in the Vercel
   production environment.
+
+### Category filtering on `/api/places/search`
+
+International (Google) search now accepts a `category` param —
+`"all" | "attraction" | "lodging" | "restaurant"` — mapped to Google
+Places `includedTypes` (`restaurant` → `["restaurant", "cafe"]`,
+`attraction` → `["tourist_attraction", "park"]`, `lodging` →
+`["lodging"]`). `maxResultCount` is fixed at 10. `/dev/search-test` got a
+category pill row alongside the region toggle to exercise it.
+
+### 관심 장소 (saved places) tab on `/planner`
+
+`/planner`'s lower panel now has a two-way tab switch — 일정 (unchanged
+timeline) and 관심 장소 (new) — instead of always showing the timeline:
+
+- **`src/store/itineraryStore.ts`**: new `savedPlaces: Place[]` slice,
+  distinct from the existing `places` map catalog, with
+  `addSavedPlace`/`removeSavedPlace` actions. Persisted to `localStorage`
+  via `zustand/middleware`'s `persist` (`partialize`d to just
+  `savedPlaces`, so it doesn't interfere with the shared-itinerary polling
+  sync that already owns `items`/`region`).
+- **`PlannerBoard.tsx`**: the 일정 tab's map/timeline behavior is
+  byte-for-byte unchanged (same `places` catalog, same drag-to-schedule
+  interaction) — the 관심 장소 tab swaps in a `PlacesSearchInput` wired to
+  `addSavedPlace` instead of the catalog, plus a saved-places list (tap a
+  row to pan/zoom the map there via a new `mapRef`; tap a saved marker on
+  the map for an `InfoWindow` with name + category). No new map library —
+  reuses the existing `@react-google-maps/api`-based `MapProvider.tsx`
+  exactly as before.
+- Tab pill styling ports the `/scrapbook` segmented-control pattern
+  (`framer-motion layoutId` sliding highlight) for visual consistency.
+- Verified in the browser: tab switch renders and toggles correctly, the
+  관심 장소 tab's empty state and search box show as expected, and
+  switching back to 일정 restores the original map/timeline exactly. Full
+  search-select → save → marker/InfoWindow round-trip needs a real
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, not available in this sandbox — only
+  testable on the Vercel deployment.
