@@ -429,3 +429,31 @@ toasting a placeholder:
   and a spot's `[+]` button added it without navigating away, showing
   exactly the requested toast text. `tsc --noEmit`, `eslint`, and
   `next build` all stay clean.
+
+### /scrapbook design merge
+
+The design team's `/scrapbook` mockup — a creator dashboard (총 여행 횟수/
+받은 좋아요/퍼감 stat cards), a `layoutId`-animated 3-tab segmented control
+(다녀온 여행/다가오는 일정/임시 저장), and album-style trip cards with a
+공개/비공개 `Switch` — was merged into `src/app/(app)/scrapbook/page.tsx`
+the same way `/discover`'s was: its own `<header>` was dropped (AppBar
+already renders one), and `AppBar.tsx`'s `PAGE_TITLES` map gained
+`"/scrapbook": "내 추억 보관함"`.
+- **`src/components/ui/switch.tsx`** is a new hand-authored shadcn
+  component (same pattern as the existing `button`/`input`/`badge`/`sheet`)
+  — unlike those, this one needed a real dependency,
+  `@radix-ui/react-switch`, which installed cleanly (it's a pure-JS
+  package with no native/binary install step, unlike Prisma's engines or
+  the shadcn CLI's registry fetch — both of those are blocked here for
+  unrelated reasons, not because npm itself is unreachable).
+- Every stat card, tab, and trip card in this merge is still dummy data —
+  the design team's mock trip list (including a "후쿠오카·유후인 힐링
+  투어" card, unrelated to `/discover`'s route-bundle flow) — since no
+  task yet asked to wire the dashboard numbers or the Switch's
+  공개/비공개 toggle to real Zustand/DB state; the Switch's
+  `checked`/`onCheckedChange` only flips local `trips` state for now.
+- Verified in a real browser: exactly one `<header>` renders on
+  `/scrapbook` (and still exactly one elsewhere after navigating away via
+  the hamburger menu), the Switch toggles between checked/unchecked with
+  the matching 공개/비공개 badge and label updating in lockstep, and the
+  tab pill slides correctly between "다녀온 여행" and the empty-state tabs.

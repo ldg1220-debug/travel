@@ -19,7 +19,7 @@ const NAV_ITEMS = [
 
 const PAGE_TITLES: Record<string, string> = {
   "/discover": "어디로 떠나시나요?",
-  "/scrapbook": "Scrapbook",
+  "/scrapbook": "내 추억 보관함",
 };
 
 /**
