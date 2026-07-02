@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
 interface GooglePlaceResult {
   id: string;
   displayName?: { text?: string };
+  formattedAddress?: string;
   location?: { latitude: number; longitude: number };
   rating?: number;
   primaryType?: string;
@@ -36,7 +37,8 @@ async function searchInternational(query: string): Promise<Place[]> {
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.location,places.rating,places.primaryType",
+        "X-Goog-FieldMask":
+          "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.primaryType",
       },
       body: JSON.stringify({ textQuery: query }),
     });
@@ -60,6 +62,7 @@ function googlePlaceToPlace(p: GooglePlaceResult): Place {
     lat: p.location?.latitude ?? 0,
     lng: p.location?.longitude ?? 0,
     rating: p.rating,
+    address: p.formattedAddress,
     icon,
   };
 }
@@ -68,6 +71,8 @@ interface KakaoLocalDocument {
   id: string;
   place_name: string;
   category_group_name?: string;
+  address_name?: string;
+  road_address_name?: string;
   x: string;
   y: string;
 }
@@ -98,6 +103,7 @@ function kakaoDocToPlace(d: KakaoLocalDocument): Place {
     color,
     lat: Number(d.y),
     lng: Number(d.x),
+    address: d.road_address_name || d.address_name,
     icon,
   };
 }

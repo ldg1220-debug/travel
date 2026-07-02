@@ -21,6 +21,7 @@ export interface Place {
   lat: number;
   lng: number;
   rating?: number;
+  address?: string;
   icon: PlaceIcon;
 }
 

@@ -528,3 +528,30 @@ A new, reusable multi-provider map foundation — not wired into `/planner`
   `new kakao.maps.Map(...)` actually getting called with the container
   element — all the way through for both providers and both the explicit-
   `provider` and derived-from-`region` code paths.
+
+### Search API QA harness (`/dev/search-test`)
+
+A direct-URL-only page (no nav link) to manually confirm
+`/api/places/search` returns usable data from both branches:
+
+- One region toggle (국내/해외), one text input, one 검색 button — calls
+  `GET /api/places/search?region=...&q=...` on click or Enter.
+- Every response is both `console.log`'d in full and rendered on screen as
+  a card per place (name, address, category, coordinates), so mismatches
+  between what the API actually returns and what's displayed are easy to
+  spot.
+- Added the previously-missing `address` field end-to-end: `Place` gained
+  an optional `address?: string` (`src/lib/types.ts`), Google's field mask
+  now includes `places.formattedAddress`, and Kakao's mapper now reads
+  `road_address_name || address_name`. Cards fall back to "주소 정보
+  없음" when a result has no address — the expected case for the offline
+  fallback lists (`DOMESTIC_PLACES`/trending mocks), which never had
+  address data to begin with.
+- Verified against the offline-fallback path for both regions (this
+  sandbox has neither `KAKAO_REST_API_KEY` nor `GOOGLE_PLACES_API_KEY`
+  set): searching "Coffee" under 국내 returns the expected
+  `filterByName(DOMESTIC_PLACES, ...)` match, searching under 해외 returns
+  matches from `filterByName(getTrendingPlaces(), ...)` — both logged to
+  console and rendered as cards. Testing the real Google/Kakao API-call
+  branches requires the actual keys, only available in the Vercel
+  production environment.
