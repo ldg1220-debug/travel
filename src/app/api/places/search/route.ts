@@ -23,6 +23,13 @@ const CATEGORY_TYPE_MAP: Record<string, string[]> = {
   restaurant: ["restaurant", "cafe"],
 };
 
+/** Same categories, as a Korean keyword to append to the query text itself (e.g. "오사카" -> "오사카 관광명소"). */
+const CATEGORY_LABEL_KO: Record<string, string> = {
+  attraction: "관광명소",
+  lodging: "숙소",
+  restaurant: "음식점",
+};
+
 export async function GET(request: NextRequest) {
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
   const query = (request.nextUrl.searchParams.get("q") ?? "").trim();
@@ -39,7 +46,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Google API Key is completely missing" }, { status: 500 });
   }
   const includedTypes = CATEGORY_TYPE_MAP[category];
-  return NextResponse.json({ places: await searchInternational(query, googleApiKey, includedTypes) });
+  return NextResponse.json({ places: await searchInternational(query, googleApiKey, includedTypes, category) });
 }
 
 interface GooglePlaceResult {
@@ -51,15 +58,35 @@ interface GooglePlaceResult {
   primaryType?: string;
 }
 
-async function searchInternational(query: string, apiKey: string, includedTypes?: string[]): Promise<Place[]> {
+async function searchInternational(
+  query: string,
+  apiKey: string,
+  includedTypes?: string[],
+  category?: string,
+): Promise<Place[]> {
+  // A category filter is applied two ways at once, from most to least
+  // specific, each step only tried if the previous one comes back empty:
+  //  1. query text expanded with the category's Korean label + includedTypes
+  //     (e.g. "오사카" -> "오사카 관광명소") — helps when the plain query is
+  //     just a region/place name and Google's text-relevance ranking needs
+  //     the hint to surface that category.
+  //  2. the original query text + includedTypes (no expansion).
+  //  3. the original query text with no filter at all — includedTypes is an
+  //     exact-match allowlist, so a specific/misclassified place can
+  //     legitimately return nothing even though it exists.
+  const categoryLabel = category ? CATEGORY_LABEL_KO[category] : undefined;
+  const expandedQuery = categoryLabel ? `${query} ${categoryLabel}` : null;
+
+  if (expandedQuery) {
+    const expanded = await callGoogleSearchText(expandedQuery, apiKey, includedTypes);
+    if (expanded === null) return filterByName(await getTrendingPlaces(), query);
+    if (expanded.length > 0) return expanded;
+    console.log("[places/search] 0 results for expanded query — retrying with plain query + category filter");
+  }
+
   const places = await callGoogleSearchText(query, apiKey, includedTypes);
   if (places === null) return filterByName(await getTrendingPlaces(), query);
 
-  // Fall back to an unfiltered search if a category filter zeroed out the
-  // results — Google's includedTypes is an exact-match allowlist, so a
-  // narrow/misclassified query (e.g. a specific restaurant name under the
-  // "관광지" filter) can legitimately return nothing even though the place
-  // itself exists.
   if (places.length === 0 && includedTypes) {
     console.log("[places/search] 0 results with includedTypes — retrying without category filter");
     const unfiltered = await callGoogleSearchText(query, apiKey);

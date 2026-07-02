@@ -17,6 +17,8 @@ interface PlaceDetailOverlayProps {
   place: Place | null;
   onClose: () => void;
   onSave: (place: Place) => void;
+  /** Present only when there's somewhere meaningful to schedule it (an activeDate) — renders a second "일정에 추가" action. */
+  onSchedule?: (place: Place) => void;
 }
 
 /**
@@ -26,7 +28,7 @@ interface PlaceDetailOverlayProps {
  * Mini map reuses the same MapProvider-loaded SDK as the main planner
  * map (no second script load).
  */
-export function PlaceDetailOverlay({ place, onClose, onSave }: PlaceDetailOverlayProps) {
+export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: PlaceDetailOverlayProps) {
   const { isLoaded: mapsLoaded } = useGoogleMapsStatus();
 
   return (
@@ -50,9 +52,17 @@ export function PlaceDetailOverlay({ place, onClose, onSave }: PlaceDetailOverla
             <div className="relative h-40 shrink-0 bg-[#eef2f4]">
               {mapsLoaded ? (
                 <GoogleMap
+                  key={place.id}
                   mapContainerStyle={{ width: "100%", height: "100%" }}
                   center={{ lat: place.lat, lng: place.lng }}
                   zoom={15}
+                  // Belt-and-suspenders alongside the center/zoom props above:
+                  // explicitly panTo/setZoom on load so this place's real
+                  // coordinates always win, never a stale default.
+                  onLoad={(map) => {
+                    map.panTo({ lat: place.lat, lng: place.lng });
+                    map.setZoom(15);
+                  }}
                   options={{ disableDefaultUI: true, gestureHandling: "none", keyboardShortcuts: false }}
                 />
               ) : (
@@ -73,7 +83,7 @@ export function PlaceDetailOverlay({ place, onClose, onSave }: PlaceDetailOverla
             {/* Keyed on place.id so switching to a different place (without
                 the overlay ever fully closing) resets the form's local
                 state via remount, instead of syncing it from a prop effect. */}
-            <PlaceDetailForm key={place.id} place={place} onSave={onSave} />
+            <PlaceDetailForm key={place.id} place={place} onSave={onSave} onSchedule={onSchedule} />
           </motion.div>
         </motion.div>
       )}
@@ -81,7 +91,13 @@ export function PlaceDetailOverlay({ place, onClose, onSave }: PlaceDetailOverla
   );
 }
 
-function PlaceDetailForm({ place, onSave }: { place: Place; onSave: (place: Place) => void }) {
+interface PlaceDetailFormProps {
+  place: Place;
+  onSave: (place: Place) => void;
+  onSchedule?: (place: Place) => void;
+}
+
+function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
   const [category, setCategory] = useState(place.category);
   const [memo, setMemo] = useState(place.memo ?? "");
 
@@ -124,13 +140,24 @@ function PlaceDetailForm({ place, onSave }: { place: Place; onSave: (place: Plac
         className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-slate-400"
       />
 
-      <Button
-        onClick={() => onSave({ ...place, category, memo: memo.trim() || undefined })}
-        className="mt-5 h-12 w-full rounded-2xl text-sm font-semibold text-white"
-        style={{ background: place.color }}
-      >
-        저장하기
-      </Button>
+      <div className="mt-5 flex gap-2">
+        <Button
+          onClick={() => onSave({ ...place, category, memo: memo.trim() || undefined })}
+          className="h-12 flex-1 rounded-2xl text-sm font-semibold text-white"
+          style={{ background: place.color }}
+        >
+          저장하기
+        </Button>
+        {onSchedule && (
+          <Button
+            onClick={() => onSchedule({ ...place, category, memo: memo.trim() || undefined })}
+            variant="outline"
+            className="h-12 flex-1 rounded-2xl border-slate-300 text-sm font-semibold text-slate-700"
+          >
+            일정에 추가
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

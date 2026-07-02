@@ -4,8 +4,8 @@ import { useEffect, useRef } from "react";
 import { MapProvider, useMapStatus, type MapProviderKind } from "./MapProvider";
 import type { Region } from "@/lib/types";
 
-// Fukuoka — reused from src/lib/mockPlacesFukuokaYufuin.ts's coordinates,
-// just so this test map centers somewhere this app already treats as real.
+// Fukuoka — a real coordinate this app's planner/discover mock data has
+// used elsewhere, just so this test map centers somewhere plausible.
 const DEFAULT_CENTER = { lat: 33.5904, lng: 130.4017 };
 
 function GoogleTestCanvas() {

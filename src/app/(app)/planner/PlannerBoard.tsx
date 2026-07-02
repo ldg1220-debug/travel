@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { GoogleMap, InfoWindow, OverlayView, Polyline } from "@react-google-maps/api";
@@ -35,9 +36,14 @@ type PlannerTabKey = (typeof PLANNER_TABS)[number]["key"];
 // ─────────────────────────────────────────────────────────────
 export function PlannerBoard({ shareToken }: PlannerBoardProps) {
   return (
-    <MapProvider>
-      <PlannerBoardInner shareToken={shareToken} />
-    </MapProvider>
+    // useSearchParams() (for the /discover -> ?openDetail=... handoff)
+    // requires a Suspense boundary so Next.js can still statically render
+    // everything around it.
+    <Suspense fallback={null}>
+      <MapProvider>
+        <PlannerBoardInner shareToken={shareToken} />
+      </MapProvider>
+    </Suspense>
   );
 }
 
@@ -197,6 +203,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     };
   }, [shareToken, showToast]);
 
+  const searchParams = useSearchParams();
+  const openDetailId = searchParams.get("openDetail");
+
   const registerAt = (place: Place, hour: number, minute = 0, budget?: number) => {
     addItem({
       placeId: place.id,
@@ -230,11 +239,49 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     showToast(`${place.name} added to map`);
   };
 
+  const panToSavedPlace = (place: Place) => {
+    setSelectedSavedId(place.id);
+    mapRef.current?.panTo({ lat: place.lat, lng: place.lng });
+    mapRef.current?.setZoom(15);
+  };
+
+  // Single entry point for "open the detail overlay for this place" —
+  // every trigger (관심 장소 search, saved-list row, trend card tap, the
+  // /discover -> ?openDetail handoff) goes through this so the main map
+  // is always panned/zoomed to match, not just whichever trigger happened
+  // to also call panToSavedPlace before.
+  const openDetailFor = (place: Place) => {
+    setDetailPlace(place);
+    panToSavedPlace(place);
+  };
+
+  // ── /discover -> /planner?openDetail={placeId} handoff ──
+  // /discover pushes the clicked spot into `places` (via addPlaces) before
+  // navigating here, so it's already findable by id; no second map
+  // provider or API round-trip needed on the /discover side. Clears the
+  // param via router.replace so refreshing/back-navigating doesn't reopen
+  // the overlay on a stale id.
+  useEffect(() => {
+    if (!openDetailId) return;
+    const found = places.find((p) => p.id === openDetailId) ?? savedPlaces.find((p) => p.id === openDetailId);
+    if (found) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- genuinely syncing from an external system (the URL), not state derivable during render; the URL cleanup right below is itself only valid in an effect
+      setTab("saved");
+      openDetailFor(found);
+    }
+    // Plain history.replaceState rather than router.replace() — this is a
+    // display-only cleanup (no new RSC payload/content needed for the same
+    // page), and router.replace() was observed to not actually update the
+    // visible URL for a search-param-only change to the current route.
+    window.history.replaceState(null, "", "/planner");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires once per incoming openDetailId, not on every places/savedPlaces update
+  }, [openDetailId]);
+
   // 관심 장소 tab's search — a selection opens the detail overlay (mini
   // map + category/memo edit) rather than saving immediately; the actual
   // savedPlaces write happens on the overlay's own "저장하기" button.
   const handleSavedPlaceDiscovered = (place: Place) => {
-    setDetailPlace(place);
+    openDetailFor(place);
   };
 
   const handleSaveDetailPlace = (place: Place) => {
@@ -243,10 +290,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     setDetailPlace(null);
   };
 
-  const panToSavedPlace = (place: Place) => {
-    setSelectedSavedId(place.id);
-    mapRef.current?.panTo({ lat: place.lat, lng: place.lng });
-    mapRef.current?.setZoom(15);
+  // "관심 장소 -> 일정" — schedules the place at the next free hour on
+  // activeDate (same next-free-slot rule as the store's addPlace) and adds
+  // it to the schedule-eligible `places` catalog so it renders on the 일정
+  // tab immediately, then jumps the user there to see it land.
+  const handleScheduleFromDetail = (place: Place) => {
+    addPlaces([place]);
+    const freeHour = TIMELINE_HOURS.find((h) => !isHourTaken(activeDate, h)) ?? TIMELINE_HOURS[TIMELINE_HOURS.length - 1];
+    registerAt(place, freeHour, 0);
+    showToast(`${place.name} · 일정에 추가됨`);
+    setDetailPlace(null);
+    setTab("schedule");
   };
 
   const handleOptimizeRoute = () => {
@@ -320,7 +374,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         // Map pins only reach onUp on the 일정 tab (their OverlayView is
         // tab-gated below), so this branch only matters for TrendSheet
         // cards, which are shown on both tabs.
-        if (tab === "saved") setDetailPlace(place);
+        if (tab === "saved") openDetailFor(place);
         else openModal(place);
       }
       // Close after the click/no-click decision is made, not before —
@@ -653,7 +707,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 {savedPlaces.map((p) => (
                   <div
                     key={p.id}
-                    onClick={() => setDetailPlace(p)}
+                    onClick={() => openDetailFor(p)}
                     className={`flex w-full cursor-pointer items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 text-left shadow-sm transition-colors ${
                       selectedSavedId === p.id ? "border-slate-900" : "border-slate-200"
                     }`}
@@ -847,7 +901,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         )}
       </AnimatePresence>
 
-      <PlaceDetailOverlay place={detailPlace} onClose={() => setDetailPlace(null)} onSave={handleSaveDetailPlace} />
+      <PlaceDetailOverlay
+        place={detailPlace}
+        onClose={() => setDetailPlace(null)}
+        onSave={handleSaveDetailPlace}
+        onSchedule={handleScheduleFromDetail}
+      />
     </div>
   );
 }

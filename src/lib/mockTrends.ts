@@ -11,8 +11,6 @@ export interface TrendCard {
  * in for a real self-hosted DB of hashtag-filtered SNS posts (see
  * src/server/pipeline for the actual scrape → regex-filter → LLM-verify →
  * Places-resolve pipeline the main app uses for its international list).
- * Distinct from the initial map seed (mockPlacesFukuokaYufuin.ts) so
- * opening the sheet visibly adds new pins rather than just repeating them.
  */
 export const TREND_CARDS: TrendCard[] = [
   {

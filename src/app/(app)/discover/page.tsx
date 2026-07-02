@@ -212,6 +212,7 @@ function routeStopToPlace(routeId: string, stop: RouteStop): Place {
 export default function DiscoverPage() {
   const router = useRouter();
   const addPlace = useItineraryStore((s) => s.addPlace);
+  const addPlaces = useItineraryStore((s) => s.addPlaces);
   const addRouteBundle = useItineraryStore((s) => s.addRouteBundle);
 
   const [scope, setScope] = useState<Scope>("domestic");
@@ -229,6 +230,15 @@ export default function DiscoverPage() {
   const handleAddSpot = (spot: Spot) => {
     addPlace(spotToPlace(spot));
     showToast("일정에 추가되었습니다.");
+  };
+
+  // Tapping the card itself (not the [+] quick-add button) hands off to
+  // /planner's 딥 다이브 detail overlay instead of scheduling immediately —
+  // no map provider lives on this screen, so the place just needs to be
+  // findable-by-id once /planner mounts (see its ?openDetail effect).
+  const handleOpenDetail = (spot: Spot) => {
+    addPlaces([spotToPlace(spot)]);
+    router.push(`/planner?openDetail=${encodeURIComponent(spot.id)}`);
   };
 
   // Pushes every stop into the store's schedule in order, then jumps to
@@ -304,7 +314,13 @@ export default function DiscoverPage() {
             />
             <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
               {bundle.trending.map((spot, i) => (
-                <SpotCard key={spot.id} spot={spot} rank={i + 1} onAdd={() => handleAddSpot(spot)} />
+                <SpotCard
+                  key={spot.id}
+                  spot={spot}
+                  rank={i + 1}
+                  onAdd={() => handleAddSpot(spot)}
+                  onOpenDetail={() => handleOpenDetail(spot)}
+                />
               ))}
             </div>
 
@@ -318,7 +334,13 @@ export default function DiscoverPage() {
             />
             <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
               {bundle.favorites.map((spot) => (
-                <SpotCard key={spot.id} spot={spot} favorite onAdd={() => handleAddSpot(spot)} />
+                <SpotCard
+                  key={spot.id}
+                  spot={spot}
+                  favorite
+                  onAdd={() => handleAddSpot(spot)}
+                  onOpenDetail={() => handleOpenDetail(spot)}
+                />
               ))}
             </div>
 
@@ -389,15 +411,20 @@ function SpotCard({
   rank,
   favorite,
   onAdd,
+  onOpenDetail,
 }: {
   spot: Spot;
   rank?: number;
   favorite?: boolean;
   onAdd: () => void;
+  onOpenDetail: () => void;
 }) {
   const Icon = spot.icon;
   return (
-    <div className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200">
+    <div
+      onClick={onOpenDetail}
+      className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200"
+    >
       <div className={`relative h-28 bg-gradient-to-br ${spot.gradient}`}>
         <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
         <div className="absolute right-2 top-2">

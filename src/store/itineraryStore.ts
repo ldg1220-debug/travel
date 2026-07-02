@@ -3,20 +3,16 @@ import { persist } from "zustand/middleware";
 import type { ItineraryItem, Place, Region } from "@/lib/types";
 import { TIMELINE_HOURS, formatTime, hourFromTime, todayISODate } from "@/lib/timeline";
 import { haversineDistanceMeters } from "@/lib/geo";
-import { FUKUOKA_YUFUIN_PLACES } from "@/lib/mockPlacesFukuokaYufuin";
 
 interface ItineraryState {
   items: ItineraryItem[];
   activeDate: string;
   region: Region;
   /**
-   * Places available to schedule. Seeded with real Fukuoka/Yufuin
-   * coordinates (~55km apart) so the /planner screen's Google
-   * Maps view — the only current reader of this slice — has a genuine
-   * spread of points to fit-bounds and draw a route across, until a real
-   * trends/search API is wired in (see fetchTrendingPlaces in
-   * src/lib/api.ts for the ISR-backed version used on the main page, which
-   * manages its own place list independently of this store slice).
+   * Places available to schedule — starts empty and fills in from real
+   * user actions (search, trend cards, /discover) rather than a
+   * hardcoded seed, so the map only ever shows places someone actually
+   * discovered/searched for in this session.
    */
   places: Place[];
   /**
@@ -70,7 +66,7 @@ export const useItineraryStore = create<ItineraryState>()(
       items: [],
       activeDate: todayISODate(),
       region: "international",
-      places: FUKUOKA_YUFUIN_PLACES,
+      places: [],
       savedPlaces: [],
 
       setActiveDate: (date) => set({ activeDate: date }),

@@ -655,3 +655,58 @@ place without leaving whatever the planner was showing underneath:
   saved, and the place appeared in the saved-places list. The
   Google-branch category fall-back itself needs a real
   `GOOGLE_PLACES_API_KEY` to exercise — only testable on Vercel.
+
+### Search query expansion, /discover handoff, empty seed, scheduling from the overlay
+
+- **`/api/places/search`'s category filter, layered further**: a
+  category-filtered international search now tries three passes before
+  giving up — (1) query text expanded with the category's Korean label +
+  `includedTypes` (e.g. `"오사카"` → `"오사카 관광명소"`, helps when the
+  plain query is just a region/place name), (2) the original query text +
+  `includedTypes`, (3) the original query with no filter at all. `"전체"`
+  already sent no `includedTypes` (never a key in `CATEGORY_TYPE_MAP`).
+- **`itineraryStore`'s `places` seed is now `[]`** instead of the
+  hardcoded `FUKUOKA_YUFUIN_PLACES` — `src/lib/mockPlacesFukuokaYufuin.ts`
+  deleted along with it (its only consumer). The map starts empty and
+  fills in from real actions (search, trend cards, /discover) instead of
+  pretending a fixed seed is organic content.
+- **`PlaceDetailOverlay`'s mini map** now also does an explicit
+  `onLoad={(map) => { map.panTo(...); map.setZoom(15) }}` alongside its
+  `center`/`zoom` props (belt-and-suspenders — the props alone should
+  already be correct on every mount since the map is keyed by
+  `place.id`, but this guarantees it regardless of the underlying
+  library's prop-diffing behavior).
+- **"관심 장소 → 일정" scheduling**: the overlay gained a second "일정에
+  추가" button (`onSchedule` prop) alongside "저장하기" — schedules the
+  place at the next free hour on `activeDate` and switches to the 일정
+  tab so the result is immediately visible, using the same
+  next-free-slot rule as the store's `addPlace`.
+- **Global pan-to-place**: every trigger that opens the detail overlay
+  (관심 장소 search selection, saved-list row, trend card tap, the
+  /discover handoff below) now routes through one `openDetailFor` helper
+  that also pans/zooms the main planner map, not just whichever trigger
+  happened to call `panToSavedPlace` before.
+- **`/discover` → `/planner?openDetail={placeId}` handoff**: per an
+  explicit decision to keep map-loading logic in exactly one place,
+  `/discover` doesn't get its own `MapProvider`. Tapping a trending-spot
+  card (not its `[+]` quick-add button, which keeps its existing
+  immediate-schedule behavior) pushes the spot into the store's `places`
+  catalog and navigates to `/planner?openDetail=<id>`; `PlannerBoard`
+  reads that param via `useSearchParams()` (wrapped in `<Suspense>`,
+  required for that hook under a statically-rendered page), looks the
+  place up by id, switches to the 관심 장소 tab, and opens the overlay —
+  then clears the param via `window.history.replaceState` (found during
+  testing that `router.replace()` doesn't actually update the visible URL
+  for a search-param-only change to the current route; plain
+  `history.replaceState` does, and is also the more honest tool here
+  since this is a display-only cleanup, not a real content navigation).
+- Also deleted `verify-phase5.ts`, a one-off root-level audit script left
+  over from an earlier phase — it imported the now-deleted
+  `FUKUOKA_YUFUIN_PLACES` and was breaking `tsc --noEmit` for the whole
+  project.
+- Verified in the browser end-to-end: tapping a `/discover` trending card
+  navigates to `/planner`, auto-opens the 관심 장소 tab with the detail
+  overlay already showing that place (mini map, category chips, memo,
+  both action buttons); tapping "일정에 추가" closes the overlay, switches
+  to 일정, and the place appears on today's timeline; the URL cleanly
+  drops back to plain `/planner` with no lingering query param.
