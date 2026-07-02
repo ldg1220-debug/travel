@@ -16,12 +16,15 @@ export default function SearchTestPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   async function handleSearch() {
+    console.log("검색 버튼 클릭됨, region:", region, "query:", query);
     const q = query.trim();
     if (!q) return;
     setStatus("loading");
     setErrorMessage("");
     try {
-      const res = await fetch(`/api/places/search?region=${region}&q=${encodeURIComponent(q)}`);
+      const url = `/api/places/search?region=${region}&q=${encodeURIComponent(q)}`;
+      console.log("fetch 호출 URL:", url);
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`API responded with ${res.status}`);
       const data = (await res.json()) as { places: Place[] };
       console.log("[/api/places/search] response:", data);

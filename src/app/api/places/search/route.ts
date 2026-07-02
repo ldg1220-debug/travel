@@ -37,6 +37,7 @@ async function searchInternational(query: string): Promise<Place[]> {
   if (apiKey) {
     const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
+      cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
@@ -51,7 +52,7 @@ async function searchInternational(query: string): Promise<Place[]> {
       console.log("[places/search] Google API Response:", JSON.stringify(data));
       return (data.places ?? []).slice(0, 8).map(googlePlaceToPlace);
     }
-    console.log("[places/search] Google API error body:", await res.text());
+    console.error("[places/search] Google API error:", res.status, res.statusText, await res.text());
   }
   return filterByName(await getTrendingPlaces(), query);
 }
@@ -89,7 +90,7 @@ async function searchDomestic(query: string): Promise<Place[]> {
   if (apiKey) {
     const res = await fetch(
       `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}`,
-      { headers: { Authorization: `KakaoAK ${apiKey}` } },
+      { cache: "no-store", headers: { Authorization: `KakaoAK ${apiKey}` } },
     );
     console.log("[places/search] Kakao response status:", res.status);
     if (res.ok) {
@@ -97,7 +98,7 @@ async function searchDomestic(query: string): Promise<Place[]> {
       console.log("[places/search] Kakao API Response:", JSON.stringify(data));
       return (data.documents ?? []).slice(0, 8).map(kakaoDocToPlace);
     }
-    console.log("[places/search] Kakao API error body:", await res.text());
+    console.error("[places/search] Kakao API error:", res.status, res.statusText, await res.text());
   }
   return filterByName(DOMESTIC_PLACES, query);
 }
