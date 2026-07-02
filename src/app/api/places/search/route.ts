@@ -16,9 +16,17 @@ export const dynamic = "force-dynamic";
  *    filter over the cached trend list when `KAKAO_REST_API_KEY` isn't
  *    configured, so search stays testable offline.
  */
+/** Friendly category filter -> Google Places `includedTypes`. "all"/unset means no filter. */
+const CATEGORY_TYPE_MAP: Record<string, string[]> = {
+  attraction: ["tourist_attraction", "park"],
+  lodging: ["lodging"],
+  restaurant: ["restaurant", "cafe"],
+};
+
 export async function GET(request: NextRequest) {
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
   const query = (request.nextUrl.searchParams.get("q") ?? "").trim();
+  const category = request.nextUrl.searchParams.get("category") ?? "all";
   if (!query) return NextResponse.json({ places: [] });
 
   if (region === "domestic") {
@@ -30,7 +38,8 @@ export async function GET(request: NextRequest) {
     console.error("[places/search] Google API Key is completely missing");
     return NextResponse.json({ error: "Google API Key is completely missing" }, { status: 500 });
   }
-  return NextResponse.json({ places: await searchInternational(query, googleApiKey) });
+  const includedTypes = CATEGORY_TYPE_MAP[category];
+  return NextResponse.json({ places: await searchInternational(query, googleApiKey, includedTypes) });
 }
 
 interface GooglePlaceResult {
@@ -42,7 +51,7 @@ interface GooglePlaceResult {
   primaryType?: string;
 }
 
-async function searchInternational(query: string, apiKey: string): Promise<Place[]> {
+async function searchInternational(query: string, apiKey: string, includedTypes?: string[]): Promise<Place[]> {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     cache: "no-store",
@@ -52,7 +61,11 @@ async function searchInternational(query: string, apiKey: string): Promise<Place
       "X-Goog-FieldMask":
         "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.primaryType",
     },
-    body: JSON.stringify({ textQuery: query }),
+    body: JSON.stringify({
+      textQuery: query,
+      maxResultCount: 10,
+      ...(includedTypes ? { includedTypes } : {}),
+    }),
   });
   console.log("[places/search] Google response status:", res.status);
   if (res.ok) {

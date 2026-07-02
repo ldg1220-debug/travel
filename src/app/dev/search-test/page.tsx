@@ -3,6 +3,13 @@
 import { useState } from "react";
 import type { Place, Region } from "@/lib/types";
 
+const CATEGORIES: { value: string; label: string }[] = [
+  { value: "all", label: "전체" },
+  { value: "attraction", label: "관광명소" },
+  { value: "lodging", label: "숙소" },
+  { value: "restaurant", label: "음식점" },
+];
+
 /**
  * Manual QA harness for src/app/api/places/search/route.ts — not linked
  * from any nav, just a direct URL to confirm Kakao Local (domestic) and
@@ -10,19 +17,20 @@ import type { Place, Region } from "@/lib/types";
  */
 export default function SearchTestPage() {
   const [region, setRegion] = useState<Region>("domestic");
+  const [category, setCategory] = useState("all");
   const [query, setQuery] = useState("");
   const [places, setPlaces] = useState<Place[] | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
 
   async function handleSearch() {
-    console.log("검색 버튼 클릭됨, region:", region, "query:", query);
+    console.log("검색 버튼 클릭됨, region:", region, "category:", category, "query:", query);
     const q = query.trim();
     if (!q) return;
     setStatus("loading");
     setErrorMessage("");
     try {
-      const url = `/api/places/search?region=${region}&q=${encodeURIComponent(q)}`;
+      const url = `/api/places/search?region=${region}&category=${category}&q=${encodeURIComponent(q)}`;
       console.log("fetch 호출 URL:", url);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`API responded with ${res.status}`);
@@ -60,6 +68,21 @@ export default function SearchTestPage() {
         >
           해외 (Google)
         </button>
+      </div>
+
+      <div className="flex gap-2">
+        {CATEGORIES.map((c) => (
+          <button
+            key={c.value}
+            type="button"
+            onClick={() => setCategory(c.value)}
+            className={`rounded-full px-3 py-1 text-sm font-medium ${
+              category === c.value ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
       </div>
 
       <div className="flex gap-2">
