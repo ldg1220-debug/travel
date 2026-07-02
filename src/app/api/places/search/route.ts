@@ -31,6 +31,7 @@ interface GooglePlaceResult {
 
 async function searchInternational(query: string): Promise<Place[]> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  console.log("[places/search] Using Google API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
     const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
@@ -42,10 +43,13 @@ async function searchInternational(query: string): Promise<Place[]> {
       },
       body: JSON.stringify({ textQuery: query }),
     });
+    console.log("[places/search] Google response status:", res.status);
     if (res.ok) {
       const data = (await res.json()) as { places?: GooglePlaceResult[] };
+      console.log("[places/search] Google API Response:", JSON.stringify(data));
       return (data.places ?? []).slice(0, 8).map(googlePlaceToPlace);
     }
+    console.log("[places/search] Google API error body:", await res.text());
   }
   return filterByName(await getTrendingPlaces(), query);
 }
@@ -79,15 +83,19 @@ interface KakaoLocalDocument {
 
 async function searchDomestic(query: string): Promise<Place[]> {
   const apiKey = process.env.KAKAO_REST_API_KEY;
+  console.log("[places/search] Using Kakao API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
     const res = await fetch(
       `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}`,
       { headers: { Authorization: `KakaoAK ${apiKey}` } },
     );
+    console.log("[places/search] Kakao response status:", res.status);
     if (res.ok) {
       const data = (await res.json()) as { documents?: KakaoLocalDocument[] };
+      console.log("[places/search] Kakao API Response:", JSON.stringify(data));
       return (data.documents ?? []).slice(0, 8).map(kakaoDocToPlace);
     }
+    console.log("[places/search] Kakao API error body:", await res.text());
   }
   return filterByName(DOMESTIC_PLACES, query);
 }
