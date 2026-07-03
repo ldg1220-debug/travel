@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Search,
@@ -44,6 +44,7 @@ import { fetchDiscoverBundle, fetchDiscoverSearch } from "@/lib/api";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
 import { SEASON_LABEL } from "@/lib/discoverData";
 import type {
+  CuisineTag,
   DiscoverRoute,
   DiscoverRouteStop,
   DiscoverScope,
@@ -84,6 +85,18 @@ const SEARCH_CATEGORY_FILTERS: { key: SpotCategoryFilter; label: string }[] = [
   { key: "술집", label: "술집" },
   { key: "숙소", label: "숙소" },
 ];
+
+/** Second-row sub-filter, shown only once 음식점 is the active category. */
+type CuisineFilter = "all" | CuisineTag;
+const CUISINE_FILTERS: { key: CuisineFilter; label: string }[] = [
+  { key: "all", label: "전체" },
+  { key: "일식", label: "일식" },
+  { key: "한식", label: "한식" },
+  { key: "양식/아시안", label: "양식/아시안" },
+  { key: "카페/디저트", label: "카페/디저트" },
+];
+
+const SEARCH_PAGE_LIMIT = 10;
 
 const SPOT_ICONS: Record<SpotIconKey, React.ComponentType<{ size?: number; className?: string }>> = {
   coffee: Coffee,
@@ -194,13 +207,6 @@ export default function DiscoverPage() {
     enabled: activeQuery.trim().length === 0,
   });
 
-  // ── search: only runs once the user actually submits (Enter / button) ──
-  const { data: searchData, isFetching: searching } = useQuery({
-    queryKey: ["discover-search", scope, activeQuery],
-    queryFn: () => fetchDiscoverSearch(scope, activeQuery),
-    enabled: activeQuery.trim().length > 0,
-  });
-
   const isSearching = activeQuery.trim().length > 0;
   const bundle = browseData?.bundle;
   const regionTree = browseData?.regionTree ?? [];
@@ -219,9 +225,6 @@ export default function DiscoverPage() {
     setExpandedSection(null);
     clearSearch();
   };
-
-  const searchSpots = searchData?.results.spots ?? [];
-  const popularRoutes = searchData?.results.routes ?? [];
 
   const handleAddSpot = (spot: DiscoverSpot) => setScheduleSpot(spotToPlace(spot));
 
@@ -415,10 +418,7 @@ export default function DiscoverPage() {
           <SearchResults
             key={activeQuery}
             query={activeQuery}
-            searching={searching}
-            routes={popularRoutes}
-            spots={searchSpots}
-            intentTag={searchData?.intentTag ?? null}
+            scope={scope}
             onAddSpot={handleAddSpot}
             onOpenDetail={handleOpenDetail}
             onPreviewRoute={setPreviewRoute}
@@ -646,62 +646,95 @@ function ExpandedSection({
   );
 }
 
-// ── search results: popular routes ranked by likes + category-filterable places ──
+/** Windows a page-number strip down to a readable size: 1, …, current-1, current, current+1, …, total. */
+function pageWindow(current: number, total: number): (number | "gap")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages = new Set([1, total, current - 1, current, current + 1]);
+  const sorted = Array.from(pages)
+    .filter((p) => p >= 1 && p <= total)
+    .sort((a, b) => a - b);
+  const result: (number | "gap")[] = [];
+  sorted.forEach((p, i) => {
+    if (i > 0 && p - (sorted[i - 1] as number) > 1) result.push("gap");
+    result.push(p);
+  });
+  return result;
+}
+
+// ── search results: popular routes ranked by likes + category/cuisine-filterable, server-paginated places ──
 function SearchResults({
   query,
-  searching,
-  routes,
-  spots,
-  intentTag,
+  scope,
   onAddSpot,
   onOpenDetail,
   onPreviewRoute,
 }: {
   query: string;
-  searching: boolean;
-  routes: DiscoverRoute[];
-  spots: DiscoverSpot[];
-  /** Category the query's intent keyword implied (e.g. "밥집" -> 음식점) — auto-activates that filter chip once the search resolves. */
-  intentTag: PlaceCategoryTag | null;
+  scope: DiscoverScope;
   onAddSpot: (spot: DiscoverSpot) => void;
   onOpenDetail: (spot: DiscoverSpot) => void;
   onPreviewRoute: (route: DiscoverRoute) => void;
 }) {
-  // Local to this component (remounted via `key={activeQuery}` in the
-  // parent), so a fresh search always starts back at "전체"/intentTag
-  // instead of carrying over whatever category the previous search had
-  // picked. `intentTag` only becomes known once the async search
-  // resolves — the component is already mounted (possibly showing the
-  // "검색 중…" state) by the time it arrives — so the filter is
-  // re-derived during render whenever `intentTag` actually changes
-  // (React's documented "adjusting state when a prop changes" pattern),
-  // rather than via an effect, which would cost an extra render pass.
-  const [categoryFilter, setCategoryFilter] = useState<SpotCategoryFilter>(intentTag ?? "all");
-  const [syncedIntentTag, setSyncedIntentTag] = useState(intentTag);
-  if (intentTag !== syncedIntentTag) {
-    setSyncedIntentTag(intentTag);
-    setCategoryFilter(intentTag ?? "all");
+  // All local to this component (remounted via `key={activeQuery}` in the
+  // parent), so a fresh search always starts back at 전체/page 1 instead
+  // of carrying over the previous search's filter/page.
+  const [categoryFilter, setCategoryFilter] = useState<SpotCategoryFilter>("all");
+  const [cuisineFilter, setCuisineFilter] = useState<CuisineFilter>("all");
+  const [page, setPage] = useState(1);
+  // Tracks whether the *user* has explicitly picked a category chip yet —
+  // until they have, the server's auto-detected intent (from "경주 밥집"
+  // style queries) is allowed to claim the chip on the response that
+  // first reveals it. Once the user's clicked something themselves, that
+  // auto-adoption never fires again for this search.
+  const [userPickedCategory, setUserPickedCategory] = useState(false);
+  const [autoSynced, setAutoSynced] = useState(false);
+
+  // category/cuisine filtering + pagination all happen server-side now —
+  // filtering client-side after the fact would only ever see whatever's
+  // on the current page, which breaks as soon as there's more than one
+  // page of a category. Sending "all" is equivalent to omitting the tag
+  // param (fetchDiscoverSearch already treats them the same), which is
+  // what lets the server's own intent-detection apply on the first load.
+  const { data, isFetching } = useQuery({
+    queryKey: ["discover-search", scope, query, categoryFilter, cuisineFilter, page],
+    queryFn: () => fetchDiscoverSearch(scope, query, { tag: categoryFilter, cuisine: cuisineFilter, page, limit: SEARCH_PAGE_LIMIT }),
+    // page/category/cuisine are all part of the query key, so each change
+    // is technically a brand-new query with no cache entry — without this,
+    // `data` would drop to undefined on every page click (React Query has
+    // no "previous page" to fall back to), collapsing the skeleton branch
+    // below (isFetching && Boolean(data)) back into the full-page "검색
+    // 중…" state instead of just refreshing the card grid.
+    placeholderData: keepPreviousData,
+  });
+
+  if (data && !autoSynced && !userPickedCategory) {
+    setAutoSynced(true);
+    if (data.appliedCategory !== "all") setCategoryFilter(data.appliedCategory as SpotCategoryFilter);
   }
 
-  const filteredSpots = useMemo(
-    () => (categoryFilter === "all" ? spots : spots.filter((s) => s.tag === categoryFilter)),
-    [spots, categoryFilter],
-  );
+  const handleCategoryClick = (key: SpotCategoryFilter) => {
+    setUserPickedCategory(true);
+    setCategoryFilter(key);
+    setCuisineFilter("all");
+    setPage(1);
+  };
+  const handleCuisineClick = (key: CuisineFilter) => {
+    setCuisineFilter(key);
+    setPage(1);
+  };
 
-  const groupedSpots = useMemo(() => {
-    const groups = new Map<PlaceCategoryTag, DiscoverSpot[]>();
-    for (const spot of filteredSpots) {
-      const list = groups.get(spot.tag) ?? [];
-      list.push(spot);
-      groups.set(spot.tag, list);
-    }
-    return Array.from(groups.entries());
-  }, [filteredSpots]);
-
-  if (searching) {
+  const isInitialLoading = isFetching && !data;
+  if (isInitialLoading) {
     return <div className="py-20 text-center text-sm text-slate-400">&ldquo;{query}&rdquo; 검색 중…</div>;
   }
-  if (routes.length === 0 && spots.length === 0) {
+  if (!data) return null;
+
+  const { spots, routes } = data.results;
+  const { total, hasMore } = data.pagination;
+  const totalPages = Math.max(1, Math.ceil(total / SEARCH_PAGE_LIMIT));
+  const isRefetching = isFetching && Boolean(data);
+
+  if (routes.length === 0 && total === 0 && !isRefetching) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-20 text-center">
         <p className="text-sm text-slate-500">&ldquo;{query}&rdquo;에 대한 결과가 없어요.</p>
@@ -710,9 +743,23 @@ function SearchResults({
     );
   }
 
+  // Only "전체" can mix tags on one page (a specific chip is already
+  // server-filtered to a single tag) — group by tag purely for display,
+  // no filtering happens here.
+  const groupedSpots: [PlaceCategoryTag, DiscoverSpot[]][] = (() => {
+    if (categoryFilter !== "all") return spots.length > 0 ? [[categoryFilter, spots]] : [];
+    const groups = new Map<PlaceCategoryTag, DiscoverSpot[]>();
+    for (const spot of spots) {
+      const list = groups.get(spot.tag) ?? [];
+      list.push(spot);
+      groups.set(spot.tag, list);
+    }
+    return Array.from(groups.entries());
+  })();
+
   return (
     <div className="space-y-12">
-      {routes.length > 0 && (
+      {routes.length > 0 && page === 1 && (
         <section>
           <SectionHeader icon={Crown} iconClass="text-amber-500" emoji="🏆" title={`"${query}" 인기 루트`} caption="좋아요 · 조회수가 높은 여행자들의 루트" />
           <div className="-mt-6 mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -723,7 +770,7 @@ function SearchResults({
         </section>
       )}
 
-      {spots.length > 0 && (
+      {(total > 0 || isRefetching) && (
         <section>
           <SectionHeader
             icon={MapIcon}
@@ -738,7 +785,7 @@ function SearchResults({
               return (
                 <button
                   key={c.key}
-                  onClick={() => setCategoryFilter(c.key)}
+                  onClick={() => handleCategoryClick(c.key)}
                   className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                     active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                   }`}
@@ -749,7 +796,33 @@ function SearchResults({
             })}
           </div>
 
-          {groupedSpots.length === 0 ? (
+          {/* 음식점 세부 카테고리 — 일식/한식/양식·아시안/카페·디저트 */}
+          {categoryFilter === "음식점" && (
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {CUISINE_FILTERS.map((c) => {
+                const active = cuisineFilter === c.key;
+                return (
+                  <button
+                    key={c.key}
+                    onClick={() => handleCuisineClick(c.key)}
+                    className={`rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
+                      active ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-indigo-300"
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {isRefetching ? (
+            <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+              {Array.from({ length: Math.min(SEARCH_PAGE_LIMIT, 8) }, (_, i) => (
+                <SpotCardSkeleton key={i} />
+              ))}
+            </div>
+          ) : groupedSpots.length === 0 ? (
             <p className="mt-8 text-center text-[13px] text-slate-400">이 카테고리에는 결과가 없어요.</p>
           ) : (
             <div className="mt-6 space-y-8">
@@ -757,11 +830,13 @@ function SearchResults({
                 const TagIcon = CATEGORY_ICONS[tag];
                 return (
                   <div key={tag}>
-                    <div className="mb-3 flex items-center gap-1.5 text-[13px] font-bold text-slate-700">
-                      <TagIcon size={14} className="text-slate-400" />
-                      {tag}
-                      <span className="text-[11px] font-medium text-slate-400">{tagSpots.length}</span>
-                    </div>
+                    {categoryFilter === "all" && (
+                      <div className="mb-3 flex items-center gap-1.5 text-[13px] font-bold text-slate-700">
+                        <TagIcon size={14} className="text-slate-400" />
+                        {tag}
+                        <span className="text-[11px] font-medium text-slate-400">{tagSpots.length}</span>
+                      </div>
+                    )}
                     <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                       {tagSpots.map((spot) => (
                         <SpotCard key={spot.id} spot={spot} onAdd={() => onAddSpot(spot)} onOpenDetail={() => onOpenDetail(spot)} />
@@ -772,8 +847,60 @@ function SearchResults({
               })}
             </div>
           )}
+
+          {totalPages > 1 && (
+            <div className="mt-8 flex items-center justify-center gap-1.5">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1 || isFetching}
+                aria-label="이전 페이지"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 disabled:opacity-30"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              {pageWindow(page, totalPages).map((p, i) =>
+                p === "gap" ? (
+                  <span key={`gap-${i}`} className="px-1 text-[12px] text-slate-300">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    disabled={isFetching}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full text-[12.5px] font-semibold tabular-nums transition-colors ${
+                      p === page ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ),
+              )}
+              <button
+                onClick={() => setPage((p) => (hasMore ? p + 1 : p))}
+                disabled={!hasMore || isFetching}
+                aria-label="다음 페이지"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 disabled:opacity-30"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
         </section>
       )}
+    </div>
+  );
+}
+
+function SpotCardSkeleton() {
+  return (
+    <div className="animate-pulse overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm">
+      <div className="h-28 bg-slate-200" />
+      <div className="space-y-2 px-3 pb-3 pt-6">
+        <div className="h-3.5 w-3/4 rounded bg-slate-200" />
+        <div className="h-3 w-1/2 rounded bg-slate-100" />
+        <div className="mt-3 h-6 w-full rounded-full bg-slate-100" />
+      </div>
     </div>
   );
 }

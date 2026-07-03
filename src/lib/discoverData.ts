@@ -26,6 +26,9 @@ export type PlaceCategoryTag =
 /** String key for a lucide icon — kept serializable so this data can flow through a JSON API route. */
 export type SpotIconKey = "coffee" | "camera" | "waves" | "landmark" | "utensils" | "pin" | "tent" | "wine" | "building" | "hotel";
 
+/** 음식점-only sub-category, surfaced as a second row of filter chips once 음식점 is the active category. */
+export type CuisineTag = "일식" | "한식" | "양식/아시안" | "카페/디저트";
+
 export interface DiscoverSpot {
   id: string;
   name: string;
@@ -38,6 +41,10 @@ export interface DiscoverSpot {
   lat: number;
   lng: number;
   color: string;
+  /** Only meaningful for tag === "음식점" — which sub-category chip this falls under. */
+  cuisine?: CuisineTag;
+  /** Specific dish/menu keywords ("라멘", "스시", ...) — matched by search in addition to name/region/tag, so a dish-specific query like "오사카 라멘" returns every ramen-adjacent place, not just ones with "라멘" literally in their name. */
+  subTags?: string[];
 }
 
 export interface DiscoverRouteStop {
@@ -113,6 +120,8 @@ function generateSpots(
   baseLat: number,
   baseLng: number,
   savesStart: number,
+  /** Per-name (same index as `names`) cuisine/subTags — only relevant for tag === "음식점". */
+  extras?: { cuisine?: CuisineTag; subTags?: string[] }[],
 ): DiscoverSpot[] {
   return names.map((name, i) => {
     const angle = i * 2.4; // spreads points around the seed coordinate instead of a straight line
@@ -129,6 +138,8 @@ function generateSpots(
       lat: baseLat + Math.cos(angle) * radius,
       lng: baseLng + Math.sin(angle) * radius,
       color: GENERATED_COLORS[i % GENERATED_COLORS.length],
+      cuisine: extras?.[i]?.cuisine,
+      subTags: extras?.[i]?.subTags,
     };
   });
 }
@@ -323,6 +334,19 @@ const GYEONGJU_FOOD_NAMES = [
   "보문호수 브런치하우스",
   "불국사 산채정식",
 ];
+// Same order/index as GYEONGJU_FOOD_NAMES above.
+const GYEONGJU_FOOD_EXTRAS: { cuisine: CuisineTag; subTags: string[] }[] = [
+  { cuisine: "한식", subTags: ["한정식", "전통음식"] },
+  { cuisine: "한식", subTags: ["갈비탕", "한우"] },
+  { cuisine: "한식", subTags: ["한우", "꽃등심"] },
+  { cuisine: "한식", subTags: ["국밥", "순대국"] },
+  { cuisine: "일식", subTags: ["스시", "오마카세"] },
+  { cuisine: "한식", subTags: ["밀면", "냉면"] },
+  { cuisine: "한식", subTags: ["한우", "갈비"] },
+  { cuisine: "한식", subTags: ["전통주", "안주"] },
+  { cuisine: "양식/아시안", subTags: ["브런치", "파스타"] },
+  { cuisine: "한식", subTags: ["산채정식", "사찰음식"] },
+];
 const GYEONGJU_LODGING_NAMES = [
   "신라스테이 경주",
   "켄싱턴리조트 경주",
@@ -363,6 +387,23 @@ const OSAKA_FOOD_NAMES = [
   "오사카 오모니식당",
   "츠루하시 야키니쿠거리",
 ];
+// Same order/index as OSAKA_FOOD_NAMES above. A few entries carry a
+// secondary "라멘" subTag on top of their main dish (many 규카츠/다코야키
+// spots realistically also run a ramen menu) so a dish-specific search
+// like "오사카 라멘" surfaces a full spread, not just the 1-2 places with
+// literally "라멘" in the name.
+const OSAKA_FOOD_EXTRAS: { cuisine: CuisineTag; subTags: string[] }[] = [
+  { cuisine: "일식", subTags: ["규카츠", "돈카츠", "라멘"] },
+  { cuisine: "일식", subTags: ["스시", "회전초밥"] },
+  { cuisine: "일식", subTags: ["오코노미야키", "철판요리"] },
+  { cuisine: "일식", subTags: ["쿠시카츠", "튀김꼬치"] },
+  { cuisine: "일식", subTags: ["다코야키", "길거리음식", "라멘"] },
+  { cuisine: "일식", subTags: ["스시", "오마카세"] },
+  { cuisine: "일식", subTags: ["규카츠", "돈카츠", "라멘"] },
+  { cuisine: "일식", subTags: ["라멘", "돈코츠라멘"] },
+  { cuisine: "한식", subTags: ["한식", "코리아타운"] },
+  { cuisine: "일식", subTags: ["야키니쿠", "숯불구이"] },
+];
 const OSAKA_LODGING_NAMES = [
   "신사이바시 프리미어호텔",
   "난바 백패커스호스텔",
@@ -376,24 +417,93 @@ const OSAKA_LODGING_NAMES = [
   "오사카성뷰 레지던스",
 ];
 
+// Splits a generated batch across trending/favorites (first `trendingCount`
+// names go to trending) instead of dumping everything into favorites —
+// otherwise drilling 지역별 down to a specific neighborhood/city can leave
+// "Trending Now" with only the 1-2 hand-authored entries that happened to
+// live there, well under a readable minimum. Two distinct id-prefix
+// suffixes keep every id unique even though both slices share the same
+// `names` array (and therefore the same starting index 0 for coordinate
+// jitter, which is fine — it's just a visual spread, not a real position).
+function pushGeneratedBatch(
+  bundle: DiscoverBundle,
+  idPrefix: string,
+  names: string[],
+  region: string,
+  tag: PlaceCategoryTag,
+  iconKey: SpotIconKey,
+  baseLat: number,
+  baseLng: number,
+  savesStart: number,
+  trendingCount: number,
+  extras?: { cuisine?: CuisineTag; subTags?: string[] }[],
+): void {
+  const trendingNames = names.slice(0, trendingCount);
+  const favoritesNames = names.slice(trendingCount);
+  const trendingExtras = extras?.slice(0, trendingCount);
+  const favoritesExtras = extras?.slice(trendingCount);
+  bundle.trending.push(...generateSpots(`${idPrefix}-t`, trendingNames, region, tag, iconKey, baseLat, baseLng, savesStart, trendingExtras));
+  bundle.favorites.push(
+    ...generateSpots(`${idPrefix}-f`, favoritesNames, region, tag, iconKey, baseLat, baseLng, savesStart - trendingCount * 65, favoritesExtras),
+  );
+}
+
 // 경주 관광지/음식점 already cluster around 황남동 (황리단길); 숙소 around
 // 보문동 (the lake resort area) — reuses the same neighborhoods the
 // hand-authored entries above already use, rather than inventing new ones.
-DOMESTIC.favorites.push(
-  ...generateSpots("d-gj-attr", GYEONGJU_ATTRACTION_NAMES, "경주 · 황남동", "관광지", "landmark", 35.8356, 129.2115, 2200),
-  ...generateSpots("d-gj-food", GYEONGJU_FOOD_NAMES, "경주 · 황남동", "음식점", "utensils", 35.8342, 129.211, 1600),
-  ...generateSpots("d-gj-stay", GYEONGJU_LODGING_NAMES, "경주 · 보문동", "숙소", "hotel", 35.8395, 129.269, 1100),
-);
+pushGeneratedBatch(DOMESTIC, "d-gj-attr", GYEONGJU_ATTRACTION_NAMES, "경주 · 황남동", "관광지", "landmark", 35.8356, 129.2115, 2200, 4);
+pushGeneratedBatch(DOMESTIC, "d-gj-food", GYEONGJU_FOOD_NAMES, "경주 · 황남동", "음식점", "utensils", 35.8342, 129.211, 1600, 4, GYEONGJU_FOOD_EXTRAS);
+pushGeneratedBatch(DOMESTIC, "d-gj-stay", GYEONGJU_LODGING_NAMES, "경주 · 보문동", "숙소", "hotel", 35.8395, 129.269, 1100, 4);
+pushGeneratedBatch(OVERSEAS, "o-osk-attr", OSAKA_ATTRACTION_NAMES, "일본 · 오사카", "관광지", "landmark", 34.68, 135.505, 3200, 4);
+pushGeneratedBatch(OVERSEAS, "o-osk-food", OSAKA_FOOD_NAMES, "일본 · 오사카", "음식점", "utensils", 34.671, 135.503, 2400, 4, OSAKA_FOOD_EXTRAS);
+pushGeneratedBatch(OVERSEAS, "o-osk-stay", OSAKA_LODGING_NAMES, "일본 · 오사카", "숙소", "hotel", 34.669, 135.501, 1800, 4);
+
+// ── global expansion: 유럽(영국/프랑스), 미주(미국/캐나다) — previously
+// every overseas spot was in 아시아 (일본/베트남), so 지역별 only ever
+// had one continent to drill into. A small real seed per country is
+// enough to populate the tree; matchesRegionPath's country-level fallback
+// (in the API route) covers any city under these that has no data yet. ──
 OVERSEAS.favorites.push(
-  ...generateSpots("o-osk-attr", OSAKA_ATTRACTION_NAMES, "일본 · 오사카", "관광지", "landmark", 34.68, 135.505, 3200),
-  ...generateSpots("o-osk-food", OSAKA_FOOD_NAMES, "일본 · 오사카", "음식점", "utensils", 34.671, 135.503, 2400),
-  ...generateSpots("o-osk-stay", OSAKA_LODGING_NAMES, "일본 · 오사카", "숙소", "hotel", 34.669, 135.501, 1800),
+  { id: "o-uk1", name: "빅벤 & 웨스트민스터", region: "영국 · 런던", tag: "관광지", season: "spring", saves: 4200, gradient: "from-indigo-400 to-purple-300", iconKey: "landmark", lat: 51.4994, lng: -0.1245, color: "#818cf8" },
+  { id: "o-uk2", name: "버킹엄 궁전", region: "영국 · 런던", tag: "관광지", season: "summer", saves: 3800, gradient: "from-rose-400 to-pink-300", iconKey: "landmark", lat: 51.5014, lng: -0.1419, color: "#fb7185" },
+  { id: "o-uk3", name: "캄든마켓 피시앤칩스", region: "영국 · 런던", tag: "음식점", season: "fall", saves: 2100, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 51.5416, lng: -0.1465, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["피시앤칩스", "스트리트푸드"] },
+  { id: "o-fr1", name: "에펠탑", region: "프랑스 · 파리", tag: "관광지", season: "spring", saves: 9200, gradient: "from-sky-400 to-blue-300", iconKey: "landmark", lat: 48.8584, lng: 2.2945, color: "#38bdf8" },
+  { id: "o-fr2", name: "루브르 박물관", region: "프랑스 · 파리", tag: "박물관", season: "winter", saves: 7100, gradient: "from-violet-400 to-fuchsia-300", iconKey: "building", lat: 48.8606, lng: 2.3376, color: "#a78bfa" },
+  { id: "o-fr3", name: "몽마르뜨 크레페거리", region: "프랑스 · 파리", tag: "음식점", season: "fall", saves: 2600, gradient: "from-rose-400 to-orange-300", iconKey: "utensils", lat: 48.8867, lng: 2.3431, color: "#fb7185", cuisine: "양식/아시안", subTags: ["크레페", "디저트"] },
+  { id: "o-us1", name: "타임스퀘어", region: "미국 · 뉴욕", tag: "관광지", season: "winter", saves: 8600, gradient: "from-red-400 to-orange-300", iconKey: "landmark", lat: 40.758, lng: -73.9855, color: "#f87171" },
+  { id: "o-us2", name: "센트럴파크", region: "미국 · 뉴욕", tag: "자연", season: "fall", saves: 6900, gradient: "from-lime-400 to-green-300", iconKey: "waves", lat: 40.7829, lng: -73.9654, color: "#a3e635" },
+  { id: "o-us3", name: "브루클린 피자거리", region: "미국 · 뉴욕", tag: "음식점", season: "summer", saves: 3300, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 40.7081, lng: -73.9571, color: "#fb923c", cuisine: "양식/아시안", subTags: ["피자", "뉴욕스타일"] },
+  { id: "o-ca1", name: "스탠리파크", region: "캐나다 · 밴쿠버", tag: "자연", season: "summer", saves: 4100, gradient: "from-emerald-400 to-teal-300", iconKey: "waves", lat: 49.3017, lng: -123.1417, color: "#34d399" },
+  { id: "o-ca2", name: "그랜빌아일랜드 마켓", region: "캐나다 · 밴쿠버", tag: "음식점", season: "spring", saves: 2400, gradient: "from-amber-400 to-yellow-300", iconKey: "utensils", lat: 49.2714, lng: -123.1341, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["마켓", "브런치"] },
 );
 
 export const DISCOVER_DATA: Record<DiscoverScope, DiscoverBundle> = {
   domestic: DOMESTIC,
   overseas: OVERSEAS,
 };
+
+// ── hand-authored 음식점 spots from earlier rounds predate cuisine/subTags
+// — backfilled here by id instead of editing each literal above, so the
+// large existing object literals stay untouched. ──
+const FOOD_METADATA: Record<string, { cuisine: CuisineTag; subTags: string[] }> = {
+  "d-f3": { cuisine: "한식", subTags: ["전통시장", "길거리음식"] }, // 광장시장 먹자골목
+  "d-f8": { cuisine: "한식", subTags: ["한정식", "전통음식"] }, // 교촌마을 한옥 맛집
+  "d-f9": { cuisine: "일식", subTags: ["라멘", "돈코츠라멘"] }, // 황리단길 라멘하우스
+  "d-f10": { cuisine: "일식", subTags: ["야키니쿠", "숯불구이"] }, // 경주 야키니쿠 스미비
+  "d-f11": { cuisine: "카페/디저트", subTags: ["황남빵", "베이커리"] }, // 황남빵 본점
+  "o-f2": { cuisine: "일식", subTags: ["라멘", "돈코츠라멘"] }, // 이치란 라멘 본점
+  "o-f5": { cuisine: "일식", subTags: ["다코야키", "길거리음식"] }, // 도톤보리 타코야키 왕골목
+  "o-f6": { cuisine: "일식", subTags: ["야키니쿠", "규카쿠"] }, // 신사이바시 야키니쿠 규카쿠
+  "o-f7": { cuisine: "일식", subTags: ["라멘", "라멘스트리트"] }, // 우메다 라멘 스트리트
+  "o-f8": { cuisine: "일식", subTags: ["스시", "시장회", "라멘"] }, // 쿠로몬 시장 스시
+};
+for (const spot of [...DOMESTIC.trending, ...DOMESTIC.favorites, ...OVERSEAS.trending, ...OVERSEAS.favorites]) {
+  const meta = FOOD_METADATA[spot.id];
+  if (meta) {
+    spot.cuisine = meta.cuisine;
+    spot.subTags = meta.subTags;
+  }
+}
 
 /** All spots in a scope's trending + favorites lists, deduped by id. */
 export function allSpots(scope: DiscoverScope): DiscoverSpot[] {
@@ -406,13 +516,17 @@ export function allSpots(scope: DiscoverScope): DiscoverSpot[] {
  * 도시" (overseas, e.g. "일본 · 오사카") or "시도 · 동네" (domestic, e.g.
  * "제주 · 애월") everywhere in this file, so the tree is derived from that
  * string rather than adding a parallel field to every spot. Overseas gets
- * a real 3-level 대륙→국가→도시 tree (every current country happens to be
- * in 아시아, but the structure holds for adding more); domestic stops at
- * 2 levels (시도→동네) since "대륙/국가" doesn't mean anything within Korea.
+ * a real 3-level 대륙→국가→도시 tree across 아시아/유럽/미주; domestic
+ * stops at 2 levels (시도→동네) since "대륙/국가" doesn't mean anything
+ * within Korea.
  */
 const COUNTRY_CONTINENT: Record<string, string> = {
   일본: "아시아",
   베트남: "아시아",
+  영국: "유럽",
+  프랑스: "유럽",
+  미국: "미주",
+  캐나다: "미주",
 };
 
 export interface RegionNode {
@@ -484,11 +598,16 @@ function queryTokens(query: string): string[] {
   return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
-/** Free-text match over a spot's name/region/tag — every token must appear somewhere (AND, not one exact phrase). */
+/**
+ * Free-text match over a spot's name/region/tag/cuisine/subTags — every
+ * token must appear somewhere (AND, not one exact phrase). subTags is
+ * what lets a dish-specific query like "오사카 라멘" surface every
+ * ramen-adjacent place, not just ones with "라멘" literally in the name.
+ */
 export function spotMatches(spot: DiscoverSpot, query: string): boolean {
   const tokens = queryTokens(query);
   if (tokens.length === 0) return false;
-  const haystack = `${spot.name} ${spot.region} ${spot.tag}`.toLowerCase();
+  const haystack = `${spot.name} ${spot.region} ${spot.tag} ${spot.cuisine ?? ""} ${(spot.subTags ?? []).join(" ")}`.toLowerCase();
   return tokens.every((t) => haystack.includes(t));
 }
 
@@ -529,6 +648,37 @@ const INTENT_KEYWORDS: { keyword: string; tag: PlaceCategoryTag }[] = [
 ];
 INTENT_KEYWORDS.sort((a, b) => b.keyword.length - a.keyword.length);
 
+/**
+ * Specific dish/menu words — unlike INTENT_KEYWORDS these don't get
+ * stripped out of the query (they're also useful as an actual subTags
+ * match term: "오사카 라멘" should still narrow results to ramen places,
+ * not just "오사카" broadly), but they signal food intent just as
+ * strongly as an explicit "맛집"/"음식점" suffix would.
+ */
+const FOOD_DISH_KEYWORDS = [
+  "라멘",
+  "스시",
+  "초밥",
+  "야키니쿠",
+  "오코노미야키",
+  "다코야키",
+  "규카츠",
+  "쿠시카츠",
+  "돈카츠",
+  "우동",
+  "한우",
+  "갈비",
+  "갈비탕",
+  "냉면",
+  "밀면",
+  "국밥",
+  "파스타",
+  "브런치",
+  "디저트",
+  "케이크",
+  "피자",
+];
+
 export interface ParsedSearchQuery {
   /** The query with any recognized intent keyword removed — this is what actually gets matched against names/regions. Empty if the query was *only* the intent keyword (e.g. just "맛집" with no city). */
   coreQuery: string;
@@ -540,7 +690,10 @@ export interface ParsedSearchQuery {
  * Strips a trailing/embedded intent keyword ("맛집", "숙소", "호텔", ...)
  * out of a raw search query, so "경주 밥집" is handled as "search 경주,
  * and the user wants 음식점" instead of failing to match anything because
- * no place's name or region literally contains the word "밥집".
+ * no place's name or region literally contains the word "밥집". A query
+ * with no explicit intent suffix but a recognizable dish name ("오사카
+ * 라멘") is treated the same way — 음식점 intent, dish word kept in the
+ * core query since it's also a real subTags match term.
  */
 export function parseSearchQuery(raw: string): ParsedSearchQuery {
   const trimmed = raw.trim();
@@ -549,6 +702,10 @@ export function parseSearchQuery(raw: string): ParsedSearchQuery {
       const core = trimmed.split(keyword).join(" ").replace(/\s+/g, " ").trim();
       return { coreQuery: core, intentTag: tag };
     }
+  }
+  const tokens = queryTokens(trimmed);
+  if (tokens.some((t) => FOOD_DISH_KEYWORDS.includes(t))) {
+    return { coreQuery: trimmed, intentTag: "음식점" };
   }
   return { coreQuery: trimmed, intentTag: null };
 }

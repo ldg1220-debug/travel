@@ -1,5 +1,5 @@
 import type { ItineraryItem, Place, Region } from "./types";
-import type { DiscoverBundle, DiscoverScope, DiscoverSpot, DiscoverRoute, PlaceCategoryTag, RegionNode, Season } from "./discoverData";
+import type { CuisineTag, DiscoverBundle, DiscoverScope, DiscoverSpot, DiscoverRoute, PlaceCategoryTag, RegionNode, Season } from "./discoverData";
 
 export async function fetchTrendingPlaces(region: Region): Promise<Place[]> {
   const res = await fetch(`/api/trends?region=${region}`);
@@ -82,15 +82,46 @@ export async function fetchDiscoverBundle(
   return res.json();
 }
 
-export interface DiscoverSearchResponse {
-  results: { spots: DiscoverSpot[]; routes: DiscoverRoute[] };
-  /** Category implied by an intent keyword in the query (e.g. "밥집" -> 음식점), for auto-activating the results' filter chip. Null if the query had no recognizable intent keyword. */
-  intentTag: PlaceCategoryTag | null;
+export interface DiscoverSearchPagination {
+  page: number;
+  limit: number;
+  /** Total matching spots (post category/cuisine filter, pre-pagination) — drives the page-number UI. */
+  total: number;
+  hasMore: boolean;
+  /** Mocked for shape-compatibility with a real Places API paged response — not currently decoded, paging is driven by `page` directly. */
+  nextPageToken: string | null;
 }
 
-/** Free-text search across /discover's spots + routes for the given scope. */
-export async function fetchDiscoverSearch(scope: DiscoverScope, query: string): Promise<DiscoverSearchResponse> {
+export interface DiscoverSearchResponse {
+  /** `spots` is just the current page (<= limit items) — routes are small enough to stay unpaginated. */
+  results: { spots: DiscoverSpot[]; routes: DiscoverRoute[] };
+  /** Category implied by an intent keyword or dish name in the query (e.g. "밥집"/"라멘" -> 음식점), for auto-activating the results' filter chip. Null if the query had no recognizable intent. */
+  intentTag: PlaceCategoryTag | null;
+  /** The category actually applied server-side: an explicit `tag` override, else `intentTag`, else "all". */
+  appliedCategory: PlaceCategoryTag | "all";
+  pagination: DiscoverSearchPagination;
+}
+
+export interface DiscoverSearchOptions {
+  /** Explicit category chip override — omit to let the server fall back to the query's detected intent. */
+  tag?: PlaceCategoryTag | "all";
+  /** 음식점 sub-filter — only meaningful when tag (or the detected intent) is 음식점. */
+  cuisine?: CuisineTag | "all";
+  page?: number;
+  limit?: number;
+}
+
+/** Free-text, server-side-paginated search across /discover's spots + routes for the given scope. */
+export async function fetchDiscoverSearch(
+  scope: DiscoverScope,
+  query: string,
+  options: DiscoverSearchOptions = {},
+): Promise<DiscoverSearchResponse> {
   const params = new URLSearchParams({ scope, q: query });
+  if (options.tag && options.tag !== "all") params.set("tag", options.tag);
+  if (options.cuisine && options.cuisine !== "all") params.set("cuisine", options.cuisine);
+  if (options.page) params.set("page", String(options.page));
+  if (options.limit) params.set("limit", String(options.limit));
   const res = await fetch(`/api/discover/trends?${params.toString()}`);
   if (!res.ok) throw new Error("Discover search failed");
   return res.json();

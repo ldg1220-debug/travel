@@ -992,3 +992,74 @@ back to all 15 domestic 음식점 with 음식점 still pre-selected; "경주
 unrelated string still shows the "결과가 없어요" empty state; and 전체
 remains clickable after landing on an auto-activated chip. tsc/eslint/
 build clean, no console errors during the pass.
+
+### 탐색 탭 품질 + 서버 사이드 페이지네이션
+
+Two combined follow-ups: (1) search relevance/volume — 음식점 needed a
+sub-category, food-intent searches surfaced unrelated routes, and
+regions never went beyond 아시아; (2) the search spot list was fetched
+and filtered entirely client-side, which doesn't scale and doesn't match
+how a real Places-API-backed endpoint would behave.
+
+**Relevance & volume:**
+- `DiscoverSpot` gained `cuisine?: CuisineTag` (일식/한식/양식·아시안/
+  카페·디저트) and `subTags?: string[]` (구체적 메뉴 키워드, e.g. `["라멘",
+  "돈코츠라멘"]`). `spotMatches` now checks both, so a dish-specific query
+  like "오사카 라멘" matches every ramen-adjacent subTag, not just names
+  containing the literal word — 6 results instead of 2.
+- `parseSearchQuery` gained a `FOOD_DISH_KEYWORDS` fallback: a query with
+  no explicit "맛집"/"음식점" suffix but a recognizable dish name (라멘,
+  스시, 야키니쿠, …) still resolves `intentTag: "음식점"`, unlike the
+  suffix keywords the dish word stays in the core query since it's also
+  a real subTags match term.
+- 음식점 category chip now reveals a second row of cuisine sub-chips
+  (전체/일식/한식/양식·아시안/카페·디저트), filtered server-side.
+- Route sorting: when the search intent is 음식점, routes with
+  먹방/맛집/카페/미식 in the title or subtitle rank above everything else
+  (stable secondary sort by likes) — "경주 맛집" no longer surfaces
+  "경주 역사 탐방 코스" ahead of a food-relevant route.
+- `COUNTRY_CONTINENT` + seed spots for 유럽 (영국·런던, 프랑스·파리) and
+  미주 (미국·뉴욕, 캐나다·밴쿠버) — 지역별 previously only ever had 아시아
+  to drill into. A leaf city with nothing now falls back one path segment
+  at a time (city → country → scope-wide) before giving up, so "준비 중"
+  recommendations stay geographically relevant.
+- `generateSpots()`-produced batches (경주/오사카) now split across
+  `trending`+`favorites` instead of dumping everything into `favorites` —
+  narrow region/season filters were leaving "Trending Now" with 1-2 lonely
+  cards; a new `padTrending()` also backfills from same-filtered
+  favorites up to a 4-card minimum for *any* city/season selection, not
+  just the ones with generated data.
+
+**Server-side pagination:**
+- `/api/discover/trends`'s `q=` handler now accepts `tag` (explicit
+  category override — defaults to the detected `intentTag`, then "all"),
+  `cuisine`, `page` (default 1), and `limit` (default 10). Category/
+  cuisine filtering happens server-side *before* pagination, so a chip
+  switch and a page click both only ever compute/return the current
+  page's spots — never the full matched set. The response's `pagination`
+  block (`page`/`limit`/`total`/`hasMore`/`nextPageToken`) mirrors the
+  shape a real Places API paged response would use (`nextPageToken` is
+  mocked — this app pages off `page` directly — purely so a later live
+  API swap is a drop-in rather than a redesign).
+- `SearchResults` moved its data-fetching in-component (previously the
+  parent fetched and passed props down) so it can own category/cuisine/
+  page state and react-query's `placeholderData: keepPreviousData` — that
+  keepPreviousData option turned out to matter more than expected: since
+  `page` is part of the query key, switching pages is technically a brand
+  new query with no cache entry, so without it `data` would drop to
+  `undefined` on every page click and collapse straight to the full-page
+  "검색 중…" state instead of the intended card-grid-only skeleton — this
+  was caught by an actual failing browser-test assertion, not just code
+  review, and confirmed fixed by rerunning it.
+- Numbered page buttons (windowed to a readable size past 7 pages) at the
+  bottom of the "카테고리별 장소" section; clicking one shows a skeleton
+  grid over just the spot cards while refetching, then swaps to the new
+  page's cards — chips, routes, and the rest of the page never move.
+
+Verified in the browser: 음식점 → 일식 sub-chip filters correctly;
+"경주 맛집" ranks a 카페 route above the unrelated 역사 탐방 코스; "오사카
+라멘" returns 6 results; 지역별 → 유럽 shows 영국/프랑스; a narrow
+경주 → 황남동 drill-down shows exactly 4 Trending Now cards; a bare
+"맛집" search (15 domestic 음식점 total) shows page 1 capped at 10 cards
+with a working page-2 button that skeleton-loads then swaps to different
+cards. tsc/eslint/build clean, no console errors during the pass.
