@@ -1,10 +1,10 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { GoogleMap, InfoWindow, OverlayView, Polyline } from "@react-google-maps/api";
 import {
   DndContext,
   DragOverlay,
@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
+import { Pin } from "./MapMarkers";
 import { PlacesSearchInput } from "./PlacesSearchInput";
 import { PlaceSearchPanel } from "./PlaceSearchPanel";
 import { TrendSheet } from "./TrendSheet";
@@ -46,6 +47,13 @@ import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
 import { fetchSharedItinerary, pushSharedItinerary } from "@/lib/api";
 import type { ItineraryItem, Place } from "@/lib/types";
+
+// Always client-only: the Maps SDK/canvas must never be part of the
+// server-rendered (or hydration-replayed) HTML — see PlannerGoogleMap.tsx.
+const PlannerGoogleMap = dynamic(() => import("./PlannerGoogleMap"), {
+  ssr: false,
+  loading: () => <div className="flex h-full items-center justify-center text-sm text-slate-500">Loading map…</div>,
+});
 
 interface PlannerBoardProps {
   /** Set when viewing /planner/[shareToken] — enables collaborative polling sync. */
@@ -517,7 +525,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     >
       <div ref={boardRef} className="relative flex h-full flex-col overflow-hidden bg-white font-sans">
         {/* ── MAP AREA — real Google Maps, auto-fit to every visible place ── */}
-        <div className="relative h-[45%] shrink-0 overflow-hidden bg-[#eef2f4]">
+        {/* min-h is a safety floor: h-[45%] depends on the flex ancestor
+            chain resolving before the Maps SDK measures the container (it
+            only measures once, on mount) — without a concrete fallback
+            size, a layout race could leave the map permanently at 0px. */}
+        <div className="relative h-[45%] min-h-[260px] w-full shrink-0 overflow-hidden bg-[#eef2f4]">
           {tab === "schedule" && (
             <div className="absolute inset-x-3 top-3 z-20 flex items-center gap-2">
               <div className="min-w-0 flex-1">
@@ -549,90 +561,25 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             nearAnchors={schedule.map((s) => s.coordinates)}
           />
 
-          {mapsError ? (
-            <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-500">
-              Failed to load Google Maps.
-            </div>
-          ) : !mapsLoaded ? (
-            <div className="flex h-full items-center justify-center text-sm text-slate-500">Loading map…</div>
-          ) : (
-            <GoogleMap
-              mapContainerStyle={{ width: "100%", height: "100%" }}
-              center={mapCenter}
-              zoom={11}
-              onLoad={onMapLoad}
-              options={{ disableDefaultUI: true, zoomControl: true }}
-            >
-              {tab === "schedule" && (
-                <>
-                  {routePoints.length >= 2 && (
-                    <Polyline
-                      path={routePoints}
-                      options={{
-                        strokeOpacity: 0,
-                        icons: [
-                          {
-                            icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#111827", scale: 3 },
-                            offset: "0",
-                            repeat: "14px",
-                          },
-                        ],
-                      }}
-                    />
-                  )}
-
-                  {places.map((p) => (
-                    <OverlayView
-                      key={p.id}
-                      position={{ lat: p.lat, lng: p.lng }}
-                      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-                    >
-                      <MarkerContent
-                        place={p}
-                        order={orderByPlace[p.id]}
-                        pressing={pressingId === p.id}
-                        hidden={drag?.place.id === p.id}
-                        onDown={onDown}
-                        onUp={onUp}
-                        onMove={onMove}
-                        onCancel={cancelPress}
-                      />
-                    </OverlayView>
-                  ))}
-                </>
-              )}
-
-              {tab === "saved" && (
-                <>
-                  {savedPlaces.map((p) => (
-                    <OverlayView
-                      key={p.id}
-                      position={{ lat: p.lat, lng: p.lng }}
-                      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-                    >
-                      <div
-                        className="-translate-x-1/2 -translate-y-full cursor-pointer touch-none select-none"
-                        onClick={() => setSelectedSavedId(p.id)}
-                      >
-                        <Pin place={p} />
-                      </div>
-                    </OverlayView>
-                  ))}
-                  {selectedSavedPlace && (
-                    <InfoWindow
-                      position={{ lat: selectedSavedPlace.lat, lng: selectedSavedPlace.lng }}
-                      onCloseClick={() => setSelectedSavedId(null)}
-                    >
-                      <div className="px-1 py-0.5">
-                        <p className="text-[13px] font-semibold text-slate-900">{selectedSavedPlace.name}</p>
-                        <p className="text-[11px] text-slate-500">{selectedSavedPlace.category}</p>
-                      </div>
-                    </InfoWindow>
-                  )}
-                </>
-              )}
-            </GoogleMap>
-          )}
+          <PlannerGoogleMap
+            mapsError={Boolean(mapsError)}
+            mapsLoaded={mapsLoaded}
+            mapCenter={mapCenter}
+            onMapLoad={onMapLoad}
+            tab={tab}
+            routePoints={routePoints}
+            places={places}
+            orderByPlace={orderByPlace}
+            pressingId={pressingId}
+            draggingPlaceId={drag?.place.id ?? null}
+            onDown={onDown}
+            onUp={onUp}
+            onMove={onMove}
+            onCancel={cancelPress}
+            savedPlaces={savedPlaces}
+            selectedSavedPlace={selectedSavedPlace}
+            onSelectSaved={setSelectedSavedId}
+          />
         </div>
 
         {/* ── LOWER PANEL — 일정 timeline vs 관심 장소 search+list ── */}
@@ -1106,80 +1053,6 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
   );
 }
 
-interface MarkerContentProps {
-  place: Place;
-  order?: number;
-  pressing: boolean;
-  hidden: boolean;
-  onDown: (place: Place, e: React.PointerEvent) => void;
-  onUp: (place: Place) => void;
-  onMove: (e: React.PointerEvent) => void;
-  onCancel: () => void;
-}
-
-// Rendered inside an <OverlayView>, which already anchors its wrapper div
-// at the marker's projected lat/lng pixel (top-left) — the translate here
-// shifts that to a bottom-center pin anchor, same convention as the main
-// app's GoogleMapEngine.
-function MarkerContent({ place, order, pressing, hidden, onDown, onUp, onMove, onCancel }: MarkerContentProps) {
-  return (
-    <div
-      className="absolute -translate-x-1/2 -translate-y-full touch-none select-none"
-      style={{ left: 0, top: 0, opacity: hidden ? 0 : 1 }}
-    >
-      <motion.div
-        onPointerDown={(e) => onDown(place, e)}
-        onPointerUp={() => onUp(place)}
-        onPointerMove={onMove}
-        onPointerCancel={onCancel}
-        animate={{ scale: pressing ? 1.12 : 1 }}
-        transition={{ type: "spring", stiffness: 500, damping: 20 }}
-        className="relative cursor-pointer"
-      >
-        {pressing && (
-          <motion.span
-            initial={{ scale: 0.6, opacity: 0.9 }}
-            animate={{ scale: 1.4, opacity: 0 }}
-            transition={{ duration: 0.5 }}
-            className="absolute left-1/2 top-3.5 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
-            style={{ borderColor: place.color }}
-          />
-        )}
-        <div className="drop-shadow-lg">
-          <Pin place={place} />
-        </div>
-        {order && (
-          <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-slate-900 text-[11px] font-bold text-white">
-            {order}
-          </span>
-        )}
-      </motion.div>
-      <div className="absolute left-1/2 top-[46px] -translate-x-1/2 whitespace-nowrap">
-        <span className="rounded-full border border-slate-200/70 bg-white/95 px-2 py-px text-[10px] font-medium text-slate-700 shadow-sm">
-          {place.name}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ── teardrop pin ──
-export function Pin({ place, solid = false }: { place: Place; solid?: boolean }) {
-  return (
-    <div className="relative">
-      <svg width={40} height={52} viewBox="0 0 40 52">
-        <path
-          d="M20 2c9.9 0 18 7.8 18 17.5 0 12.6-14.7 26-16.7 27.7a2 2 0 0 1-2.6 0C16.7 45.5 2 32.1 2 19.5 2 9.8 10.1 2 20 2z"
-          fill={place.color}
-          stroke="white"
-          strokeWidth={2.5}
-          opacity={solid ? 1 : 0.95}
-        />
-        <circle cx={20} cy={19} r={11} fill="white" />
-      </svg>
-      <span className="absolute left-1/2 top-[9px] -translate-x-1/2">
-        <PlaceGlyph icon={place.icon} size={16} color={place.color} />
-      </span>
-    </div>
-  );
-}
+// Pin/MarkerContent live in ./MapMarkers now — moved out so PlannerGoogleMap.tsx
+// (dynamic-imported with ssr:false) doesn't need a circular import back into
+// this file.

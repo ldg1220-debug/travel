@@ -851,3 +851,54 @@ and a route card opening the preview modal with its stop list and add
 button. (The preview modal's embedded map itself shows "지도 로딩 중…"
 in this sandbox — no live Google Maps key is configured here, a
 pre-existing environment limitation unrelated to this change.)
+
+### Vercel-only blank map fix
+
+Reported symptom: maps rendered fine on `localhost` but stayed blank on
+Vercel, with no console/log errors and the env vars + API key confirmed
+correct — pointing at a client-rendering/layout-timing issue rather than
+a config problem. Addressed all three angles raised:
+
+- **Guaranteed client-only rendering**: the three places that mount a
+  `<GoogleMap>` — the planner's main map, the 딥 다이브 detail overlay's
+  mini map, and `/discover`'s route-preview polyline map — were each
+  split into their own file (`PlannerGoogleMap.tsx`, `PlaceMiniMap.tsx`,
+  `RoutePreviewMap.tsx`) and are now loaded via
+  `next/dynamic(() => import(...), { ssr: false })` from their callers.
+  This guarantees the Maps SDK/canvas is never part of the server-
+  rendered or hydration-replayed HTML — it only ever mounts after the
+  client has taken over and the container's real layout exists. (`Pin`/
+  `MarkerContent` moved to a new `MapMarkers.tsx` so the dynamically-
+  imported map file doesn't need a circular import back into
+  `PlannerBoard.tsx`.)
+- **Script isolation confirmed, not just assumed**: traced every import
+  of the legacy dual Google/Kakao loader (`src/components/map/
+  MapProvider.tsx`) and confirmed it's only ever reachable from
+  `/dev/map-test` — never from `/planner` or `/discover`, which
+  exclusively use the Google-only loader at `src/app/(app)/planner/
+  MapProvider.tsx`. Renamed that loader's `useJsApiLoader` id from
+  `"planner-google-map"` to `"travel-scheduler-google-maps"` and added
+  comments on both files documenting the isolation, so it can't
+  regress silently later.
+- **Container sizing hardened**: added `nudgeGoogleMapResize()`
+  (`src/lib/maps/mapResize.ts`) — the Maps SDK measures its container's
+  size exactly once, at construction, with no built-in resize-recovery,
+  so a container whose real size resolves even one frame late (a
+  percentage-height flex column, a still-animating modal) can be left
+  permanently at 0×0 with no error. It force-fires the SDK's own
+  `resize` event plus a re-center/re-fit, via a double
+  `requestAnimationFrame` with a 250ms `setTimeout` fallback, wired into
+  all three map `onLoad` handlers. Also gave the planner's main map
+  container (the one percentage-height one, `h-[45%]`) an explicit
+  `min-h-[260px]` floor so a flex-resolution race can't collapse it to
+  literal zero, and added explicit `w-full` to every map container as a
+  defensive no-op.
+
+Couldn't reproduce the Vercel-only symptom directly in this sandbox (no
+live Google Maps key here — every map area shows its "Loading map…" /
+"지도 로딩 중…" state instead of real tiles either way), so this targets
+the three most likely root causes from the report rather than a
+confirmed-fixed repro; tsc/eslint/build are clean and a browser pass
+confirmed nothing regressed (TrendSheet → ScheduleModal flow, 관심 장소
+tab, and the route preview modal all still open and render correctly
+after the extraction).

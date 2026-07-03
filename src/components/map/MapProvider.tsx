@@ -44,6 +44,12 @@ interface MapProviderProps {
  * isn't using. Consumers read `useMapStatus()` for `{ isLoaded, loadError,
  * isConfigured }` rather than assuming the global is ready as soon as this
  * component mounts.
+ *
+ * Only used by the /dev/map-test QA page — /planner and /discover use the
+ * separate Google-only loader at src/app/(app)/planner/MapProvider.tsx
+ * instead. Don't import this one from either of those; it exists purely
+ * to let /dev/map-test exercise the Kakao SDK, which the real app doesn't
+ * load at all.
  */
 export function MapProvider({ children, provider, region }: MapProviderProps) {
   const resolved: MapProviderKind = provider ?? (region === "domestic" ? "kakao" : "google");

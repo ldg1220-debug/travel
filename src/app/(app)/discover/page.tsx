@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { GoogleMap, OverlayView, Polyline } from "@react-google-maps/api";
 import {
   Search,
   Flame,
@@ -37,7 +37,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScheduleModal } from "@/components/ScheduleModal";
 import { MonthCalendar } from "@/components/MonthCalendar";
-import { MapProvider, useGoogleMapsStatus } from "@/app/(app)/planner/MapProvider";
+import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchDiscoverBundle, fetchDiscoverSearch } from "@/lib/api";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
@@ -52,6 +52,9 @@ import type {
   SpotIconKey,
 } from "@/lib/discoverData";
 import type { Place, PlaceIcon } from "@/lib/types";
+
+// Always client-only — see RoutePreviewMap.tsx / lib/maps/mapResize.ts.
+const RoutePreviewMap = dynamic(() => import("./RoutePreviewMap"), { ssr: false });
 
 type CategoryFilter = "all" | "season" | "hot" | "region";
 type SectionKind = "trending" | "favorites" | "routes";
@@ -849,7 +852,7 @@ function RoutePreviewModal({ route, onClose, onAdd }: { route: DiscoverRoute; on
           exit={{ y: 40, opacity: 0 }}
           transition={{ type: "spring", stiffness: 380, damping: 34 }}
         >
-          <div className="relative h-56 shrink-0 bg-[#eef2f4]">
+          <div className="relative h-56 w-full shrink-0 bg-[#eef2f4]">
             <RoutePreviewMap stops={route.stops} />
             <button
               onClick={onClose}
@@ -902,41 +905,8 @@ function RoutePreviewModal({ route, onClose, onAdd }: { route: DiscoverRoute; on
   );
 }
 
-function RoutePreviewMap({ stops }: { stops: DiscoverRouteStop[] }) {
-  const { isLoaded, loadError } = useGoogleMapsStatus();
-  if (loadError) {
-    return <div className="flex h-full items-center justify-center text-xs text-slate-400">지도를 불러오지 못했어요.</div>;
-  }
-  if (!isLoaded) {
-    return <div className="flex h-full items-center justify-center text-xs text-slate-400">지도 로딩 중…</div>;
-  }
-  const center = stops[Math.floor(stops.length / 2)];
-  return (
-    <GoogleMap
-      mapContainerStyle={{ width: "100%", height: "100%" }}
-      center={{ lat: center.lat, lng: center.lng }}
-      zoom={12}
-      onLoad={(map) => {
-        const bounds = new google.maps.LatLngBounds();
-        stops.forEach((s) => bounds.extend({ lat: s.lat, lng: s.lng }));
-        map.fitBounds(bounds, 40);
-      }}
-      options={{ disableDefaultUI: true, gestureHandling: "greedy" }}
-    >
-      <Polyline
-        path={stops.map((s) => ({ lat: s.lat, lng: s.lng }))}
-        options={{ strokeColor: "#4f46e5", strokeOpacity: 0.9, strokeWeight: 3 }}
-      />
-      {stops.map((s, i) => (
-        <OverlayView key={i} position={{ lat: s.lat, lng: s.lng }} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
-          <div className="flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-indigo-600 text-[11px] font-bold text-white shadow">
-            {i + 1}
-          </div>
-        </OverlayView>
-      ))}
-    </GoogleMap>
-  );
-}
+// RoutePreviewMap lives in ./RoutePreviewMap.tsx now, always loaded via
+// next/dynamic({ ssr: false }) below — see that file for why.
 
 // ── date-only picker for adding a whole route bundle at once ──
 function RouteDateModal({ route, onClose, onConfirm }: { route: DiscoverRoute; onClose: () => void; onConfirm: (date: string) => void }) {

@@ -1,14 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { GoogleMap } from "@react-google-maps/api";
+import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGoogleMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
-import { Pin } from "./PlannerBoard";
+import { Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
+
+// Always client-only — see PlaceMiniMap.tsx / lib/maps/mapResize.ts.
+const PlaceMiniMap = dynamic(() => import("./PlaceMiniMap"), { ssr: false });
 
 const CATEGORY_OPTIONS = ["Cafe", "Restaurant", "Attraction", "Lodging", "Museum", "Park"];
 
@@ -49,22 +52,9 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
             transition={{ type: "spring", stiffness: 380, damping: 34 }}
           >
             {/* mini map */}
-            <div className="relative h-40 shrink-0 bg-[#eef2f4]">
+            <div className="relative h-40 w-full shrink-0 bg-[#eef2f4]">
               {mapsLoaded ? (
-                <GoogleMap
-                  key={place.id}
-                  mapContainerStyle={{ width: "100%", height: "100%" }}
-                  center={{ lat: place.lat, lng: place.lng }}
-                  zoom={15}
-                  // Belt-and-suspenders alongside the center/zoom props above:
-                  // explicitly panTo/setZoom on load so this place's real
-                  // coordinates always win, never a stale default.
-                  onLoad={(map) => {
-                    map.panTo({ lat: place.lat, lng: place.lng });
-                    map.setZoom(15);
-                  }}
-                  options={{ disableDefaultUI: true, gestureHandling: "none", keyboardShortcuts: false }}
-                />
+                <PlaceMiniMap place={place} />
               ) : (
                 <div className="flex h-full items-center justify-center text-xs text-slate-400">지도 로딩 중…</div>
               )}
