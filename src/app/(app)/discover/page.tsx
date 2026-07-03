@@ -34,9 +34,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScheduleModal } from "@/components/ScheduleModal";
+import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchDiscoverBundle, fetchDiscoverSearch } from "@/lib/api";
-import { formatDateLabelShort, dateWindow, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
+import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
 import { SEASON_LABEL } from "@/lib/discoverData";
 import type { DiscoverRoute, DiscoverRouteStop, DiscoverScope, DiscoverSpot, PlaceCategoryTag, SpotIconKey } from "@/lib/discoverData";
 import type { Place, PlaceIcon } from "@/lib/types";
@@ -647,8 +648,7 @@ function RouteTemplateCard({ route, onAdd }: { route: DiscoverRoute; onAdd: () =
 
 // ── date-only picker for adding a whole route bundle at once ──
 function RouteDateModal({ route, onClose, onConfirm }: { route: DiscoverRoute; onClose: () => void; onConfirm: (date: string) => void }) {
-  const dateOptions = useMemo(() => dateWindow(todayISODate(), 14), []);
-  const [date, setDate] = useState(dateOptions[0]);
+  const [date, setDate] = useState(todayISODate());
 
   return (
     <AnimatePresence>
@@ -676,21 +676,7 @@ function RouteDateModal({ route, onClose, onConfirm }: { route: DiscoverRoute; o
           </div>
 
           <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-500">며칠에 담을까요?</p>
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 no-scrollbar">
-            {dateOptions.map((d) => {
-              const active = d === date;
-              return (
-                <button
-                  key={d}
-                  onClick={() => setDate(d)}
-                  className="shrink-0 rounded-xl px-3 py-2 text-[11px] font-semibold transition-all"
-                  style={{ background: active ? "#4f46e5" : "white", color: active ? "white" : "#0f172a", border: active ? "1px solid #4f46e5" : "1px solid #e5e7eb" }}
-                >
-                  {formatDateLabelShort(d)}
-                </button>
-              );
-            })}
-          </div>
+          <MonthCalendar selected={date} onSelect={setDate} accentColor="#4f46e5" />
 
           <p className="mt-4 text-[12px] text-slate-500">각 장소는 루트에 제시된 시간대에 맞춰 배치돼요. 이미 예약된 시간대는 자동으로 다음 빈 시간으로 옮겨져요.</p>
 
