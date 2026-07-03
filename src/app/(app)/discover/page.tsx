@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Search,
@@ -18,165 +19,85 @@ import {
   UtensilsCrossed,
   Camera,
   Waves,
+  Tent,
+  Wine,
+  Building2,
+  ShoppingBag,
   ChevronRight,
+  Sparkles,
+  CalendarRange,
+  Heart,
+  Eye,
+  X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ScheduleModal } from "@/components/ScheduleModal";
+import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore } from "@/store/itineraryStore";
+import { fetchDiscoverBundle, fetchDiscoverSearch } from "@/lib/api";
+import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
+import { SEASON_LABEL } from "@/lib/discoverData";
+import type { DiscoverRoute, DiscoverRouteStop, DiscoverScope, DiscoverSpot, PlaceCategoryTag, SpotIconKey } from "@/lib/discoverData";
 import type { Place, PlaceIcon } from "@/lib/types";
 
-// ─────────────────────────────────────────────────────────────
-// Dummy data (국내 🇰🇷 / 국외 🌐)
-// ─────────────────────────────────────────────────────────────
-type Scope = "domestic" | "overseas";
+type CategoryFilter = "all" | "season" | "hot" | "region";
 
-type SpotIcon = React.ComponentType<{ size?: number; className?: string }>;
-
-type Spot = {
-  id: string;
-  name: string;
-  region: string;
-  tag: string;
-  saves: number;
-  gradient: string;
-  icon: SpotIcon;
-  // Real coordinates + a solid accent color, so the "[+]" button can push
-  // this spot into the itinerary store as a genuine Place (see
-  // spotToPlace below) — the store only understands real Place shapes,
-  // not this page's purely-visual gradient/icon-component fields.
-  lat: number;
-  lng: number;
-  color: string;
-};
-
-type RouteStop = { time: string; name: string; lat: number; lng: number };
-type RouteCard = {
-  id: string;
-  title: string;
-  subtitle: string;
-  region: string;
-  duration: string;
-  gradient: string;
-  stops: RouteStop[];
-};
-
-type Bundle = {
-  trending: Spot[];
-  favorites: Spot[];
-  routes: RouteCard[];
-};
-
-const DATA: Record<Scope, Bundle> = {
-  domestic: {
-    trending: [
-      { id: "d-t1", name: "애월 감성 카페거리", region: "제주 · 애월", tag: "카페", saves: 1240, gradient: "from-rose-400 to-orange-300", icon: Coffee, lat: 33.4623, lng: 126.3096, color: "#fb7185" },
-      { id: "d-t2", name: "성수동 팝업 스트리트", region: "서울 · 성수", tag: "핫플", saves: 980, gradient: "from-violet-400 to-fuchsia-300", icon: Camera, lat: 37.5445, lng: 127.0557, color: "#a78bfa" },
-      { id: "d-t3", name: "해운대 블루라인 파크", region: "부산 · 해운대", tag: "바다", saves: 872, gradient: "from-sky-400 to-cyan-300", icon: Waves, lat: 35.1587, lng: 129.1604, color: "#38bdf8" },
-      { id: "d-t4", name: "익선동 한옥골목", region: "서울 · 종로", tag: "골목", saves: 640, gradient: "from-amber-400 to-yellow-300", icon: Landmark, lat: 37.573, lng: 126.991, color: "#fbbf24" },
-    ],
-    favorites: [
-      { id: "d-f1", name: "경복궁", region: "서울 · 종로", tag: "궁궐", saves: 5200, gradient: "from-emerald-400 to-teal-300", icon: Landmark, lat: 37.5796, lng: 126.977, color: "#34d399" },
-      { id: "d-f2", name: "성산일출봉", region: "제주 · 서귀포", tag: "자연", saves: 4800, gradient: "from-lime-400 to-green-300", icon: Waves, lat: 33.4586, lng: 126.9425, color: "#a3e635" },
-      { id: "d-f3", name: "광장시장 먹자골목", region: "서울 · 종로", tag: "맛집", saves: 4100, gradient: "from-orange-400 to-red-300", icon: UtensilsCrossed, lat: 37.5701, lng: 126.9997, color: "#fb923c" },
-      { id: "d-f4", name: "감천문화마을", region: "부산 · 사하", tag: "포토", saves: 3600, gradient: "from-pink-400 to-rose-300", icon: Camera, lat: 35.0975, lng: 129.0107, color: "#f472b6" },
-    ],
-    routes: [
-      {
-        id: "d-r1",
-        title: "서울 종로 근본 투어",
-        subtitle: "궁궐부터 시장까지, 하루 완주 코스",
-        region: "서울",
-        duration: "당일치기 · 4곳",
-        gradient: "from-emerald-500 to-teal-400",
-        stops: [
-          { time: "10:00", name: "경복궁", lat: 37.5796, lng: 126.977 },
-          { time: "13:00", name: "광장시장", lat: 37.5701, lng: 126.9997 },
-          { time: "15:30", name: "익선동 한옥골목", lat: 37.573, lng: 126.991 },
-          { time: "18:00", name: "청계천 야경", lat: 37.5696, lng: 126.9784 },
-        ],
-      },
-      {
-        id: "d-r2",
-        title: "제주 애월 감성 드라이브",
-        subtitle: "바다 뷰 카페와 노을 명소",
-        region: "제주",
-        duration: "당일치기 · 3곳",
-        gradient: "from-sky-500 to-cyan-400",
-        stops: [
-          { time: "11:00", name: "애월 카페거리", lat: 33.4623, lng: 126.3096 },
-          { time: "14:00", name: "협재해수욕장", lat: 33.3937, lng: 126.2394 },
-          { time: "18:30", name: "곽지 노을 스팟", lat: 33.4498, lng: 126.2989 },
-        ],
-      },
-    ],
-  },
-  overseas: {
-    trending: [
-      { id: "o-t1", name: "도톤보리 글리코 사인", region: "일본 · 오사카", tag: "핫플", saves: 3120, gradient: "from-fuchsia-400 to-pink-300", icon: Camera, lat: 34.6688, lng: 135.5019, color: "#e879f9" },
-      { id: "o-t2", name: "유후인 플로랄 빌리지", region: "일본 · 오이타", tag: "감성", saves: 2540, gradient: "from-rose-400 to-amber-300", icon: Landmark, lat: 33.2668, lng: 131.3717, color: "#fb7185" },
-      { id: "o-t3", name: "하노이 구시가지 나이트", region: "베트남 · 하노이", tag: "야시장", saves: 1980, gradient: "from-amber-400 to-orange-300", icon: UtensilsCrossed, lat: 21.0343, lng: 105.8508, color: "#fbbf24" },
-      { id: "o-t4", name: "캐널시티 하카타", region: "일본 · 후쿠오카", tag: "쇼핑", saves: 1670, gradient: "from-cyan-400 to-blue-300", icon: MapPin, lat: 33.5898, lng: 130.4103, color: "#22d3ee" },
-    ],
-    favorites: [
-      { id: "o-f1", name: "오사카성", region: "일본 · 오사카", tag: "명소", saves: 8900, gradient: "from-teal-400 to-emerald-300", icon: Landmark, lat: 34.6873, lng: 135.5259, color: "#2dd4bf" },
-      { id: "o-f2", name: "이치란 라멘 본점", region: "일본 · 후쿠오카", tag: "맛집", saves: 7300, gradient: "from-red-400 to-orange-300", icon: UtensilsCrossed, lat: 33.5958, lng: 130.409, color: "#f87171" },
-      { id: "o-f3", name: "호안끼엠 호수", region: "베트남 · 하노이", tag: "자연", saves: 6100, gradient: "from-green-400 to-lime-300", icon: Waves, lat: 21.0285, lng: 105.8524, color: "#4ade80" },
-      { id: "o-f4", name: "나라 사슴공원", region: "일본 · 나라", tag: "힐링", saves: 5400, gradient: "from-yellow-400 to-amber-300", icon: Camera, lat: 34.6851, lng: 135.843, color: "#facc15" },
-    ],
-    routes: [
-      {
-        id: "o-r1",
-        title: "오사카 당일치기 먹방 코스",
-        subtitle: "타코야키부터 라멘까지 위장 투어",
-        region: "오사카",
-        duration: "당일치기 · 4곳",
-        gradient: "from-rose-500 to-orange-400",
-        stops: [
-          { time: "11:00", name: "쿠로몬 시장", lat: 34.6656, lng: 135.5065 },
-          { time: "13:30", name: "도톤보리 타코야키", lat: 34.6688, lng: 135.5019 },
-          { time: "16:00", name: "신세카이 쿠시카츠", lat: 34.6524, lng: 135.5063 },
-          { time: "19:00", name: "우메다 라멘 골목", lat: 34.7024, lng: 135.4959 },
-        ],
-      },
-      {
-        id: "o-r2",
-        title: "후쿠오카-유후인 핵심 동선",
-        subtitle: "텐진 도심부터 유후인 료칸까지",
-        region: "후쿠오카",
-        duration: "1박 2일 · 4곳",
-        gradient: "from-violet-500 to-fuchsia-400",
-        stops: [
-          { time: "09:00", name: "Tenjin Airbnb (숙소)", lat: 33.5904, lng: 130.3986 },
-          { time: "11:00", name: "Clio Court (클리오 코트)", lat: 33.5895, lng: 130.4207 },
-          { time: "15:00", name: "Yufuin Floral Village", lat: 33.2668, lng: 131.3717 },
-          { time: "18:00", name: "Yufuin Ryokan", lat: 33.2646, lng: 131.3572 },
-        ],
-      },
-    ],
-  },
-};
-
-const SCOPES: { key: Scope; label: string; flag: string }[] = [
+const SCOPES: { key: DiscoverScope; label: string; flag: string }[] = [
   { key: "domestic", label: "국내 여행", flag: "🇰🇷" },
   { key: "overseas", label: "해외 여행", flag: "🌐" },
 ];
 
+const CATEGORY_FILTERS: { key: CategoryFilter; label: string }[] = [
+  { key: "all", label: "전체" },
+  { key: "season", label: "계절별" },
+  { key: "hot", label: "최근 핫한" },
+  { key: "region", label: "지역별" },
+];
+
+const SPOT_ICONS: Record<SpotIconKey, React.ComponentType<{ size?: number; className?: string }>> = {
+  coffee: Coffee,
+  camera: Camera,
+  waves: Waves,
+  landmark: Landmark,
+  utensils: UtensilsCrossed,
+  pin: MapPin,
+  tent: Tent,
+  wine: Wine,
+  building: Building2,
+};
+
+const CATEGORY_ICONS: Record<PlaceCategoryTag, React.ComponentType<{ size?: number; className?: string }>> = {
+  관광지: Landmark,
+  테마파크: Tent,
+  음식점: UtensilsCrossed,
+  술집: Wine,
+  박물관: Building2,
+  카페: Coffee,
+  자연: Waves,
+  쇼핑: ShoppingBag,
+  숙소: MapPin,
+};
+
+// Maps this page's curated iconKey/tag strings onto the store's PlaceIcon
+// string enum (src/lib/types.ts) — the closest semantic match for each,
+// since the two aren't the same set of icons.
+const SPOT_ICON_TO_PLACE_ICON: Record<SpotIconKey, PlaceIcon> = {
+  coffee: "coffee",
+  camera: "camera",
+  waves: "boat",
+  landmark: "museum",
+  utensils: "utensils",
+  pin: "pin",
+  tent: "pin",
+  wine: "utensils",
+  building: "museum",
+};
+
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
-// Maps this page's purely-visual lucide icon components onto the store's
-// PlaceIcon string enum (src/lib/types.ts) — the closest semantic match
-// for each, since the two aren't the same set of icons.
-const SPOT_ICON_TO_PLACE_ICON = new Map<SpotIcon, PlaceIcon>([
-  [Coffee, "coffee"],
-  [Camera, "camera"],
-  [Waves, "boat"],
-  [Landmark, "museum"],
-  [UtensilsCrossed, "utensils"],
-  [MapPin, "pin"],
-]);
-
-function spotToPlace(spot: Spot): Place {
+function spotToPlace(spot: DiscoverSpot): Place {
   return {
     id: spot.id,
     placeId: spot.id,
@@ -185,23 +106,14 @@ function spotToPlace(spot: Spot): Place {
     color: spot.color,
     lat: spot.lat,
     lng: spot.lng,
-    icon: SPOT_ICON_TO_PLACE_ICON.get(spot.icon) ?? "pin",
+    icon: SPOT_ICON_TO_PLACE_ICON[spot.iconKey] ?? "pin",
   };
 }
 
-function routeStopToPlace(routeId: string, stop: RouteStop): Place {
+function routeStopToPlace(routeId: string, stop: DiscoverRouteStop): Place {
   const slug = stop.name.replace(/[^a-zA-Z0-9가-힣]+/g, "-");
   const id = `${routeId}-${slug}`;
-  return {
-    id,
-    placeId: id,
-    name: stop.name,
-    category: "Route stop",
-    color: "#818cf8",
-    lat: stop.lat,
-    lng: stop.lng,
-    icon: "pin",
-  };
+  return { id, placeId: id, name: stop.name, category: "Route stop", color: "#818cf8", lat: stop.lat, lng: stop.lng, icon: "pin" };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -211,15 +123,19 @@ function routeStopToPlace(routeId: string, stop: RouteStop): Place {
 // below it, not another header.
 export default function DiscoverPage() {
   const router = useRouter();
-  const addPlace = useItineraryStore((s) => s.addPlace);
   const addPlaces = useItineraryStore((s) => s.addPlaces);
-  const addRouteBundle = useItineraryStore((s) => s.addRouteBundle);
+  const addItem = useItineraryStore((s) => s.addItem);
+  const isHourTaken = useItineraryStore((s) => s.isHourTaken);
 
-  const [scope, setScope] = useState<Scope>("domestic");
-  const [query, setQuery] = useState("");
+  const [scope, setScope] = useState<DiscoverScope>("domestic");
+  const [category, setCategory] = useState<CategoryFilter>("all");
+  const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
+  const [queryInput, setQueryInput] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [scheduleSpot, setScheduleSpot] = useState<Place | null>(null);
+  const [routeTarget, setRouteTarget] = useState<DiscoverRoute | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const bundle = DATA[scope];
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -227,27 +143,86 @@ export default function DiscoverPage() {
     toastTimer.current = setTimeout(() => setToast(null), 1800);
   };
 
-  const handleAddSpot = (spot: Spot) => {
-    addPlace(spotToPlace(spot));
-    showToast("일정에 추가되었습니다.");
+  // ── browse feed: branches by scope + category, hits a real API route ──
+  const { data: browseData } = useQuery({
+    queryKey: ["discover-trends", scope, category, category === "region" ? selectedRegion : null],
+    queryFn: () => fetchDiscoverBundle(scope, category, category === "region" ? selectedRegion : null),
+    enabled: activeQuery.trim().length === 0,
+  });
+
+  // ── search: only runs once the user actually submits (Enter / button) ──
+  const { data: searchData, isFetching: searching } = useQuery({
+    queryKey: ["discover-search", scope, activeQuery],
+    queryFn: () => fetchDiscoverSearch(scope, activeQuery),
+    enabled: activeQuery.trim().length > 0,
+  });
+
+  const isSearching = activeQuery.trim().length > 0;
+  const bundle = browseData?.bundle;
+  const regions = browseData?.regions ?? [];
+
+  const runSearch = () => setActiveQuery(queryInput);
+  const clearSearch = () => {
+    setQueryInput("");
+    setActiveQuery("");
   };
+
+  const handleScopeChange = (next: DiscoverScope) => {
+    setScope(next);
+    setCategory("all");
+    setSelectedRegion(null);
+    clearSearch();
+  };
+
+  // Grouped-by-category place list for search results (관광지 / 테마파크 / 음식점 / 술집 / 박물관 …).
+  const groupedSearchSpots = useMemo(() => {
+    const spots = searchData?.results.spots ?? [];
+    const groups = new Map<PlaceCategoryTag, DiscoverSpot[]>();
+    for (const spot of spots) {
+      const list = groups.get(spot.tag) ?? [];
+      list.push(spot);
+      groups.set(spot.tag, list);
+    }
+    return Array.from(groups.entries());
+  }, [searchData]);
+
+  const popularRoutes = searchData?.results.routes ?? [];
+
+  const handleAddSpot = (spot: DiscoverSpot) => setScheduleSpot(spotToPlace(spot));
 
   // Tapping the card itself (not the [+] quick-add button) hands off to
   // /planner's 딥 다이브 detail overlay instead of scheduling immediately —
   // no map provider lives on this screen, so the place just needs to be
   // findable-by-id once /planner mounts (see its ?openDetail effect).
-  const handleOpenDetail = (spot: Spot) => {
+  const handleOpenDetail = (spot: DiscoverSpot) => {
     addPlaces([spotToPlace(spot)]);
     router.push(`/planner?openDetail=${encodeURIComponent(spot.id)}`);
   };
 
-  // Pushes every stop into the store's schedule in order, then jumps to
-  // /planner so the trip the user just grabbed is immediately visible on
-  // the map + timeline — addRouteBundle is a synchronous Zustand update,
-  // so by the time router.push runs the data is already there to render.
-  const handleAddRoute = (route: RouteCard) => {
-    addRouteBundle(route.stops.map((stop) => routeStopToPlace(route.id, stop)));
-    showToast("일정에 추가되었습니다.");
+  const handleAddRoute = (route: DiscoverRoute) => setRouteTarget(route);
+
+  const confirmRouteAdd = (date: string) => {
+    if (!routeTarget) return;
+    const places = routeTarget.stops.map((stop) => routeStopToPlace(routeTarget.id, stop));
+    addPlaces(places);
+    // Keep each stop's originally-suggested hour, nudging forward to the
+    // next free slot on the chosen date if two stops collide — never
+    // silently overwrites an hour the user already booked.
+    routeTarget.stops.forEach((stop, i) => {
+      const place = places[i];
+      const desiredHour = hourFromTime(stop.time);
+      const hour = TIMELINE_HOURS.find((h) => h >= desiredHour && !isHourTaken(date, h)) ?? TIMELINE_HOURS.find((h) => !isHourTaken(date, h)) ?? desiredHour;
+      const minute = Number(stop.time.split(":")[1] ?? 0);
+      addItem({
+        placeId: place.id,
+        name: place.name,
+        date,
+        time: `${pad2(hour)}:${pad2(minute)}`,
+        coordinates: { lat: place.lat, lng: place.lng },
+      });
+    });
+    showToast(`"${routeTarget.title}" 일정에 담았습니다`);
+    setRouteTarget(null);
     router.push("/planner");
   };
 
@@ -255,15 +230,36 @@ export default function DiscoverPage() {
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       <div className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6">
         {/* ── SEARCH + SEGMENTED TOGGLE ── */}
-        <section className="mb-10">
+        <section className="mb-8">
           <div className="relative">
             <Search size={20} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
             <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="도시, 명소, 맛집을 검색해보세요"
-              className="h-14 rounded-2xl border-slate-200 bg-white pl-12 pr-4 text-base shadow-sm shadow-slate-200/60 transition-shadow focus-visible:ring-2 focus-visible:ring-indigo-400"
+              value={queryInput}
+              onChange={(e) => setQueryInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") runSearch();
+              }}
+              placeholder="도시, 명소, 맛집을 검색해보세요 (예: 경주)"
+              className="h-14 rounded-2xl border-slate-200 bg-white pl-12 pr-24 text-base shadow-sm shadow-slate-200/60 transition-shadow focus-visible:ring-2 focus-visible:ring-indigo-400"
             />
+            <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+              {isSearching && (
+                <button
+                  onClick={clearSearch}
+                  aria-label="Clear search"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <X size={16} />
+                </button>
+              )}
+              <Button
+                onClick={runSearch}
+                disabled={!queryInput.trim()}
+                className="h-10 rounded-xl bg-indigo-600 px-4 text-[13px] font-semibold hover:bg-indigo-700"
+              >
+                검색
+              </Button>
+            </div>
           </div>
 
           <div className="mt-4 flex justify-center">
@@ -273,7 +269,7 @@ export default function DiscoverPage() {
                 return (
                   <button
                     key={s.key}
-                    onClick={() => setScope(s.key)}
+                    onClick={() => handleScopeChange(s.key)}
                     className={`relative z-10 flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors sm:px-7 ${
                       active ? "text-slate-900" : "text-slate-500 hover:text-slate-700"
                     }`}
@@ -292,74 +288,156 @@ export default function DiscoverPage() {
               })}
             </div>
           </div>
+
+          {!isSearching && (
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+              {CATEGORY_FILTERS.map((c) => {
+                const active = category === c.key;
+                return (
+                  <button
+                    key={c.key}
+                    onClick={() => setCategory(c.key)}
+                    className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                      active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                    }`}
+                  >
+                    {c.key === "season" && "🍂 "}
+                    {c.key === "hot" && "🔥 "}
+                    {c.key === "region" && "📍 "}
+                    {c.label}
+                    {c.key === "season" && browseData?.season ? ` · ${SEASON_LABEL[browseData.season]}` : ""}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {!isSearching && category === "region" && regions.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+              {regions.map((r) => {
+                const active = selectedRegion === r;
+                return (
+                  <button
+                    key={r}
+                    onClick={() => setSelectedRegion(active ? null : r)}
+                    className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition-colors ${
+                      active ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                    }`}
+                  >
+                    {r}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </section>
 
-        {/* ── CONTENT (switches on scope) ── */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={scope}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.25 }}
-            className="space-y-12"
-          >
-            {/* ① Trending Now */}
-            <SectionHeader
-              icon={Flame}
-              iconClass="text-rose-500"
-              emoji="🔥"
-              title="Trending Now"
-              caption="지금 가장 많이 담긴 실시간 핫플"
-            />
-            <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-              {bundle.trending.map((spot, i) => (
-                <SpotCard
-                  key={spot.id}
-                  spot={spot}
-                  rank={i + 1}
-                  onAdd={() => handleAddSpot(spot)}
-                  onOpenDetail={() => handleOpenDetail(spot)}
-                />
-              ))}
-            </div>
+        {/* ── SEARCH RESULTS ── */}
+        {isSearching ? (
+          <SearchResults
+            query={activeQuery}
+            searching={searching}
+            routes={popularRoutes}
+            groupedSpots={groupedSearchSpots}
+            onAddSpot={handleAddSpot}
+            onAddRoute={handleAddRoute}
+            onOpenDetail={handleOpenDetail}
+          />
+        ) : (
+          /* ── BROWSE CONTENT (switches on scope + category) ── */
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`${scope}-${category}-${selectedRegion}`}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.25 }}
+              className="space-y-12"
+            >
+              {bundle && bundle.trending.length > 0 && (
+                <>
+                  <SectionHeader
+                    icon={category === "hot" ? Flame : category === "season" ? Sparkles : Flame}
+                    iconClass="text-rose-500"
+                    emoji={category === "season" ? "🍂" : "🔥"}
+                    title={category === "hot" ? "Hottest Right Now" : category === "season" ? "이 계절 추천" : "Trending Now"}
+                    caption="지금 가장 많이 담긴 실시간 핫플"
+                  />
+                  <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+                    {bundle.trending.map((spot, i) => (
+                      <SpotCard
+                        key={spot.id}
+                        spot={spot}
+                        rank={i + 1}
+                        onAdd={() => handleAddSpot(spot)}
+                        onOpenDetail={() => handleOpenDetail(spot)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
 
-            {/* ② All-Time Favorites */}
-            <SectionHeader
-              icon={Crown}
-              iconClass="text-amber-500"
-              emoji="👑"
-              title="All-Time Favorites"
-              caption="언제 가도 좋은 스테디셀러 명소"
-            />
-            <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-              {bundle.favorites.map((spot) => (
-                <SpotCard
-                  key={spot.id}
-                  spot={spot}
-                  favorite
-                  onAdd={() => handleAddSpot(spot)}
-                  onOpenDetail={() => handleOpenDetail(spot)}
-                />
-              ))}
-            </div>
+              {bundle && bundle.favorites.length > 0 && (
+                <>
+                  <SectionHeader icon={Crown} iconClass="text-amber-500" emoji="👑" title="All-Time Favorites" caption="언제 가도 좋은 스테디셀러 명소" />
+                  <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+                    {bundle.favorites.map((spot) => (
+                      <SpotCard
+                        key={spot.id}
+                        spot={spot}
+                        favorite
+                        onAdd={() => handleAddSpot(spot)}
+                        onOpenDetail={() => handleOpenDetail(spot)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
 
-            {/* ③ Recommended Routes */}
-            <SectionHeader
-              icon={MapIcon}
-              iconClass="text-indigo-500"
-              emoji="🗺️"
-              title="Recommended Routes"
-              caption="장소를 묶어둔 추천 코스 템플릿"
-            />
-            <div className="-mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
-              {bundle.routes.map((route) => (
-                <RouteTemplateCard key={route.id} route={route} onAdd={() => handleAddRoute(route)} />
-              ))}
-            </div>
-          </motion.div>
-        </AnimatePresence>
+              {bundle && bundle.trending.length === 0 && bundle.favorites.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400">
+                  이 조건에 맞는 장소가 아직 없어요.
+                </div>
+              )}
+
+              {bundle && bundle.routes.length > 0 && (
+                <>
+                  <SectionHeader icon={MapIcon} iconClass="text-indigo-500" emoji="🗺️" title="Recommended Routes" caption="장소를 묶어둔 추천 코스 템플릿" />
+                  <div className="-mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+                    {bundle.routes.map((route) => (
+                      <RouteTemplateCard key={route.id} route={route} onAdd={() => handleAddRoute(route)} />
+                    ))}
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </AnimatePresence>
+        )}
       </div>
+
+      {scheduleSpot && (
+        <ScheduleModal
+          place={scheduleSpot}
+          initialDate={todayISODate()}
+          isHourTaken={isHourTaken}
+          mode="create"
+          onClose={() => setScheduleSpot(null)}
+          onConfirm={(date, hour, minute) => {
+            addPlaces([scheduleSpot]);
+            addItem({
+              placeId: scheduleSpot.id,
+              name: scheduleSpot.name,
+              date,
+              time: `${pad2(hour)}:${pad2(minute)}`,
+              coordinates: { lat: scheduleSpot.lat, lng: scheduleSpot.lng },
+            });
+            showToast(`${scheduleSpot.name} · ${formatDateLabelShort(date)} ${pad2(hour)}:${pad2(minute)}`);
+            setScheduleSpot(null);
+          }}
+        />
+      )}
+
+      {routeTarget && <RouteDateModal route={routeTarget} onClose={() => setRouteTarget(null)} onConfirm={confirmRouteAdd} />}
 
       {toast && (
         <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-slate-900/90 px-3.5 py-2 text-xs text-white">
@@ -405,7 +483,78 @@ function SectionHeader({
   );
 }
 
-// ── spot card (trending / favorites) ──
+// ── search results: popular routes ranked by likes + category-grouped places ──
+function SearchResults({
+  query,
+  searching,
+  routes,
+  groupedSpots,
+  onAddSpot,
+  onAddRoute,
+  onOpenDetail,
+}: {
+  query: string;
+  searching: boolean;
+  routes: DiscoverRoute[];
+  groupedSpots: [PlaceCategoryTag, DiscoverSpot[]][];
+  onAddSpot: (spot: DiscoverSpot) => void;
+  onAddRoute: (route: DiscoverRoute) => void;
+  onOpenDetail: (spot: DiscoverSpot) => void;
+}) {
+  if (searching) {
+    return <div className="py-20 text-center text-sm text-slate-400">&ldquo;{query}&rdquo; 검색 중…</div>;
+  }
+  if (routes.length === 0 && groupedSpots.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-20 text-center">
+        <p className="text-sm text-slate-500">&ldquo;{query}&rdquo;에 대한 결과가 없어요.</p>
+        <p className="mt-1 text-[12px] text-slate-400">다른 지역이나 명소 이름으로 검색해보세요.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-12">
+      {routes.length > 0 && (
+        <section>
+          <SectionHeader icon={Crown} iconClass="text-amber-500" emoji="🏆" title={`"${query}" 인기 루트`} caption="좋아요 · 조회수가 높은 여행자들의 루트" />
+          <div className="-mt-6 mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
+            {routes.map((route) => (
+              <RouteTemplateCard key={route.id} route={route} onAdd={() => onAddRoute(route)} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {groupedSpots.length > 0 && (
+        <section>
+          <SectionHeader icon={MapIcon} iconClass="text-indigo-500" emoji="📍" title={`"${query}" 카테고리별 장소`} caption="관광지 · 테마파크 · 음식점 · 술집 · 박물관" />
+          <div className="mt-4 space-y-8">
+            {groupedSpots.map(([tag, spots]) => {
+              const TagIcon = CATEGORY_ICONS[tag];
+              return (
+                <div key={tag}>
+                  <div className="mb-3 flex items-center gap-1.5 text-[13px] font-bold text-slate-700">
+                    <TagIcon size={14} className="text-slate-400" />
+                    {tag}
+                    <span className="text-[11px] font-medium text-slate-400">{spots.length}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                    {spots.map((spot) => (
+                      <SpotCard key={spot.id} spot={spot} onAdd={() => onAddSpot(spot)} onOpenDetail={() => onOpenDetail(spot)} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ── spot card (trending / favorites / search result) ──
 function SpotCard({
   spot,
   rank,
@@ -413,13 +562,13 @@ function SpotCard({
   onAdd,
   onOpenDetail,
 }: {
-  spot: Spot;
+  spot: DiscoverSpot;
   rank?: number;
   favorite?: boolean;
   onAdd: () => void;
   onOpenDetail: () => void;
 }) {
-  const Icon = spot.icon;
+  const Icon = SPOT_ICONS[spot.iconKey];
   return (
     <div
       onClick={onOpenDetail}
@@ -471,7 +620,7 @@ function SpotCard({
 }
 
 // ── route template card ──
-function RouteTemplateCard({ route, onAdd }: { route: RouteCard; onAdd: () => void }) {
+function RouteTemplateCard({ route, onAdd }: { route: DiscoverRoute; onAdd: () => void }) {
   return (
     <div className="group overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:shadow-xl hover:shadow-slate-200">
       <div className={`relative overflow-hidden bg-gradient-to-br ${route.gradient} px-5 py-4`}>
@@ -486,6 +635,15 @@ function RouteTemplateCard({ route, onAdd }: { route: RouteCard; onAdd: () => vo
         </div>
         <h3 className="relative mt-3 text-lg font-bold text-white">{route.title}</h3>
         <p className="relative text-[12.5px] text-white/85">{route.subtitle}</p>
+        <div className="relative mt-3 flex items-center gap-3 text-[11.5px] font-semibold text-white/90">
+          <span className="flex items-center gap-1">
+            <Heart size={12} /> {fmt(route.likes)}
+          </span>
+          <span className="flex items-center gap-1">
+            <Eye size={12} /> {fmt(route.views)}
+          </span>
+          <span className="text-white/70">by {route.author}</span>
+        </div>
       </div>
 
       {/* timeline stops */}
@@ -509,10 +667,53 @@ function RouteTemplateCard({ route, onAdd }: { route: RouteCard; onAdd: () => vo
             onClick={onAdd}
             className="h-9 gap-1 rounded-full bg-indigo-600 px-4 text-[13px] font-semibold text-white shadow-sm shadow-indigo-200 transition-colors hover:bg-indigo-700"
           >
-            <Plus size={15} />내 일정에 담기
+            <Plus size={15} />전체 일정에 담기
           </Button>
         </div>
       </div>
     </div>
+  );
+}
+
+// ── date-only picker for adding a whole route bundle at once ──
+function RouteDateModal({ route, onClose, onConfirm }: { route: DiscoverRoute; onClose: () => void; onConfirm: (date: string) => void }) {
+  const [date, setDate] = useState(todayISODate());
+
+  return (
+    <AnimatePresence>
+      <motion.div className="fixed inset-0 z-[70] flex items-center justify-center px-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+        <motion.div
+          className="relative w-full max-w-[360px] rounded-3xl bg-white p-5 shadow-2xl"
+          initial={{ scale: 0.92, y: 10, opacity: 0 }}
+          animate={{ scale: 1, y: 0, opacity: 1 }}
+          exit={{ scale: 0.92, y: 10, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 400, damping: 28 }}
+        >
+          <button onClick={onClose} className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200" aria-label="Close">
+            <X size={14} />
+          </button>
+
+          <div className="flex items-center gap-2 text-slate-900">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-500">
+              <CalendarRange size={18} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{route.duration}</p>
+              <p className="truncate text-[15px] font-semibold leading-tight">{route.title}</p>
+            </div>
+          </div>
+
+          <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-500">며칠에 담을까요?</p>
+          <MonthCalendar selected={date} onSelect={setDate} accentColor="#4f46e5" />
+
+          <p className="mt-4 text-[12px] text-slate-500">각 장소는 루트에 제시된 시간대에 맞춰 배치돼요. 이미 예약된 시간대는 자동으로 다음 빈 시간으로 옮겨져요.</p>
+
+          <button onClick={() => onConfirm(date)} className="mt-5 h-12 w-full rounded-2xl bg-indigo-600 text-sm font-semibold text-white transition-transform active:scale-[0.98] hover:bg-indigo-700">
+            {formatDateLabelShort(date)}에 전체 담기
+          </button>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   );
 }

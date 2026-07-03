@@ -710,3 +710,69 @@ place without leaving whatever the planner was showing underneath:
   both action buttons); tapping "일정에 추가" closes the overlay, switches
   to 일정, and the place appears on today's timeline; the URL cleanly
   drops back to plain `/planner` with no lingering query param.
+
+### Six-issue Planner/Discover overhaul (reimplemented from a reference PR)
+
+A parallel session (PR #2, `claude/plan-tab-ux-improvements-3weni2`) had
+already built and headless-browser-verified these 6 fixes against an
+earlier, divergent branch — this reimplements the same logic/UX directly
+on top of everything above (savedPlaces, `PlaceDetailOverlay`,
+`PlaceSearchPanel`, the `/discover` handoff), rather than merging that
+branch's diff wholesale.
+
+**Planner:**
+- **Smart map zoom**: `fitBounds`/`panTo` now re-fit on every visible-
+  marker-set change (search, trend sheet, scheduling, *or switching
+  tabs* — the 일정/관심 장소 tabs show different marker sets, an
+  extension beyond the reference PR since it had no tabs to begin with).
+- **`TIMELINE_HOURS` is now 00–23** (was a fixed 09:00–21:00 window), and
+  the single-day list is now a **3-day grid** (`VISIBLE_DAYS`,
+  `dateWindow`, `shiftISODate`, `formatDateLabelShort` in
+  `src/lib/timeline.ts`), with ‹ › day-window navigation.
+- **`ScheduleModal` + `MonthCalendar`** (new, `src/components/`, shared
+  with Discover): a real month-grid date picker plus an hour/minute
+  picker, replacing the old inline "next free hour" auto-fill. Every
+  entry point that lands a place on the itinerary — a map-pin tap, a
+  trend-card tap, the 관심 장소 tab's "일정에 추가" — now opens this
+  modal instead of silently scheduling. Clicking an already-scheduled
+  stop reopens it pre-filled, in edit mode, with a delete button.
+- **Drag-and-drop rescheduling**: `@dnd-kit/core` (`DndContext`,
+  `useDraggable`/`useDroppable`) added for dragging an *already-scheduled*
+  stop to a different hour/day cell, swapping with the occupant if one's
+  there (`itineraryStore`'s new `moveItem` action). The *map-marker → new
+  slot* drag (an unscheduled pin onto the grid) still uses the existing
+  custom pointer long-press system — two separate drag mechanisms
+  coexisting, same as the reference PR.
+- `addPlace`/`addRouteBundle` (the old silent-auto-schedule actions)
+  removed from the store — every call site now goes through
+  `ScheduleModal` instead.
+
+**Discover:**
+- **`/api/discover/trends`** (new) + **`src/lib/discoverData.ts`** (new):
+  real API-backed browse data branching on `scope` (국내/해외) instead of
+  an object baked into the page, plus `category=season|hot|region` and
+  free-text `q=` search (routes ranked by likes, spots grouped by
+  category tag).
+- **Category chips** (전체/계절별/최근 핫한/지역별) with a region sub-chip
+  row, and a **working search box** (Enter or the 검색 button) showing
+  popular routes + a category-grouped place list instead of the browse
+  bundle.
+- **No more silent auto-add**: both the spot `[+]` button and a route's
+  "전체 일정에 담기" now open `ScheduleModal`/a date-only `RouteDateModal`
+  instead of instantly scheduling.
+- Card-body-click (not the `[+]` button) still hands off to `/planner`'s
+  딥 다이브 overlay via `?openDetail=`, from the previous round — kept
+  as-is alongside the new `[+]`-opens-`ScheduleModal` behavior.
+
+Verified in the browser end-to-end: category chips + region sub-chips,
+searching "경주" → popular-routes-by-likes + category-grouped spots, a
+search result's `[+]` opening `ScheduleModal` (month calendar → time grid
+→ register), a `/discover` card's body-click still auto-opening the
+관심 장소 tab's detail overlay on `/planner`, the 3-day × 00:00–23:00
+grid rendering with day-nav, a trend-card tap opening `ScheduleModal`
+(create), registering it, and clicking the resulting scheduled card
+reopening the same modal in edit mode (pre-filled, with delete). Full
+drag-and-drop reordering across grid cells wasn't separately end-to-end
+simulated (dnd-kit's pointer-sensor drag is awkward to script reliably)
+but builds clean and the click/create/edit paths through the same
+`moveItem` action are confirmed.
