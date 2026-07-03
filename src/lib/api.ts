@@ -1,4 +1,5 @@
 import type { ItineraryItem, Place, Region } from "./types";
+import type { DiscoverBundle, DiscoverRoute, DiscoverScope, DiscoverSpot, Season } from "./discoverData";
 
 export async function fetchTrendingPlaces(region: Region): Promise<Place[]> {
   const res = await fetch(`/api/trends?region=${region}`);
@@ -13,6 +14,35 @@ export async function searchPlaces(region: Region, query: string): Promise<Place
   if (!res.ok) throw new Error("Search failed");
   const data = (await res.json()) as { places: Place[] };
   return data.places;
+}
+
+export interface DiscoverBrowseResponse {
+  bundle: DiscoverBundle;
+  regions: string[];
+  season: Season;
+}
+
+export async function fetchDiscoverBundle(
+  scope: DiscoverScope,
+  category: string,
+  region?: string | null,
+): Promise<DiscoverBrowseResponse> {
+  const params = new URLSearchParams({ scope, category });
+  if (region) params.set("region", region);
+  const res = await fetch(`/api/discover/trends?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to load discover feed");
+  return res.json();
+}
+
+export interface DiscoverSearchResponse {
+  results: { spots: DiscoverSpot[]; routes: DiscoverRoute[] };
+}
+
+export async function fetchDiscoverSearch(scope: DiscoverScope, query: string): Promise<DiscoverSearchResponse> {
+  const params = new URLSearchParams({ scope, q: query });
+  const res = await fetch(`/api/discover/trends?${params.toString()}`);
+  if (!res.ok) throw new Error("Discover search failed");
+  return res.json();
 }
 
 export async function saveItinerary(

@@ -39,6 +39,13 @@ interface ItineraryState {
   addRouteBundle: (places: Place[]) => void;
   isHourTaken: (date: string, hour: number) => boolean;
   addItem: (item: Omit<ItineraryItem, "id">) => void;
+  /**
+   * Reschedules an existing item to a new date/time (drag-and-drop moves,
+   * or the schedule-edit modal) without changing its identity/id. If the
+   * target slot is already occupied by a *different* item, the two swap
+   * times instead of one silently clobbering the other.
+   */
+  moveItem: (id: string, date: string, hour: number, minute?: number, budget?: number) => void;
   removeItem: (id: string) => void;
   clearDate: (date: string) => void;
   /** Bulk-replaces the whole itinerary — used to hydrate from a shared/collaborative session. */
@@ -131,6 +138,28 @@ export const useItineraryStore = create<ItineraryState>((set, get) => ({
           a.date === b.date
             ? a.time.localeCompare(b.time)
             : a.date.localeCompare(b.date),
+        ),
+      };
+    }),
+
+  moveItem: (id, date, hour, minute = 0, budget) =>
+    set((state) => {
+      const moving = state.items.find((i) => i.id === id);
+      if (!moving) return state;
+      const time = formatTime(hour, minute);
+      const occupant = state.items.find(
+        (i) => i.id !== id && i.date === date && hourFromTime(i.time) === hour,
+      );
+
+      const next = state.items.map((i) => {
+        if (i.id === id) return { ...i, date, time, budget: budget !== undefined ? budget : i.budget };
+        if (occupant && i.id === occupant.id) return { ...i, date: moving.date, time: moving.time };
+        return i;
+      });
+
+      return {
+        items: next.sort((a, b) =>
+          a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date),
         ),
       };
     }),
