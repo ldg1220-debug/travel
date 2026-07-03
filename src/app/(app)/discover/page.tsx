@@ -24,6 +24,7 @@ import {
   Wine,
   Building2,
   ShoppingBag,
+  Hotel,
   ChevronRight,
   ChevronLeft,
   Sparkles,
@@ -73,6 +74,17 @@ const CATEGORY_FILTERS: { key: CategoryFilter; label: string }[] = [
   { key: "region", label: "지역별" },
 ];
 
+/** Search results' "카테고리별 장소" sub-filter chips — a coarser subset of PlaceCategoryTag focused on trip-planning essentials (맛집/숙소 pickup), not every tag the data model supports. */
+type SpotCategoryFilter = "all" | PlaceCategoryTag;
+const SEARCH_CATEGORY_FILTERS: { key: SpotCategoryFilter; label: string }[] = [
+  { key: "all", label: "전체" },
+  { key: "관광지", label: "관광지" },
+  { key: "테마파크", label: "테마파크" },
+  { key: "음식점", label: "음식점" },
+  { key: "술집", label: "술집" },
+  { key: "숙소", label: "숙소" },
+];
+
 const SPOT_ICONS: Record<SpotIconKey, React.ComponentType<{ size?: number; className?: string }>> = {
   coffee: Coffee,
   camera: Camera,
@@ -83,6 +95,7 @@ const SPOT_ICONS: Record<SpotIconKey, React.ComponentType<{ size?: number; class
   tent: Tent,
   wine: Wine,
   building: Building2,
+  hotel: Hotel,
 };
 
 const CATEGORY_ICONS: Record<PlaceCategoryTag, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -110,6 +123,7 @@ const SPOT_ICON_TO_PLACE_ICON: Record<SpotIconKey, PlaceIcon> = {
   tent: "pin",
   wine: "utensils",
   building: "museum",
+  hotel: "pin",
 };
 
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
@@ -206,18 +220,7 @@ export default function DiscoverPage() {
     clearSearch();
   };
 
-  // Grouped-by-category place list for search results (관광지 / 테마파크 / 음식점 / 술집 / 박물관 …).
-  const groupedSearchSpots = useMemo(() => {
-    const spots = searchData?.results.spots ?? [];
-    const groups = new Map<PlaceCategoryTag, DiscoverSpot[]>();
-    for (const spot of spots) {
-      const list = groups.get(spot.tag) ?? [];
-      list.push(spot);
-      groups.set(spot.tag, list);
-    }
-    return Array.from(groups.entries());
-  }, [searchData]);
-
+  const searchSpots = searchData?.results.spots ?? [];
   const popularRoutes = searchData?.results.routes ?? [];
 
   const handleAddSpot = (spot: DiscoverSpot) => setScheduleSpot(spotToPlace(spot));
@@ -410,10 +413,11 @@ export default function DiscoverPage() {
           />
         ) : isSearching ? (
           <SearchResults
+            key={activeQuery}
             query={activeQuery}
             searching={searching}
             routes={popularRoutes}
-            groupedSpots={groupedSearchSpots}
+            spots={searchSpots}
             onAddSpot={handleAddSpot}
             onOpenDetail={handleOpenDetail}
             onPreviewRoute={setPreviewRoute}
@@ -641,12 +645,12 @@ function ExpandedSection({
   );
 }
 
-// ── search results: popular routes ranked by likes + category-grouped places ──
+// ── search results: popular routes ranked by likes + category-filterable places ──
 function SearchResults({
   query,
   searching,
   routes,
-  groupedSpots,
+  spots,
   onAddSpot,
   onOpenDetail,
   onPreviewRoute,
@@ -654,15 +658,35 @@ function SearchResults({
   query: string;
   searching: boolean;
   routes: DiscoverRoute[];
-  groupedSpots: [PlaceCategoryTag, DiscoverSpot[]][];
+  spots: DiscoverSpot[];
   onAddSpot: (spot: DiscoverSpot) => void;
   onOpenDetail: (spot: DiscoverSpot) => void;
   onPreviewRoute: (route: DiscoverRoute) => void;
 }) {
+  // Local to this component (remounted via `key={activeQuery}` in the
+  // parent), so a fresh search always starts back at "전체" instead of
+  // carrying over whatever category the previous search had picked.
+  const [categoryFilter, setCategoryFilter] = useState<SpotCategoryFilter>("all");
+
+  const filteredSpots = useMemo(
+    () => (categoryFilter === "all" ? spots : spots.filter((s) => s.tag === categoryFilter)),
+    [spots, categoryFilter],
+  );
+
+  const groupedSpots = useMemo(() => {
+    const groups = new Map<PlaceCategoryTag, DiscoverSpot[]>();
+    for (const spot of filteredSpots) {
+      const list = groups.get(spot.tag) ?? [];
+      list.push(spot);
+      groups.set(spot.tag, list);
+    }
+    return Array.from(groups.entries());
+  }, [filteredSpots]);
+
   if (searching) {
     return <div className="py-20 text-center text-sm text-slate-400">&ldquo;{query}&rdquo; 검색 중…</div>;
   }
-  if (routes.length === 0 && groupedSpots.length === 0) {
+  if (routes.length === 0 && spots.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-20 text-center">
         <p className="text-sm text-slate-500">&ldquo;{query}&rdquo;에 대한 결과가 없어요.</p>
@@ -684,28 +708,55 @@ function SearchResults({
         </section>
       )}
 
-      {groupedSpots.length > 0 && (
+      {spots.length > 0 && (
         <section>
-          <SectionHeader icon={MapIcon} iconClass="text-indigo-500" emoji="📍" title={`"${query}" 카테고리별 장소`} caption="관광지 · 테마파크 · 음식점 · 술집 · 박물관" />
-          <div className="mt-4 space-y-8">
-            {groupedSpots.map(([tag, spots]) => {
-              const TagIcon = CATEGORY_ICONS[tag];
+          <SectionHeader
+            icon={MapIcon}
+            iconClass="text-indigo-500"
+            emoji="📍"
+            title={`"${query}" 카테고리별 장소`}
+            caption="원하는 카테고리를 골라 맛집·숙소까지 찾아보세요"
+          />
+          <div className="mt-4 flex flex-wrap gap-2">
+            {SEARCH_CATEGORY_FILTERS.map((c) => {
+              const active = categoryFilter === c.key;
               return (
-                <div key={tag}>
-                  <div className="mb-3 flex items-center gap-1.5 text-[13px] font-bold text-slate-700">
-                    <TagIcon size={14} className="text-slate-400" />
-                    {tag}
-                    <span className="text-[11px] font-medium text-slate-400">{spots.length}</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                    {spots.map((spot) => (
-                      <SpotCard key={spot.id} spot={spot} onAdd={() => onAddSpot(spot)} onOpenDetail={() => onOpenDetail(spot)} />
-                    ))}
-                  </div>
-                </div>
+                <button
+                  key={c.key}
+                  onClick={() => setCategoryFilter(c.key)}
+                  className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                    active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  }`}
+                >
+                  {c.label}
+                </button>
               );
             })}
           </div>
+
+          {groupedSpots.length === 0 ? (
+            <p className="mt-8 text-center text-[13px] text-slate-400">이 카테고리에는 결과가 없어요.</p>
+          ) : (
+            <div className="mt-6 space-y-8">
+              {groupedSpots.map(([tag, tagSpots]) => {
+                const TagIcon = CATEGORY_ICONS[tag];
+                return (
+                  <div key={tag}>
+                    <div className="mb-3 flex items-center gap-1.5 text-[13px] font-bold text-slate-700">
+                      <TagIcon size={14} className="text-slate-400" />
+                      {tag}
+                      <span className="text-[11px] font-medium text-slate-400">{tagSpots.length}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                      {tagSpots.map((spot) => (
+                        <SpotCard key={spot.id} spot={spot} onAdd={() => onAddSpot(spot)} onOpenDetail={() => onOpenDetail(spot)} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
     </div>

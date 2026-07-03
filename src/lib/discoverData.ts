@@ -24,7 +24,7 @@ export type PlaceCategoryTag =
   | "숙소";
 
 /** String key for a lucide icon — kept serializable so this data can flow through a JSON API route. */
-export type SpotIconKey = "coffee" | "camera" | "waves" | "landmark" | "utensils" | "pin" | "tent" | "wine" | "building";
+export type SpotIconKey = "coffee" | "camera" | "waves" | "landmark" | "utensils" | "pin" | "tent" | "wine" | "building" | "hotel";
 
 export interface DiscoverSpot {
   id: string;
@@ -100,6 +100,15 @@ const DOMESTIC: DiscoverBundle = {
     { id: "d-f6", name: "대릉원 돌담길", region: "경주 · 황남동", tag: "관광지", season: "spring", saves: 3300, gradient: "from-rose-400 to-pink-300", iconKey: "camera", lat: 35.8367, lng: 129.2133, color: "#fb7185" },
     { id: "d-f7", name: "국립경주박물관", region: "경주 · 인왕동", tag: "박물관", season: "winter", saves: 2100, gradient: "from-sky-400 to-indigo-300", iconKey: "building", lat: 35.8305, lng: 129.2274, color: "#38bdf8" },
     { id: "d-f8", name: "교촌마을 한옥 맛집", region: "경주 · 교동", tag: "음식점", season: "fall", saves: 1980, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 35.8305, lng: 129.2105, color: "#fbbf24" },
+    // 경주 음식점 — 황리단길 일대 트렌디 맛집 (야끼니꾸/라멘 포함), 검색 시 "카테고리별 장소"에서 음식점 칩으로 걸러진다.
+    { id: "d-f9", name: "황리단길 라멘하우스", region: "경주 · 황남동", tag: "음식점", season: "winter", saves: 1720, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 35.8342, lng: 129.2109, color: "#fb923c" },
+    { id: "d-f10", name: "경주 야키니쿠 스미비", region: "경주 · 황남동", tag: "음식점", season: "fall", saves: 1540, gradient: "from-red-400 to-orange-300", iconKey: "utensils", lat: 35.8355, lng: 129.213, color: "#f87171" },
+    { id: "d-f11", name: "황남빵 본점", region: "경주 · 황남동", tag: "음식점", season: "spring", saves: 2650, gradient: "from-amber-400 to-yellow-300", iconKey: "utensils", lat: 35.838, lng: 129.2077, color: "#fbbf24" },
+    // 경주 숙소 — 호텔/게스트하우스/에어비앤비, 아직 국내 데이터에 "숙소" 태그가 하나도 없었어서 새로 추가.
+    { id: "d-f12", name: "경주 힐탑호텔", region: "경주 · 불국동", tag: "숙소", season: "summer", saves: 1380, gradient: "from-sky-400 to-blue-300", iconKey: "hotel", lat: 35.8256, lng: 129.2231, color: "#38bdf8" },
+    { id: "d-f13", name: "황리단길 게스트하우스", region: "경주 · 황남동", tag: "숙소", season: "fall", saves: 960, gradient: "from-violet-400 to-purple-300", iconKey: "hotel", lat: 35.834, lng: 129.2115, color: "#a78bfa" },
+    { id: "d-f14", name: "경주 라한셀렉트 호텔", region: "경주 · 보문동", tag: "숙소", season: "winter", saves: 1210, gradient: "from-slate-400 to-slate-300", iconKey: "hotel", lat: 35.843, lng: 129.275, color: "#94a3b8" },
+    { id: "d-f15", name: "보문단지 한옥스테이 에어비앤비", region: "경주 · 보문동", tag: "숙소", season: "spring", saves: 890, gradient: "from-emerald-400 to-teal-300", iconKey: "hotel", lat: 35.841, lng: 129.27, color: "#34d399" },
   ],
   routes: [
     {
@@ -183,6 +192,16 @@ const OVERSEAS: DiscoverBundle = {
     { id: "o-f2", name: "이치란 라멘 본점", region: "일본 · 후쿠오카", tag: "음식점", season: "winter", saves: 7300, gradient: "from-red-400 to-orange-300", iconKey: "utensils", lat: 33.5958, lng: 130.409, color: "#f87171" },
     { id: "o-f3", name: "호안끼엠 호수", region: "베트남 · 하노이", tag: "자연", season: "summer", saves: 6100, gradient: "from-green-400 to-lime-300", iconKey: "waves", lat: 21.0285, lng: 105.8524, color: "#4ade80" },
     { id: "o-f4", name: "나라 사슴공원", region: "일본 · 나라", tag: "자연", season: "spring", saves: 5400, gradient: "from-yellow-400 to-amber-300", iconKey: "camera", lat: 34.6851, lng: 135.843, color: "#facc15" },
+    // 오사카 음식점 — 도톤보리/신사이바시/우메다 일대 (기존엔 오사카 태그의 음식점이 하나도 없었음).
+    { id: "o-f5", name: "도톤보리 타코야키 왕골목", region: "일본 · 오사카", tag: "음식점", season: "summer", saves: 6800, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 34.6688, lng: 135.5019, color: "#fb923c" },
+    { id: "o-f6", name: "신사이바시 야키니쿠 규카쿠", region: "일본 · 오사카", tag: "음식점", season: "fall", saves: 4200, gradient: "from-red-400 to-rose-300", iconKey: "utensils", lat: 34.6731, lng: 135.5013, color: "#f87171" },
+    { id: "o-f7", name: "우메다 라멘 스트리트", region: "일본 · 오사카", tag: "음식점", season: "winter", saves: 5100, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 34.7025, lng: 135.4959, color: "#fbbf24" },
+    { id: "o-f8", name: "쿠로몬 시장 스시", region: "일본 · 오사카", tag: "음식점", season: "spring", saves: 3900, gradient: "from-rose-400 to-pink-300", iconKey: "utensils", lat: 34.6656, lng: 135.5065, color: "#fb7185" },
+    // 오사카 숙소 — 호텔/게스트하우스/에어비앤비.
+    { id: "o-f9", name: "난바 시티 호텔", region: "일본 · 오사카", tag: "숙소", season: "summer", saves: 2400, gradient: "from-sky-400 to-blue-300", iconKey: "hotel", lat: 34.6656, lng: 135.5006, color: "#38bdf8" },
+    { id: "o-f10", name: "신사이바시 캡슐호텔", region: "일본 · 오사카", tag: "숙소", season: "fall", saves: 1680, gradient: "from-slate-400 to-slate-300", iconKey: "hotel", lat: 34.6741, lng: 135.502, color: "#94a3b8" },
+    { id: "o-f11", name: "도톤보리뷰 에어비앤비", region: "일본 · 오사카", tag: "숙소", season: "winter", saves: 1950, gradient: "from-violet-400 to-purple-300", iconKey: "hotel", lat: 34.669, lng: 135.503, color: "#a78bfa" },
+    { id: "o-f12", name: "우메다 스카이 호텔", region: "일본 · 오사카", tag: "숙소", season: "spring", saves: 2870, gradient: "from-emerald-400 to-teal-300", iconKey: "hotel", lat: 34.7052, lng: 135.4906, color: "#34d399" },
   ],
   routes: [
     {

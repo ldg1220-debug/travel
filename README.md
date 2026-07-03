@@ -902,3 +902,41 @@ confirmed-fixed repro; tsc/eslint/build are clean and a browser pass
 confirmed nothing regressed (TrendSheet → ScheduleModal flow, 관심 장소
 tab, and the route preview modal all still open and render correctly
 after the extraction).
+
+### Search results: category filter chips + 맛집/숙소 dataset expansion
+
+Search results ("카테고리별 장소") were previously always grouped by
+every tag present, with no way to narrow down to just food or lodging —
+and the domestic/overseas datasets barely had any 음식점/숙소 entries to
+begin with, so cities like 경주/오사카 read as 관광지-only even though the
+data model already supported richer tags.
+
+- Added a `[전체, 관광지, 테마파크, 음식점, 술집, 숙소]` filter chip row
+  directly under the "카테고리별 장소" subtitle in `SearchResults`
+  (`discover/page.tsx`). Clicking a chip filters the already-fetched
+  search results client-side (`spots.filter(s => s.tag === category)`)
+  rather than a new API round-trip — the single `/api/discover/trends?q=`
+  call already returns everything matching the query, so there's nothing
+  a second request would add. The filter is local `useState`, reset via
+  `key={activeQuery}` on `<SearchResults>` so a fresh search always
+  starts back at 전체 instead of carrying over the previous one's pick.
+- Expanded `discoverData.ts`: 경주 and 오사카 (previously 1 and 0 음식점
+  entries, 0 숙소 entries each) now each have 4 음식점 (황리단길
+  라멘하우스, 야키니쿠 스미비, 황남빵 본점, 교촌마을 한옥 맛집 / 도톤보리
+  타코야키 왕골목, 신사이바시 야키니쿠 규카쿠, 우메다 라멘 스트리트,
+  쿠로몬 시장 스시) and 4 숙소 entries (호텔/게스트하우스/에어비앤비 mix
+  for both cities).
+- Added a `hotel` `SpotIconKey` (mapped to lucide's `Hotel` icon, and to
+  `PlaceIcon: "pin"` for the planner marker — `types.ts`'s `PlaceIcon`
+  enum has no dedicated lodging icon, "pin" is the same fallback `tent`
+  already used) so 숙소 cards render visually distinct from 음식점/관광지.
+- The pickup flow needed no changes: `SpotCard`'s `[+]` button already
+  ran through `spotToPlace()` → `ScheduleModal` for every spot regardless
+  of tag, so the new 음식점/숙소 cards use the exact same "골라서 바로
+  일정에 담기" path as every other search result.
+
+Verified in the browser: searching "경주" and "오사카" each surface 4
+음식점 + 4 숙소 cards once filtered, chip switching updates the card grid
+live with no other category's header bleeding through, and a 숙소 card's
+`[+]` button still opens `ScheduleModal` correctly. tsc/eslint/build
+clean, no console errors during the pass.
