@@ -1,7 +1,16 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ItineraryItem, Place, Region } from "@/lib/types";
-import { formatTime, hourFromTime, todayISODate } from "@/lib/timeline";
+import {
+  DAY_MINUTES,
+  DEFAULT_DURATION_MINUTES,
+  MIN_DURATION_MINUTES,
+  formatTime,
+  hourFromTime,
+  minutesFromTime,
+  rangesOverlap,
+  todayISODate,
+} from "@/lib/timeline";
 import { haversineDistanceMeters } from "@/lib/geo";
 
 interface ItineraryState {
@@ -32,7 +41,7 @@ interface ItineraryState {
   /** Adds or overwrites a `savedPlaces` entry by id — the detail overlay's "저장하기" action. */
   upsertSavedPlace: (place: Place) => void;
   isHourTaken: (date: string, hour: number) => boolean;
-  addItem: (item: Omit<ItineraryItem, "id">) => void;
+  addItem: (item: Omit<ItineraryItem, "id" | "durationMinutes"> & { durationMinutes?: number }) => void;
   /**
    * Reschedules an existing item to a new date/time (drag-and-drop moves,
    * or the schedule-edit modal) without changing its identity/id. If the
@@ -40,6 +49,13 @@ interface ItineraryState {
    * times instead of one silently clobbering the other.
    */
   moveItem: (id: string, date: string, hour: number, minute?: number, budget?: number) => void;
+  /**
+   * Resizes a stop's length by dragging its bottom handle (15-minute
+   * snapping is done by the caller before this is invoked) — clamped here
+   * to a sane [15min, rest-of-day] range so a runaway drag can't produce a
+   * negative or day-spanning block.
+   */
+  resizeItem: (id: string, durationMinutes: number) => void;
   removeItem: (id: string) => void;
   clearDate: (date: string) => void;
   /** Bulk-replaces the whole itinerary — used to hydrate from a shared/collaborative session. */
@@ -89,18 +105,28 @@ export const useItineraryStore = create<ItineraryState>()(
           };
         }),
 
+      // An hour is "taken" if any item's [start, start+duration) range
+      // overlaps that hour's full [hour*60, hour*60+60) span — not just an
+      // exact start-time match, now that stops can span multiple hours.
       isHourTaken: (date, hour) =>
-        get().items.some((item) => item.date === date && hourFromTime(item.time) === hour),
+        get().items.some(
+          (item) =>
+            item.date === date &&
+            rangesOverlap(minutesFromTime(item.time), item.durationMinutes, hour * 60, 60),
+        ),
 
       addItem: (item) =>
         set((state) => {
-          // One entry per hour slot per date — replace any existing booking.
-          const targetHour = hourFromTime(item.time);
+          const durationMinutes = item.durationMinutes ?? DEFAULT_DURATION_MINUTES;
+          const start = minutesFromTime(item.time);
+          // Replace any existing booking(s) that this new stop's time range overlaps.
           const filtered = state.items.filter(
-            (existing) => !(existing.date === item.date && hourFromTime(existing.time) === targetHour),
+            (existing) =>
+              !(existing.date === item.date && rangesOverlap(minutesFromTime(existing.time), existing.durationMinutes, start, durationMinutes)),
           );
           const next: ItineraryItem = {
             ...item,
+            durationMinutes,
             id: `${item.placeId}-${item.date}-${item.time}-${Date.now()}`,
           };
           return {
@@ -115,7 +141,10 @@ export const useItineraryStore = create<ItineraryState>()(
           const moving = state.items.find((i) => i.id === id);
           if (!moving) return state;
           const time = formatTime(hour, minute);
-          const occupant = state.items.find((i) => i.id !== id && i.date === date && hourFromTime(i.time) === hour);
+          const start = hour * 60 + minute;
+          const occupant = state.items.find(
+            (i) => i.id !== id && i.date === date && rangesOverlap(minutesFromTime(i.time), i.durationMinutes, start, moving.durationMinutes),
+          );
 
           const next = state.items.map((i) => {
             if (i.id === id) return { ...i, date, time, budget: budget !== undefined ? budget : i.budget };
@@ -129,6 +158,16 @@ export const useItineraryStore = create<ItineraryState>()(
             ),
           };
         }),
+
+      resizeItem: (id, durationMinutes) =>
+        set((state) => ({
+          items: state.items.map((i) => {
+            if (i.id !== id) return i;
+            const maxDuration = DAY_MINUTES - minutesFromTime(i.time);
+            const clamped = Math.min(maxDuration, Math.max(MIN_DURATION_MINUTES, durationMinutes));
+            return { ...i, durationMinutes: clamped };
+          }),
+        })),
 
       removeItem: (id) => set((state) => ({ items: state.items.filter((i) => i.id !== id) })),
 

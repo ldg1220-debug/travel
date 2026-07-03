@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
+import { GoogleMap, OverlayView, Polyline } from "@react-google-maps/api";
 import {
   Search,
   Flame,
@@ -24,6 +25,7 @@ import {
   Building2,
   ShoppingBag,
   ChevronRight,
+  ChevronLeft,
   Sparkles,
   CalendarRange,
   Heart,
@@ -35,14 +37,26 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScheduleModal } from "@/components/ScheduleModal";
 import { MonthCalendar } from "@/components/MonthCalendar";
+import { MapProvider, useGoogleMapsStatus } from "@/app/(app)/planner/MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchDiscoverBundle, fetchDiscoverSearch } from "@/lib/api";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
 import { SEASON_LABEL } from "@/lib/discoverData";
-import type { DiscoverRoute, DiscoverRouteStop, DiscoverScope, DiscoverSpot, PlaceCategoryTag, SpotIconKey } from "@/lib/discoverData";
+import type {
+  DiscoverRoute,
+  DiscoverRouteStop,
+  DiscoverScope,
+  DiscoverSpot,
+  PlaceCategoryTag,
+  RegionNode,
+  SpotIconKey,
+} from "@/lib/discoverData";
 import type { Place, PlaceIcon } from "@/lib/types";
 
 type CategoryFilter = "all" | "season" | "hot" | "region";
+type SectionKind = "trending" | "favorites" | "routes";
+const COMPACT_SPOT_COUNT = 4;
+const COMPACT_ROUTE_COUNT = 2;
 
 const SCOPES: { key: DiscoverScope; label: string; flag: string }[] = [
   { key: "domestic", label: "국내 여행", flag: "🇰🇷" },
@@ -116,6 +130,17 @@ function routeStopToPlace(routeId: string, stop: DiscoverRouteStop): Place {
   return { id, placeId: id, name: stop.name, category: "Route stop", color: "#818cf8", lat: stop.lat, lng: stop.lng, icon: "pin" };
 }
 
+/** The drill-down options one level below wherever `path` currently points. */
+function nodesAtPath(tree: RegionNode[], path: string[]): RegionNode[] {
+  let level = tree;
+  for (const label of path) {
+    const found = level.find((n) => n.label === label);
+    if (!found) return [];
+    level = found.children;
+  }
+  return level;
+}
+
 // ─────────────────────────────────────────────────────────────
 // The global App Bar (hamburger + title + Sheet nav) already lives in
 // src/components/AppBar.tsx, rendered once by src/app/(app)/layout.tsx
@@ -129,12 +154,14 @@ export default function DiscoverPage() {
 
   const [scope, setScope] = useState<DiscoverScope>("domestic");
   const [category, setCategory] = useState<CategoryFilter>("all");
-  const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
+  const [regionPath, setRegionPath] = useState<string[]>([]);
   const [queryInput, setQueryInput] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [scheduleSpot, setScheduleSpot] = useState<Place | null>(null);
   const [routeTarget, setRouteTarget] = useState<DiscoverRoute | null>(null);
+  const [previewRoute, setPreviewRoute] = useState<DiscoverRoute | null>(null);
+  const [expandedSection, setExpandedSection] = useState<SectionKind | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = (msg: string) => {
@@ -145,8 +172,8 @@ export default function DiscoverPage() {
 
   // ── browse feed: branches by scope + category, hits a real API route ──
   const { data: browseData } = useQuery({
-    queryKey: ["discover-trends", scope, category, category === "region" ? selectedRegion : null],
-    queryFn: () => fetchDiscoverBundle(scope, category, category === "region" ? selectedRegion : null),
+    queryKey: ["discover-trends", scope, category, category === "region" ? regionPath : null],
+    queryFn: () => fetchDiscoverBundle(scope, category, category === "region" ? regionPath : []),
     enabled: activeQuery.trim().length === 0,
   });
 
@@ -159,7 +186,8 @@ export default function DiscoverPage() {
 
   const isSearching = activeQuery.trim().length > 0;
   const bundle = browseData?.bundle;
-  const regions = browseData?.regions ?? [];
+  const regionTree = browseData?.regionTree ?? [];
+  const regionOptions = nodesAtPath(regionTree, regionPath);
 
   const runSearch = () => setActiveQuery(queryInput);
   const clearSearch = () => {
@@ -170,7 +198,8 @@ export default function DiscoverPage() {
   const handleScopeChange = (next: DiscoverScope) => {
     setScope(next);
     setCategory("all");
-    setSelectedRegion(null);
+    setRegionPath([]);
+    setExpandedSection(null);
     clearSearch();
   };
 
@@ -191,15 +220,16 @@ export default function DiscoverPage() {
   const handleAddSpot = (spot: DiscoverSpot) => setScheduleSpot(spotToPlace(spot));
 
   // Tapping the card itself (not the [+] quick-add button) hands off to
-  // /planner's 딥 다이브 detail overlay instead of scheduling immediately —
-  // no map provider lives on this screen, so the place just needs to be
-  // findable-by-id once /planner mounts (see its ?openDetail effect).
+  // /planner's 딥 다이브 detail overlay instead of scheduling immediately.
   const handleOpenDetail = (spot: DiscoverSpot) => {
     addPlaces([spotToPlace(spot)]);
     router.push(`/planner?openDetail=${encodeURIComponent(spot.id)}`);
   };
 
-  const handleAddRoute = (route: DiscoverRoute) => setRouteTarget(route);
+  const handleAddRoute = (route: DiscoverRoute) => {
+    setPreviewRoute(null);
+    setRouteTarget(route);
+  };
 
   const confirmRouteAdd = (date: string) => {
     if (!routeTarget) return;
@@ -225,6 +255,10 @@ export default function DiscoverPage() {
     setRouteTarget(null);
     router.push("/planner");
   };
+
+  const trendingCompact = bundle?.trending.slice(0, COMPACT_SPOT_COUNT) ?? [];
+  const favoritesCompact = bundle?.favorites.slice(0, COMPACT_SPOT_COUNT) ?? [];
+  const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
 
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
@@ -289,14 +323,17 @@ export default function DiscoverPage() {
             </div>
           </div>
 
-          {!isSearching && (
+          {!isSearching && !expandedSection && (
             <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
               {CATEGORY_FILTERS.map((c) => {
                 const active = category === c.key;
                 return (
                   <button
                     key={c.key}
-                    onClick={() => setCategory(c.key)}
+                    onClick={() => {
+                      setCategory(c.key);
+                      setRegionPath([]);
+                    }}
                     className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                       active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                     }`}
@@ -312,42 +349,77 @@ export default function DiscoverPage() {
             </div>
           )}
 
-          {!isSearching && category === "region" && regions.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
-              {regions.map((r) => {
-                const active = selectedRegion === r;
-                return (
+          {/* 지역별 drill-down: 대륙→국가→도시 (overseas) / 시도→동네 (domestic) */}
+          {!isSearching && !expandedSection && category === "region" && (
+            <div className="mt-3 flex flex-col items-center gap-2">
+              {regionPath.length > 0 && (
+                <div className="flex flex-wrap items-center justify-center gap-1.5">
                   <button
-                    key={r}
-                    onClick={() => setSelectedRegion(active ? null : r)}
-                    className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition-colors ${
-                      active ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                    }`}
+                    onClick={() => setRegionPath([])}
+                    className="rounded-full bg-slate-100 px-3 py-1 text-[11.5px] font-medium text-slate-500 hover:bg-slate-200"
                   >
-                    {r}
+                    전체
                   </button>
-                );
-              })}
+                  {regionPath.map((label, i) => (
+                    <button
+                      key={label}
+                      onClick={() => setRegionPath(regionPath.slice(0, i + 1))}
+                      className="flex items-center gap-0.5 rounded-full bg-indigo-600 px-3 py-1 text-[11.5px] font-semibold text-white"
+                    >
+                      {label}
+                      {i < regionPath.length - 1 && <ChevronRight size={11} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {regionOptions.length > 0 && (
+                <div className="flex flex-wrap items-center justify-center gap-1.5">
+                  {regionOptions.map((node) => (
+                    <button
+                      key={node.label}
+                      onClick={() => setRegionPath([...regionPath, node.label])}
+                      className="rounded-full bg-slate-100 px-3 py-1 text-[11.5px] font-medium text-slate-500 hover:bg-slate-200"
+                    >
+                      {node.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </section>
 
-        {/* ── SEARCH RESULTS ── */}
-        {isSearching ? (
+        {browseData?.notice === "coming_soon" && !expandedSection && (
+          <div className="mb-6 rounded-2xl border border-dashed border-amber-200 bg-amber-50 px-4 py-3 text-center text-[13px] text-amber-700">
+            이 지역 데이터는 아직 준비 중이에요 — 대신 지금 가장 인기 있는 장소를 보여드려요.
+          </div>
+        )}
+
+        {/* ── MAIN CONTENT ── */}
+        {expandedSection && bundle ? (
+          <ExpandedSection
+            kind={expandedSection}
+            bundle={bundle}
+            onBack={() => setExpandedSection(null)}
+            onAddSpot={handleAddSpot}
+            onOpenDetail={handleOpenDetail}
+            onPreviewRoute={setPreviewRoute}
+          />
+        ) : isSearching ? (
           <SearchResults
             query={activeQuery}
             searching={searching}
             routes={popularRoutes}
             groupedSpots={groupedSearchSpots}
             onAddSpot={handleAddSpot}
-            onAddRoute={handleAddRoute}
             onOpenDetail={handleOpenDetail}
+            onPreviewRoute={setPreviewRoute}
           />
         ) : (
           /* ── BROWSE CONTENT (switches on scope + category) ── */
           <AnimatePresence mode="wait">
             <motion.div
-              key={`${scope}-${category}-${selectedRegion}`}
+              key={`${scope}-${category}-${regionPath.join("/")}`}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
@@ -362,9 +434,10 @@ export default function DiscoverPage() {
                     emoji={category === "season" ? "🍂" : "🔥"}
                     title={category === "hot" ? "Hottest Right Now" : category === "season" ? "이 계절 추천" : "Trending Now"}
                     caption="지금 가장 많이 담긴 실시간 핫플"
+                    onSeeAll={bundle.trending.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("trending") : undefined}
                   />
                   <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-                    {bundle.trending.map((spot, i) => (
+                    {trendingCompact.map((spot, i) => (
                       <SpotCard
                         key={spot.id}
                         spot={spot}
@@ -379,9 +452,16 @@ export default function DiscoverPage() {
 
               {bundle && bundle.favorites.length > 0 && (
                 <>
-                  <SectionHeader icon={Crown} iconClass="text-amber-500" emoji="👑" title="All-Time Favorites" caption="언제 가도 좋은 스테디셀러 명소" />
+                  <SectionHeader
+                    icon={Crown}
+                    iconClass="text-amber-500"
+                    emoji="👑"
+                    title="All-Time Favorites"
+                    caption="언제 가도 좋은 스테디셀러 명소"
+                    onSeeAll={bundle.favorites.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("favorites") : undefined}
+                  />
                   <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-                    {bundle.favorites.map((spot) => (
+                    {favoritesCompact.map((spot) => (
                       <SpotCard
                         key={spot.id}
                         spot={spot}
@@ -402,10 +482,17 @@ export default function DiscoverPage() {
 
               {bundle && bundle.routes.length > 0 && (
                 <>
-                  <SectionHeader icon={MapIcon} iconClass="text-indigo-500" emoji="🗺️" title="Recommended Routes" caption="장소를 묶어둔 추천 코스 템플릿" />
+                  <SectionHeader
+                    icon={MapIcon}
+                    iconClass="text-indigo-500"
+                    emoji="🗺️"
+                    title="Recommended Routes"
+                    caption="장소를 묶어둔 추천 코스 템플릿"
+                    onSeeAll={bundle.routes.length > COMPACT_ROUTE_COUNT ? () => setExpandedSection("routes") : undefined}
+                  />
                   <div className="-mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
-                    {bundle.routes.map((route) => (
-                      <RouteTemplateCard key={route.id} route={route} onAdd={() => handleAddRoute(route)} />
+                    {routesCompact.map((route) => (
+                      <RouteTemplateCard key={route.id} route={route} onAdd={() => handleAddRoute(route)} onPreview={() => setPreviewRoute(route)} />
                     ))}
                   </div>
                 </>
@@ -439,6 +526,13 @@ export default function DiscoverPage() {
 
       {routeTarget && <RouteDateModal route={routeTarget} onClose={() => setRouteTarget(null)} onConfirm={confirmRouteAdd} />}
 
+      {/* Google Maps script only loads once a route preview is actually opened. */}
+      {previewRoute && (
+        <MapProvider>
+          <RoutePreviewModal route={previewRoute} onClose={() => setPreviewRoute(null)} onAdd={() => handleAddRoute(previewRoute)} />
+        </MapProvider>
+      )}
+
       {toast && (
         <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-slate-900/90 px-3.5 py-2 text-xs text-white">
           {toast}
@@ -455,12 +549,14 @@ function SectionHeader({
   emoji,
   title,
   caption,
+  onSeeAll,
 }: {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   iconClass: string;
   emoji: string;
   title: string;
   caption: string;
+  onSeeAll?: () => void;
 }) {
   return (
     <div className="flex items-end justify-between">
@@ -476,9 +572,68 @@ function SectionHeader({
         </div>
         <p className="mt-1 pl-10 text-[13px] text-slate-500">{caption}</p>
       </div>
-      <button className="flex items-center gap-0.5 text-[13px] font-semibold text-slate-400 transition-colors hover:text-slate-700">
-        전체보기 <ChevronRight size={15} />
+      {onSeeAll && (
+        <button
+          onClick={onSeeAll}
+          className="flex items-center gap-0.5 text-[13px] font-semibold text-slate-400 transition-colors hover:text-slate-700"
+        >
+          전체보기 <ChevronRight size={15} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── 전체보기: a single section's full (unsliced) list with a back button ──
+const SECTION_META: Record<SectionKind, { icon: React.ComponentType<{ size?: number; className?: string }>; iconClass: string; emoji: string; title: string }> = {
+  trending: { icon: Flame, iconClass: "text-rose-500", emoji: "🔥", title: "Trending Now" },
+  favorites: { icon: Crown, iconClass: "text-amber-500", emoji: "👑", title: "All-Time Favorites" },
+  routes: { icon: MapIcon, iconClass: "text-indigo-500", emoji: "🗺️", title: "Recommended Routes" },
+};
+
+function ExpandedSection({
+  kind,
+  bundle,
+  onBack,
+  onAddSpot,
+  onOpenDetail,
+  onPreviewRoute,
+}: {
+  kind: SectionKind;
+  bundle: { trending: DiscoverSpot[]; favorites: DiscoverSpot[]; routes: DiscoverRoute[] };
+  onBack: () => void;
+  onAddSpot: (spot: DiscoverSpot) => void;
+  onOpenDetail: (spot: DiscoverSpot) => void;
+  onPreviewRoute: (route: DiscoverRoute) => void;
+}) {
+  const meta = SECTION_META[kind];
+  return (
+    <div>
+      <button onClick={onBack} className="mb-4 flex items-center gap-1 text-[13px] font-semibold text-slate-500 hover:text-slate-800">
+        <ChevronLeft size={15} /> 뒤로
       </button>
+      <div className="mb-6 flex items-center gap-2">
+        <span className={`flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 ${meta.iconClass}`}>
+          <meta.icon size={17} />
+        </span>
+        <h2 className="text-xl font-bold tracking-tight">
+          <span className="mr-1">{meta.emoji}</span>
+          {meta.title}
+        </h2>
+      </div>
+      {kind === "routes" ? (
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          {bundle.routes.map((route) => (
+            <RouteTemplateCard key={route.id} route={route} onAdd={() => onPreviewRoute(route)} onPreview={() => onPreviewRoute(route)} />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          {(kind === "trending" ? bundle.trending : bundle.favorites).map((spot) => (
+            <SpotCard key={spot.id} spot={spot} favorite={kind === "favorites"} onAdd={() => onAddSpot(spot)} onOpenDetail={() => onOpenDetail(spot)} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -490,16 +645,16 @@ function SearchResults({
   routes,
   groupedSpots,
   onAddSpot,
-  onAddRoute,
   onOpenDetail,
+  onPreviewRoute,
 }: {
   query: string;
   searching: boolean;
   routes: DiscoverRoute[];
   groupedSpots: [PlaceCategoryTag, DiscoverSpot[]][];
   onAddSpot: (spot: DiscoverSpot) => void;
-  onAddRoute: (route: DiscoverRoute) => void;
   onOpenDetail: (spot: DiscoverSpot) => void;
+  onPreviewRoute: (route: DiscoverRoute) => void;
 }) {
   if (searching) {
     return <div className="py-20 text-center text-sm text-slate-400">&ldquo;{query}&rdquo; 검색 중…</div>;
@@ -520,7 +675,7 @@ function SearchResults({
           <SectionHeader icon={Crown} iconClass="text-amber-500" emoji="🏆" title={`"${query}" 인기 루트`} caption="좋아요 · 조회수가 높은 여행자들의 루트" />
           <div className="-mt-6 mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
             {routes.map((route) => (
-              <RouteTemplateCard key={route.id} route={route} onAdd={() => onAddRoute(route)} />
+              <RouteTemplateCard key={route.id} route={route} onAdd={() => onPreviewRoute(route)} onPreview={() => onPreviewRoute(route)} />
             ))}
           </div>
         </section>
@@ -619,10 +774,13 @@ function SpotCard({
   );
 }
 
-// ── route template card ──
-function RouteTemplateCard({ route, onAdd }: { route: DiscoverRoute; onAdd: () => void }) {
+// ── route template card — body click previews the route, the pill button schedules it ──
+function RouteTemplateCard({ route, onAdd, onPreview }: { route: DiscoverRoute; onAdd: () => void; onPreview: () => void }) {
   return (
-    <div className="group overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:shadow-xl hover:shadow-slate-200">
+    <div
+      onClick={onPreview}
+      className="group cursor-pointer overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:shadow-xl hover:shadow-slate-200"
+    >
       <div className={`relative overflow-hidden bg-gradient-to-br ${route.gradient} px-5 py-4`}>
         <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_80%_10%,white,transparent_45%)]" />
         <div className="relative flex items-center justify-between">
@@ -662,9 +820,12 @@ function RouteTemplateCard({ route, onAdd }: { route: DiscoverRoute; onAdd: () =
         </div>
 
         <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
-          <span className="text-[12px] text-slate-400">코스 그대로 담기</span>
+          <span className="text-[12px] text-slate-400">전체 경로 보기</span>
           <Button
-            onClick={onAdd}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAdd();
+            }}
             className="h-9 gap-1 rounded-full bg-indigo-600 px-4 text-[13px] font-semibold text-white shadow-sm shadow-indigo-200 transition-colors hover:bg-indigo-700"
           >
             <Plus size={15} />전체 일정에 담기
@@ -672,6 +833,108 @@ function RouteTemplateCard({ route, onAdd }: { route: DiscoverRoute; onAdd: () =
         </div>
       </div>
     </div>
+  );
+}
+
+// ── route preview modal: full stop list + a real Google Map polyline ──
+function RoutePreviewModal({ route, onClose, onAdd }: { route: DiscoverRoute; onClose: () => void; onAdd: () => void }) {
+  return (
+    <AnimatePresence>
+      <motion.div className="fixed inset-0 z-[75] flex items-end justify-center sm:items-center sm:px-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+        <motion.div
+          className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl"
+          initial={{ y: 40, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 40, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 380, damping: 34 }}
+        >
+          <div className="relative h-56 shrink-0 bg-[#eef2f4]">
+            <RoutePreviewMap stops={route.stops} />
+            <button
+              onClick={onClose}
+              aria-label="닫기"
+              className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 shadow"
+            >
+              <X size={14} color="#64748b" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-5">
+            <Badge className="border-none bg-indigo-50 text-[11px] font-semibold text-indigo-600">{route.region}</Badge>
+            <h3 className="mt-2 text-lg font-bold text-slate-900">{route.title}</h3>
+            <p className="text-[13px] text-slate-500">{route.subtitle}</p>
+            <div className="mt-2 flex items-center gap-3 text-[12px] font-medium text-slate-500">
+              <span className="flex items-center gap-1">
+                <Heart size={12} /> {fmt(route.likes)}
+              </span>
+              <span className="flex items-center gap-1">
+                <Eye size={12} /> {fmt(route.views)}
+              </span>
+              <span className="flex items-center gap-1">
+                <Clock size={12} /> {route.duration}
+              </span>
+            </div>
+
+            <div className="relative mt-5 pl-1">
+              <div className="absolute bottom-2 left-[10px] top-2 w-px bg-slate-200" />
+              {route.stops.map((stop, i) => (
+                <div key={i} className="relative flex items-center gap-3 py-2">
+                  <span className="z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-white">
+                    {i + 1}
+                  </span>
+                  <span className="w-12 shrink-0 text-[11px] font-semibold tabular-nums text-slate-400">{stop.time}</span>
+                  <span className="truncate text-[13px] font-medium text-slate-700">{stop.name}</span>
+                </div>
+              ))}
+            </div>
+
+            <Button
+              onClick={onAdd}
+              className="mt-5 h-12 w-full gap-1.5 rounded-2xl bg-indigo-600 text-sm font-semibold text-white hover:bg-indigo-700"
+            >
+              <Plus size={15} />전체 일정에 담기
+            </Button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+function RoutePreviewMap({ stops }: { stops: DiscoverRouteStop[] }) {
+  const { isLoaded, loadError } = useGoogleMapsStatus();
+  if (loadError) {
+    return <div className="flex h-full items-center justify-center text-xs text-slate-400">지도를 불러오지 못했어요.</div>;
+  }
+  if (!isLoaded) {
+    return <div className="flex h-full items-center justify-center text-xs text-slate-400">지도 로딩 중…</div>;
+  }
+  const center = stops[Math.floor(stops.length / 2)];
+  return (
+    <GoogleMap
+      mapContainerStyle={{ width: "100%", height: "100%" }}
+      center={{ lat: center.lat, lng: center.lng }}
+      zoom={12}
+      onLoad={(map) => {
+        const bounds = new google.maps.LatLngBounds();
+        stops.forEach((s) => bounds.extend({ lat: s.lat, lng: s.lng }));
+        map.fitBounds(bounds, 40);
+      }}
+      options={{ disableDefaultUI: true, gestureHandling: "greedy" }}
+    >
+      <Polyline
+        path={stops.map((s) => ({ lat: s.lat, lng: s.lng }))}
+        options={{ strokeColor: "#4f46e5", strokeOpacity: 0.9, strokeWeight: 3 }}
+      />
+      {stops.map((s, i) => (
+        <OverlayView key={i} position={{ lat: s.lat, lng: s.lng }} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
+          <div className="flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-indigo-600 text-[11px] font-bold text-white shadow">
+            {i + 1}
+          </div>
+        </OverlayView>
+      ))}
+    </GoogleMap>
   );
 }
 

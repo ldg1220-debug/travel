@@ -4,6 +4,13 @@ export const SLOT_HEIGHT = 56;
 export const MINUTE_STEPS = [0, 15, 30, 45];
 /** Number of day columns shown at once in the multi-day timeline grid. */
 export const VISIBLE_DAYS = 3;
+/** A newly-scheduled stop's default length before anyone drags its resize handle. */
+export const DEFAULT_DURATION_MINUTES = 60;
+/** Shortest a stop can be resized down to. */
+export const MIN_DURATION_MINUTES = 15;
+/** Resize-drag snapping granularity. */
+export const RESIZE_STEP_MINUTES = 15;
+export const DAY_MINUTES = 24 * 60;
 
 export function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -15,6 +22,17 @@ export function formatTime(hour: number, minute: number): string {
 
 export function hourFromTime(time: string): number {
   return Number(time.split(":")[0]);
+}
+
+/** Minutes since midnight for an "HH:mm" string. */
+export function minutesFromTime(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/** True if [aStart, aStart+aDuration) and [bStart, bStart+bDuration) overlap. */
+export function rangesOverlap(aStart: number, aDuration: number, bStart: number, bDuration: number): boolean {
+  return aStart < bStart + bDuration && bStart < aStart + aDuration;
 }
 
 export function todayISODate(): string {

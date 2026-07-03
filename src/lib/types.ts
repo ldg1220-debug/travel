@@ -33,8 +33,10 @@ export interface ItineraryItem {
   name: string;
   /** YYYY-MM-DD */
   date: string;
-  /** HH:mm */
+  /** HH:mm start time */
   time: string;
+  /** Length of this stop, in minutes — resizable in 15-minute steps via the timeline's drag handle. */
+  durationMinutes: number;
   coordinates: { lat: number; lng: number };
   /** Estimated cost for this stop, in JPY. */
   budget?: number;

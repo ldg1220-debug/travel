@@ -1,5 +1,5 @@
 import type { ItineraryItem, Place, Region } from "./types";
-import type { DiscoverBundle, DiscoverScope, DiscoverSpot, DiscoverRoute, Season } from "./discoverData";
+import type { DiscoverBundle, DiscoverScope, DiscoverSpot, DiscoverRoute, RegionNode, Season } from "./discoverData";
 
 export async function fetchTrendingPlaces(region: Region): Promise<Place[]> {
   const res = await fetch(`/api/trends?region=${region}`);
@@ -58,18 +58,25 @@ export async function pushSharedItinerary(
 
 export interface DiscoverBrowseResponse {
   bundle: DiscoverBundle;
-  regions: string[];
+  regionTree: RegionNode[];
   season: Season;
+  /** Set when a fully-drilled-down 지역별 selection had nothing, and the bundle fell back to scope-wide popular spots instead. */
+  notice: "coming_soon" | null;
 }
 
-/** Browse feed for /discover — branches by scope + category (계절별/최근 핫한/지역별). */
+/**
+ * Browse feed for /discover — branches by scope + category (계절별/최근
+ * 핫한/지역별). `path` is the 지역별 drill-down so far, most-general
+ * first: [continent, country, city] overseas, [region, neighborhood]
+ * domestic (see regionHierarchy/matchesRegionPath in discoverData.ts).
+ */
 export async function fetchDiscoverBundle(
   scope: DiscoverScope,
   category: string,
-  region: string | null,
+  path: string[],
 ): Promise<DiscoverBrowseResponse> {
   const params = new URLSearchParams({ scope, category });
-  if (region) params.set("region", region);
+  if (path.length > 0) params.set("path", path.join(","));
   const res = await fetch(`/api/discover/trends?${params.toString()}`);
   if (!res.ok) throw new Error("Failed to load discover feed");
   return res.json();

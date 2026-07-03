@@ -776,3 +776,78 @@ drag-and-drop reordering across grid cells wasn't separately end-to-end
 simulated (dnd-kit's pointer-sensor drag is awkward to script reliably)
 but builds clean and the click/create/edit paths through the same
 `moveItem` action are confirmed.
+
+### Service-level polish: region hierarchy, route preview, proximity suggestions, resizable blocks
+
+Five follow-up improvements aimed at making the app read like a real
+travel product rather than a framework demo.
+
+**Discover — 3-level region hierarchy + coming-soon fallback:**
+- `regionHierarchy()`/`matchesRegionPath()` (`src/lib/discoverData.ts`)
+  derive a 대륙→국가→도시 tree (overseas) / 시도→동네 tree (domestic)
+  purely by parsing the `region: "국가 · 도시"` string every mock spot
+  already had, plus a small `COUNTRY_CONTINENT` lookup for the continent
+  level — no new fields added to the ~20 existing spot objects.
+- `/api/discover/trends` accepts `path=<label>,<label>,...` (most-general
+  first) and filters `trending`/`favorites` down the tree. A fully
+  drilled-down leaf with nothing in it no longer dead-ends: the response
+  sets `notice: "coming_soon"` and swaps in the scope's overall
+  top-saved spots instead of an empty screen, surfaced as an amber
+  banner on `/discover`.
+- The page renders breadcrumb + drill-down chips from the API's
+  `regionTree`, replacing the old flat region-chip row.
+
+**Discover — route preview modal:**
+- Clicking a route card's body (not its "담기" pill, which still
+  schedules directly via `stopPropagation`) opens `RoutePreviewModal`: a
+  full stop list plus a real `GoogleMap` with a numbered `Polyline`
+  tracing the route.
+- `MapProvider` (previously planner-only, by explicit prior decision) is
+  now also mounted on `/discover`, but only conditionally — wrapping
+  just the preview modal's contents, so Google Maps still isn't loaded
+  on a plain `/discover` visit, only once a preview is actually opened.
+
+**Discover — "전체보기" wired up:**
+- Trending/Favorites/Routes sections cap themselves at 4/4/2 items with
+  a "전체보기" button once there's more; clicking it swaps in
+  `ExpandedSection`, the full unsliced list with a back button, instead
+  of doing nothing.
+
+**Planner — proximity-based nearby suggestions:**
+- `TrendSheet` now accepts the day's already-scheduled stop coordinates
+  as `nearAnchors` and sorts its cards nearest-first by Haversine
+  distance (`src/lib/geo.ts`) to the closest one, annotating each card
+  with its distance. With no stops scheduled yet, every distance is
+  `null` and the sort is a no-op — the original curated order holds.
+  Reuses the existing long-press-drag-to-grid mechanic rather than
+  building new drag machinery, since that path already worked.
+
+**Planner — flexible timeline blocks + resize:**
+- `ItineraryItem` gained `durationMinutes` (defaults to 60 for new
+  stops). The store's `isHourTaken`/`addItem`/`moveItem` moved from
+  exact-hour matching to interval-overlap checks
+  (`rangesOverlap`/`minutesFromTime` in `src/lib/timeline.ts`), and a new
+  `resizeItem(id, durationMinutes)` action clamps to
+  `[MIN_DURATION_MINUTES, day-end]`.
+- The day-column grid no longer renders one card per hour cell — the
+  background grid (drop targets, transit chips, empty-state) stays
+  hour-by-hour, but scheduled stops are now absolute-positioned,
+  variable-height cards (`top`/`height` derived from start-minute and
+  duration) layered on top.
+- Each card has a bottom-edge drag handle (plain pointer events, not
+  dnd-kit — it lives *inside* a dnd-kit-draggable card and stops
+  propagation on `pointerdown` so a resize drag doesn't also start a
+  card-move drag) that snaps to 15-minute steps and clamps against the
+  next stop's start time (or end-of-day for the last stop).
+
+Verified in the browser end-to-end (after temporarily installing
+Playwright, screenshotting, then removing it): scheduling a stop,
+resizing it by dragging its bottom handle (56px → 112px, i.e. 60min →
+120min, with the "N분" label updating live), the trend sheet re-sorting
+and annotating cards with distance once a stop exists, drilling two
+levels into 지역별 (제주 → 애월/서귀포) with real filtered results,
+"전체보기" opening the expanded-section view with a working back button,
+and a route card opening the preview modal with its stop list and add
+button. (The preview modal's embedded map itself shows "지도 로딩 중…"
+in this sandbox — no live Google Maps key is configured here, a
+pre-existing environment limitation unrelated to this change.)

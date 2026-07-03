@@ -30,12 +30,17 @@ import {
   pad2,
   formatTime,
   hourFromTime,
+  minutesFromTime,
+  rangesOverlap,
   formatDateLabelShort,
   dateWindow,
   shiftISODate,
   TIMELINE_HOURS,
   SLOT_HEIGHT,
   VISIBLE_DAYS,
+  DAY_MINUTES,
+  MIN_DURATION_MINUTES,
+  RESIZE_STEP_MINUTES,
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
@@ -89,6 +94,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const isHourTaken = useItineraryStore((s) => s.isHourTaken);
   const addItem = useItineraryStore((s) => s.addItem);
   const moveItem = useItineraryStore((s) => s.moveItem);
+  const resizeItem = useItineraryStore((s) => s.resizeItem);
   const removeItem = useItineraryStore((s) => s.removeItem);
   const clearDate = useItineraryStore((s) => s.clearDate);
   const addPlaces = useItineraryStore((s) => s.addPlaces);
@@ -540,6 +546,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             onCancel={cancelPress}
             pressingId={pressingId}
             onTrendsLoaded={addPlaces}
+            nearAnchors={schedule.map((s) => s.coordinates)}
           />
 
           {mapsError ? (
@@ -735,40 +742,72 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     ))}
                   </div>
 
-                  {/* day columns */}
-                  {visibleDates.map((date) => (
-                    <div key={date} className="relative min-w-0 flex-1 border-l border-slate-100">
-                      {TIMELINE_HOURS.map((h) => {
-                        const item = scheduleByDate[date]?.find((s) => hourFromTime(s.time) === h);
-                        const place = item ? places.find((p) => p.id === item.placeId) ?? null : null;
-                        const display = item ? place ?? fallbackDisplay(item.name) : null;
-                        const highlighted = hoverSlot?.date === date && hoverSlot?.hour === h;
-                        const transit = !item ? transitByDate[date]?.[h] : undefined;
-                        const order = item ? orderByDate[date]?.[item.placeId] : undefined;
+                  {/* day columns — a background grid of hour drop-targets, with
+                      variable-height scheduled cards absolute-positioned on
+                      top by start-minute/duration instead of one-per-cell */}
+                  {visibleDates.map((date) => {
+                    const dayItems = scheduleByDate[date] ?? [];
+                    const isCovered = (h: number) =>
+                      dayItems.some((it) => rangesOverlap(minutesFromTime(it.time), it.durationMinutes, h * 60, 60));
 
-                        return (
-                          <DroppableCell key={h} date={date} hour={h} highlighted={highlighted} registerRef={registerSlotRef}>
-                            {display && item ? (
-                              <ScheduledCard item={item} display={display} order={order} onOpenEdit={openEditModal} onRemove={removeItem} />
-                            ) : (
-                              <div className="flex h-full items-center justify-center">
-                                {highlighted ? (
+                    return (
+                      <div key={date} className="relative min-w-0 flex-1 border-l border-slate-100">
+                        {TIMELINE_HOURS.map((h) => {
+                          const highlighted = hoverSlot?.date === date && hoverSlot?.hour === h;
+                          const covered = isCovered(h);
+                          const transit = !covered ? transitByDate[date]?.[h] : undefined;
+
+                          return (
+                            <DroppableCell key={h} date={date} hour={h} highlighted={highlighted} registerRef={registerSlotRef}>
+                              {highlighted ? (
+                                <div className="flex h-full items-center justify-center">
                                   <span className="text-[10.5px] font-semibold text-[#FF6B6B]">Drop here</span>
-                                ) : transit ? (
-                                  <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[9.5px] font-medium text-slate-500">
-                                    {transit.mode === "walk" ? <Footprints size={9} /> : <TrainFront size={9} />}
-                                    {transit.minutes}분
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] font-medium text-slate-200">—</span>
-                                )}
-                              </div>
-                            )}
-                          </DroppableCell>
-                        );
-                      })}
-                    </div>
-                  ))}
+                                </div>
+                              ) : !covered ? (
+                                <div className="flex h-full items-center justify-center">
+                                  {transit ? (
+                                    <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[9.5px] font-medium text-slate-500">
+                                      {transit.mode === "walk" ? <Footprints size={9} /> : <TrainFront size={9} />}
+                                      {transit.minutes}분
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-medium text-slate-200">—</span>
+                                  )}
+                                </div>
+                              ) : null}
+                            </DroppableCell>
+                          );
+                        })}
+
+                        {dayItems.map((item, index) => {
+                          const place = places.find((p) => p.id === item.placeId) ?? null;
+                          const display = place ?? fallbackDisplay(item.name);
+                          const order = orderByDate[date]?.[item.placeId];
+                          const startMinutes = minutesFromTime(item.time);
+                          const nextItem = dayItems[index + 1];
+                          const maxDurationMinutes = (nextItem ? minutesFromTime(nextItem.time) : DAY_MINUTES) - startMinutes;
+
+                          return (
+                            <div
+                              key={item.id}
+                              className="pointer-events-none absolute inset-x-0.5 z-10"
+                              style={{ top: (startMinutes / 60) * SLOT_HEIGHT }}
+                            >
+                              <ScheduledCard
+                                item={item}
+                                display={display}
+                                order={order}
+                                maxDurationMinutes={maxDurationMinutes}
+                                onOpenEdit={openEditModal}
+                                onRemove={removeItem}
+                                onResize={resizeItem}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </>
@@ -953,20 +992,56 @@ function DroppableCell({ date, hour, highlighted, registerRef, children }: Dropp
   );
 }
 
-// ── a scheduled stop, draggable to any other slot/day; click to edit ──
+// ── a scheduled stop, draggable to any other slot/day; click to edit;
+// bottom edge drag-resizes its duration in 15-minute steps ──
 interface ScheduledCardProps {
   item: ItineraryItem;
   display: Place;
   order: number | undefined;
+  /** How long this stop is allowed to grow to via the resize handle — the gap to the next stop, or to end-of-day if it's the day's last one. */
+  maxDurationMinutes: number;
   onOpenEdit: (item: ItineraryItem) => void;
   onRemove: (id: string) => void;
+  onResize: (id: string, durationMinutes: number) => void;
 }
 
-function ScheduledCard({ item, display, order, onOpenEdit, onRemove }: ScheduledCardProps) {
+function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, onRemove, onResize }: ScheduledCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `sched-${item.id}`,
     data: { itemId: item.id },
   });
+
+  // Live-resize state: the handle tracks pointer movement locally for
+  // instant visual feedback and only commits to the store (onResize) on
+  // pointerup, instead of dispatching a store update on every pixel moved.
+  const [liveDuration, setLiveDuration] = useState<number | null>(null);
+  const resizeStartRef = useRef<{ y: number; duration: number } | null>(null);
+
+  const handleResizeDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    resizeStartRef.current = { y: e.clientY, duration: item.durationMinutes };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const handleResizeMove = (e: React.PointerEvent) => {
+    if (!resizeStartRef.current) return;
+    const deltaMinutes = ((e.clientY - resizeStartRef.current.y) / SLOT_HEIGHT) * 60;
+    const snapped =
+      Math.round((resizeStartRef.current.duration + deltaMinutes) / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES;
+    setLiveDuration(Math.max(MIN_DURATION_MINUTES, Math.min(maxDurationMinutes, snapped)));
+  };
+  const handleResizeUp = (e: React.PointerEvent) => {
+    if (!resizeStartRef.current) return;
+    resizeStartRef.current = null;
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    setLiveDuration((current) => {
+      if (current != null) onResize(item.id, current);
+      return null;
+    });
+  };
+
+  const effectiveDuration = liveDuration ?? item.durationMinutes;
+  const height = (Math.max(MIN_DURATION_MINUTES, effectiveDuration) / 60) * SLOT_HEIGHT;
 
   return (
     <motion.div
@@ -981,8 +1056,9 @@ function ScheduledCard({ item, display, order, onOpenEdit, onRemove }: Scheduled
         background: `${display.color}12`,
         border: `1px solid ${display.color}40`,
         touchAction: "none",
+        height,
       }}
-      className="relative flex h-full cursor-pointer items-center overflow-hidden rounded-lg"
+      className="pointer-events-auto relative flex cursor-pointer items-center overflow-hidden rounded-lg"
     >
       <span className="self-stretch" style={{ width: 4, background: display.color }} />
       <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5">
@@ -991,7 +1067,9 @@ function ScheduledCard({ item, display, order, onOpenEdit, onRemove }: Scheduled
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[11px] font-semibold leading-tight text-slate-900">{display.name}</p>
-          <p className="truncate text-[9.5px] tabular-nums leading-tight text-slate-500">{item.time}</p>
+          <p className="truncate text-[9.5px] tabular-nums leading-tight text-slate-500">
+            {item.time} · {effectiveDuration}분
+          </p>
         </div>
         {order != null && (
           <span
@@ -1011,6 +1089,18 @@ function ScheduledCard({ item, display, order, onOpenEdit, onRemove }: Scheduled
         >
           <X size={9} color="#94a3b8" />
         </button>
+      </div>
+
+      {/* bottom-edge resize handle — drag to change this stop's length in 15-minute steps */}
+      <div
+        onPointerDown={handleResizeDown}
+        onPointerMove={handleResizeMove}
+        onPointerUp={handleResizeUp}
+        onPointerCancel={handleResizeUp}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute inset-x-0 bottom-0 flex h-2.5 cursor-ns-resize touch-none items-end justify-center"
+      >
+        <span className="mb-0.5 h-0.5 w-5 rounded-full bg-slate-400/60" />
       </div>
     </motion.div>
   );

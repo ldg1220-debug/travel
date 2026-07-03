@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { PlaceGlyph } from "./icons";
+import { haversineDistanceMeters } from "@/lib/geo";
 import type { TrendCard } from "@/lib/mockTrends";
 import type { Place } from "@/lib/types";
+
+function formatDistance(meters: number): string {
+  return meters < 1000 ? `${Math.round(meters)}m` : `${(meters / 1000).toFixed(1)}km`;
+}
 
 async function fetchTrends(): Promise<TrendCard[]> {
   const res = await fetch("/api/planner/trends");
@@ -33,6 +38,13 @@ interface TrendSheetProps {
   onCancel: () => void;
   pressingId: string | null;
   onTrendsLoaded: (places: Place[]) => void;
+  /**
+   * Coordinates of the day's already-scheduled stops — when present, trend
+   * cards are sorted nearest-first (and annotated with distance) so that
+   * adding a next stop naturally continues the day's route instead of
+   * suggesting something across town.
+   */
+  nearAnchors?: { lat: number; lng: number }[];
 }
 
 /** Bottom sheet listing hashtag-curated trend spots — cards support the same tap/long-press-drag as map pins. */
@@ -46,6 +58,7 @@ export function TrendSheet({
   onCancel,
   pressingId,
   onTrendsLoaded,
+  nearAnchors,
 }: TrendSheetProps) {
   const { data: trends = [] } = useQuery({
     queryKey: ["planner-trends"],
@@ -58,6 +71,23 @@ export function TrendSheet({
     if (trends.length > 0) onTrendsLoaded(trends.map((t) => t.place));
   }, [trends, onTrendsLoaded]);
 
+  const hasAnchors = Boolean(nearAnchors && nearAnchors.length > 0);
+
+  // Pairs each trend with its distance to the nearest already-scheduled
+  // stop (or null with no stops yet), then sorts nearest-first. With no
+  // anchors every distance is null and the sort is a no-op (stable sort
+  // preserves the original curated order).
+  const rankedTrends = useMemo(() => {
+    const withDistance = trends.map((trend) => ({
+      trend,
+      distanceMeters:
+        nearAnchors && nearAnchors.length > 0
+          ? Math.min(...nearAnchors.map((a) => haversineDistanceMeters(a, trend.place)))
+          : null,
+    }));
+    return withDistance.sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity));
+  }, [trends, nearAnchors]);
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
@@ -69,11 +99,15 @@ export function TrendSheet({
         <SheetHeader>
           <SheetTitle>✨ Trending in Fukuoka &amp; Yufuin</SheetTitle>
         </SheetHeader>
-        <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 pb-6">
-          {trends.map((trend) => (
+        {hasAnchors && (
+          <p className="px-4 text-[11px] text-slate-400">오늘 일정 근처 순으로 정렬했어요</p>
+        )}
+        <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 pb-6 pt-2">
+          {rankedTrends.map(({ trend, distanceMeters }) => (
             <TrendCardRow
               key={trend.id}
               trend={trend}
+              distanceMeters={distanceMeters}
               pressing={pressingId === trend.place.id}
               onDown={onDown}
               onUp={onUp}
@@ -89,6 +123,7 @@ export function TrendSheet({
 
 interface TrendCardRowProps {
   trend: TrendCard;
+  distanceMeters: number | null;
   pressing: boolean;
   onDown: (place: Place, e: React.PointerEvent) => void;
   onUp: (place: Place) => void;
@@ -96,7 +131,7 @@ interface TrendCardRowProps {
   onCancel: () => void;
 }
 
-function TrendCardRow({ trend, pressing, onDown, onUp, onMove, onCancel }: TrendCardRowProps) {
+function TrendCardRow({ trend, distanceMeters, pressing, onDown, onUp, onMove, onCancel }: TrendCardRowProps) {
   const { place, hashtag } = trend;
   return (
     <div
@@ -119,6 +154,7 @@ function TrendCardRow({ trend, pressing, onDown, onUp, onMove, onCancel }: Trend
         <div className="text-[11px] text-slate-500">
           {place.category}
           {place.rating != null ? ` · ★ ${place.rating.toFixed(1)}` : ""}
+          {distanceMeters != null ? ` · 📍 ${formatDistance(distanceMeters)}` : ""}
         </div>
       </div>
     </div>

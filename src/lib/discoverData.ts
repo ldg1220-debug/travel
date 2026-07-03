@@ -233,6 +233,77 @@ export function allSpots(scope: DiscoverScope): DiscoverSpot[] {
   return [...bundle.trending, ...bundle.favorites];
 }
 
+/**
+ * 지역별 드릴-down hierarchy. `region` is already formatted as "국가 ·
+ * 도시" (overseas, e.g. "일본 · 오사카") or "시도 · 동네" (domestic, e.g.
+ * "제주 · 애월") everywhere in this file, so the tree is derived from that
+ * string rather than adding a parallel field to every spot. Overseas gets
+ * a real 3-level 대륙→국가→도시 tree (every current country happens to be
+ * in 아시아, but the structure holds for adding more); domestic stops at
+ * 2 levels (시도→동네) since "대륙/국가" doesn't mean anything within Korea.
+ */
+const COUNTRY_CONTINENT: Record<string, string> = {
+  일본: "아시아",
+  베트남: "아시아",
+};
+
+export interface RegionNode {
+  label: string;
+  children: RegionNode[];
+}
+
+export function regionHierarchy(scope: DiscoverScope): RegionNode[] {
+  const spots = allSpots(scope);
+  if (scope === "overseas") {
+    const tree = new Map<string, Map<string, Set<string>>>();
+    for (const s of spots) {
+      const [country, city] = s.region.split(" · ");
+      const continent = COUNTRY_CONTINENT[country] ?? "기타";
+      if (!tree.has(continent)) tree.set(continent, new Map());
+      const countries = tree.get(continent)!;
+      if (!countries.has(country)) countries.set(country, new Set());
+      if (city) countries.get(country)!.add(city);
+    }
+    return Array.from(tree.entries()).map(([continent, countries]) => ({
+      label: continent,
+      children: Array.from(countries.entries()).map(([country, cities]) => ({
+        label: country,
+        children: Array.from(cities).map((city) => ({ label: city, children: [] })),
+      })),
+    }));
+  }
+  const tree = new Map<string, Set<string>>();
+  for (const s of spots) {
+    const [region, neighborhood] = s.region.split(" · ");
+    if (!tree.has(region)) tree.set(region, new Set());
+    if (neighborhood) tree.get(region)!.add(neighborhood);
+  }
+  return Array.from(tree.entries()).map(([region, neighborhoods]) => ({
+    label: region,
+    children: Array.from(neighborhoods).map((n) => ({ label: n, children: [] })),
+  }));
+}
+
+/**
+ * `path` is up to 3 labels deep, most-general first — [continent, country,
+ * city] for overseas, [region, neighborhood] for domestic. Every non-empty
+ * segment must match; an empty path matches everything.
+ */
+export function matchesRegionPath(spot: DiscoverSpot, scope: DiscoverScope, path: string[]): boolean {
+  if (path.length === 0) return true;
+  const [a, b] = spot.region.split(" · ");
+  if (scope === "overseas") {
+    const continent = COUNTRY_CONTINENT[a] ?? "기타";
+    if (path[0] && continent !== path[0]) return false;
+    if (path[1] && a !== path[1]) return false;
+    if (path[2] && b !== path[2]) return false;
+    return true;
+  }
+  if (path[0] && a !== path[0]) return false;
+  if (path[1] && b !== path[1]) return false;
+  return true;
+}
+
 /** Free-text match over a spot's name/region/tag. */
 export function spotMatches(spot: DiscoverSpot, query: string): boolean {
   const q = query.trim().toLowerCase();
