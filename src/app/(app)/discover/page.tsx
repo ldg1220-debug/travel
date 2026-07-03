@@ -418,6 +418,7 @@ export default function DiscoverPage() {
             searching={searching}
             routes={popularRoutes}
             spots={searchSpots}
+            intentTag={searchData?.intentTag ?? null}
             onAddSpot={handleAddSpot}
             onOpenDetail={handleOpenDetail}
             onPreviewRoute={setPreviewRoute}
@@ -651,6 +652,7 @@ function SearchResults({
   searching,
   routes,
   spots,
+  intentTag,
   onAddSpot,
   onOpenDetail,
   onPreviewRoute,
@@ -659,14 +661,27 @@ function SearchResults({
   searching: boolean;
   routes: DiscoverRoute[];
   spots: DiscoverSpot[];
+  /** Category the query's intent keyword implied (e.g. "밥집" -> 음식점) — auto-activates that filter chip once the search resolves. */
+  intentTag: PlaceCategoryTag | null;
   onAddSpot: (spot: DiscoverSpot) => void;
   onOpenDetail: (spot: DiscoverSpot) => void;
   onPreviewRoute: (route: DiscoverRoute) => void;
 }) {
   // Local to this component (remounted via `key={activeQuery}` in the
-  // parent), so a fresh search always starts back at "전체" instead of
-  // carrying over whatever category the previous search had picked.
-  const [categoryFilter, setCategoryFilter] = useState<SpotCategoryFilter>("all");
+  // parent), so a fresh search always starts back at "전체"/intentTag
+  // instead of carrying over whatever category the previous search had
+  // picked. `intentTag` only becomes known once the async search
+  // resolves — the component is already mounted (possibly showing the
+  // "검색 중…" state) by the time it arrives — so the filter is
+  // re-derived during render whenever `intentTag` actually changes
+  // (React's documented "adjusting state when a prop changes" pattern),
+  // rather than via an effect, which would cost an extra render pass.
+  const [categoryFilter, setCategoryFilter] = useState<SpotCategoryFilter>(intentTag ?? "all");
+  const [syncedIntentTag, setSyncedIntentTag] = useState(intentTag);
+  if (intentTag !== syncedIntentTag) {
+    setSyncedIntentTag(intentTag);
+    setCategoryFilter(intentTag ?? "all");
+  }
 
   const filteredSpots = useMemo(
     () => (categoryFilter === "all" ? spots : spots.filter((s) => s.tag === categoryFilter)),

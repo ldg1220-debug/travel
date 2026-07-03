@@ -940,3 +940,55 @@ Verified in the browser: searching "경주" and "오사카" each surface 4
 live with no other category's header bleeding through, and a 숙소 card's
 `[+]` button still opens `ScheduleModal` correctly. tsc/eslint/build
 clean, no console errors during the pass.
+
+### Search engine: intent-keyword parsing + token matching + 3x data volume
+
+"경주" alone returned results, but "경주 밥집" / "경주 맛집" / "경주 숙소"
+— the actually-natural way someone searches — returned "결과가 없어요",
+since no place's name/region literally contains the word "밥집". Category
+choice was also capped at a handful of tags with barely any 음식점/숙소
+entries to find in the first place.
+
+- **`parseSearchQuery()`** (`discoverData.ts`): recognizes a fixed set of
+  intent keywords (맛집/밥집/음식점/레스토랑/술집/이자카야/숙소/호텔/
+  게스트하우스/에어비앤비/카페/커피/관광지/명소/테마파크/놀이공원/박물관/
+  쇼핑), strips whichever one appears from the query, and returns both the
+  keyword-stripped `coreQuery` (what actually gets text-matched) and the
+  `intentTag` it implies. `/api/discover/trends`'s `q=` handler now runs
+  the match against `coreQuery` instead of the raw string, and returns
+  `intentTag` in the response. If the query was *only* an intent keyword
+  ("맛집" with no city), there's nothing left to text-match — falls back
+  to every spot of that tag scope-wide instead of an empty result.
+- **`SearchResults`** reads `intentTag` off the search response and
+  pre-selects that filter chip (via React's "adjust state during render
+  when a prop changes" pattern, not an effect — `intentTag` only becomes
+  known once the async fetch resolves, after the component's already
+  mounted). 전체/other chips stay fully clickable — this isn't a hard
+  filter, just where the results land.
+- **`spotMatches`/`routeMatches`** moved from one-contiguous-substring
+  matching to tokenized AND-matching (every whitespace-separated word
+  must appear somewhere in the combined name/region/tag text). This
+  matters independently of the keyword-stripping: `"경주 황남동"` never
+  matches `.includes()` against a region formatted `"경주 · 황남동"` — the
+  literal 5-character run doesn't exist because of the `" · "` in the
+  middle — but token matching handles it correctly since each word is
+  checked independently.
+- **Data volume**: 경주 and 오사카 each go from 2/4/4 (관광지/음식점/숙소)
+  to 15/14/14. Rather than hand-typing ~70 new full entries, added a
+  `generateSpots()` helper that takes a hand-authored list of real-
+  sounding names (첨성대, 동궁과 월지, 규카츠 이치우마, 신사이바시
+  프리미어호텔, …) and mechanically derives everything else — id, a
+  small deterministic coordinate offset so pins don't stack on the seed
+  coordinate, gradient/color/season cycling, a descending save-count
+  ramp — from the list index. Only the names carry hand-authored effort;
+  the repetitive object-literal fields don't.
+
+Verified in the browser: "경주 밥집"/"경주 맛집" both land with 음식점
+pre-selected and 14 result cards (no more false "결과가 없어요"); "경주
+숙소" and "오사카 호텔" land on 숙소; a bare "맛집" with no city falls
+back to all 15 domestic 음식점 with 음식점 still pre-selected; "경주
+황남동" (a query that's never contiguous in the actual `"경주 ·
+황남동"` region string) now matches via tokenization; a genuinely
+unrelated string still shows the "결과가 없어요" empty state; and 전체
+remains clickable after landing on an auto-activated chip. tsc/eslint/
+build clean, no console errors during the pass.

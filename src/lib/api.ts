@@ -1,5 +1,5 @@
 import type { ItineraryItem, Place, Region } from "./types";
-import type { DiscoverBundle, DiscoverScope, DiscoverSpot, DiscoverRoute, RegionNode, Season } from "./discoverData";
+import type { DiscoverBundle, DiscoverScope, DiscoverSpot, DiscoverRoute, PlaceCategoryTag, RegionNode, Season } from "./discoverData";
 
 export async function fetchTrendingPlaces(region: Region): Promise<Place[]> {
   const res = await fetch(`/api/trends?region=${region}`);
@@ -84,6 +84,8 @@ export async function fetchDiscoverBundle(
 
 export interface DiscoverSearchResponse {
   results: { spots: DiscoverSpot[]; routes: DiscoverRoute[] };
+  /** Category implied by an intent keyword in the query (e.g. "밥집" -> 음식점), for auto-activating the results' filter chip. Null if the query had no recognizable intent keyword. */
+  intentTag: PlaceCategoryTag | null;
 }
 
 /** Free-text search across /discover's spots + routes for the given scope. */

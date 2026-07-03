@@ -82,6 +82,57 @@ export const SEASON_LABEL: Record<Season, string> = {
   winter: "겨울",
 };
 
+const GENERATED_GRADIENTS = [
+  "from-rose-400 to-orange-300",
+  "from-violet-400 to-fuchsia-300",
+  "from-sky-400 to-cyan-300",
+  "from-amber-400 to-yellow-300",
+  "from-emerald-400 to-teal-300",
+  "from-indigo-400 to-purple-300",
+  "from-red-400 to-orange-300",
+  "from-lime-400 to-green-300",
+];
+const GENERATED_COLORS = ["#fb7185", "#a78bfa", "#38bdf8", "#fbbf24", "#34d399", "#818cf8", "#f87171", "#a3e635"];
+const GENERATED_SEASONS: Season[] = ["spring", "summer", "fall", "winter"];
+
+/**
+ * Pads a (city, category) combination out to a browsable volume from a
+ * hand-authored name list, instead of hand-typing every field of every
+ * entry — only the names carry real creative effort; id, a small
+ * deterministic coordinate offset (so generated pins spread out near the
+ * seed coordinate instead of stacking exactly on top of each other),
+ * gradient/color/season cycling, and a descending save-count ramp are
+ * all derived mechanically from the list index.
+ */
+function generateSpots(
+  idPrefix: string,
+  names: string[],
+  region: string,
+  tag: PlaceCategoryTag,
+  iconKey: SpotIconKey,
+  baseLat: number,
+  baseLng: number,
+  savesStart: number,
+): DiscoverSpot[] {
+  return names.map((name, i) => {
+    const angle = i * 2.4; // spreads points around the seed coordinate instead of a straight line
+    const radius = 0.0025 * (1 + i * 0.35);
+    return {
+      id: `${idPrefix}${i + 1}`,
+      name,
+      region,
+      tag,
+      season: GENERATED_SEASONS[i % GENERATED_SEASONS.length],
+      saves: Math.max(120, savesStart - i * 65),
+      gradient: GENERATED_GRADIENTS[i % GENERATED_GRADIENTS.length],
+      iconKey,
+      lat: baseLat + Math.cos(angle) * radius,
+      lng: baseLng + Math.sin(angle) * radius,
+      color: GENERATED_COLORS[i % GENERATED_COLORS.length],
+    };
+  });
+}
+
 const DOMESTIC: DiscoverBundle = {
   trending: [
     { id: "d-t1", name: "애월 감성 카페거리", region: "제주 · 애월", tag: "카페", season: "summer", saves: 1240, gradient: "from-rose-400 to-orange-300", iconKey: "coffee", lat: 33.4623, lng: 126.3096, color: "#fb7185" },
@@ -241,6 +292,104 @@ const OVERSEAS: DiscoverBundle = {
   ],
 };
 
+// ── volume pass: 경주/오사카 previously had only 1-4 음식점/숙소/관광지
+// entries each — nowhere near enough to browse. Generated (not hand-typed
+// one-by-one) via generateSpots() from real-sounding name lists, per city
+// per category, to reach a scrollable 13-15 cards each. ──
+const GYEONGJU_ATTRACTION_NAMES = [
+  "첨성대",
+  "동궁과 월지",
+  "계림",
+  "오릉",
+  "분황사",
+  "황룡사지",
+  "문무대왕릉",
+  "감은사지 삼층석탑",
+  "양동마을",
+  "보문호수공원",
+  "김유신장군묘",
+  "첨성대 별빛광장",
+  "안압지 야경 산책로",
+];
+const GYEONGJU_FOOD_NAMES = [
+  "요석궁 한정식",
+  "함양집 왕갈비탕",
+  "황남관 한우꽃등심",
+  "첨성대 국밥거리",
+  "황리단길 스시오마카세",
+  "신라밀면 본점",
+  "경주 한우 명가",
+  "교동법주 안주상",
+  "보문호수 브런치하우스",
+  "불국사 산채정식",
+];
+const GYEONGJU_LODGING_NAMES = [
+  "신라스테이 경주",
+  "켄싱턴리조트 경주",
+  "코오롱호텔 경주",
+  "보문 게스트하우스 소풍",
+  "황남동 한옥스테이 다솜",
+  "첨성대뷰 에어비앤비",
+  "경주 브릿지호텔",
+  "대릉원 게스트하우스",
+  "보문호수 리조트빌라",
+  "황리단길 부티크스테이",
+];
+
+const OSAKA_ATTRACTION_NAMES = [
+  "우메다 스카이빌딩 공중정원",
+  "신사이바시스지 상점가",
+  "오사카 아쿠아리움 카이유칸",
+  "텐노지 동물원",
+  "시텐노지",
+  "나카노시마 공원",
+  "텐진바시스지 상점가",
+  "스파월드",
+  "오사카성 매화숲",
+  "신세카이 츠텐카쿠 타워",
+  "난바 그랜드 카게츠",
+  "오사카시립과학관",
+  "도톤보리 리버크루즈 선착장",
+];
+const OSAKA_FOOD_NAMES = [
+  "규카츠 이치우마",
+  "신사이바시 스시로 회전초밥",
+  "도톤보리 오코노미야키 미즈노",
+  "쿠시카츠 다루마 신세카이본점",
+  "텐진바시스지 다코야키 골목",
+  "우메다 스시장인",
+  "신사이바시 규카츠 만넨야",
+  "난바 멘야무사시 라멘",
+  "오사카 오모니식당",
+  "츠루하시 야키니쿠거리",
+];
+const OSAKA_LODGING_NAMES = [
+  "신사이바시 프리미어호텔",
+  "난바 백패커스호스텔",
+  "도톤보리 리버사이드 아파트먼트",
+  "우메다 스카이 게스트하우스",
+  "텐노지 캡슐인",
+  "신세카이 다다미스테이",
+  "오사카 에어비앤비 츠루하시뷰",
+  "난바 스테이션프론트 호텔",
+  "신사이바시 디자이너스호텔",
+  "오사카성뷰 레지던스",
+];
+
+// 경주 관광지/음식점 already cluster around 황남동 (황리단길); 숙소 around
+// 보문동 (the lake resort area) — reuses the same neighborhoods the
+// hand-authored entries above already use, rather than inventing new ones.
+DOMESTIC.favorites.push(
+  ...generateSpots("d-gj-attr", GYEONGJU_ATTRACTION_NAMES, "경주 · 황남동", "관광지", "landmark", 35.8356, 129.2115, 2200),
+  ...generateSpots("d-gj-food", GYEONGJU_FOOD_NAMES, "경주 · 황남동", "음식점", "utensils", 35.8342, 129.211, 1600),
+  ...generateSpots("d-gj-stay", GYEONGJU_LODGING_NAMES, "경주 · 보문동", "숙소", "hotel", 35.8395, 129.269, 1100),
+);
+OVERSEAS.favorites.push(
+  ...generateSpots("o-osk-attr", OSAKA_ATTRACTION_NAMES, "일본 · 오사카", "관광지", "landmark", 34.68, 135.505, 3200),
+  ...generateSpots("o-osk-food", OSAKA_FOOD_NAMES, "일본 · 오사카", "음식점", "utensils", 34.671, 135.503, 2400),
+  ...generateSpots("o-osk-stay", OSAKA_LODGING_NAMES, "일본 · 오사카", "숙소", "hotel", 34.669, 135.501, 1800),
+);
+
 export const DISCOVER_DATA: Record<DiscoverScope, DiscoverBundle> = {
   domestic: DOMESTIC,
   overseas: OVERSEAS,
@@ -323,25 +472,83 @@ export function matchesRegionPath(spot: DiscoverSpot, scope: DiscoverScope, path
   return true;
 }
 
-/** Free-text match over a spot's name/region/tag. */
-export function spotMatches(spot: DiscoverSpot, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return false;
-  return (
-    spot.name.toLowerCase().includes(q) ||
-    spot.region.toLowerCase().includes(q) ||
-    spot.tag.toLowerCase().includes(q)
-  );
+/**
+ * Splits a free-text query into lowercase tokens on whitespace. Used
+ * instead of one contiguous-substring check so multi-word queries like
+ * "경주 황남동" still match a region formatted as "경주 · 황남동" — the
+ * literal two-word string never appears verbatim (there's a " · " in the
+ * way), but each token independently does, which is how a real search
+ * box reads as "AND of these words" rather than "this exact phrase".
+ */
+function queryTokens(query: string): string[] {
+  return query.trim().toLowerCase().split(/\s+/).filter(Boolean);
 }
 
-/** Free-text match over a route's title/region/subtitle/stop names. */
+/** Free-text match over a spot's name/region/tag — every token must appear somewhere (AND, not one exact phrase). */
+export function spotMatches(spot: DiscoverSpot, query: string): boolean {
+  const tokens = queryTokens(query);
+  if (tokens.length === 0) return false;
+  const haystack = `${spot.name} ${spot.region} ${spot.tag}`.toLowerCase();
+  return tokens.every((t) => haystack.includes(t));
+}
+
+/** Free-text match over a route's title/region/subtitle/stop names — same AND-of-tokens rule as spotMatches. */
 export function routeMatches(route: DiscoverRoute, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return false;
-  return (
-    route.title.toLowerCase().includes(q) ||
-    route.region.toLowerCase().includes(q) ||
-    route.subtitle.toLowerCase().includes(q) ||
-    route.stops.some((s) => s.name.toLowerCase().includes(q))
-  );
+  const tokens = queryTokens(query);
+  if (tokens.length === 0) return false;
+  const haystack = `${route.title} ${route.region} ${route.subtitle} ${route.stops.map((s) => s.name).join(" ")}`.toLowerCase();
+  return tokens.every((t) => haystack.includes(t));
+}
+
+/**
+ * Keywords that express *intent* ("I want food/lodging/etc") rather than
+ * being part of a place's actual name/region — e.g. "경주 밥집" means
+ * "show me 경주, and specifically 음식점". Matched longest-first so a
+ * longer, more specific keyword (게스트하우스) is recognized before a
+ * shorter one that happens to be a substring of it.
+ */
+const INTENT_KEYWORDS: { keyword: string; tag: PlaceCategoryTag }[] = [
+  { keyword: "게스트하우스", tag: "숙소" },
+  { keyword: "에어비앤비", tag: "숙소" },
+  { keyword: "테마파크", tag: "테마파크" },
+  { keyword: "놀이공원", tag: "테마파크" },
+  { keyword: "이자카야", tag: "술집" },
+  { keyword: "관광지", tag: "관광지" },
+  { keyword: "박물관", tag: "박물관" },
+  { keyword: "음식점", tag: "음식점" },
+  { keyword: "레스토랑", tag: "음식점" },
+  { keyword: "숙소", tag: "숙소" },
+  { keyword: "호텔", tag: "숙소" },
+  { keyword: "맛집", tag: "음식점" },
+  { keyword: "밥집", tag: "음식점" },
+  { keyword: "술집", tag: "술집" },
+  { keyword: "카페", tag: "카페" },
+  { keyword: "커피", tag: "카페" },
+  { keyword: "명소", tag: "관광지" },
+  { keyword: "쇼핑", tag: "쇼핑" },
+];
+INTENT_KEYWORDS.sort((a, b) => b.keyword.length - a.keyword.length);
+
+export interface ParsedSearchQuery {
+  /** The query with any recognized intent keyword removed — this is what actually gets matched against names/regions. Empty if the query was *only* the intent keyword (e.g. just "맛집" with no city). */
+  coreQuery: string;
+  /** The category the query implies, if any — the search UI auto-activates this as the results' filter chip. */
+  intentTag: PlaceCategoryTag | null;
+}
+
+/**
+ * Strips a trailing/embedded intent keyword ("맛집", "숙소", "호텔", ...)
+ * out of a raw search query, so "경주 밥집" is handled as "search 경주,
+ * and the user wants 음식점" instead of failing to match anything because
+ * no place's name or region literally contains the word "밥집".
+ */
+export function parseSearchQuery(raw: string): ParsedSearchQuery {
+  const trimmed = raw.trim();
+  for (const { keyword, tag } of INTENT_KEYWORDS) {
+    if (trimmed.includes(keyword)) {
+      const core = trimmed.split(keyword).join(" ").replace(/\s+/g, " ").trim();
+      return { coreQuery: core, intentTag: tag };
+    }
+  }
+  return { coreQuery: trimmed, intentTag: null };
 }

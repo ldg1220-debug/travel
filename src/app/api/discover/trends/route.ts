@@ -3,6 +3,7 @@ import {
   DISCOVER_DATA,
   allSpots,
   matchesRegionPath,
+  parseSearchQuery,
   regionHierarchy,
   routeMatches,
   seasonNow,
@@ -27,6 +28,11 @@ const FALLBACK_COUNT = 4;
  *  - `q=<text>` — free-text search across every spot + route in the scope,
  *    returning routes sorted by likes (the "인기 루트" ranking) alongside a
  *    category-grouped place list, instead of the unfiltered browse bundle.
+ *    Recognizes trailing/embedded intent keywords ("경주 밥집", "숙소
+ *    호텔") via parseSearchQuery — the actual place match runs against
+ *    the keyword-stripped core query, and the detected category comes
+ *    back as `intentTag` so the client can auto-activate that filter
+ *    chip on the results page.
  */
 export async function GET(request: NextRequest) {
   const scope: DiscoverScope = request.nextUrl.searchParams.get("scope") === "overseas" ? "overseas" : "domestic";
@@ -39,9 +45,17 @@ export async function GET(request: NextRequest) {
   const regionTree = regionHierarchy(scope);
 
   if (query) {
-    const spots = allSpots(scope).filter((s) => spotMatches(s, query));
-    const routes = bundle.routes.filter((r) => routeMatches(r, query)).sort((a, b) => b.likes - a.likes);
-    return NextResponse.json({ results: { spots, routes } });
+    const { coreQuery, intentTag } = parseSearchQuery(query);
+    // A query that was *only* an intent keyword ("맛집" with no city) has
+    // nothing left to text-match — fall back to every spot of that
+    // category scope-wide instead of returning zero results.
+    const spots = coreQuery
+      ? allSpots(scope).filter((s) => spotMatches(s, coreQuery))
+      : intentTag
+        ? allSpots(scope).filter((s) => s.tag === intentTag)
+        : [];
+    const routes = coreQuery ? bundle.routes.filter((r) => routeMatches(r, coreQuery)).sort((a, b) => b.likes - a.likes) : [];
+    return NextResponse.json({ results: { spots, routes }, intentTag });
   }
 
   const season = seasonNow();
