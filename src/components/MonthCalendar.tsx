@@ -82,7 +82,7 @@ export function MonthCalendar({ selected, onSelect, accentColor = "#111827" }: M
       <div className="flex items-center justify-between px-0.5 pb-2">
         <button
           onClick={goPrevMonth}
-          aria-label="Previous month"
+          aria-label="이전 달"
           className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
         >
           <ChevronLeft size={15} />
@@ -92,7 +92,7 @@ export function MonthCalendar({ selected, onSelect, accentColor = "#111827" }: M
         </span>
         <button
           onClick={goNextMonth}
-          aria-label="Next month"
+          aria-label="다음 달"
           className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
         >
           <ChevronRight size={15} />

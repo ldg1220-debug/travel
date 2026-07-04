@@ -100,7 +100,7 @@ export function PlacesSearchInput({ onSelect }: PlacesSearchInputProps) {
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          placeholder={isLoaded ? "Search a place…" : "Loading search…"}
+          placeholder={isLoaded ? "장소 검색…" : "검색 준비 중…"}
           disabled={!isLoaded}
           className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
         />

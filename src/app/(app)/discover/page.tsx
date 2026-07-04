@@ -164,7 +164,7 @@ function spotToPlace(spot: DiscoverSpot): Place {
 function routeStopToPlace(routeId: string, stop: DiscoverRouteStop): Place {
   const slug = stop.name.replace(/[^a-zA-Z0-9가-힣]+/g, "-");
   const id = `${routeId}-${slug}`;
-  return { id, placeId: id, name: stop.name, category: "Route stop", color: "#818cf8", lat: stop.lat, lng: stop.lng, icon: "pin" };
+  return { id, placeId: id, name: stop.name, category: "루트 경유지", color: "#818cf8", lat: stop.lat, lng: stop.lng, icon: "pin" };
 }
 
 /** The drill-down options one level below wherever `path` currently points. */
@@ -333,7 +333,7 @@ export default function DiscoverPage() {
               {isSearching && (
                 <button
                   onClick={clearSearch}
-                  aria-label="Clear search"
+                  aria-label="검색어 지우기"
                   className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                 >
                   <X size={16} />
@@ -513,7 +513,7 @@ export default function DiscoverPage() {
                     icon={category === "hot" ? Flame : category === "season" ? Sparkles : Flame}
                     iconClass="text-rose-500"
                     emoji={category === "season" ? "🍂" : "🔥"}
-                    title={category === "hot" ? "Hottest Right Now" : category === "season" ? "이 계절 추천" : "Trending Now"}
+                    title={category === "hot" ? "지금 가장 핫한 장소" : category === "season" ? "이 계절 추천" : "지금 뜨는 장소"}
                     caption="지금 가장 많이 담긴 실시간 핫플"
                     onSeeAll={bundle.trending.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("trending") : undefined}
                   />
@@ -537,7 +537,7 @@ export default function DiscoverPage() {
                     icon={Crown}
                     iconClass="text-amber-500"
                     emoji="👑"
-                    title="All-Time Favorites"
+                    title="꾸준히 사랑받는 명소"
                     caption="언제 가도 좋은 스테디셀러 명소"
                     onSeeAll={bundle.favorites.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("favorites") : undefined}
                   />
@@ -567,7 +567,7 @@ export default function DiscoverPage() {
                     icon={MapIcon}
                     iconClass="text-indigo-500"
                     emoji="🗺️"
-                    title="Recommended Routes"
+                    title="추천 코스"
                     caption="장소를 묶어둔 추천 코스 템플릿"
                     onSeeAll={bundle.routes.length > COMPACT_ROUTE_COUNT ? () => setExpandedSection("routes") : undefined}
                   />
@@ -667,9 +667,9 @@ function SectionHeader({
 
 // ── 전체보기: a single section's full (unsliced) list with a back button ──
 const SECTION_META: Record<SectionKind, { icon: React.ComponentType<{ size?: number; className?: string }>; iconClass: string; emoji: string; title: string }> = {
-  trending: { icon: Flame, iconClass: "text-rose-500", emoji: "🔥", title: "Trending Now" },
-  favorites: { icon: Crown, iconClass: "text-amber-500", emoji: "👑", title: "All-Time Favorites" },
-  routes: { icon: MapIcon, iconClass: "text-indigo-500", emoji: "🗺️", title: "Recommended Routes" },
+  trending: { icon: Flame, iconClass: "text-rose-500", emoji: "🔥", title: "지금 뜨는 장소" },
+  favorites: { icon: Crown, iconClass: "text-amber-500", emoji: "👑", title: "꾸준히 사랑받는 명소" },
+  routes: { icon: MapIcon, iconClass: "text-indigo-500", emoji: "🗺️", title: "추천 코스" },
 };
 
 function ExpandedSection({
@@ -1276,7 +1276,7 @@ function RouteDateModal({ route, onClose, onConfirm }: { route: DiscoverRoute; o
           exit={{ scale: 0.92, y: 10, opacity: 0 }}
           transition={{ type: "spring", stiffness: 400, damping: 28 }}
         >
-          <button onClick={onClose} className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200" aria-label="Close">
+          <button onClick={onClose} className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200" aria-label="닫기">
             <X size={14} />
           </button>
 

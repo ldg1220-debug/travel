@@ -53,7 +53,7 @@ import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
 // server-rendered (or hydration-replayed) HTML — see PlannerGoogleMap.tsx.
 const PlannerGoogleMap = dynamic(() => import("./PlannerGoogleMap"), {
   ssr: false,
-  loading: () => <div className="flex h-full items-center justify-center text-sm text-slate-500">Loading map…</div>,
+  loading: () => <div className="flex h-full items-center justify-center text-sm text-slate-500">지도 불러오는 중…</div>,
 });
 
 interface PlannerBoardProps {
@@ -412,7 +412,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
   const handleOptimizeRoute = () => {
     const optimized = optimizeRoute(activeDate);
-    showToast(optimized ? "동선이 최적화되었습니다" : "Need at least 3 stops to optimize");
+    showToast(optimized ? "동선이 최적화되었습니다" : "최적화하려면 3개 이상의 장소가 필요해요");
   };
 
   // ── slot hit-testing (multi-day grid, keyed by "date|hour") ──
@@ -690,7 +690,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900">
                     <Clock size={12} color="white" />
                   </span>
-                  <span className="text-[13px] font-semibold text-slate-900">Plan</span>
+                  <span className="text-[13px] font-semibold text-slate-900">일정</span>
                   {totalBudget > 0 && (
                     <Badge className="gap-1 rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 hover:bg-emerald-50">
                       <Wallet size={11} />
@@ -702,14 +702,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => shiftWindow(-1)}
-                    aria-label="Previous day"
+                    aria-label="이전 날짜"
                     className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
                   >
                     <ChevronLeft size={13} />
                   </button>
                   <button
                     onClick={() => shiftWindow(1)}
-                    aria-label="Next day"
+                    aria-label="다음 날짜"
                     className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
                   >
                     <ChevronRight size={13} />
@@ -740,7 +740,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         {formatDateLabelShort(date)}
                       </div>
                       <div className="text-[10px] text-slate-400 tabular-nums">
-                        {count} stop{count === 1 ? "" : "s"}
+                        {count}개 장소
                       </div>
                     </button>
                   );
@@ -1105,7 +1105,7 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
             onRemove(item.id);
           }}
           className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-white/70"
-          aria-label="Remove"
+          aria-label="삭제"
         >
           <X size={9} color="#94a3b8" />
         </button>
