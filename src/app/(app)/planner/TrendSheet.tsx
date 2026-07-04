@@ -4,6 +4,7 @@ import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { useItineraryStore } from "@/store/itineraryStore";
 import { PlaceGlyph } from "./icons";
 import { haversineDistanceMeters } from "@/lib/geo";
 import type { TrendCard } from "@/lib/mockTrends";
@@ -60,6 +61,7 @@ export function TrendSheet({
   onTrendsLoaded,
   nearAnchors,
 }: TrendSheetProps) {
+  const currentCity = useItineraryStore((s) => s.currentCity);
   const { data: trends = [] } = useQuery({
     queryKey: ["planner-trends"],
     queryFn: fetchTrends,
@@ -92,12 +94,12 @@ export function TrendSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
         <button className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 px-3.5 py-2 text-[12px] font-semibold text-slate-700 shadow-md">
-          <Sparkles size={13} /> Trending spots
+          <Sparkles size={13} /> 인기 스팟
         </button>
       </SheetTrigger>
       <SheetContent container={container} side="bottom" className="h-[70%]">
         <SheetHeader>
-          <SheetTitle>✨ Trending in Fukuoka &amp; Yufuin</SheetTitle>
+          <SheetTitle>✨ {currentCity} 인기 스팟</SheetTitle>
         </SheetHeader>
         {hasAnchors && (
           <p className="px-4 text-[11px] text-slate-400">오늘 일정 근처 순으로 정렬했어요</p>

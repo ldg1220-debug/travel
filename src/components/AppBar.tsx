@@ -68,7 +68,7 @@ export function AppBar() {
       const { shareToken } = await saveItinerary(region, items);
       const url = `${window.location.origin}/planner/${shareToken}`;
       await navigator.clipboard.writeText(url);
-      showToast("Invite link copied");
+      showToast("초대 링크가 복사되었어요");
     } catch {
       showToast("Failed to create invite link");
     }
@@ -80,7 +80,7 @@ export function AppBar() {
         <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
           <SheetTrigger asChild>
             <button
-              aria-label="Menu"
+              aria-label="메뉴"
               className="flex h-9 w-9 items-center justify-center rounded-full text-slate-700 transition-colors hover:bg-slate-100"
             >
               <Menu size={20} />
@@ -133,12 +133,12 @@ export function AppBar() {
             <>
               <span className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
                 {formatDateLabel(activeDate)}
-                {isShared && " · Shared"}
+                {isShared && " · 공유됨"}
               </span>
               <span className="text-[15px] font-bold leading-tight text-slate-900">{currentCity}</span>
             </>
           ) : (
-            <span className="text-[15px] font-bold text-slate-900">{PAGE_TITLES[pathname ?? ""] ?? "Travel Scheduler"}</span>
+            <span className="text-[15px] font-bold text-slate-900">{PAGE_TITLES[pathname ?? ""] ?? "여행 스케줄러"}</span>
           )}
         </div>
 

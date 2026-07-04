@@ -1237,3 +1237,45 @@ same constraint as every previous map-related round. Verified instead:
 tsc/eslint/build all clean, `/planner` and `/saved-places` still load and
 navigate without crashing after these changes, and curated search
 (우메다/etc.) still returns results with no fake rating shown anymore.
+
+### Leftover English strings from the app's earliest (pre-Korean) phase, localized
+
+The user pointed out `/planner`'s header still showed "SATURDAY, JUL 4" and
+an English "Search a place…" search bar — this turned out not to be a
+caching/deployment issue (confirmed they were on the correct
+`travel-xi-red.vercel.app/planner` production domain), but a real,
+un-related-to-this-round gap: `/planner` has its own components separate
+from `/discover`'s (which got fully localized across many earlier rounds),
+and several of them were never touched since the project's original
+English-language phase. A repo-wide sweep found and localized all of it:
+
+- `formatDateLabel`/`formatDateLabelShort` (`lib/timeline.ts`) were
+  hardcoded to `toLocaleDateString("en-US", ...)` — this is what actually
+  produced "SATURDAY, JUL 4" in the AppBar and "Sat 7/4" in the day tabs.
+  Switched to `ko-KR` (`7월 4일 토요일`, `7/4 (토)`), matching
+  `MonthCalendar`'s existing single-character Korean weekday convention.
+- `PlacesSearchInput.tsx`'s placeholder ("Search a place…"), the 일정 tab's
+  "Plan" section label and day-count ("3 stops"), `TrendSheet.tsx`'s
+  "Trending spots" button and "Trending in Fukuoka & Yufuin" sheet title
+  (a *second*, entirely separate hardcoded-city instance this session's
+  earlier "dynamic header" fix never touched, since that one only patched
+  `AppBar.tsx` — now reads `currentCity` from the store too), both
+  `PlannerGoogleMap`/`PlannerBoard`'s "Loading map…"/"Failed to load Google
+  Maps." states, several aria-labels (Previous/Next day, Remove, Menu,
+  Previous/Next month), the invite-link-copied toast, and the
+  route-optimization-needs-3-stops toast.
+- `/discover`'s own browse-feed section headers were mixed-language too —
+  "Hottest Right Now"/"Trending Now"/"All-Time Favorites"/"Recommended
+  Routes" (both the inline `SectionHeader` titles and the `SECTION_META`
+  map backing the "전체보기" expanded view), a "Route stop" category
+  fallback, and "Clear search"/"Close" aria-labels.
+
+Confirmed via a repo-wide grep afterward that no more visible English
+strings remain in `/planner`, `/discover`, `/saved-places`, `/scrapbook`,
+or the shared `AppBar`/`MonthCalendar` components (the `/dev/*` debug
+routes are intentionally left alone — internal tooling, not user-facing).
+Verified in the browser: `/planner`'s header now reads "7월 4일 토요일",
+day tabs read "7/4 (토)" with "0개 장소", the map loading/error states and
+search placeholder are all Korean, and `/discover`'s section titles are
+"지금 뜨는 장소"/"꾸준히 사랑받는 명소"/"추천 코스" with no English left.
+tsc/eslint/build clean, no console errors, no regressions.

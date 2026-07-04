@@ -80,12 +80,12 @@ export default function PlannerGoogleMap({
   if (mapsError) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-500">
-        Failed to load Google Maps.
+        지도를 불러오지 못했어요.
       </div>
     );
   }
   if (!mapsLoaded) {
-    return <div className="flex h-full items-center justify-center text-sm text-slate-500">Loading map…</div>;
+    return <div className="flex h-full items-center justify-center text-sm text-slate-500">지도 불러오는 중…</div>;
   }
 
   return (

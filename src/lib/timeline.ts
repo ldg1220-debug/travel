@@ -53,19 +53,16 @@ export function shiftISODate(date: string, days: number): string {
 export function formatDateLabel(date: string): string {
   const [y, m, d] = date.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
+  const weekday = dt.toLocaleDateString("ko-KR", { weekday: "long" });
+  return `${m}월 ${d}일 ${weekday}`;
 }
 
-/** Compact "Mon 7/3" style label for narrow column headers / date chips. */
+/** Compact "7/3 (월)" style label for narrow column headers / date chips. */
 export function formatDateLabelShort(date: string): string {
   const [y, m, d] = date.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
-  const weekday = dt.toLocaleDateString("en-US", { weekday: "short" });
-  return `${weekday} ${m}/${d}`;
+  const weekday = dt.toLocaleDateString("ko-KR", { weekday: "short" });
+  return `${m}/${d} (${weekday})`;
 }
 
 /** `count` consecutive ISO dates starting at `date` (inclusive). */
