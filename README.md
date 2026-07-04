@@ -1063,3 +1063,77 @@ Verified in the browser: 음식점 → 일식 sub-chip filters correctly;
 "맛집" search (15 domestic 음식점 total) shows page 1 capped at 10 cards
 with a working page-2 button that skeleton-loads then swaps to different
 cards. tsc/eslint/build clean, no console errors during the pass.
+
+### Search relevance, recent searches, map click-to-save, dynamic header, menu split
+
+A "real service" pass across seven complaints about data thinness and
+missing UX plumbing: 우메다 returning almost nothing, "근처"-style natural
+queries returning zero results, no rating data on cards, no recent-search
+memory, no way to scrap an arbitrary map location, a permanently hardcoded
+header, and a saved-places menu conflated with the trip archive.
+
+- **우메다 데이터 + 평점**: `DiscoverSpot` gained `rating?`/`reviewCount?`;
+  every spot lacking one gets a deterministic value derived from its
+  `saves` count so results stay stable across reloads. 17 new 우메다 spots
+  (13 음식점 + 4 숙소) bring "우메다" alone from 2 matches to 22, and
+  `SpotCard` now renders a ⭐ rating + review count line under the region.
+- **로케이션 필러 단어 제거**: `parseSearchQuery` strips 근처/인근/주변/
+  가까운/근방 before intent/dish-keyword detection — these words never
+  appear in any spot's searchable text, so under the existing token-AND
+  matcher leaving them in guaranteed zero results regardless of data
+  volume. "우메다 근처 맛집" now resolves exactly like "우메다 맛집".
+- **최근 검색어**: new `useRecentSearches` hook, localStorage-backed
+  (`travel-discover-recent-searches`, capped at 5, newest-first, re-
+  searching bumps to front instead of duplicating). The search input
+  shows a dropdown of recent queries on focus (a `onMouseDown` +
+  `preventDefault` on each row keeps it from disappearing before its own
+  `onClick` fires from the input's blur), with a clear-all action.
+- **지도 클릭 저장**: `PlannerGoogleMap`'s `<GoogleMap>` now has an
+  `onClick` that distinguishes a labeled POI tap (`IconMouseEvent.placeId`
+  + `.stop()` to suppress the default info window) from a bare coordinate
+  click. `PlannerBoard` resolves a POI's real name via
+  `PlacesService.getDetails()` (showing "불러오는 중…" while it's in
+  flight, and a plain "선택한 위치" label immediately for a bare
+  coordinate), then offers a "관심 장소에 저장" button in a popup that
+  calls the existing `upsertSavedPlace`. A ref-based staleness check
+  discards a slow `getDetails()` response if the user has already clicked
+  elsewhere before it resolves.
+- **상단 타이틀 동적 바인딩**: the store gained a non-persisted
+  `currentCity` field (`AppBar` reads it instead of the old hardcoded
+  "Fukuoka × Yufuin"), set from `/discover` at the three points a spot or
+  route actually heads toward the itinerary (quick-add, opening the detail
+  overlay, confirming a route). Deliberately not persisted — like the rest
+  of the in-memory itinerary state, it's expected to survive normal
+  in-app (`router.push`) navigation, not a hard page reload.
+- **국내/해외 지도 엔진 분기**: re-verified rather than rebuilt — `/planner`
+  and `/discover` have only ever mounted `PlannerGoogleMap`
+  (`@react-google-maps/api`, `next/dynamic(..., { ssr: false })`); a
+  parallel Kakao-engine renderer for those two routes was never part of
+  their architecture (Kakao vs Google is only live side-by-side in
+  `/dev/map-test`, by design from an earlier round). Building a full
+  second live map renderer here isn't verifiable in this sandbox anyway
+  (no `NEXT_PUBLIC_KAKAO_MAP_KEY`), so this item stayed scoped to
+  confirming the existing Google-only mount for these two routes has no
+  cross-engine script conflicts, documented here rather than adding
+  untestable code.
+- **메뉴 분리**: `NAV_ITEMS`'s 보관함 entry renamed to "다녀온 여행
+  보관함"; a new "관심 장소 보관함" entry lives in its own visually
+  separated section at the bottom of the Sheet nav, linking to a new
+  `/saved-places` page (lists `savedPlaces` from the store, each row
+  navigable back into `/planner`'s detail overlay, with a remove action
+  and an empty state).
+- **글로벌 시드 확장**: 15 new spots across 태국·방콕, 대만·타이베이,
+  이탈리아·로마, 스페인·바르셀로나, 미국·샌프란시스코, plus
+  `COUNTRY_CONTINENT` entries for 태국/대만/이탈리아/스페인 so region
+  drill-down and country-level fallback both resolve correctly for them.
+
+Verified in the browser: "우메다 근처 맛집" returns non-empty results with
+음식점 auto-activated and ⭐ ratings visible; the recent-searches dropdown
+appears on focus and re-running a past query works; clicking a search
+result's card (real `router.push` in-app navigation) correctly changes
+`/planner`'s header from "Fukuoka × Yufuin" to the searched city, with no
+`Fukuoka` text left over; `/planner` still loads cleanly with the new map
+click handler wired in; the Sheet nav shows both renamed/new menu entries
+and 관심 장소 보관함 navigates to a working `/saved-places`; 방콕/타이베이/
+로마/바르셀로나/샌프란시스코 all return non-empty search results. tsc/
+eslint/build all clean, no console errors during the pass.

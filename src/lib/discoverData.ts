@@ -45,6 +45,10 @@ export interface DiscoverSpot {
   cuisine?: CuisineTag;
   /** Specific dish/menu keywords ("라멘", "스시", ...) — matched by search in addition to name/region/tag, so a dish-specific query like "오사카 라멘" returns every ramen-adjacent place, not just ones with "라멘" literally in their name. */
   subTags?: string[];
+  /** Google-Places-style rating out of 5 (e.g. 4.7) — backfilled for every spot if not set explicitly, see the metadata pass near the bottom of this file. */
+  rating?: number;
+  /** Review count backing the rating (e.g. 1240) — shown alongside it on SpotCard as "⭐4.7 · 1.2k". */
+  reviewCount?: number;
 }
 
 export interface DiscoverRouteStop {
@@ -417,6 +421,42 @@ const OSAKA_LODGING_NAMES = [
   "오사카성뷰 레지던스",
 ];
 
+// 우메다 자체를 콕 집어 검색했을 때 (예: "우메다 맛집", "우메다 근처 맛집")
+// 결과가 2개뿐이었던 문제 — 우메다 동네 이름을 이름에 직접 박은 음식점/숙소를
+// 대거 추가해 검색 시 15곳 이상 나오도록 보강.
+const UMEDA_FOOD_NAMES = [
+  "우메다 스시효",
+  "우메다 오코노미야키 아젠",
+  "우메다 라멘 무테키야",
+  "우메다 야키토리 골목",
+  "우메다 지하식당가",
+  "우메다 소바 혼텐",
+  "우메다 텐푸라 스이쇼",
+  "우메다 스테이크하우스",
+  "우메다 디저트 카페 하루",
+  "우메다 우동 사누키야",
+  "우메다 카레 전문점",
+  "우메다 이자카야 토리키조쿠",
+  "우메다 브런치 다이너",
+];
+// Same order/index as UMEDA_FOOD_NAMES above.
+const UMEDA_FOOD_EXTRAS: { cuisine: CuisineTag; subTags: string[] }[] = [
+  { cuisine: "일식", subTags: ["스시", "오마카세"] },
+  { cuisine: "일식", subTags: ["오코노미야키", "철판요리"] },
+  { cuisine: "일식", subTags: ["라멘", "돈코츠라멘"] },
+  { cuisine: "일식", subTags: ["야키토리", "꼬치구이"] },
+  { cuisine: "일식", subTags: ["지하상가", "여러메뉴"] },
+  { cuisine: "일식", subTags: ["소바", "면요리"] },
+  { cuisine: "일식", subTags: ["텐푸라", "튀김"] },
+  { cuisine: "양식/아시안", subTags: ["스테이크", "그릴"] },
+  { cuisine: "카페/디저트", subTags: ["디저트", "케이크"] },
+  { cuisine: "일식", subTags: ["우동", "사누키우동"] },
+  { cuisine: "양식/아시안", subTags: ["카레", "일본식카레"] },
+  { cuisine: "일식", subTags: ["이자카야", "꼬치구이"] },
+  { cuisine: "양식/아시안", subTags: ["브런치", "디저트"] },
+];
+const UMEDA_LODGING_NAMES = ["우메다 아트호텔", "우메다 스테이션호텔", "우메다 레지던스 스위트", "우메다 캡슐앤스파"];
+
 // Splits a generated batch across trending/favorites (first `trendingCount`
 // names go to trending) instead of dumping everything into favorites —
 // otherwise drilling 지역별 down to a specific neighborhood/city can leave
@@ -457,6 +497,8 @@ pushGeneratedBatch(DOMESTIC, "d-gj-stay", GYEONGJU_LODGING_NAMES, "경주 · 보
 pushGeneratedBatch(OVERSEAS, "o-osk-attr", OSAKA_ATTRACTION_NAMES, "일본 · 오사카", "관광지", "landmark", 34.68, 135.505, 3200, 4);
 pushGeneratedBatch(OVERSEAS, "o-osk-food", OSAKA_FOOD_NAMES, "일본 · 오사카", "음식점", "utensils", 34.671, 135.503, 2400, 4, OSAKA_FOOD_EXTRAS);
 pushGeneratedBatch(OVERSEAS, "o-osk-stay", OSAKA_LODGING_NAMES, "일본 · 오사카", "숙소", "hotel", 34.669, 135.501, 1800, 4);
+pushGeneratedBatch(OVERSEAS, "o-umd-food", UMEDA_FOOD_NAMES, "일본 · 오사카", "음식점", "utensils", 34.7025, 135.4959, 2000, 4, UMEDA_FOOD_EXTRAS);
+pushGeneratedBatch(OVERSEAS, "o-umd-stay", UMEDA_LODGING_NAMES, "일본 · 오사카", "숙소", "hotel", 34.7038, 135.4935, 1400, 2);
 
 // ── global expansion: 유럽(영국/프랑스), 미주(미국/캐나다) — previously
 // every overseas spot was in 아시아 (일본/베트남), so 지역별 only ever
@@ -475,6 +517,27 @@ OVERSEAS.favorites.push(
   { id: "o-us3", name: "브루클린 피자거리", region: "미국 · 뉴욕", tag: "음식점", season: "summer", saves: 3300, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 40.7081, lng: -73.9571, color: "#fb923c", cuisine: "양식/아시안", subTags: ["피자", "뉴욕스타일"] },
   { id: "o-ca1", name: "스탠리파크", region: "캐나다 · 밴쿠버", tag: "자연", season: "summer", saves: 4100, gradient: "from-emerald-400 to-teal-300", iconKey: "waves", lat: 49.3017, lng: -123.1417, color: "#34d399" },
   { id: "o-ca2", name: "그랜빌아일랜드 마켓", region: "캐나다 · 밴쿠버", tag: "음식점", season: "spring", saves: 2400, gradient: "from-amber-400 to-yellow-300", iconKey: "utensils", lat: 49.2714, lng: -123.1341, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["마켓", "브런치"] },
+);
+
+// ── further global expansion: 아시아(태국·방콕, 대만·타이베이), 유럽
+// (이탈리아·로마, 스페인·바르셀로나), 미주(미국·샌프란시스코) — same
+// small-real-seed approach as the UK/France/US/Canada batch above. ──
+OVERSEAS.favorites.push(
+  { id: "o-th1", name: "왓 아룬 (새벽사원)", region: "태국 · 방콕", tag: "관광지", season: "winter", saves: 5100, gradient: "from-orange-400 to-amber-300", iconKey: "landmark", lat: 13.7437, lng: 100.4888, color: "#fb923c" },
+  { id: "o-th2", name: "짜뚜짝 주말시장", region: "태국 · 방콕", tag: "쇼핑", season: "fall", saves: 3400, gradient: "from-emerald-400 to-lime-300", iconKey: "pin", lat: 13.7997, lng: 100.5502, color: "#4ade80" },
+  { id: "o-th3", name: "카오산로드 팟타이거리", region: "태국 · 방콕", tag: "음식점", season: "summer", saves: 4600, gradient: "from-red-400 to-orange-300", iconKey: "utensils", lat: 13.7589, lng: 100.4977, color: "#f87171", cuisine: "양식/아시안", subTags: ["팟타이", "스트리트푸드"] },
+  { id: "o-tw1", name: "타이베이 101", region: "대만 · 타이베이", tag: "관광지", season: "spring", saves: 6200, gradient: "from-sky-400 to-indigo-300", iconKey: "landmark", lat: 25.0340, lng: 121.5645, color: "#38bdf8" },
+  { id: "o-tw2", name: "스펀 천등축제", region: "대만 · 타이베이", tag: "관광지", season: "winter", saves: 3900, gradient: "from-amber-400 to-yellow-300", iconKey: "camera", lat: 25.0731, lng: 121.7699, color: "#fbbf24" },
+  { id: "o-tw3", name: "스린 야시장 소룽바오", region: "대만 · 타이베이", tag: "음식점", season: "fall", saves: 4800, gradient: "from-rose-400 to-red-300", iconKey: "utensils", lat: 25.0879, lng: 121.5241, color: "#fb7185", cuisine: "일식", subTags: ["딤섬", "소룽바오", "야시장"] },
+  { id: "o-it1", name: "콜로세움", region: "이탈리아 · 로마", tag: "관광지", season: "spring", saves: 8100, gradient: "from-amber-400 to-orange-300", iconKey: "landmark", lat: 41.8902, lng: 12.4922, color: "#fbbf24" },
+  { id: "o-it2", name: "트레비 분수", region: "이탈리아 · 로마", tag: "관광지", season: "summer", saves: 6700, gradient: "from-sky-400 to-blue-300", iconKey: "waves", lat: 41.9009, lng: 12.4833, color: "#38bdf8" },
+  { id: "o-it3", name: "트라스테베레 트라토리아", region: "이탈리아 · 로마", tag: "음식점", season: "fall", saves: 3600, gradient: "from-red-400 to-rose-300", iconKey: "utensils", lat: 41.8896, lng: 12.4696, color: "#f87171", cuisine: "양식/아시안", subTags: ["파스타", "피자"] },
+  { id: "o-es1", name: "사그라다 파밀리아", region: "스페인 · 바르셀로나", tag: "관광지", season: "spring", saves: 7400, gradient: "from-violet-400 to-purple-300", iconKey: "landmark", lat: 41.4036, lng: 2.1744, color: "#a78bfa" },
+  { id: "o-es2", name: "구엘 공원", region: "스페인 · 바르셀로나", tag: "자연", season: "summer", saves: 5200, gradient: "from-emerald-400 to-teal-300", iconKey: "waves", lat: 41.4145, lng: 2.1527, color: "#34d399" },
+  { id: "o-es3", name: "보케리아 시장 타파스", region: "스페인 · 바르셀로나", tag: "음식점", season: "fall", saves: 4100, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 41.3819, lng: 2.1716, color: "#fb923c", cuisine: "양식/아시안", subTags: ["타파스", "시장음식"] },
+  { id: "o-us4", name: "금문교", region: "미국 · 샌프란시스코", tag: "관광지", season: "fall", saves: 7900, gradient: "from-red-400 to-orange-300", iconKey: "landmark", lat: 37.8199, lng: -122.4783, color: "#f87171" },
+  { id: "o-us5", name: "피셔맨스 워프", region: "미국 · 샌프란시스코", tag: "관광지", season: "summer", saves: 5300, gradient: "from-sky-400 to-cyan-300", iconKey: "camera", lat: 37.808, lng: -122.4177, color: "#38bdf8" },
+  { id: "o-us6", name: "클램차우더 소서딜리토", region: "미국 · 샌프란시스코", tag: "음식점", season: "winter", saves: 3100, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 37.8087, lng: -122.4098, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["클램차우더", "해산물"] },
 );
 
 export const DISCOVER_DATA: Record<DiscoverScope, DiscoverBundle> = {
@@ -503,6 +566,15 @@ for (const spot of [...DOMESTIC.trending, ...DOMESTIC.favorites, ...OVERSEAS.tre
     spot.cuisine = meta.cuisine;
     spot.subTags = meta.subTags;
   }
+  // Google-Places-style rating/review count, backfilled for every spot
+  // that doesn't already carry one — deterministic from `saves` (not
+  // literally proportional, so it doesn't read as robotic) rather than
+  // random, so the same spot always shows the same rating across requests.
+  if (spot.rating == null) {
+    const seed = (spot.saves % 97) / 97; // 0..~1 spread
+    spot.rating = Math.round((4.2 + seed * 0.75) * 10) / 10;
+    spot.reviewCount = Math.max(48, Math.round(spot.saves / 3));
+  }
 }
 
 /** All spots in a scope's trending + favorites lists, deduped by id. */
@@ -523,8 +595,12 @@ export function allSpots(scope: DiscoverScope): DiscoverSpot[] {
 const COUNTRY_CONTINENT: Record<string, string> = {
   일본: "아시아",
   베트남: "아시아",
+  태국: "아시아",
+  대만: "아시아",
   영국: "유럽",
   프랑스: "유럽",
+  이탈리아: "유럽",
+  스페인: "유럽",
   미국: "미주",
   캐나다: "미주",
 };
@@ -679,6 +755,15 @@ const FOOD_DISH_KEYWORDS = [
   "피자",
 ];
 
+/**
+ * Pure proximity filler words ("근처", "인근", ...) — this app has no real
+ * geo-radius search, so "우메다 근처 맛집" is handled identically to
+ * "우메다 맛집": these carry no category meaning (unlike INTENT_KEYWORDS)
+ * and, left in, would break the AND-of-tokens match entirely, since no
+ * spot's name/region ever literally contains the word "근처".
+ */
+const LOCALITY_FILLER_WORDS = ["근처", "인근", "주변", "가까운", "근방"];
+
 export interface ParsedSearchQuery {
   /** The query with any recognized intent keyword removed — this is what actually gets matched against names/regions. Empty if the query was *only* the intent keyword (e.g. just "맛집" with no city). */
   coreQuery: string;
@@ -693,10 +778,14 @@ export interface ParsedSearchQuery {
  * no place's name or region literally contains the word "밥집". A query
  * with no explicit intent suffix but a recognizable dish name ("오사카
  * 라멘") is treated the same way — 음식점 intent, dish word kept in the
- * core query since it's also a real subTags match term.
+ * core query since it's also a real subTags match term. Locality filler
+ * words ("우메다 근처 맛집") are dropped first, before any of that.
  */
 export function parseSearchQuery(raw: string): ParsedSearchQuery {
-  const trimmed = raw.trim();
+  let trimmed = raw.trim();
+  for (const filler of LOCALITY_FILLER_WORDS) {
+    trimmed = trimmed.split(filler).join(" ").replace(/\s+/g, " ").trim();
+  }
   for (const { keyword, tag } of INTENT_KEYWORDS) {
     if (trimmed.includes(keyword)) {
       const core = trimmed.split(keyword).join(" ").replace(/\s+/g, " ").trim();
