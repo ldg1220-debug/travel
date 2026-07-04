@@ -47,6 +47,7 @@ import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
 import { fetchSharedItinerary, pushSharedItinerary } from "@/lib/api";
 import type { ItineraryItem, Place } from "@/lib/types";
+import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
 
 // Always client-only: the Maps SDK/canvas must never be part of the
 // server-rendered (or hydration-replayed) HTML — see PlannerGoogleMap.tsx.
@@ -118,6 +119,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // content and which marker set the map above it renders.
   const [tab, setTab] = useState<PlannerTabKey>("schedule");
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
+  // Map click-to-save: any coordinate or POI tap on the map opens this
+  // popup — the ref (not the popup state itself) lets the async Places
+  // lookup below ignore a stale response if the user clicks elsewhere
+  // before it resolves.
+  const [clickedPlace, setClickedPlace] = useState<ClickedPlaceState | null>(null);
+  const clickedPlaceIdRef = useRef<string | null>(null);
 
   // "딥 다이브" detail overlay — opened from a saved-list row, a search
   // selection, or a trend card tap while on the 관심 장소 tab.
@@ -333,6 +340,47 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     upsertSavedPlace(place);
     showToast(`${place.name} 저장됨`);
     setDetailPlace(null);
+  };
+
+  // Map click-to-save: a POI icon click carries a placeId (looked up via
+  // PlacesService for its real name); a bare coordinate click has neither,
+  // so it just gets a generic label. Either way, opens the popup for the
+  // user to confirm before it actually lands in 관심 장소.
+  const handleMapClick = (info: MapClickInfo) => {
+    if (info.placeId && mapRef.current) {
+      clickedPlaceIdRef.current = info.placeId;
+      setClickedPlace({ lat: info.lat, lng: info.lng, name: "불러오는 중…", loading: true });
+      const service = new google.maps.places.PlacesService(mapRef.current);
+      service.getDetails({ placeId: info.placeId, fields: ["name"] }, (result, status) => {
+        // Ignore a response that arrives after the user's already clicked
+        // somewhere else (or closed the popup).
+        if (clickedPlaceIdRef.current !== info.placeId) return;
+        const name = status === google.maps.places.PlacesServiceStatus.OK ? (result?.name ?? "선택한 위치") : "선택한 위치";
+        setClickedPlace({ lat: info.lat, lng: info.lng, name, loading: false });
+      });
+    } else {
+      clickedPlaceIdRef.current = null;
+      setClickedPlace({ lat: info.lat, lng: info.lng, name: "선택한 위치", loading: false });
+    }
+  };
+
+  const handleSaveClickedPlace = () => {
+    if (!clickedPlace) return;
+    const { color, icon } = styleForCategory("Place");
+    const idSuffix = `${clickedPlace.lat.toFixed(5)},${clickedPlace.lng.toFixed(5)}`;
+    const place: Place = {
+      id: clickedPlaceIdRef.current ?? `map-click-${idSuffix}`,
+      placeId: clickedPlaceIdRef.current ?? `map-click-${idSuffix}`,
+      name: clickedPlace.name,
+      category: "Place",
+      color,
+      icon,
+      lat: clickedPlace.lat,
+      lng: clickedPlace.lng,
+    };
+    upsertSavedPlace(place);
+    showToast(`${place.name} 관심 장소에 저장됨`);
+    setClickedPlace(null);
   };
 
   // "관심 장소 -> 일정" — closes the detail overlay and opens the same
@@ -579,6 +627,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             savedPlaces={savedPlaces}
             selectedSavedPlace={selectedSavedPlace}
             onSelectSaved={setSelectedSavedId}
+            onMapClick={handleMapClick}
+            clickedPlace={clickedPlace}
+            onCloseClickedPlace={() => setClickedPlace(null)}
+            onSaveClickedPlace={handleSaveClickedPlace}
           />
         </div>
 

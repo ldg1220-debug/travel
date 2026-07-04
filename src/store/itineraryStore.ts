@@ -18,6 +18,15 @@ interface ItineraryState {
   activeDate: string;
   region: Region;
   /**
+   * The city the AppBar header shows for /planner — replaces what used to
+   * be a hardcoded "Fukuoka × Yufuin" string. Updates whenever a /discover
+   * spot or route gets scheduled (see cityFromRegion in discover/page.tsx),
+   * so the header always reflects whatever the user is actually planning,
+   * not a fixed demo trip.
+   */
+  currentCity: string;
+  setCurrentCity: (city: string) => void;
+  /**
    * Places available to schedule — starts empty and fills in from real
    * user actions (search, trend cards, /discover) rather than a
    * hardcoded seed, so the map only ever shows places someone actually
@@ -75,8 +84,10 @@ export const useItineraryStore = create<ItineraryState>()(
       items: [],
       activeDate: todayISODate(),
       region: "international",
+      currentCity: "Fukuoka · Yufuin",
       places: [],
       savedPlaces: [],
+      setCurrentCity: (city) => set({ currentCity: city }),
 
       setActiveDate: (date) => set({ activeDate: date }),
       setRegion: (region) => set({ region }),

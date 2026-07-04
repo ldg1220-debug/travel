@@ -43,6 +43,7 @@ import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchDiscoverBundle, fetchDiscoverSearch } from "@/lib/api";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
 import { SEASON_LABEL } from "@/lib/discoverData";
+import { useRecentSearches } from "@/lib/useRecentSearches";
 import type {
   CuisineTag,
   DiscoverRoute,
@@ -141,6 +142,12 @@ const SPOT_ICON_TO_PLACE_ICON: Record<SpotIconKey, PlaceIcon> = {
 
 const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
+/** A spot's `region` is "국가 · 도시" (overseas) or "시도 · 동네" (domestic) — the city-ish label for the /planner header is the second segment overseas, the first domestic. */
+function cityFromRegion(region: string, scope: DiscoverScope): string {
+  const parts = region.split(" · ");
+  return (scope === "overseas" ? parts[1] : parts[0]) ?? parts[0] ?? region;
+}
+
 function spotToPlace(spot: DiscoverSpot): Place {
   return {
     id: spot.id,
@@ -181,6 +188,7 @@ export default function DiscoverPage() {
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const addItem = useItineraryStore((s) => s.addItem);
   const isHourTaken = useItineraryStore((s) => s.isHourTaken);
+  const setCurrentCity = useItineraryStore((s) => s.setCurrentCity);
 
   const [scope, setScope] = useState<DiscoverScope>("domestic");
   const [category, setCategory] = useState<CategoryFilter>("all");
@@ -192,7 +200,9 @@ export default function DiscoverPage() {
   const [routeTarget, setRouteTarget] = useState<DiscoverRoute | null>(null);
   const [previewRoute, setPreviewRoute] = useState<DiscoverRoute | null>(null);
   const [expandedSection, setExpandedSection] = useState<SectionKind | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { recent: recentSearches, addRecent, clearRecent } = useRecentSearches();
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -212,7 +222,14 @@ export default function DiscoverPage() {
   const regionTree = browseData?.regionTree ?? [];
   const regionOptions = nodesAtPath(regionTree, regionPath);
 
-  const runSearch = () => setActiveQuery(queryInput);
+  const runSearch = (query: string = queryInput) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    setQueryInput(trimmed);
+    setActiveQuery(trimmed);
+    addRecent(trimmed);
+    setSearchFocused(false);
+  };
   const clearSearch = () => {
     setQueryInput("");
     setActiveQuery("");
@@ -226,11 +243,17 @@ export default function DiscoverPage() {
     clearSearch();
   };
 
-  const handleAddSpot = (spot: DiscoverSpot) => setScheduleSpot(spotToPlace(spot));
+  // /planner's header shows whichever city was most recently scheduled/
+  // opened from here — replaces what used to be a fixed "Fukuoka × Yufuin".
+  const handleAddSpot = (spot: DiscoverSpot) => {
+    setCurrentCity(cityFromRegion(spot.region, scope));
+    setScheduleSpot(spotToPlace(spot));
+  };
 
   // Tapping the card itself (not the [+] quick-add button) hands off to
   // /planner's 딥 다이브 detail overlay instead of scheduling immediately.
   const handleOpenDetail = (spot: DiscoverSpot) => {
+    setCurrentCity(cityFromRegion(spot.region, scope));
     addPlaces([spotToPlace(spot)]);
     router.push(`/planner?openDetail=${encodeURIComponent(spot.id)}`);
   };
@@ -242,6 +265,7 @@ export default function DiscoverPage() {
 
   const confirmRouteAdd = (date: string) => {
     if (!routeTarget) return;
+    setCurrentCity(routeTarget.region);
     const places = routeTarget.stops.map((stop) => routeStopToPlace(routeTarget.id, stop));
     addPlaces(places);
     // Keep each stop's originally-suggested hour, nudging forward to the
@@ -279,6 +303,10 @@ export default function DiscoverPage() {
             <Input
               value={queryInput}
               onChange={(e) => setQueryInput(e.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              // Delayed so a click on a recent-search item (below) still
+              // registers before the dropdown unmounts on blur.
+              onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") runSearch();
               }}
@@ -296,13 +324,40 @@ export default function DiscoverPage() {
                 </button>
               )}
               <Button
-                onClick={runSearch}
+                onClick={() => runSearch()}
                 disabled={!queryInput.trim()}
                 className="h-10 rounded-xl bg-indigo-600 px-4 text-[13px] font-semibold hover:bg-indigo-700"
               >
                 검색
               </Button>
             </div>
+
+            {/* 최근 검색어 — 검색창 포커스 시 최대 5개, localStorage 기반 */}
+            {searchFocused && recentSearches.length > 0 && (
+              <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
+                <div className="mb-1 flex items-center justify-between px-2 pt-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">최근 검색어</span>
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={clearRecent}
+                    className="text-[11px] font-medium text-slate-400 hover:text-slate-600"
+                  >
+                    전체 삭제
+                  </button>
+                </div>
+                {recentSearches.map((q) => (
+                  <button
+                    key={q}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => runSearch(q)}
+                    className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+                  >
+                    <Clock size={13} className="text-slate-300" />
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="mt-4 flex justify-center">
@@ -946,6 +1001,13 @@ function SpotCard({
         <p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
           <MapPin size={11} /> {spot.region}
         </p>
+        {spot.rating != null && (
+          <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+            <Star size={11} className="fill-amber-400 text-amber-400" />
+            {spot.rating.toFixed(1)}
+            {spot.reviewCount != null && <span className="font-normal text-slate-400">· 리뷰 {fmt(spot.reviewCount)}</span>}
+          </p>
+        )}
         <div className="mt-2 flex items-center justify-between">
           <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500">
             {favorite ? (

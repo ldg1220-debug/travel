@@ -5,6 +5,21 @@ import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { MarkerContent, Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
 
+/** A raw map click — `placeId` is only present when the click landed on a labeled POI icon. */
+export interface MapClickInfo {
+  lat: number;
+  lng: number;
+  placeId: string | null;
+}
+
+/** State for the click-to-save popup — `loading` while a POI's real name is still being fetched. */
+export interface ClickedPlaceState {
+  lat: number;
+  lng: number;
+  name: string;
+  loading: boolean;
+}
+
 interface PlannerGoogleMapProps {
   mapsError: boolean;
   mapsLoaded: boolean;
@@ -23,6 +38,11 @@ interface PlannerGoogleMapProps {
   savedPlaces: Place[];
   selectedSavedPlace: Place | null;
   onSelectSaved: (id: string | null) => void;
+  /** Any coordinate or POI click on the map — lets the caller look up a POI's name and offer to save it as a 관심 장소. */
+  onMapClick: (info: MapClickInfo) => void;
+  clickedPlace: ClickedPlaceState | null;
+  onCloseClickedPlace: () => void;
+  onSaveClickedPlace: () => void;
 }
 
 /**
@@ -52,6 +72,10 @@ export default function PlannerGoogleMap({
   savedPlaces,
   selectedSavedPlace,
   onSelectSaved,
+  onMapClick,
+  clickedPlace,
+  onCloseClickedPlace,
+  onSaveClickedPlace,
 }: PlannerGoogleMapProps) {
   if (mapsError) {
     return (
@@ -73,7 +97,16 @@ export default function PlannerGoogleMap({
         onMapLoad(map);
         nudgeGoogleMapResize(map, () => map.setCenter(mapCenter));
       }}
-      options={{ disableDefaultUI: true, zoomControl: true }}
+      onClick={(e) => {
+        if (!e.latLng) return;
+        // Clicking a labeled POI icon gives a MapMouseEvent with an extra
+        // `placeId` (and a stop() to suppress the default Maps info
+        // window) — a plain coordinate click has neither.
+        const iconEvent = e as google.maps.IconMouseEvent;
+        iconEvent.stop?.();
+        onMapClick({ lat: e.latLng.lat(), lng: e.latLng.lng(), placeId: iconEvent.placeId ?? null });
+      }}
+      options={{ disableDefaultUI: true, zoomControl: true, clickableIcons: true }}
     >
       {tab === "schedule" && (
         <>
@@ -134,6 +167,25 @@ export default function PlannerGoogleMap({
             </InfoWindow>
           )}
         </>
+      )}
+
+      {/* click-to-save popup — any coordinate or POI tap on the map, either tab */}
+      {clickedPlace && (
+        <InfoWindow position={{ lat: clickedPlace.lat, lng: clickedPlace.lng }} onCloseClick={onCloseClickedPlace}>
+          <div className="min-w-[160px] px-1 py-0.5">
+            <p className="text-[13px] font-semibold text-slate-900">{clickedPlace.name}</p>
+            <p className="text-[10.5px] tabular-nums text-slate-400">
+              {clickedPlace.lat.toFixed(5)}, {clickedPlace.lng.toFixed(5)}
+            </p>
+            <button
+              onClick={onSaveClickedPlace}
+              disabled={clickedPlace.loading}
+              className="mt-2 w-full rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11.5px] font-semibold text-white disabled:opacity-40"
+            >
+              관심 장소에 저장
+            </button>
+          </div>
+        </InfoWindow>
       )}
     </GoogleMap>
   );

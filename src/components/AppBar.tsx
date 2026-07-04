@@ -4,23 +4,28 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Menu, Search, Calendar, Book, UserPlus } from "lucide-react";
+import { Menu, Search, Calendar, Book, Heart, UserPlus } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { saveItinerary } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 
+// 일정(계획)과는 완전히 분리된 두 개의 보관함: 다녀온 여행 보관함(지난
+// itinerary/trip 기록, /scrapbook)과 관심 장소 보관함(찜해둔 개별 장소,
+// /saved-places) — 후자는 하단에 독립된 탭으로 별도 배치.
 const NAV_ITEMS = [
   { href: "/discover", label: "탐색", icon: Search },
   { href: "/planner", label: "계획", icon: Calendar },
-  { href: "/scrapbook", label: "보관함", icon: Book },
+  { href: "/scrapbook", label: "다녀온 여행 보관함", icon: Book },
 ];
+const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", icon: Heart };
 
 const PAGE_TITLES: Record<string, string> = {
   "/": "홈",
   "/discover": "어디로 떠나시나요?",
-  "/scrapbook": "내 추억 보관함",
+  "/scrapbook": "다녀온 여행 보관함",
+  "/saved-places": "관심 장소 보관함",
 };
 
 /**
@@ -42,6 +47,7 @@ export function AppBar() {
   const activeDate = useItineraryStore((s) => s.activeDate);
   const region = useItineraryStore((s) => s.region);
   const items = useItineraryStore((s) => s.items);
+  const currentCity = useItineraryStore((s) => s.currentCity);
 
   const isPlanner = pathname?.startsWith("/planner") ?? false;
   // /planner is the base route; /planner/{shareToken} is the only sub-route.
@@ -102,6 +108,23 @@ export function AppBar() {
                 );
               })}
             </nav>
+
+            {/* 관심 장소 보관함 — 일정/여행 기록과는 무관한 개별 찜 목록이라
+                위 메뉴와 구분선으로 분리된 독립 탭으로 하단에 배치. */}
+            <div className="mt-2 border-t border-slate-100 px-2 pt-2">
+              <Link
+                href={SAVED_PLACES_NAV_ITEM.href}
+                onClick={() => setMenuOpen(false)}
+                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                  (pathname?.startsWith(SAVED_PLACES_NAV_ITEM.href) ?? false)
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <SAVED_PLACES_NAV_ITEM.icon size={17} />
+                {SAVED_PLACES_NAV_ITEM.label}
+              </Link>
+            </div>
           </SheetContent>
         </Sheet>
 
@@ -112,7 +135,7 @@ export function AppBar() {
                 {formatDateLabel(activeDate)}
                 {isShared && " · Shared"}
               </span>
-              <span className="text-[15px] font-bold leading-tight text-slate-900">Fukuoka × Yufuin</span>
+              <span className="text-[15px] font-bold leading-tight text-slate-900">{currentCity}</span>
             </>
           ) : (
             <span className="text-[15px] font-bold text-slate-900">{PAGE_TITLES[pathname ?? ""] ?? "Travel Scheduler"}</span>
