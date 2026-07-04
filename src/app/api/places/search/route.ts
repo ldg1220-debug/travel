@@ -30,14 +30,17 @@ const CATEGORY_LABEL_KO: Record<string, string> = {
   restaurant: "음식점",
 };
 
+/** Whether a response actually came from the live Google Places / Kakao Local API, or fell back to cached/mock data — callers that only want to show genuinely-real results (e.g. /discover's live-search section) key off this instead of assuming "200 OK" means real data. */
+export type PlaceSearchSource = "google" | "kakao" | "mock";
+
 export async function GET(request: NextRequest) {
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
   const query = (request.nextUrl.searchParams.get("q") ?? "").trim();
   const category = request.nextUrl.searchParams.get("category") ?? "all";
-  if (!query) return NextResponse.json({ places: [] });
+  if (!query) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
 
   if (region === "domestic") {
-    return NextResponse.json({ places: await searchDomestic(query) });
+    return NextResponse.json(await searchDomestic(query));
   }
 
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -46,7 +49,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Google API Key is completely missing" }, { status: 500 });
   }
   const includedTypes = CATEGORY_TYPE_MAP[category];
-  return NextResponse.json({ places: await searchInternational(query, googleApiKey, includedTypes, category) });
+  return NextResponse.json(await searchInternational(query, googleApiKey, includedTypes, category));
 }
 
 interface GooglePlaceResult {
@@ -63,7 +66,7 @@ async function searchInternational(
   apiKey: string,
   includedTypes?: string[],
   category?: string,
-): Promise<Place[]> {
+): Promise<{ places: Place[]; source: PlaceSearchSource }> {
   // A category filter is applied two ways at once, from most to least
   // specific, each step only tried if the previous one comes back empty:
   //  1. query text expanded with the category's Korean label + includedTypes
@@ -79,20 +82,20 @@ async function searchInternational(
 
   if (expandedQuery) {
     const expanded = await callGoogleSearchText(expandedQuery, apiKey, includedTypes);
-    if (expanded === null) return filterByName(await getTrendingPlaces(), query);
-    if (expanded.length > 0) return expanded;
+    if (expanded === null) return { places: filterByName(await getTrendingPlaces(), query), source: "mock" };
+    if (expanded.length > 0) return { places: expanded, source: "google" };
     console.log("[places/search] 0 results for expanded query — retrying with plain query + category filter");
   }
 
   const places = await callGoogleSearchText(query, apiKey, includedTypes);
-  if (places === null) return filterByName(await getTrendingPlaces(), query);
+  if (places === null) return { places: filterByName(await getTrendingPlaces(), query), source: "mock" };
 
   if (places.length === 0 && includedTypes) {
     console.log("[places/search] 0 results with includedTypes — retrying without category filter");
     const unfiltered = await callGoogleSearchText(query, apiKey);
-    if (unfiltered !== null) return unfiltered;
+    if (unfiltered !== null) return { places: unfiltered, source: "google" };
   }
-  return places;
+  return { places, source: "google" };
 }
 
 /** Returns null on a non-ok response (caller decides the offline fallback), otherwise the mapped place list (possibly empty). */
@@ -149,7 +152,7 @@ interface KakaoLocalDocument {
   y: string;
 }
 
-async function searchDomestic(query: string): Promise<Place[]> {
+async function searchDomestic(query: string): Promise<{ places: Place[]; source: PlaceSearchSource }> {
   const apiKey = process.env.KAKAO_REST_API_KEY;
   console.log("[places/search] Using Kakao API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
@@ -161,11 +164,11 @@ async function searchDomestic(query: string): Promise<Place[]> {
     if (res.ok) {
       const data = (await res.json()) as { documents?: KakaoLocalDocument[] };
       console.log("[places/search] Kakao API Response:", JSON.stringify(data));
-      return (data.documents ?? []).slice(0, 8).map(kakaoDocToPlace);
+      return { places: (data.documents ?? []).slice(0, 8).map(kakaoDocToPlace), source: "kakao" };
     }
     console.error("[places/search] Kakao API error:", res.status, res.statusText, await res.text());
   }
-  return filterByName(DOMESTIC_PLACES, query);
+  return { places: filterByName(DOMESTIC_PLACES, query), source: "mock" };
 }
 
 function kakaoDocToPlace(d: KakaoLocalDocument): Place {

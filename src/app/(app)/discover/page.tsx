@@ -40,7 +40,7 @@ import { ScheduleModal } from "@/components/ScheduleModal";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
-import { fetchDiscoverBundle, fetchDiscoverSearch } from "@/lib/api";
+import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch } from "@/lib/api";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
 import { SEASON_LABEL } from "@/lib/discoverData";
 import { useRecentSearches } from "@/lib/useRecentSearches";
@@ -256,6 +256,22 @@ export default function DiscoverPage() {
     setCurrentCity(cityFromRegion(spot.region, scope));
     addPlaces([spotToPlace(spot)]);
     router.push(`/planner?openDetail=${encodeURIComponent(spot.id)}`);
+  };
+
+  // Live search results (real Google Places / Kakao Local hits, see
+  // fetchLivePlaceSearch) already arrive as `Place` objects — no
+  // spotToPlace conversion needed, unlike the curated-seed-data path above.
+  // There's no clean "region" field to derive a city from, so the search
+  // query itself doubles as the header label.
+  const handleAddLivePlace = (place: Place) => {
+    setCurrentCity(activeQuery.trim());
+    setScheduleSpot(place);
+  };
+
+  const handleOpenLiveDetail = (place: Place) => {
+    setCurrentCity(activeQuery.trim());
+    addPlaces([place]);
+    router.push(`/planner?openDetail=${encodeURIComponent(place.id)}`);
   };
 
   const handleAddRoute = (route: DiscoverRoute) => {
@@ -477,6 +493,8 @@ export default function DiscoverPage() {
             onAddSpot={handleAddSpot}
             onOpenDetail={handleOpenDetail}
             onPreviewRoute={setPreviewRoute}
+            onAddLivePlace={handleAddLivePlace}
+            onOpenLiveDetail={handleOpenLiveDetail}
           />
         ) : (
           /* ── BROWSE CONTENT (switches on scope + category) ── */
@@ -723,12 +741,16 @@ function SearchResults({
   onAddSpot,
   onOpenDetail,
   onPreviewRoute,
+  onAddLivePlace,
+  onOpenLiveDetail,
 }: {
   query: string;
   scope: DiscoverScope;
   onAddSpot: (spot: DiscoverSpot) => void;
   onOpenDetail: (spot: DiscoverSpot) => void;
   onPreviewRoute: (route: DiscoverRoute) => void;
+  onAddLivePlace: (place: Place) => void;
+  onOpenLiveDetail: (place: Place) => void;
 }) {
   // All local to this component (remounted via `key={activeQuery}` in the
   // parent), so a fresh search always starts back at 전체/page 1 instead
@@ -762,6 +784,17 @@ function SearchResults({
     placeholderData: keepPreviousData,
   });
 
+  // Real, live results (Google Places Text Search overseas / Kakao Local
+  // domestic) — an entirely separate query from the curated-seed-data one
+  // above, since a live API call can't be server-side paginated the same
+  // way and should never block or error out the curated section if it
+  // fails. `liveResults` is [] (never an error) whenever keys are missing
+  // or the call fails, so this section just quietly doesn't render then.
+  const { data: liveResults } = useQuery({
+    queryKey: ["discover-live-search", scope, query, categoryFilter],
+    queryFn: () => fetchLivePlaceSearch(scope, query, categoryFilter === "all" ? undefined : categoryFilter),
+  });
+
   if (data && !autoSynced && !userPickedCategory) {
     setAutoSynced(true);
     if (data.appliedCategory !== "all") setCategoryFilter(data.appliedCategory as SpotCategoryFilter);
@@ -788,8 +821,9 @@ function SearchResults({
   const { total, hasMore } = data.pagination;
   const totalPages = Math.max(1, Math.ceil(total / SEARCH_PAGE_LIMIT));
   const isRefetching = isFetching && Boolean(data);
+  const hasLiveResults = Boolean(liveResults && liveResults.length > 0);
 
-  if (routes.length === 0 && total === 0 && !isRefetching) {
+  if (routes.length === 0 && total === 0 && !isRefetching && !hasLiveResults) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-20 text-center">
         <p className="text-sm text-slate-500">&ldquo;{query}&rdquo;에 대한 결과가 없어요.</p>
@@ -814,6 +848,28 @@ function SearchResults({
 
   return (
     <div className="space-y-12">
+      {hasLiveResults && page === 1 && (
+        <section>
+          <SectionHeader
+            icon={Search}
+            iconClass="text-emerald-500"
+            emoji="🔎"
+            title={`"${query}" 실시간 검색 결과`}
+            caption={scope === "overseas" ? "Google 지도 기준 실제 장소 · 평점" : "카카오맵 기준 실제 장소"}
+          />
+          <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+            {liveResults!.map((place) => (
+              <LivePlaceCard
+                key={place.id}
+                place={place}
+                onAdd={() => onAddLivePlace(place)}
+                onOpenDetail={() => onOpenLiveDetail(place)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {routes.length > 0 && page === 1 && (
         <section>
           <SectionHeader icon={Crown} iconClass="text-amber-500" emoji="🏆" title={`"${query}" 인기 루트`} caption="좋아요 · 조회수가 높은 여행자들의 루트" />
@@ -1017,6 +1073,55 @@ function SpotCard({
             )}
             {fmt(spot.saves)}명 저장
           </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onAdd();
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-indigo-500 hover:text-white"
+          >
+            <Plus size={15} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── live search result card — a real Google Places / Kakao Local hit, not
+// one of /discover's own curated spots, so there's no gradient/saves/
+// subTags to show, just whatever the live API actually returned. ──
+function LivePlaceCard({ place, onAdd, onOpenDetail }: { place: Place; onAdd: () => void; onOpenDetail: () => void }) {
+  return (
+    <div
+      onClick={onOpenDetail}
+      className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200"
+    >
+      <div className="relative flex h-28 items-center justify-center bg-gradient-to-br from-emerald-400 to-teal-500">
+        <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
+        <div className="absolute right-2 top-2">
+          <Badge className="border-none bg-white/85 text-[10px] font-semibold text-slate-700 backdrop-blur">
+            {place.category}
+          </Badge>
+        </div>
+        <MapPin size={26} className="text-white/90" />
+      </div>
+      <div className="px-3 pb-3 pt-3">
+        <p className="truncate text-sm font-bold text-slate-900">{place.name}</p>
+        {place.address && (
+          <p className="mt-0.5 line-clamp-1 flex items-center gap-1 text-[11px] text-slate-500">
+            <MapPin size={11} /> {place.address}
+          </p>
+        )}
+        <div className="mt-2 flex items-center justify-between">
+          {place.rating != null ? (
+            <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+              <Star size={11} className="fill-amber-400 text-amber-400" />
+              {place.rating.toFixed(1)}
+            </span>
+          ) : (
+            <span className="text-[10.5px] font-medium text-slate-400">실제 지도 데이터</span>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();

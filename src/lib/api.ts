@@ -16,6 +16,45 @@ export async function searchPlaces(region: Region, query: string): Promise<Place
   return data.places;
 }
 
+/** Loose category hint for /api/places/search's query-expansion — best-effort, not an exact match to /discover's own tag set. */
+function placesSearchCategory(tag?: string): string | undefined {
+  if (tag === "관광지" || tag === "테마파크") return "attraction";
+  if (tag === "음식점" || tag === "술집") return "restaurant";
+  if (tag === "숙소") return "lodging";
+  return undefined;
+}
+
+/**
+ * Real, live place search backing /discover's "실시간 검색 결과" — hits the
+ * same Google Places Text Search (overseas) / Kakao Local keyword search
+ * (domestic) already used by /planner's sidebar, so an arbitrary real store
+ * name (not just /discover's own curated seed list) can actually be found,
+ * with real ratings where the underlying API provides them. Never throws:
+ * missing API keys, a live-API error, or a network failure all just mean
+ * "no live results this time" rather than breaking the rest of the search
+ * page, since /discover's curated results are still shown regardless.
+ */
+export async function fetchLivePlaceSearch(scope: DiscoverScope, query: string, tag?: string): Promise<Place[]> {
+  if (!query.trim()) return [];
+  try {
+    const region: Region = scope === "domestic" ? "domestic" : "international";
+    const params = new URLSearchParams({ region, q: query });
+    const category = placesSearchCategory(tag);
+    if (category) params.set("category", category);
+    const res = await fetch(`/api/places/search?${params.toString()}`);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { places?: Place[]; source?: "google" | "kakao" | "mock" };
+    // "mock" means the route had no real API key (or the live call itself
+    // failed) and quietly fell back to a cached/offline place list — showing
+    // that under a "실시간 검색 결과 · 실제 장소" heading would be misleading,
+    // so only a genuine google/kakao hit counts as a live result here.
+    if (data.source !== "google" && data.source !== "kakao") return [];
+    return data.places ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function saveItinerary(
   region: Region,
   placesData: ItineraryItem[],
