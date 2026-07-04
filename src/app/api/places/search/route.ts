@@ -111,7 +111,11 @@ async function callGoogleSearchText(query: string, apiKey: string, includedTypes
     },
     body: JSON.stringify({
       textQuery: query,
-      maxResultCount: 10,
+      // 20 is the New Places API's per-request cap for searchText (no
+      // pageToken support in this simplified call) — a generic query like
+      // "도톤보리 맛집" should come back with as many real hits as Google
+      // itself has, not an arbitrarily small slice of them.
+      maxResultCount: 20,
       ...(includedTypes ? { includedTypes } : {}),
     }),
   });
@@ -122,7 +126,7 @@ async function callGoogleSearchText(query: string, apiKey: string, includedTypes
   }
   const data = (await res.json()) as { places?: GooglePlaceResult[] };
   console.log("[places/search] Google API Response:", JSON.stringify(data));
-  return (data.places ?? []).slice(0, 8).map(googlePlaceToPlace);
+  return (data.places ?? []).map(googlePlaceToPlace);
 }
 
 function googlePlaceToPlace(p: GooglePlaceResult): Place {
@@ -156,15 +160,18 @@ async function searchDomestic(query: string): Promise<{ places: Place[]; source:
   const apiKey = process.env.KAKAO_REST_API_KEY;
   console.log("[places/search] Using Kakao API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
+    // size=15 is Kakao Local's own per-page maximum for keyword search (no
+    // slicing it back down afterward — a popular query deserves all 15,
+    // not an arbitrarily smaller subset of them).
     const res = await fetch(
-      `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}`,
+      `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=15`,
       { cache: "no-store", headers: { Authorization: `KakaoAK ${apiKey}` } },
     );
     console.log("[places/search] Kakao response status:", res.status);
     if (res.ok) {
       const data = (await res.json()) as { documents?: KakaoLocalDocument[] };
       console.log("[places/search] Kakao API Response:", JSON.stringify(data));
-      return { places: (data.documents ?? []).slice(0, 8).map(kakaoDocToPlace), source: "kakao" };
+      return { places: (data.documents ?? []).map(kakaoDocToPlace), source: "kakao" };
     }
     console.error("[places/search] Kakao API error:", res.status, res.statusText, await res.text());
   }

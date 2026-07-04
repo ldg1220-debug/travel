@@ -1057,13 +1057,6 @@ function SpotCard({
         <p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
           <MapPin size={11} /> {spot.region}
         </p>
-        {spot.rating != null && (
-          <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
-            <Star size={11} className="fill-amber-400 text-amber-400" />
-            {spot.rating.toFixed(1)}
-            {spot.reviewCount != null && <span className="font-normal text-slate-400">· 리뷰 {fmt(spot.reviewCount)}</span>}
-          </p>
-        )}
         <div className="mt-2 flex items-center justify-between">
           <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500">
             {favorite ? (

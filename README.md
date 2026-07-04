@@ -1186,3 +1186,54 @@ curated search (우메다/방콕/etc.) kept working with no regression. The
 account this was built for confirmed both keys are already set in the
 actual Vercel deployment, so the live path is expected to resolve
 real, arbitrary store names there once this deploys.
+
+### Live-search result caps, saved-place mini map context, planner search zoom, honest ratings
+
+Four follow-ups from testing the previous round's live-search deploy:
+
+- **Live-search result cap raised**: `callGoogleSearchText` was
+  hard-capping every response at 8 places regardless of how many Google
+  actually returned (`maxResultCount: 10` in the request, then `.slice(0,
+  8)` again on the response) — bumped to the New Places API's real
+  per-request ceiling of 20. Kakao Local's keyword search now explicitly
+  requests `size=15` (its own max) instead of defaulting to a smaller page
+  and getting sliced to 8 afterward. A popular query should come back with
+  as many real results as the underlying API has, not an arbitrarily small
+  slice of them.
+- **Curated ratings were fabricated — now removed**: the previous round's
+  ⭐ rating/review count on curated `SpotCard`s was never real Google/Naver
+  data — it was a formula (`4.2 + seed*0.75`) derived from each spot's
+  `saves` count, deterministic but entirely made up, and presented exactly
+  like a genuine rating. That backfill and its rendering are removed from
+  `discoverData.ts`/`SpotCard`; a real ⭐ rating now only ever appears on
+  the "실시간 검색 결과" section's `LivePlaceCard`, where it's a genuine
+  value from the live Google Places response.
+- **Saved-place tap now shows surrounding context, not an isolated pin**:
+  `/saved-places` → tap a place → `PlaceDetailOverlay`'s mini map
+  (`PlaceMiniMap`) now also plots any *other* saved 관심 장소 within 5km as
+  smaller secondary pins (via `OverlayView`, capped at 6), and widens from
+  street-level (zoom 15) to neighborhood-level (zoom 13) whenever there
+  are any, so the map actually shows "this place and what's around it"
+  instead of a single dot with no geographic context when there's
+  something nearby worth showing.
+- **Planner search no longer zooms out to "country level"**: `/planner`'s
+  일정 tab search (`PlacesSearchInput` → `handlePlaceDiscovered`) only
+  ever added the new place to the map's marker list — the "smart zoom"
+  effect watching that list then ran `fitBounds` over *every* marker,
+  old and new. Searching for a place far from whatever was already on the
+  map (e.g. the Fukuoka/Yufuin seed data) fit a bounding box spanning
+  both, zooming out far enough to look like a country-level view instead
+  of landing on the place just searched for. `handlePlaceDiscovered` now
+  pans/zooms straight to the new place (zoom 15) and sets a
+  `skipNextFitRef` flag so the smart-zoom effect's own `fitBounds` — which
+  still runs for every other case (route-template imports, tab switches,
+  multi-stop schedules) — skips just that one re-render instead of
+  immediately undoing the explicit pan.
+
+This sandbox still has no real `GOOGLE_PLACES_API_KEY`/`KAKAO_REST_API_KEY`
+or `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, so none of the actual map
+pan/zoom/pin-rendering behavior above could be visually verified here —
+same constraint as every previous map-related round. Verified instead:
+tsc/eslint/build all clean, `/planner` and `/saved-places` still load and
+navigate without crashing after these changes, and curated search
+(우메다/etc.) still returns results with no fake rating shown anymore.
