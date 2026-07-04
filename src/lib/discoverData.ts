@@ -566,15 +566,14 @@ for (const spot of [...DOMESTIC.trending, ...DOMESTIC.favorites, ...OVERSEAS.tre
     spot.cuisine = meta.cuisine;
     spot.subTags = meta.subTags;
   }
-  // Google-Places-style rating/review count, backfilled for every spot
-  // that doesn't already carry one — deterministic from `saves` (not
-  // literally proportional, so it doesn't read as robotic) rather than
-  // random, so the same spot always shows the same rating across requests.
-  if (spot.rating == null) {
-    const seed = (spot.saves % 97) / 97; // 0..~1 spread
-    spot.rating = Math.round((4.2 + seed * 0.75) * 10) / 10;
-    spot.reviewCount = Math.max(48, Math.round(spot.saves / 3));
-  }
+  // No rating/reviewCount backfill here on purpose — this file is curated
+  // placeholder content, not a real Places API response, so there's no
+  // genuine rating to attach. An earlier version of this file fabricated
+  // one from each spot's `saves` count, which looked exactly like a real
+  // Google rating and reviewCount without being one; `rating`/`reviewCount`
+  // stay unset here and only ever come from a genuine API response (see
+  // /discover's "실시간 검색 결과" section, sourced from
+  // /api/places/search's real google/kakao results).
 }
 
 /** All spots in a scope's trending + favorites lists, deduped by id. */

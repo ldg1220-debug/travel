@@ -6,12 +6,18 @@ import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGoogleMapsStatus } from "./MapProvider";
+import { useItineraryStore } from "@/store/itineraryStore";
+import { haversineDistanceMeters } from "@/lib/geo";
 import { PlaceGlyph } from "./icons";
 import { Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
 
 // Always client-only — see PlaceMiniMap.tsx / lib/maps/mapResize.ts.
 const PlaceMiniMap = dynamic(() => import("./PlaceMiniMap"), { ssr: false });
+
+/** How far around the open place counts as "nearby" for the mini map's secondary pins — a same-neighborhood radius, not the whole city. */
+const NEARBY_RADIUS_METERS = 5000;
+const MAX_NEARBY_PINS = 6;
 
 const CATEGORY_OPTIONS = ["Cafe", "Restaurant", "Attraction", "Lodging", "Museum", "Park"];
 
@@ -33,6 +39,16 @@ interface PlaceDetailOverlayProps {
  */
 export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: PlaceDetailOverlayProps) {
   const { isLoaded: mapsLoaded } = useGoogleMapsStatus();
+  const savedPlaces = useItineraryStore((s) => s.savedPlaces);
+
+  // Other 관심 장소 within a short walk/ride of the one being viewed — gives
+  // the mini map actual geographic context ("what else is around here")
+  // instead of an isolated pin with nothing else on screen.
+  const nearbyPlaces = place
+    ? savedPlaces
+        .filter((p) => p.id !== place.id && haversineDistanceMeters(place, p) <= NEARBY_RADIUS_METERS)
+        .slice(0, MAX_NEARBY_PINS)
+    : [];
 
   return (
     <AnimatePresence>
@@ -54,7 +70,7 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
             {/* mini map */}
             <div className="relative h-40 w-full shrink-0 bg-[#eef2f4]">
               {mapsLoaded ? (
-                <PlaceMiniMap place={place} />
+                <PlaceMiniMap place={place} nearbyPlaces={nearbyPlaces} />
               ) : (
                 <div className="flex h-full items-center justify-center text-xs text-slate-400">지도 로딩 중…</div>
               )}

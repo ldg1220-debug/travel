@@ -93,6 +93,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const boardRef = useRef<HTMLDivElement | null>(null);
   const slotRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const mapRef = useRef<google.maps.Map | null>(null);
+  // See handlePlaceDiscovered below — set right before an explicit pan/zoom
+  // so the next "smart zoom" effect run (triggered by that same places
+  // update) skips its own fitBounds instead of immediately undoing it.
+  const skipNextFitRef = useRef(false);
 
   // Places to schedule + the single global itinerary come straight from
   // Zustand (src/store/itineraryStore.ts) — no local/hardcoded data here.
@@ -288,9 +292,22 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // Search result / trend-sheet selection adapter target: both land here as
   // an already-normalized Place, get merged into the map's place list, and
   // immediately become schedulable like any seeded/trend marker.
+  //
+  // A single search-discovered place needs the map to pan/zoom straight to
+  // it, not the generic "smart zoom" fitBounds below — that fits every
+  // *existing* marker too, so searching for a place in a totally different
+  // city/country than whatever's already on the map (e.g. the Fukuoka/
+  // Yufuin seed data) zoomed out far enough to fit both, looking like a
+  // country-level view instead of landing on the place just searched for.
+  // skipNextFitRef tells the smart-zoom effect below to skip its own
+  // fitBounds this one time, so this explicit pan/zoom isn't immediately
+  // overridden once `places` updates and that effect re-runs.
   const handlePlaceDiscovered = (place: Place) => {
     addPlaces([place]);
     showToast(`${place.name} added to map`);
+    skipNextFitRef.current = true;
+    mapRef.current?.panTo({ lat: place.lat, lng: place.lng });
+    mapRef.current?.setZoom(15);
   };
 
   const panToSavedPlace = (place: Place) => {
@@ -559,6 +576,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // parked wherever it happened to be.
   useEffect(() => {
     if (!mapRef.current) return;
+    if (skipNextFitRef.current) {
+      skipNextFitRef.current = false;
+      return;
+    }
     fitToPlaces(mapRef.current, visibleMarkerPlaces);
   }, [visibleMarkerPlaces, fitToPlaces]);
 
