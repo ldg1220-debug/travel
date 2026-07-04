@@ -1137,3 +1137,52 @@ click handler wired in; the Sheet nav shows both renamed/new menu entries
 and 관심 장소 보관함 navigates to a working `/saved-places`; 방콕/타이베이/
 로마/바르셀로나/샌프란시스코 all return non-empty search results. tsc/
 eslint/build all clean, no console errors during the pass.
+
+### /discover search wired to real Google Places / Kakao Local (not just the seed list)
+
+The previous round's 우메다 fix expanded the *curated seed dataset* in
+`discoverData.ts` — but that only ever papers over one city at a time. An
+arbitrary real store (e.g. a specific 도톤보리 shop) would still return
+nothing, because `/discover`'s search never queried anything beyond that
+hand-authored list, no matter how large it got. Meanwhile `/planner`'s
+sidebar search (`/api/places/search`) already had real Google Places Text
+Search (overseas, with real ratings) and Kakao Local keyword search
+(domestic) wired up — `/discover` just never called it.
+
+- `fetchLivePlaceSearch(scope, query, tag)` (`src/lib/api.ts`) hits that
+  same `/api/places/search` route from `/discover`, mapping scope → region
+  and the search page's category chip → the route's existing
+  `attraction`/`restaurant`/`lodging` type hint.
+- `/api/places/search`'s route now tags every response with its real
+  provenance — `source: "google" | "kakao" | "mock"` — since the route
+  already silently fell back to cached/offline place lists in a few paths
+  (no Kakao key, no Google key, or the live call itself erroring
+  mid-request) and a 200 response alone doesn't mean the data is actually
+  live. `fetchLivePlaceSearch` only ever surfaces `google`/`kakao`-sourced
+  results — a `mock` response is treated exactly like an empty one, so a
+  fallback list never gets shown under a "실시간 검색 결과 · 실제 장소"
+  heading pretending to be real.
+- `SearchResults` runs this as a second, independent React Query alongside
+  the existing curated-spot query — a live-API failure or a missing key
+  never blocks or errors out the curated section. When it does return
+  results, a new "🔎 실시간 검색 결과" section renders above the curated
+  grid via a new `LivePlaceCard` (real name/address, ⭐ rating when the API
+  provides one — Kakao Local doesn't return ratings at all, so a domestic
+  live hit shows "실제 지도 데이터" instead), wired to the same
+  add-to-itinerary / detail-overlay flow as curated spots (`Place` objects
+  need no extra mapping, since that's already `/api/places/search`'s
+  return shape).
+
+This sandbox has no real `GOOGLE_PLACES_API_KEY`/`KAKAO_REST_API_KEY`
+configured, so the live path itself can't be exercised end-to-end here —
+verified instead that both failure modes degrade correctly: overseas
+without a key still 500s at the API layer exactly as before (existing
+`/planner` behavior, untouched) and `fetchLivePlaceSearch` swallows that
+into an empty result; domestic without a key falls back to a *different*
+mock list (`DOMESTIC_PLACES`) exactly as before, and the new `source`
+tagging correctly keeps that hidden from the live-results section. Neither
+path threw, crashed, or showed misleading "real" data, and the existing
+curated search (우메다/방콕/etc.) kept working with no regression. The
+account this was built for confirmed both keys are already set in the
+actual Vercel deployment, so the live path is expected to resolve
+real, arbitrary store names there once this deploys.
