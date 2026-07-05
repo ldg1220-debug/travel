@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 const QUICK_ACCESS = [
   {
     href: "/course",
-    title: "추천 코스 만들기",
+    title: "코스 만들기",
     description: "지역만 고르면 관광지·맛집·카페까지 한 번에",
     icon: Sparkles,
     gradient: "from-indigo-500 to-violet-500",
