@@ -1356,3 +1356,41 @@ with the popup open; 저장하기 shows the toast and returns to intact
 results; reload restores the search from the URL; the 최근 검색 chip row
 appears on the browse screen and re-runs a search on tap. tsc/eslint/
 build clean, no page errors.
+
+### 검색 결과 지도(플래그) 뷰 + 최근검색 스코프 버그 + 큐레이션 대표사진
+
+- **결과 지도 뷰** (`LiveResultsMap.tsx`, new): the 실시간 검색 결과
+  section now renders a large map above the card grid with every hit as
+  a flag. Tapping a flag opens a compact InfoWindow (name, ⭐rating·리뷰,
+  메뉴·리뷰 deep link, 상세·저장 button into the full detail popup);
+  tapping a card in the list selects+pans to its flag, so the list and
+  map always point at the same place. fitBounds over the result set,
+  re-frames per search, single place → street-level zoom. Wrapped in the
+  on-demand `MapProvider` (script loads only once live results exist).
+- **팝업 상단을 실제 사진으로**: `PlaceDetailOverlay`'s header now shows
+  the place's real photo when `photoName` exists (live results), falling
+  back to the mini map only for photo-less places (curated/Kakao). This
+  also sidesteps the "팝업 지도가 제대로 안 뜬다" report — for live
+  results the popup no longer depends on a second map instance at all;
+  location context lives on the big results map behind it.
+- **최근검색 스코프 버그 수정**: replaying "도톤보리 맛집" from the recent
+  chips while the 국내 tab was active silently ran a domestic Kakao
+  search → empty. `useRecentSearches` v2 now stores `{q, scope}` per
+  entry (new storage key; v1 strings had no scope to migrate), chips show
+  a 🇰🇷/🌐 tag, and `runSearch` takes a scope override that switches the
+  tab before searching and keeps the URL in sync.
+- **큐레이션 카드 대표사진**: new `/api/discover/spot-photo?q=` route —
+  searchText(1 result, photos-only mask) by the spot's name+city, then
+  302 to the photo's googleusercontent URL. Module-level memo + week-long
+  CDN cache headers (on the 404s too) keep it to roughly one billed
+  lookup per unique spot per edge region per week. `SpotCard` layers the
+  photo over its gradient with an `onError` fallback, so no key / no
+  match / local dev just shows the existing gradient — never a broken
+  image.
+
+Verified (6/6): overseas search ok; switching to 국내 then tapping the
+recent chip auto-restores the 해외 scope and returns results (the exact
+reported bug); URL reflects the restored scope; spot-photo returns 404
+(not an open proxy) without a key; /planner unaffected. tsc/eslint/build
+clean — the results map itself renders placeholder-only here (no key)
+and is production-verifiable.

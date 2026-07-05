@@ -60,6 +60,7 @@ import type { Place, PlaceIcon } from "@/lib/types";
 
 // Always client-only — see RoutePreviewMap.tsx / lib/maps/mapResize.ts.
 const RoutePreviewMap = dynamic(() => import("./RoutePreviewMap"), { ssr: false });
+const LiveResultsMap = dynamic(() => import("./LiveResultsMap"), { ssr: false });
 
 type CategoryFilter = "all" | "season" | "hot" | "region";
 type SectionKind = "trending" | "favorites" | "routes";
@@ -282,16 +283,22 @@ export default function DiscoverPage() {
   const regionTree = browseData?.regionTree ?? [];
   const regionOptions = nodesAtPath(regionTree, regionPath);
 
-  const runSearch = (query: string = queryInput) => {
+  // `scopeOverride` lets a recent-search chip re-run its query under the
+  // scope it was originally searched in — replaying "도톤보리 맛집" while
+  // the 국내 tab happened to be active used to silently run a domestic
+  // Kakao search and come back empty.
+  const runSearch = (query: string = queryInput, scopeOverride?: DiscoverScope) => {
     const trimmed = query.trim();
     if (!trimmed) return;
+    const effectiveScope = scopeOverride ?? scope;
+    if (effectiveScope !== scope) setScope(effectiveScope);
     setQueryInput(trimmed);
     setActiveQuery(trimmed);
-    addRecent(trimmed);
+    addRecent(trimmed, effectiveScope);
     setSearchFocused(false);
     // Display-only URL sync (no new RSC payload needed) — lets browser
     // back/reload restore this exact search instead of a blank box.
-    window.history.replaceState(null, "", `/discover?scope=${scope}&q=${encodeURIComponent(trimmed)}`);
+    window.history.replaceState(null, "", `/discover?scope=${effectiveScope}&q=${encodeURIComponent(trimmed)}`);
   };
   const clearSearch = () => {
     setQueryInput("");
@@ -425,15 +432,16 @@ export default function DiscoverPage() {
                     전체 삭제
                   </button>
                 </div>
-                {recentSearches.map((q) => (
+                {recentSearches.map((r) => (
                   <button
-                    key={q}
+                    key={r.q}
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => runSearch(q)}
+                    onClick={() => runSearch(r.q, r.scope)}
                     className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
                   >
                     <Clock size={13} className="text-slate-300" />
-                    {q}
+                    <span className="min-w-0 flex-1 truncate">{r.q}</span>
+                    <span className="shrink-0 text-[10.5px] text-slate-400">{r.scope === "domestic" ? "🇰🇷 국내" : "🌐 해외"}</span>
                   </button>
                 ))}
               </div>
@@ -500,13 +508,14 @@ export default function DiscoverPage() {
               <span className="flex items-center gap-1 text-[11px] font-medium text-slate-400">
                 <Clock size={12} /> 최근 검색
               </span>
-              {recentSearches.map((q) => (
+              {recentSearches.map((r) => (
                 <button
-                  key={q}
-                  onClick={() => runSearch(q)}
+                  key={r.q}
+                  onClick={() => runSearch(r.q, r.scope)}
                   className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600"
                 >
-                  {q}
+                  {r.scope === "domestic" ? "🇰🇷 " : "🌐 "}
+                  {r.q}
                 </button>
               ))}
             </div>
@@ -907,6 +916,10 @@ function SearchResults({
   });
 
   const [liveSort, setLiveSort] = useState<LiveSortKey>("relevance");
+  // Which flag on the results map is highlighted — set by tapping either
+  // the flag itself or a card in the list below, so both always point at
+  // the same place.
+  const [selectedLiveId, setSelectedLiveId] = useState<string | null>(null);
   const sortedLiveResults = useMemo(() => {
     if (!liveResults) return [];
     if (liveSort === "rating") return [...liveResults].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
@@ -992,13 +1005,29 @@ function SearchResults({
               );
             })}
           </div>
+          {/* 검색된 가게들이 플래그로 찍힌 결과 지도 — 플래그 탭 = 요약
+              팝업(메뉴 링크·상세), 아래 목록 카드 탭 = 해당 플래그 선택 */}
+          <MapProvider>
+            <div className="mt-4 h-72 overflow-hidden rounded-2xl border border-slate-200 shadow-sm sm:h-80">
+              <LiveResultsMap
+                places={sortedLiveResults}
+                selectedId={selectedLiveId}
+                onSelect={setSelectedLiveId}
+                onOpenDetail={onOpenLiveDetail}
+              />
+            </div>
+          </MapProvider>
+
           <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
             {sortedLiveResults.map((place) => (
               <LivePlaceCard
                 key={place.id}
                 place={place}
                 onAdd={() => onAddLivePlace(place)}
-                onOpenDetail={() => onOpenLiveDetail(place)}
+                onOpenDetail={() => {
+                  setSelectedLiveId(place.id);
+                  onOpenLiveDetail(place);
+                }}
               />
             ))}
           </div>
@@ -1166,6 +1195,10 @@ function SpotCard({
   onOpenDetail: () => void;
 }) {
   const Icon = SPOT_ICONS[spot.iconKey];
+  // Representative photo resolved live by name+city (see
+  // /api/discover/spot-photo) — 404/no-key/no-match just falls back to
+  // the curated gradient, so the card never shows a broken image.
+  const [photoFailed, setPhotoFailed] = useState(false);
   return (
     <div
       onClick={onOpenDetail}
@@ -1173,6 +1206,16 @@ function SpotCard({
     >
       <div className={`relative h-28 bg-gradient-to-br ${spot.gradient}`}>
         <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
+        {!photoFailed && (
+          // eslint-disable-next-line @next/next/no-img-element -- remote Places photo behind our own redirect proxy; see LivePlaceCard
+          <img
+            src={`/api/discover/spot-photo?q=${encodeURIComponent(`${spot.name} ${spot.region.split(" · ").join(" ")}`)}`}
+            alt={spot.name}
+            loading="lazy"
+            onError={() => setPhotoFailed(true)}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
         <div className="absolute right-2 top-2">
           <Badge className="border-none bg-white/85 text-[10px] font-semibold text-slate-700 backdrop-blur">
             {spot.tag}
