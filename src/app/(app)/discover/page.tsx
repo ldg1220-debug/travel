@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScheduleModal } from "@/components/ScheduleModal";
+import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
@@ -229,6 +230,7 @@ export default function DiscoverPage() {
   const addItem = useItineraryStore((s) => s.addItem);
   const isHourTaken = useItineraryStore((s) => s.isHourTaken);
   const setCurrentCity = useItineraryStore((s) => s.setCurrentCity);
+  const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
 
   const [scope, setScope] = useState<DiscoverScope>("domestic");
   const [category, setCategory] = useState<CategoryFilter>("all");
@@ -237,12 +239,30 @@ export default function DiscoverPage() {
   const [activeQuery, setActiveQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [scheduleSpot, setScheduleSpot] = useState<Place | null>(null);
+  const [detailPlace, setDetailPlace] = useState<Place | null>(null);
   const [routeTarget, setRouteTarget] = useState<DiscoverRoute | null>(null);
   const [previewRoute, setPreviewRoute] = useState<DiscoverRoute | null>(null);
   const [expandedSection, setExpandedSection] = useState<SectionKind | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { recent: recentSearches, addRecent, clearRecent } = useRecentSearches();
+
+  // ── restore a previous search from the URL (?scope=&q=) ──
+  // Coming back from /planner (or a full reload) used to dump the user on
+  // an empty search box, forcing a retype + a fresh round of API calls.
+  // runSearch/clearSearch below keep the URL in sync via replaceState, so
+  // browser-back and reloads land right back on the same results.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlScope = params.get("scope");
+    const urlQuery = params.get("q");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from the URL (an external system) on first mount, same pattern as useRecentSearches
+    if (urlScope === "domestic" || urlScope === "overseas") setScope(urlScope);
+    if (urlQuery) {
+      setQueryInput(urlQuery);
+      setActiveQuery(urlQuery);
+    }
+  }, []);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -269,10 +289,14 @@ export default function DiscoverPage() {
     setActiveQuery(trimmed);
     addRecent(trimmed);
     setSearchFocused(false);
+    // Display-only URL sync (no new RSC payload needed) — lets browser
+    // back/reload restore this exact search instead of a blank box.
+    window.history.replaceState(null, "", `/discover?scope=${scope}&q=${encodeURIComponent(trimmed)}`);
   };
   const clearSearch = () => {
     setQueryInput("");
     setActiveQuery("");
+    window.history.replaceState(null, "", "/discover");
   };
 
   const handleScopeChange = (next: DiscoverScope) => {
@@ -290,12 +314,13 @@ export default function DiscoverPage() {
     setScheduleSpot(spotToPlace(spot));
   };
 
-  // Tapping the card itself (not the [+] quick-add button) hands off to
-  // /planner's 딥 다이브 detail overlay instead of scheduling immediately.
+  // Tapping the card itself (not the [+] quick-add button) opens the 딥
+  // 다이브 detail overlay right here as a popup — it used to router.push
+  // over to /planner, which threw away the whole search context and made
+  // browser-back re-run everything from scratch.
   const handleOpenDetail = (spot: DiscoverSpot) => {
     setCurrentCity(cityFromRegion(spot.region, scope));
-    addPlaces([spotToPlace(spot)]);
-    router.push(`/planner?openDetail=${encodeURIComponent(spot.id)}`);
+    setDetailPlace(spotToPlace(spot));
   };
 
   // Live search results (real Google Places / Kakao Local hits, see
@@ -310,8 +335,7 @@ export default function DiscoverPage() {
 
   const handleOpenLiveDetail = (place: Place) => {
     setCurrentCity(activeQuery.trim());
-    addPlaces([place]);
-    router.push(`/planner?openDetail=${encodeURIComponent(place.id)}`);
+    setDetailPlace(place);
   };
 
   const handleAddRoute = (route: DiscoverRoute) => {
@@ -466,6 +490,25 @@ export default function DiscoverPage() {
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {/* 최근 검색어 — 포커스 드롭다운과 별개로, 화면에 항상 보이는
+              원탭 재검색 버튼 줄 (검색 전 브라우즈 화면에서만) */}
+          {!isSearching && !expandedSection && recentSearches.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
+              <span className="flex items-center gap-1 text-[11px] font-medium text-slate-400">
+                <Clock size={12} /> 최근 검색
+              </span>
+              {recentSearches.map((q) => (
+                <button
+                  key={q}
+                  onClick={() => runSearch(q)}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600"
+                >
+                  {q}
+                </button>
+              ))}
             </div>
           )}
 
@@ -645,6 +688,26 @@ export default function DiscoverPage() {
         />
       )}
 
+      {/* ── 장소 상세 팝업 — 검색 결과 카드 탭 시 페이지 이동 없이 이 자리에서
+          위치(미니맵)·메뉴 링크·메모·저장/일정 추가까지 처리 ── */}
+      {detailPlace && (
+        <MapProvider>
+          <PlaceDetailOverlay
+            place={detailPlace}
+            onClose={() => setDetailPlace(null)}
+            onSave={(p) => {
+              upsertSavedPlace(p);
+              showToast(`${p.name} 관심 장소에 저장됨`);
+              setDetailPlace(null);
+            }}
+            onSchedule={(p) => {
+              setDetailPlace(null);
+              setScheduleSpot(p);
+            }}
+          />
+        </MapProvider>
+      )}
+
       {routeTarget && <RouteDateModal route={routeTarget} onClose={() => setRouteTarget(null)} onConfirm={confirmRouteAdd} />}
 
       {/* Google Maps script only loads once a route preview is actually opened. */}
@@ -822,6 +885,10 @@ function SearchResults({
     // below (isFetching && Boolean(data)) back into the full-page "검색
     // 중…" state instead of just refreshing the card grid.
     placeholderData: keepPreviousData,
+    // Re-running the same search within a few minutes (back-navigation,
+    // chip toggling back and forth) serves from cache instead of
+    // re-hitting the server.
+    staleTime: 5 * 60 * 1000,
   });
 
   // Real, live results (Google Places Text Search overseas / Kakao Local
@@ -833,6 +900,10 @@ function SearchResults({
   const { data: liveResults } = useQuery({
     queryKey: ["discover-live-search", scope, query, categoryFilter],
     queryFn: () => fetchLivePlaceSearch(scope, query, categoryFilter === "all" ? undefined : categoryFilter),
+    // Each live call is real (billed) Google/Kakao quota — coming back to
+    // the same search within a few minutes must reuse the cached results,
+    // not re-bill the API.
+    staleTime: 5 * 60 * 1000,
   });
 
   const [liveSort, setLiveSort] = useState<LiveSortKey>("relevance");

@@ -1318,3 +1318,41 @@ the build output), curated search unaffected, /planner loads, and the
 photo proxy rejects a malformed resource name with 400. The live path
 itself (photos/sorting over real data) is production-verifiable only —
 no API key in this sandbox.
+
+### 검색 흐름 개선: 그 자리 상세 팝업, 최근 검색 칩, URL 검색 복원
+
+Three user-flow complaints from production testing:
+
+- **카드 클릭 → 그 자리 팝업** (기존: /planner로 통째로 이동): tapping a
+  search result card used to `router.push` to /planner and open the
+  detail overlay there — losing the whole search context, and coming back
+  meant retyping + re-running every API call. Both curated-card and
+  live-card taps now open `PlaceDetailOverlay` **as a popup right on
+  /discover** (wrapped in an on-demand `MapProvider`, same lazy-script
+  pattern as the route preview modal), showing the mini map, the
+  구글맵 메뉴·리뷰 link, category/memo editing, 저장하기 (→ 관심 장소 +
+  toast, stays on the search results) and 일정에 추가 (→ the existing
+  ScheduleModal flow). Closing the popup lands exactly where you were.
+- **최근 검색어 상시 노출 칩**: recent searches were only visible as a
+  dropdown while the search box was focused — added an always-visible
+  "최근 검색" chip row on the browse screen (below the category chips),
+  one tap to re-run any of the last 5 searches.
+- **URL 검색 복원 + 캐시**: the active search is now mirrored into the URL
+  (`/discover?scope=…&q=…` via `history.replaceState`) and restored on
+  mount, so browser-back and reloads land on the same results instead of
+  a blank box. Both search queries (curated + live) also gained a
+  5-minute `staleTime`, so re-running the same search within a session
+  serves from React Query's cache instead of re-billing the Google/Kakao
+  APIs.
+
+Also answered (no code change): the browse-feed 계절별/최근 핫한 chips do
+vary by theme — 계절 is computed from the real current date and 핫한
+re-sorts by saves — but over the *curated seed dataset*, not live API
+data; making the browse feed live-backed stays a roadmap item
+(IMPROVEMENT_PLAN 1-1/R3).
+
+Verified in the browser (7/7): search → card click stays on /discover
+with the popup open; 저장하기 shows the toast and returns to intact
+results; reload restores the search from the URL; the 최근 검색 chip row
+appears on the browse screen and re-runs a search on tap. tsc/eslint/
+build clean, no page errors.
