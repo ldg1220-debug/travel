@@ -84,7 +84,7 @@ export const useItineraryStore = create<ItineraryState>()(
       items: [],
       activeDate: todayISODate(),
       region: "international",
-      currentCity: "Fukuoka · Yufuin",
+      currentCity: "새 여행",
       places: [],
       savedPlaces: [],
       setCurrentCity: (city) => set({ currentCity: city }),
@@ -230,7 +230,25 @@ export const useItineraryStore = create<ItineraryState>()(
     }),
     {
       name: "travel-scheduler-saved-places",
-      partialize: (state) => ({ savedPlaces: state.savedPlaces }),
+      // v2: persist the whole itinerary, not just savedPlaces. Before this,
+      // items/places/activeDate/currentCity/region lived only in memory, so
+      // a refresh (or closing the tab) silently wiped the trip the user was
+      // building — the single most damaging bug for real use. Now the plan
+      // survives a reload; a logged-in user's server save/share is layered
+      // on top of this, not a substitute for it.
+      version: 2,
+      partialize: (state) => ({
+        items: state.items,
+        places: state.places,
+        savedPlaces: state.savedPlaces,
+        activeDate: state.activeDate,
+        currentCity: state.currentCity,
+        region: state.region,
+      }),
+      // No explicit migrate needed: zustand shallow-merges the persisted
+      // slice over the initial state, so v1's { savedPlaces } carries
+      // forward and every newly-persisted field falls back to its initial
+      // value. The version bump just invalidates any incompatible cache.
     },
   ),
 );
