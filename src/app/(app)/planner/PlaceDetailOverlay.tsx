@@ -67,16 +67,26 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 380, damping: 34 }}
           >
-            {/* mini map */}
+            {/* header — 실제 업체 사진이 있으면 사진(위치 맥락은 뒤의 결과
+                지도가 담당), 없으면 기존 미니맵 */}
             <div className="relative h-40 w-full shrink-0 bg-[#eef2f4]">
-              {mapsLoaded ? (
+              {place.photoName ? (
+                // eslint-disable-next-line @next/next/no-img-element -- served via our own /api/places/photo redirect proxy; see LivePlaceCard
+                <img
+                  src={`/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=800`}
+                  alt={place.name}
+                  className="h-full w-full object-cover"
+                />
+              ) : mapsLoaded ? (
                 <PlaceMiniMap place={place} nearbyPlaces={nearbyPlaces} />
               ) : (
                 <div className="flex h-full items-center justify-center text-xs text-slate-400">지도 로딩 중…</div>
               )}
-              <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full drop-shadow-lg">
-                <Pin place={place} solid />
-              </div>
+              {!place.photoName && (
+                <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full drop-shadow-lg">
+                  <Pin place={place} solid />
+                </div>
+              )}
               <button
                 onClick={onClose}
                 aria-label="닫기"
