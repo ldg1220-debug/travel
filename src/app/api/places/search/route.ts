@@ -116,6 +116,10 @@ async function callGoogleSearchText(query: string, apiKey: string, includedTypes
       // "도톤보리 맛집" should come back with as many real hits as Google
       // itself has, not an arbitrarily small slice of them.
       maxResultCount: 20,
+      // Without this, Google localizes names/addresses to English
+      // ("Gyukatsu Motomura Dotonbori Branch") even for a Korean query —
+      // the whole app is Korean, so ask for Korean display names.
+      languageCode: "ko",
       ...(includedTypes ? { includedTypes } : {}),
     }),
   });
