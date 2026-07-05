@@ -84,7 +84,7 @@ export default function HomePage() {
                 <Flame size={17} />
               </span>
               <h2 className="text-xl font-bold tracking-tight">
-                <span className="mr-1">🔥</span>Trending Now
+                <span className="mr-1">🔥</span>지금 뜨는 여행지
               </h2>
             </div>
             <Link
