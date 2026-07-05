@@ -1497,3 +1497,37 @@ the slot tabs, the keyless state shows a graceful "결과를 불러오지
 못했어요" notice instead of crashing, and the home card + nav entry
 appear. tsc/eslint/build clean. The live place lists per slot are
 production-verifiable (no API key in this sandbox).
+
+### 코스 만들기 개편 + AI 추천 동선
+
+Follow-up round on the course builder (renamed 추천 코스 만들기 → **코스
+만들기**; the 탐색 tab renamed to **여행 계획짜기**):
+
+- **여러 곳 담기**: each slot now holds multiple places
+  (`Record<slotKey, Place[]>`) — the card button toggles membership, tabs
+  show a per-slot count, and the 내 코스 summary lists every pick in slot
+  order. No more one-and-advance.
+- **날짜/동선 모드**: "코스 완성하기" opens a finish sheet with two paths —
+  *날짜 정해서 일정 만들기* (`MonthCalendar` → schedules all picks across
+  the chosen day, times spread so multi-picks don't collide → `/planner`)
+  and *날짜 없이 동선만 짜기* (`upsertSavedPlace` for every pick →
+  `/saved-places`, to rough out the route without committing to times).
+- **AI 추천 동선** (item 5 — like 경복궁 → 광장시장 → 점심 → 익선동 →
+  청계천 야경 → 저녁): new **`/api/course/recommend`** route auto-assembles
+  a full-day course from real data. For each of 7 course slots (오전 명소 /
+  시장·거리 / 점심 / 오후 명소 / 카페 / 야경 / 저녁) it runs a live search,
+  ranks by a `rating × log10(reviews)` score (overseas Google) or takes
+  the top Kakao hit (domestic), skips already-used places, and stamps each
+  with its schedule hour + a meal marker. Deterministic and free — no LLM
+  call — but the route is the natural swap-in point for a real model later
+  (the response shape wouldn't change; an `LLM_API_KEY` isn't required).
+  A gradient "✨ {city} AI 추천 동선 받기" button on the build step opens a
+  timeline-style preview (meal stops flagged 🍴, ⭐ ratings), with "다시
+  추천" and "이 동선으로 일정 만들기" (schedules the whole course →
+  `/planner`).
+
+Verified (6/6): `/api/course/recommend` guards a missing city (400) and a
+keyless call (source:"mock", empty course, no crash); the build step shows
+the AI button + the "또는 직접 골라보세요" split; clicking AI without a key
+shows the graceful empty-course modal; no page errors. The real
+auto-assembled course is production-verifiable (no API key here).

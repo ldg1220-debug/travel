@@ -75,6 +75,26 @@ export async function fetchPlaceDetails(placeId: string): Promise<PlaceDetails |
   }
 }
 
+export interface RecommendedStop extends Place {
+  slotLabel: string;
+  hour: number;
+  meal: boolean;
+}
+
+/** AI 추천 동선 — a full auto-assembled day course of real top-rated places for a city. Empty array when the live API is unavailable (no key). */
+export async function fetchRecommendedCourse(scope: DiscoverScope, city: string): Promise<RecommendedStop[]> {
+  if (!city.trim()) return [];
+  try {
+    const res = await fetch(`/api/course/recommend?scope=${scope}&city=${encodeURIComponent(city)}`);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { course?: RecommendedStop[]; source?: string };
+    if (data.source !== "google" && data.source !== "kakao") return [];
+    return data.course ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function saveItinerary(
   region: Region,
   placesData: ItineraryItem[],

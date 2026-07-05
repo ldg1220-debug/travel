@@ -9,7 +9,7 @@ import { MonthCalendar } from "@/components/MonthCalendar";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { useItineraryStore } from "@/store/itineraryStore";
-import { fetchLivePlaceSearch } from "@/lib/api";
+import { fetchLivePlaceSearch, fetchRecommendedCourse, type RecommendedStop } from "@/lib/api";
 import { COURSE_SLOTS, regionsForScope, type CourseSlot } from "@/lib/courseRegions";
 import { todayISODate, pad2, formatDateLabel } from "@/lib/timeline";
 import type { DiscoverScope } from "@/lib/discoverData";
@@ -37,6 +37,9 @@ export default function CourseBuilderPage() {
   // finish sheet: null = closed; otherwise the mode being configured.
   const [finishOpen, setFinishOpen] = useState(false);
   const [finishDate, setFinishDate] = useState(todayISODate());
+  // AI 추천 동선 (auto-assembled full-day course).
+  const [aiCourse, setAiCourse] = useState<RecommendedStop[] | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const regions = regionsForScope(scope);
   const regionGroup = regions.find((r) => r.label === region) ?? null;
@@ -102,6 +105,34 @@ export default function CourseBuilderPage() {
     if (city) setCurrentCity(city);
     setFinishOpen(false);
     router.push("/saved-places");
+  };
+
+  // "AI 추천으로 자동 완성" — pull a full auto-assembled day course for the
+  // city and drop it straight onto the planner timeline.
+  const runAiRecommend = async () => {
+    if (!city) return;
+    setAiLoading(true);
+    const course = await fetchRecommendedCourse(scope, city);
+    setAiLoading(false);
+    setAiCourse(course);
+  };
+
+  const applyAiCourse = () => {
+    if (!aiCourse || aiCourse.length === 0) return;
+    const date = todayISODate();
+    addPlaces(aiCourse);
+    aiCourse.forEach((stop) => {
+      addItem({
+        placeId: stop.id,
+        name: stop.name,
+        date,
+        time: `${pad2(stop.hour)}:00`,
+        coordinates: { lat: stop.lat, lng: stop.lng },
+      });
+    });
+    if (city) setCurrentCity(city);
+    setAiCourse(null);
+    router.push("/planner");
   };
 
   return (
@@ -201,7 +232,21 @@ export default function CourseBuilderPage() {
         {/* ── STEP: build course ── */}
         {step === "build" && city && (
           <div>
+            {/* AI 자동 추천 — 직접 고르기 전에 한 번에 동선 받기 */}
+            <button
+              onClick={runAiRecommend}
+              disabled={aiLoading}
+              className="mb-4 flex w-full items-center gap-3 rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-3.5 text-left text-white shadow-md transition-opacity hover:opacity-95 disabled:opacity-60"
+            >
+              <Sparkles size={20} className="shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14px] font-bold">{aiLoading ? "AI가 코스를 짜는 중…" : `${city} AI 추천 동선 받기`}</span>
+                <span className="block text-[11.5px] text-white/80">평점 높은 관광지·맛집·카페·야경을 하루 코스로 자동 구성</span>
+              </span>
+            </button>
+
             {/* slot tabs with pick count */}
+            <p className="mb-2 text-[12px] font-medium text-slate-400">또는 카테고리별로 직접 골라보세요</p>
             <div className="flex flex-wrap gap-2">
               {COURSE_SLOTS.map((s) => {
                 const count = (picks[s.key] ?? []).length;
@@ -306,6 +351,61 @@ export default function CourseBuilderPage() {
                 <span className="block text-[11.5px] text-slate-500">관심 장소로 저장 — 지도에서 동선만 먼저 잡아보기</span>
               </span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* AI 추천 동선 미리보기 */}
+      {aiCourse && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setAiCourse(null)} />
+          <div className="relative flex max-h-[85%] w-full max-w-md flex-col rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+            <div className="flex items-center justify-between px-5 pb-2 pt-5">
+              <h3 className="flex items-center gap-1.5 text-lg font-bold">
+                <Sparkles size={18} className="text-indigo-500" /> {city} AI 추천 동선
+              </h3>
+              <button onClick={() => setAiCourse(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+                <X size={16} />
+              </button>
+            </div>
+            {aiCourse.length === 0 ? (
+              <p className="px-5 py-12 text-center text-[13px] text-slate-400">
+                추천 동선을 불러오지 못했어요. (실제 추천은 배포 환경에서 동작합니다)
+              </p>
+            ) : (
+              <>
+                <div className="flex-1 overflow-y-auto px-5 py-2">
+                  <div className="relative space-y-1 pl-4">
+                    {/* vertical line */}
+                    <span className="absolute bottom-2 left-[7px] top-2 w-px bg-slate-200" />
+                    {aiCourse.map((stop, i) => (
+                      <div key={`${stop.id}-${i}`} className="relative flex items-center gap-3 py-2">
+                        <span className={`absolute -left-4 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white ${stop.meal ? "bg-amber-400" : "bg-indigo-500"}`} />
+                        <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-slate-400">{pad2(stop.hour)}:00</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13.5px] font-semibold text-slate-800">
+                            {stop.meal && <span className="mr-1 text-amber-500">🍴</span>}
+                            {stop.name}
+                          </p>
+                          <p className="truncate text-[11px] text-slate-400">
+                            {stop.slotLabel}
+                            {stop.rating != null && ` · ⭐ ${stop.rating.toFixed(1)}`}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2 border-t border-slate-100 px-5 py-3">
+                  <Button onClick={runAiRecommend} disabled={aiLoading} variant="outline" className="h-11 flex-1 rounded-xl border-slate-300 text-sm font-semibold">
+                    다시 추천
+                  </Button>
+                  <Button onClick={applyAiCourse} className="h-11 flex-[2] rounded-xl bg-indigo-600 text-sm font-semibold hover:bg-indigo-700">
+                    이 동선으로 일정 만들기
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
