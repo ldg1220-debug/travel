@@ -599,6 +599,19 @@ export default function DiscoverPage() {
               transition={{ duration: 0.25 }}
               className="space-y-12"
             >
+              {/* ✨ AI 추천 동선 — 지역만 고르면 하루 코스를 자동으로 짜주는 코스 만들기로 연결 */}
+              <button
+                onClick={() => router.push("/course")}
+                className="flex w-full items-center gap-3 rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-4 text-left text-white shadow-md transition-opacity hover:opacity-95"
+              >
+                <Sparkles size={22} className="shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] font-bold">AI 추천 동선으로 코스 짜기</span>
+                  <span className="block text-[12px] text-white/85">지역만 고르면 관광지·맛집·카페·야경을 하루 코스로 자동 구성해드려요</span>
+                </span>
+                <ChevronRight size={20} className="shrink-0 text-white/80" />
+              </button>
+
               {bundle && bundle.trending.length > 0 && (
                 <>
                   <SectionHeader
