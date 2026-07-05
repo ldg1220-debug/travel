@@ -1394,3 +1394,31 @@ reported bug); URL reflects the restored scope; spot-photo returns 404
 (not an open proxy) without a key; /planner unaffected. tsc/eslint/build
 clean — the results map itself renders placeholder-only here (no key)
 and is production-verifiable.
+
+### R2: 일정 영속화 — 새로고침 시 소멸 방지 (실사용 최우선 버그)
+
+The single most damaging bug for real use: the itinerary store's
+`partialize` persisted only `savedPlaces`, so `items` (the whole
+schedule), `places` (the map catalog), `activeDate`, `currentCity`, and
+`region` lived only in memory. A refresh — or closing the tab — silently
+wiped the trip the user was building, and reset the header back to the
+"Fukuoka · Yufuin" default.
+
+- `partialize` now persists the full itinerary
+  (`items`/`places`/`savedPlaces`/`activeDate`/`currentCity`/`region`),
+  with a `version: 2` bump. No explicit `migrate` needed — zustand
+  shallow-merges the persisted slice over the initial state, so v1's
+  `{ savedPlaces }` carries forward and the newly-persisted fields fall
+  back to their initial values on first upgrade.
+- `currentCity` initial value changed from the leftover hardcoded
+  `"Fukuoka · Yufuin"` to a neutral `"새 여행"` — combined with the
+  persistence above, the header now reflects the user's actual trip
+  across reloads instead of snapping back to the demo city.
+- A logged-in user's server save/share (`/api/itineraries`) still layers
+  on top of this — localStorage persistence is the always-on baseline so
+  an anonymous user never loses work, not a replacement for the DB.
+
+Verified in the browser (5/5): a persisted v2 payload (schedule + city)
+rehydrates on reload — the scheduled place shows on the timeline and the
+header restores its city; version stays 2; no "Fukuoka" leftover;
+tsc/eslint/build clean.
