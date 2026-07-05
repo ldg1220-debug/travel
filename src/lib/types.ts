@@ -21,7 +21,13 @@ export interface Place {
   lat: number;
   lng: number;
   rating?: number;
+  /** Number of Google reviews backing `rating` — only present on live Google results. */
+  reviewCount?: number;
   address?: string;
+  /** First Google photo resource name (`places/…/photos/…`) — rendered through the keyless /api/places/photo proxy. */
+  photoName?: string;
+  /** Deep link to this place on Google Maps — menu/reviews/full photos live there (the Places API doesn't expose menu data itself). */
+  googleMapsUri?: string;
   /** Free-text note, editable from the planner's 관심 장소 detail overlay. */
   memo?: string;
   icon: PlaceIcon;

@@ -1279,3 +1279,42 @@ day tabs read "7/4 (토)" with "0개 장소", the map loading/error states and
 search placeholder are all Korean, and `/discover`'s section titles are
 "지금 뜨는 장소"/"꾸준히 사랑받는 명소"/"추천 코스" with no English left.
 tsc/eslint/build clean, no console errors, no regressions.
+
+### 실시간 검색 결과: 정렬 옵션 + 실제 업체 사진 + 메뉴·리뷰 딥링크
+
+Requested after the live search was confirmed working on production
+(도톤보리 맛집 → 실제 구글 결과 20개): sort controls, real business/food
+photos, and menu access.
+
+- **정렬 칩** (관련도순/별점순/리뷰많은순) on the 실시간 검색 결과 section
+  — client-side sort over the ≤20 live results; "관련도순" keeps Google's
+  own ranking. `places.userRatingCount` added to the field mask so 리뷰
+  count is both displayed on cards ("⭐4.7 · 리뷰 1.2k") and sortable.
+- **실제 업체 사진**: `places.photos` added to the search field mask; each
+  live card renders its first photo through a new keyless proxy route
+  **`/api/places/photo`** — the client only ever knows the photo *resource
+  name* (`places/…/photos/…`); the proxy asks Google for the short-lived
+  googleusercontent URL with the server-side key (`skipHttpRedirect=true`)
+  and 302s the browser there, so the API key never appears in any <img>
+  URL. Strict resource-name shape validation so the route can't be used as
+  an open redirect; day-long Cache-Control on the redirect. Cards without
+  a photo keep the existing gradient+pin fallback (all Kakao domestic
+  results, since Kakao Local returns no photos).
+- **메뉴**: the Places API does **not** expose Google Maps' menu-tab data
+  at all — no field for it. What it does expose is `googleMapsUri`, the
+  deep link to that exact place's Google Maps page (where menu/reviews/
+  full photos live). Each live card gets a "메뉴·리뷰" button and the
+  place detail overlay gets a "구글맵에서 메뉴·리뷰·사진 보기" link, both
+  opening that page in a new tab. Since `googleMapsUri`/`photoName`/
+  `reviewCount` ride along on the `Place` object, a live result saved to
+  관심 장소 keeps its menu link in the /planner detail overlay too.
+- **English type badges fixed**: cards were showing raw `primaryType`
+  values ("japanese_restaurant") as their category badge — added a
+  Korean label map (일식/스시/라멘/야키니쿠/카페/술집/숙소/관광지, ~25
+  types) with an underscore-stripping fallback for unmapped types.
+
+Verified: tsc/eslint/build clean (new `/api/places/photo` route appears in
+the build output), curated search unaffected, /planner loads, and the
+photo proxy rejects a malformed resource name with 400. The live path
+itself (photos/sorting over real data) is production-verifiable only —
+no API key in this sandbox.

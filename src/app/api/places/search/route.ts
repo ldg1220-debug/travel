@@ -66,7 +66,10 @@ interface GooglePlaceResult {
   formattedAddress?: string;
   location?: { latitude: number; longitude: number };
   rating?: number;
+  userRatingCount?: number;
   primaryType?: string;
+  photos?: { name: string }[];
+  googleMapsUri?: string;
 }
 
 async function searchInternational(
@@ -115,7 +118,7 @@ async function callGoogleSearchText(query: string, apiKey: string, includedType?
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
       "X-Goog-FieldMask":
-        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.primaryType",
+        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryType,places.photos,places.googleMapsUri",
     },
     body: JSON.stringify({
       textQuery: query,
@@ -148,13 +151,16 @@ function googlePlaceToPlace(p: GooglePlaceResult): Place {
   return {
     id: p.id,
     placeId: p.id,
-    name: p.displayName?.text ?? "Unknown place",
+    name: p.displayName?.text ?? "이름 미확인 장소",
     category,
     color,
     lat: p.location?.latitude ?? 0,
     lng: p.location?.longitude ?? 0,
     rating: p.rating,
+    reviewCount: p.userRatingCount,
     address: p.formattedAddress,
+    photoName: p.photos?.[0]?.name,
+    googleMapsUri: p.googleMapsUri,
     icon,
   };
 }
