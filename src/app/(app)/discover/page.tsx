@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -31,6 +31,7 @@ import {
   CalendarRange,
   Heart,
   Eye,
+  ExternalLink,
   X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -98,6 +99,45 @@ const CUISINE_FILTERS: { key: CuisineFilter; label: string }[] = [
 ];
 
 const SEARCH_PAGE_LIMIT = 10;
+
+/** Client-side sort for the 실시간 검색 결과 section (≤20 results, so sorting in the browser is fine). "relevance" keeps Google's own ranking. */
+type LiveSortKey = "relevance" | "rating" | "reviews";
+const LIVE_SORTS: { key: LiveSortKey; label: string }[] = [
+  { key: "relevance", label: "관련도순" },
+  { key: "rating", label: "별점순" },
+  { key: "reviews", label: "리뷰많은순" },
+];
+
+/** Google `primaryType` -> Korean badge label for live result cards; unmapped types fall back to the raw type with underscores spaced. */
+const LIVE_TYPE_LABELS: Record<string, string> = {
+  restaurant: "음식점",
+  japanese_restaurant: "일식",
+  sushi_restaurant: "스시",
+  ramen_restaurant: "라멘",
+  yakiniku_restaurant: "야키니쿠",
+  tonkatsu_restaurant: "돈카츠",
+  korean_restaurant: "한식",
+  chinese_restaurant: "중식",
+  italian_restaurant: "양식",
+  french_restaurant: "양식",
+  seafood_restaurant: "해산물",
+  barbecue_restaurant: "바비큐",
+  fast_food_restaurant: "패스트푸드",
+  cafe: "카페",
+  coffee_shop: "카페",
+  bakery: "베이커리",
+  dessert_shop: "디저트",
+  bar: "술집",
+  izakaya_restaurant: "이자카야",
+  hotel: "호텔",
+  lodging: "숙소",
+  tourist_attraction: "관광지",
+  shopping_mall: "쇼핑",
+  market: "시장",
+  park: "공원",
+  museum: "박물관",
+};
+const liveTypeLabel = (category: string) => LIVE_TYPE_LABELS[category] ?? category.replace(/_/g, " ");
 
 const SPOT_ICONS: Record<SpotIconKey, React.ComponentType<{ size?: number; className?: string }>> = {
   coffee: Coffee,
@@ -795,6 +835,14 @@ function SearchResults({
     queryFn: () => fetchLivePlaceSearch(scope, query, categoryFilter === "all" ? undefined : categoryFilter),
   });
 
+  const [liveSort, setLiveSort] = useState<LiveSortKey>("relevance");
+  const sortedLiveResults = useMemo(() => {
+    if (!liveResults) return [];
+    if (liveSort === "rating") return [...liveResults].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+    if (liveSort === "reviews") return [...liveResults].sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0));
+    return liveResults;
+  }, [liveResults, liveSort]);
+
   if (data && !autoSynced && !userPickedCategory) {
     setAutoSynced(true);
     if (data.appliedCategory !== "all") setCategoryFilter(data.appliedCategory as SpotCategoryFilter);
@@ -857,8 +905,24 @@ function SearchResults({
             title={`"${query}" 실시간 검색 결과`}
             caption={scope === "overseas" ? "Google 지도 기준 실제 장소 · 평점" : "카카오맵 기준 실제 장소"}
           />
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {LIVE_SORTS.map((s) => {
+              const active = liveSort === s.key;
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => setLiveSort(s.key)}
+                  className={`rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
+                    active ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-emerald-300"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
           <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {liveResults!.map((place) => (
+            {sortedLiveResults.map((place) => (
               <LivePlaceCard
                 key={place.id}
                 place={place}
@@ -1091,13 +1155,25 @@ function LivePlaceCard({ place, onAdd, onOpenDetail }: { place: Place; onAdd: ()
       className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200"
     >
       <div className="relative flex h-28 items-center justify-center bg-gradient-to-br from-emerald-400 to-teal-500">
-        <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
+        {place.photoName ? (
+          // eslint-disable-next-line @next/next/no-img-element -- served via our own /api/places/photo redirect proxy to a short-lived googleusercontent URL; next/image's optimizer can't be allowlisted for a URL that changes per request
+          <img
+            src={`/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=640`}
+            alt={place.name}
+            loading="lazy"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : (
+          <>
+            <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
+            <MapPin size={26} className="text-white/90" />
+          </>
+        )}
         <div className="absolute right-2 top-2">
           <Badge className="border-none bg-white/85 text-[10px] font-semibold text-slate-700 backdrop-blur">
-            {place.category}
+            {liveTypeLabel(place.category)}
           </Badge>
         </div>
-        <MapPin size={26} className="text-white/90" />
       </div>
       <div className="px-3 pb-3 pt-3">
         <p className="truncate text-sm font-bold text-slate-900">{place.name}</p>
@@ -1106,24 +1182,41 @@ function LivePlaceCard({ place, onAdd, onOpenDetail }: { place: Place; onAdd: ()
             <MapPin size={11} /> {place.address}
           </p>
         )}
-        <div className="mt-2 flex items-center justify-between">
+        <div className="mt-2 flex items-center justify-between gap-1">
           {place.rating != null ? (
-            <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-600">
-              <Star size={11} className="fill-amber-400 text-amber-400" />
+            <span className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-slate-600">
+              <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />
               {place.rating.toFixed(1)}
+              {place.reviewCount != null && (
+                <span className="truncate font-normal text-slate-400">· 리뷰 {fmt(place.reviewCount)}</span>
+              )}
             </span>
           ) : (
             <span className="text-[10.5px] font-medium text-slate-400">실제 지도 데이터</span>
           )}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onAdd();
-            }}
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-indigo-500 hover:text-white"
-          >
-            <Plus size={15} />
-          </button>
+          <span className="flex shrink-0 items-center gap-1">
+            {place.googleMapsUri && (
+              <a
+                href={place.googleMapsUri}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="flex h-7 items-center gap-1 rounded-full bg-slate-100 px-2 text-[10.5px] font-semibold text-slate-500 transition-colors hover:bg-emerald-500 hover:text-white"
+              >
+                <ExternalLink size={11} /> 메뉴·리뷰
+              </a>
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onAdd();
+              }}
+              aria-label={`${place.name} 일정에 추가`}
+              className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-indigo-500 hover:text-white"
+            >
+              <Plus size={15} />
+            </button>
+          </span>
         </div>
       </div>
     </div>

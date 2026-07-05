@@ -3,7 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
-import { X } from "lucide-react";
+import { ExternalLink, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGoogleMapsStatus } from "./MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
@@ -121,6 +121,17 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
           <p className="truncate text-[12px] text-slate-500">{place.address ?? place.category}</p>
         </div>
       </div>
+
+      {place.googleMapsUri && (
+        <a
+          href={place.googleMapsUri}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-[12px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
+        >
+          <ExternalLink size={12} /> 구글맵에서 메뉴·리뷰·사진 보기
+        </a>
+      )}
 
       <p className="mb-2 mt-5 text-[11px] font-medium uppercase tracking-wide text-slate-500">카테고리</p>
       <div className="flex flex-wrap gap-1.5">
