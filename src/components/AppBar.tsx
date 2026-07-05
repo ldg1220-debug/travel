@@ -15,8 +15,8 @@ import { formatDateLabel } from "@/lib/timeline";
 // itinerary/trip 기록, /scrapbook)과 관심 장소 보관함(찜해둔 개별 장소,
 // /saved-places) — 후자는 하단에 독립된 탭으로 별도 배치.
 const NAV_ITEMS = [
-  { href: "/discover", label: "탐색", icon: Search },
-  { href: "/course", label: "추천 코스 만들기", icon: Sparkles },
+  { href: "/discover", label: "여행 계획짜기", icon: Search },
+  { href: "/course", label: "코스 만들기", icon: Sparkles },
   { href: "/planner", label: "계획", icon: Calendar },
   { href: "/scrapbook", label: "다녀온 여행 보관함", icon: Book },
 ];
@@ -25,7 +25,7 @@ const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보
 const PAGE_TITLES: Record<string, string> = {
   "/": "홈",
   "/discover": "어디로 떠나시나요?",
-  "/course": "추천 코스 만들기",
+  "/course": "코스 만들기",
   "/scrapbook": "다녀온 여행 보관함",
   "/saved-places": "관심 장소 보관함",
 };

@@ -3,14 +3,15 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, MapPin, Star, Check, Plus, Sparkles, X } from "lucide-react";
+import { ChevronLeft, MapPin, Star, Check, Plus, Sparkles, X, CalendarDays, Compass } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MonthCalendar } from "@/components/MonthCalendar";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchLivePlaceSearch } from "@/lib/api";
 import { COURSE_SLOTS, regionsForScope, type CourseSlot } from "@/lib/courseRegions";
-import { todayISODate, pad2 } from "@/lib/timeline";
+import { todayISODate, pad2, formatDateLabel } from "@/lib/timeline";
 import type { DiscoverScope } from "@/lib/discoverData";
 import type { Place } from "@/lib/types";
 
@@ -22,15 +23,20 @@ export default function CourseBuilderPage() {
   const addItem = useItineraryStore((s) => s.addItem);
   const setCurrentCity = useItineraryStore((s) => s.setCurrentCity);
 
+  const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
+
   const [step, setStep] = useState<Step>("scope");
   const [scope, setScope] = useState<DiscoverScope>("domestic");
   const [region, setRegion] = useState<string | null>(null);
   const [city, setCity] = useState<string | null>(null);
-  // slot key -> chosen place
-  const [picks, setPicks] = useState<Record<string, Place>>({});
+  // slot key -> chosen places (multiple allowed per slot)
+  const [picks, setPicks] = useState<Record<string, Place[]>>({});
   const [activeSlot, setActiveSlot] = useState<string>(COURSE_SLOTS[0].key);
   const [detailPlace, setDetailPlace] = useState<Place | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // finish sheet: null = closed; otherwise the mode being configured.
+  const [finishOpen, setFinishOpen] = useState(false);
+  const [finishDate, setFinishDate] = useState(todayISODate());
 
   const regions = regionsForScope(scope);
   const regionGroup = regions.find((r) => r.label === region) ?? null;
@@ -47,24 +53,55 @@ export default function CourseBuilderPage() {
     setStep(toStep);
   };
 
-  const pickedCount = Object.keys(picks).length;
+  // Flattened picks in slot order (관광지 → 점심 → … ), preserving pick
+  // order within a slot — the assembled 동선.
+  const orderedPicks = useMemo(
+    () => COURSE_SLOTS.flatMap((s) => (picks[s.key] ?? []).map((place) => ({ slot: s, place }))),
+    [picks],
+  );
+  const pickedCount = orderedPicks.length;
 
-  const buildItinerary = () => {
-    const chosen = COURSE_SLOTS.map((s) => ({ slot: s, place: picks[s.key] })).filter((x): x is { slot: CourseSlot; place: Place } => Boolean(x.place));
-    if (chosen.length === 0) return;
-    const date = todayISODate();
-    addPlaces(chosen.map((c) => c.place));
-    chosen.forEach(({ slot, place }) => {
+  const togglePick = (slotKey: string, place: Place) => {
+    setPicks((prev) => {
+      const cur = prev[slotKey] ?? [];
+      const exists = cur.some((p) => p.id === place.id);
+      const next = exists ? cur.filter((p) => p.id !== place.id) : [...cur, place];
+      showToast(exists ? `${place.name} 코스에서 뺌` : `${place.name} 코스에 담음`);
+      return { ...prev, [slotKey]: next };
+    });
+  };
+
+  // "날짜 정하기" — schedule every pick on the chosen date. Times are
+  // spread evenly across the day so multi-pick courses don't collide
+  // (addItem replaces overlaps), preserving the slot order.
+  const buildWithDates = () => {
+    if (orderedPicks.length === 0) return;
+    addPlaces(orderedPicks.map((c) => c.place));
+    const n = orderedPicks.length;
+    const step = n <= 7 ? 2 : 1; // hours between stops
+    orderedPicks.forEach(({ place }, i) => {
+      const hour = Math.min(9 + i * step, 22);
       addItem({
         placeId: place.id,
         name: place.name,
-        date,
-        time: `${pad2(slot.hour)}:00`,
+        date: finishDate,
+        time: `${pad2(hour)}:00`,
         coordinates: { lat: place.lat, lng: place.lng },
       });
     });
     if (city) setCurrentCity(city);
+    setFinishOpen(false);
     router.push("/planner");
+  };
+
+  // "동선만 짜기" — no dates; just scrap every pick as a 관심 장소 so the
+  // user can arrange the route on the map without committing to times.
+  const buildRouteOnly = () => {
+    if (orderedPicks.length === 0) return;
+    orderedPicks.forEach(({ place }) => upsertSavedPlace(place));
+    if (city) setCurrentCity(city);
+    setFinishOpen(false);
+    router.push("/saved-places");
   };
 
   return (
@@ -83,13 +120,13 @@ export default function CourseBuilderPage() {
           )}
           <div>
             <h1 className="flex items-center gap-1.5 text-2xl font-bold tracking-tight">
-              <Sparkles size={22} className="text-indigo-500" /> 추천 코스 만들기
+              <Sparkles size={22} className="text-indigo-500" /> 코스 만들기
             </h1>
             <p className="mt-0.5 text-[13px] text-slate-500">
               {step === "scope" && "국내 여행부터 시작해볼까요?"}
               {step === "region" && `${scope === "domestic" ? "어느 지역" : "어느 나라"}으로 떠나시나요?`}
               {step === "city" && `${region} 안에서 도시를 골라주세요`}
-              {step === "build" && `${city} 코스를 카테고리별로 채워보세요`}
+              {step === "build" && `${city} 코스를 카테고리별로 채워보세요 (여러 곳 담기 가능)`}
             </p>
           </div>
         </div>
@@ -164,22 +201,26 @@ export default function CourseBuilderPage() {
         {/* ── STEP: build course ── */}
         {step === "build" && city && (
           <div>
-            {/* slot tabs with pick status */}
+            {/* slot tabs with pick count */}
             <div className="flex flex-wrap gap-2">
               {COURSE_SLOTS.map((s) => {
-                const picked = picks[s.key];
+                const count = (picks[s.key] ?? []).length;
                 const active = activeSlot === s.key;
                 return (
                   <button
                     key={s.key}
                     onClick={() => setActiveSlot(s.key)}
                     className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
-                      active ? "border-slate-900 bg-slate-900 text-white" : picked ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600"
+                      active ? "border-slate-900 bg-slate-900 text-white" : count > 0 ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600"
                     }`}
                   >
                     <span>{s.emoji}</span>
                     {s.label}
-                    {picked && <Check size={13} className={active ? "text-white" : "text-emerald-600"} />}
+                    {count > 0 && (
+                      <span className={`flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-white/25 text-white" : "bg-emerald-500 text-white"}`}>
+                        {count}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -189,40 +230,30 @@ export default function CourseBuilderPage() {
               scope={scope}
               city={city}
               slot={COURSE_SLOTS.find((s) => s.key === activeSlot)!}
-              picked={picks[activeSlot] ?? null}
-              onPick={(place) => {
-                setPicks((prev) => ({ ...prev, [activeSlot]: place }));
-                showToast(`${place.name} 코스에 담음`);
-                // auto-advance to the next unfilled slot
-                const idx = COURSE_SLOTS.findIndex((s) => s.key === activeSlot);
-                const nextUnfilled = COURSE_SLOTS.slice(idx + 1).find((s) => !picks[s.key]);
-                if (nextUnfilled) setActiveSlot(nextUnfilled.key);
-              }}
+              pickedIds={(picks[activeSlot] ?? []).map((p) => p.id)}
+              onToggle={(place) => togglePick(activeSlot, place)}
               onOpenDetail={setDetailPlace}
             />
 
-            {/* running course summary */}
+            {/* running course summary — the assembled 동선 in slot order */}
             {pickedCount > 0 && (
               <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <p className="mb-3 text-[13px] font-bold text-slate-700">내 코스 ({pickedCount})</p>
+                <p className="mb-3 text-[13px] font-bold text-slate-700">내 코스 ({pickedCount}곳)</p>
                 <div className="space-y-2">
-                  {COURSE_SLOTS.filter((s) => picks[s.key]).map((s) => {
-                    const p = picks[s.key];
-                    return (
-                      <div key={s.key} className="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2">
-                        <span className="text-[13px] tabular-nums text-slate-400">{pad2(s.hour)}:00</span>
-                        <span className="text-base">{s.emoji}</span>
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-800">{p.name}</span>
-                        <button
-                          onClick={() => setPicks((prev) => { const n = { ...prev }; delete n[s.key]; return n; })}
-                          aria-label={`${p.name} 코스에서 빼기`}
-                          className="flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
-                    );
-                  })}
+                  {orderedPicks.map(({ slot, place }) => (
+                    <div key={`${slot.key}-${place.id}`} className="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2">
+                      <span className="text-base">{slot.emoji}</span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-800">{place.name}</span>
+                      <span className="shrink-0 text-[11px] text-slate-400">{slot.label}</span>
+                      <button
+                        onClick={() => togglePick(slot.key, place)}
+                        aria-label={`${place.name} 코스에서 빼기`}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -235,9 +266,46 @@ export default function CourseBuilderPage() {
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-center gap-3">
             <span className="text-[13px] text-slate-500">{pickedCount}곳 선택됨</span>
-            <Button onClick={buildItinerary} className="ml-auto h-12 rounded-2xl bg-indigo-600 px-6 text-sm font-semibold hover:bg-indigo-700">
-              이 코스로 일정 만들기
+            <Button onClick={() => setFinishOpen(true)} className="ml-auto h-12 rounded-2xl bg-indigo-600 px-6 text-sm font-semibold hover:bg-indigo-700">
+              코스 완성하기
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* finish sheet — 날짜 정하기(일정) vs 동선만 짜기(관심 장소) */}
+      {finishOpen && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setFinishOpen(false)} />
+          <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-bold">코스를 어떻게 담을까요?</h3>
+              <button onClick={() => setFinishOpen(false)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="mb-4 rounded-2xl border border-slate-200 p-3">
+              <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-slate-700">
+                <CalendarDays size={15} className="text-indigo-500" /> 날짜 정해서 일정 만들기
+              </p>
+              <MonthCalendar selected={finishDate} onSelect={setFinishDate} accentColor="#4f46e5" />
+              <p className="mt-1 text-center text-[12px] text-slate-500">{formatDateLabel(finishDate)}에 {pickedCount}곳을 시간대별로 배치</p>
+              <Button onClick={buildWithDates} className="mt-3 h-11 w-full rounded-xl bg-indigo-600 text-sm font-semibold hover:bg-indigo-700">
+                이 날짜로 일정 만들기
+              </Button>
+            </div>
+
+            <button
+              onClick={buildRouteOnly}
+              className="flex w-full items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50"
+            >
+              <Compass size={18} className="shrink-0 text-emerald-500" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-semibold text-slate-800">날짜 없이 동선만 짜기</span>
+                <span className="block text-[11.5px] text-slate-500">관심 장소로 저장 — 지도에서 동선만 먼저 잡아보기</span>
+              </span>
+            </button>
           </div>
         </div>
       )}
@@ -267,15 +335,15 @@ function SlotResults({
   scope,
   city,
   slot,
-  picked,
-  onPick,
+  pickedIds,
+  onToggle,
   onOpenDetail,
 }: {
   scope: DiscoverScope;
   city: string;
   slot: CourseSlot;
-  picked: Place | null;
-  onPick: (place: Place) => void;
+  pickedIds: string[];
+  onToggle: (place: Place) => void;
   onOpenDetail: (place: Place) => void;
 }) {
   const query = useMemo(() => `${city} ${slot.keyword}`, [city, slot.keyword]);
@@ -300,7 +368,7 @@ function SlotResults({
   return (
     <div className="mt-5 grid grid-cols-2 gap-4 md:grid-cols-3">
       {results.map((place) => {
-        const isPicked = picked?.id === place.id;
+        const isPicked = pickedIds.includes(place.id);
         return (
           <div
             key={place.id}
@@ -328,12 +396,12 @@ function SlotResults({
                 </p>
               )}
               <button
-                onClick={() => onPick(place)}
+                onClick={() => onToggle(place)}
                 className={`mt-2 flex h-8 w-full items-center justify-center gap-1 rounded-lg text-[12px] font-semibold transition-colors ${
-                  isPicked ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-600 hover:bg-indigo-500 hover:text-white"
+                  isPicked ? "bg-emerald-500 text-white hover:bg-emerald-600" : "bg-slate-100 text-slate-600 hover:bg-indigo-500 hover:text-white"
                 }`}
               >
-                {isPicked ? <><Check size={13} /> 선택됨</> : <><Plus size={13} /> 코스에 담기</>}
+                {isPicked ? <><Check size={13} /> 담김 · 빼기</> : <><Plus size={13} /> 코스에 담기</>}
               </button>
             </div>
           </div>
