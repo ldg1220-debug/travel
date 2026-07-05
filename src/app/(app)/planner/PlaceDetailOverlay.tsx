@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
-import { ExternalLink, X } from "lucide-react";
+import { ExternalLink, Star, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGoogleMapsStatus } from "./MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { haversineDistanceMeters } from "@/lib/geo";
+import { fetchPlaceDetails, type PlaceDetails } from "@/lib/api";
 import { PlaceGlyph } from "./icons";
 import { Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
@@ -19,7 +20,19 @@ const PlaceMiniMap = dynamic(() => import("./PlaceMiniMap"), { ssr: false });
 const NEARBY_RADIUS_METERS = 5000;
 const MAX_NEARBY_PINS = 6;
 
-const CATEGORY_OPTIONS = ["Cafe", "Restaurant", "Attraction", "Lodging", "Museum", "Park"];
+const CATEGORY_OPTIONS: { value: string; label: string }[] = [
+  { value: "Cafe", label: "카페" },
+  { value: "Restaurant", label: "음식점" },
+  { value: "Attraction", label: "관광지" },
+  { value: "Lodging", label: "숙소" },
+  { value: "Museum", label: "박물관" },
+  { value: "Park", label: "공원" },
+];
+
+/** A live Google place (has a real place_id / maps link) — only these can fetch reviews+photos. Curated seed spots (ids like "d-f10") and Kakao numeric ids can't. */
+function isLiveGooglePlace(place: Place): boolean {
+  return Boolean(place.googleMapsUri) || /^[A-Za-z0-9_-]{20,}$/.test(place.placeId);
+}
 
 interface PlaceDetailOverlayProps {
   /** null = closed. Doubles as both "add new" (from search/trends) and "edit existing" (from the saved list) — upsertSavedPlace on the store handles both uniformly. */
@@ -117,6 +130,23 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
   const [category, setCategory] = useState(place.category);
   const [memo, setMemo] = useState(place.memo ?? "");
 
+  // Google reviews + photo gallery — the in-app menu-tab substitute. Only
+  // fetched for live Google places; null while loading or when unavailable.
+  const [details, setDetails] = useState<PlaceDetails | null>(null);
+  useEffect(() => {
+    if (!isLiveGooglePlace(place)) return;
+    let alive = true;
+    fetchPlaceDetails(place.placeId).then((d) => {
+      if (alive) setDetails(d);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [place]);
+
+  const gallery = details?.photoNames ?? (place.photoName ? [place.photoName] : []);
+  const reviews = details?.reviews ?? [];
+
   return (
     <div className="flex-1 overflow-y-auto px-5 pb-6 pt-4">
       <div className="flex items-center gap-3">
@@ -132,6 +162,39 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
         </div>
       </div>
 
+      {(place.rating != null || details?.openNow != null) && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+          {place.rating != null && (
+            <span className="flex items-center gap-1 font-semibold text-slate-700">
+              <Star size={12} className="fill-amber-400 text-amber-400" />
+              {place.rating.toFixed(1)}
+              {place.reviewCount != null && <span className="font-normal text-slate-400">· 리뷰 {place.reviewCount.toLocaleString()}</span>}
+            </span>
+          )}
+          {details?.openNow != null && (
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${details.openNow ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"}`}>
+              {details.openNow ? "영업 중" : "영업 종료"}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* 사진 갤러리 — 실제 업체·음식 사진 (구글 Places 사진 프록시) */}
+      {gallery.length > 1 && (
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {gallery.map((name) => (
+            // eslint-disable-next-line @next/next/no-img-element -- served via /api/places/photo redirect proxy
+            <img
+              key={name}
+              src={`/api/places/photo?name=${encodeURIComponent(name)}&w=400`}
+              alt={place.name}
+              loading="lazy"
+              className="h-24 w-32 shrink-0 rounded-xl object-cover"
+            />
+          ))}
+        </div>
+      )}
+
       {place.googleMapsUri && (
         <a
           href={place.googleMapsUri}
@@ -139,21 +202,43 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
           rel="noreferrer"
           className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-[12px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
         >
-          <ExternalLink size={12} /> 구글맵에서 메뉴·리뷰·사진 보기
+          <ExternalLink size={12} /> 구글맵에서 메뉴판·전체 리뷰 보기
         </a>
+      )}
+
+      {/* 리뷰 — 구글 리뷰 최대 5개 (앱 안에서 바로 확인) */}
+      {reviews.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">리뷰</p>
+          <div className="space-y-2.5">
+            {reviews.map((r, i) => (
+              <div key={i} className="rounded-xl bg-slate-50 px-3 py-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-semibold text-slate-700">{r.author}</span>
+                  <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                    {r.rating != null && <Star size={10} className="fill-amber-400 text-amber-400" />}
+                    {r.rating != null && r.rating}
+                    {r.when && <span className="text-slate-400">· {r.when}</span>}
+                  </span>
+                </div>
+                {r.text && <p className="mt-1 line-clamp-4 text-[12px] leading-relaxed text-slate-600">{r.text}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       <p className="mb-2 mt-5 text-[11px] font-medium uppercase tracking-wide text-slate-500">카테고리</p>
       <div className="flex flex-wrap gap-1.5">
         {CATEGORY_OPTIONS.map((c) => (
           <button
-            key={c}
-            onClick={() => setCategory(c)}
+            key={c.value}
+            onClick={() => setCategory(c.value)}
             className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors ${
-              category === c ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-600"
+              category === c.value ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-600"
             }`}
           >
-            {c}
+            {c.label}
           </button>
         ))}
       </div>

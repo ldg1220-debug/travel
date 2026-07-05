@@ -1422,3 +1422,44 @@ Verified in the browser (5/5): a persisted v2 payload (schedule + city)
 rehydrates on reload — the scheduled place shows on the timeline and the
 header restores its city; version stays 2; no "Fukuoka" leftover;
 tsc/eslint/build clean.
+
+### 결과 지도 상호작용 수정 + 앱 내 메뉴(리뷰·사진)
+
+**Results map fixes** (`LiveResultsMap.tsx`) — three reported bugs, all
+rooted in the map's InfoWindow and re-fit behavior:
+
+- *"팝업 닫으면 다른 지역으로 이동"* + *"플래그 클릭하면 이상한 지역으로
+  이동"*: the InfoWindow had no `disableAutoPan`, so opening one (on flag
+  click, or lingering after the detail popup) let Google auto-pan the
+  camera up-and-away to fit the window — reading as a jump to another
+  area. Both InfoWindows now set `disableAutoPan` + a `pixelOffset`, so
+  the only camera movement is the intentional pan-to-place on selection.
+- *Camera lurching on popup open/close*: the re-fit effect keyed on the
+  `places` array identity, which changed on every parent re-render. Now
+  it keys on a sorted **id signature**, so `fitBounds` runs only when the
+  actual result set changes (a new search) — never on sort, selection, or
+  opening/closing the detail popup.
+- *"위치에 마우스 갖다대면 정보가 안 뜸"*: added `onMouseEnter`/
+  `onMouseLeave` per flag → a lightweight, non-interactive hover preview
+  InfoWindow (name + ⭐rating) so you can tell which store a flag is
+  without clicking. Flag `onClick` now `stopPropagation()`s so it never
+  falls through to the map's clear-selection handler.
+
+**앱 안에서 메뉴 = 리뷰 + 사진** (option A, chosen over an iframe / staying
+on links): the Places API exposes **no menu-tab data at all**, but it does
+return up to 5 reviews and up to 10 photos. New `/api/places/details`
+route fetches those (server key only; photos rendered through the existing
+`/api/places/photo` proxy). `PlaceDetailForm` now, for live Google places
+(gated on `googleMapsUri` / a real place_id — curated seed + Kakao ids are
+skipped), shows: a horizontal **photo gallery** (실제 업체·음식 사진), an
+**영업 중/종료** badge, and up to 5 **구글 리뷰** inline — so "여기 뭐
+파는지·분위기 어떤지" is answerable without leaving the app. The 구글맵
+deep link stays as "구글맵에서 메뉴판·전체 리뷰 보기" for the actual menu
+board. Also localized the detail popup's category chips (Cafe/Restaurant/…
+→ 카페/음식점/관광지/숙소/박물관/공원).
+
+Verified (5/5): `/api/places/details` guards a bad id with 400 and a
+keyless call with 500 (no crash); the detail popup opens with Korean
+category chips and intact save/schedule actions; no page errors. The live
+map interaction + reviews/photos over real data are production-verifiable
+(no API key in this sandbox).

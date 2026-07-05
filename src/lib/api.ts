@@ -55,6 +55,26 @@ export async function fetchLivePlaceSearch(scope: DiscoverScope, query: string, 
   }
 }
 
+export interface PlaceDetails {
+  photoNames: string[];
+  reviews: { author: string; rating: number | null; text: string; when: string }[];
+  rating: number | null;
+  reviewCount: number | null;
+  openNow: boolean | null;
+}
+
+/** Google reviews + photo gallery for the detail popup — the in-app stand-in for the menu tab (Places API exposes no menu data). Returns null on any failure so the caller can just hide the section. */
+export async function fetchPlaceDetails(placeId: string): Promise<PlaceDetails | null> {
+  if (!placeId.trim()) return null;
+  try {
+    const res = await fetch(`/api/places/details?placeId=${encodeURIComponent(placeId)}`);
+    if (!res.ok) return null;
+    return (await res.json()) as PlaceDetails;
+  } catch {
+    return null;
+  }
+}
+
 export async function saveItinerary(
   region: Region,
   placesData: ItineraryItem[],
