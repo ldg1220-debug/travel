@@ -1463,3 +1463,37 @@ keyless call with 500 (no crash); the detail popup opens with Korean
 category chips and intact save/schedule actions; no page errors. The live
 map interaction + reviews/photos over real data are production-verifiable
 (no API key in this sandbox).
+
+### 추천 코스 마법사 (`/course`)
+
+A guided course builder so a trip can be roughed out in a few taps
+instead of searching each stop by hand: **국내/해외 → 시·도(국가) →
+도시 → 카테고리 슬롯별로 장소 하나씩 → 일정에 담기**.
+
+- `src/lib/courseRegions.ts`: curated picklists — 7 시·도 (서울/경기/강원/
+  충청/전라/경상/제주) with their major cities, 7 overseas countries, and
+  the 5 course slots (관광지 → 점심 맛집 → 카페 → 저녁 맛집 → 숙소, each
+  carrying its live-search category tag + a rough schedule hour). These
+  are just search seeds — every place shown comes from the live API, not
+  from this file.
+- `src/app/(app)/course/page.tsx`: a 4-step stepper (scope → region →
+  city → build). The build step shows the 5 slots as tabs; each pulls
+  live Places/Kakao results for `"{city} {keyword}"` (reusing
+  `fetchLivePlaceSearch`, with a 5-min `staleTime` so re-visiting a slot
+  doesn't re-bill the API), and tapping a card adds that one place to the
+  slot and auto-advances to the next empty slot. A running "내 코스"
+  summary shows the picked places by scheduled hour with remove buttons;
+  tapping a card body opens the full `PlaceDetailOverlay` (photos +
+  reviews). "이 코스로 일정 만들기" schedules every pick on today's date at
+  its slot hour (`addItem` × N) and routes to `/planner`.
+- Entry points: a new "추천 코스 만들기" quick-access card on the home
+  screen (now a 4-card grid) and a nav item in the Sheet menu; `/course`
+  added to `PAGE_TITLES`.
+
+Verified in the browser (9/9): the full scope→시도→도시→build flow
+navigates, the breadcrumb/back button work, the region and city
+picklists render (강원→강릉/속초/춘천, 제주, etc.), the build step shows
+the slot tabs, the keyless state shows a graceful "결과를 불러오지
+못했어요" notice instead of crashing, and the home card + nav entry
+appear. tsc/eslint/build clean. The live place lists per slot are
+production-verifiable (no API key in this sandbox).

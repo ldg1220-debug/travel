@@ -1,16 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { Search, Calendar, Book, ChevronRight, Flame, MapPin, TrendingUp } from "lucide-react";
+import { Search, Calendar, Book, ChevronRight, Flame, MapPin, TrendingUp, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const QUICK_ACCESS = [
   {
+    href: "/course",
+    title: "추천 코스 만들기",
+    description: "지역만 고르면 관광지·맛집·카페까지 한 번에",
+    icon: Sparkles,
+    gradient: "from-indigo-500 to-violet-500",
+  },
+  {
     href: "/discover",
     title: "여행 탐색하기",
-    description: "인기 스팟과 추천 코스를 둘러보세요",
+    description: "인기 스팟과 실시간 맛집을 검색해보세요",
     icon: Search,
-    gradient: "from-indigo-500 to-violet-500",
+    gradient: "from-sky-500 to-cyan-400",
   },
   {
     href: "/planner",
@@ -55,7 +62,7 @@ export default function HomePage() {
         </section>
 
         {/* ── QUICK ACCESS ── */}
-        <section className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <section className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {QUICK_ACCESS.map(({ href, title, description, icon: Icon, gradient }) => (
             <Link
               key={href}

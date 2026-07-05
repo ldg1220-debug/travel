@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Menu, Search, Calendar, Book, Heart, UserPlus } from "lucide-react";
+import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
 import { useItineraryStore } from "@/store/itineraryStore";
@@ -16,6 +16,7 @@ import { formatDateLabel } from "@/lib/timeline";
 // /saved-places) — 후자는 하단에 독립된 탭으로 별도 배치.
 const NAV_ITEMS = [
   { href: "/discover", label: "탐색", icon: Search },
+  { href: "/course", label: "추천 코스 만들기", icon: Sparkles },
   { href: "/planner", label: "계획", icon: Calendar },
   { href: "/scrapbook", label: "다녀온 여행 보관함", icon: Book },
 ];
@@ -24,6 +25,7 @@ const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보
 const PAGE_TITLES: Record<string, string> = {
   "/": "홈",
   "/discover": "어디로 떠나시나요?",
+  "/course": "추천 코스 만들기",
   "/scrapbook": "다녀온 여행 보관함",
   "/saved-places": "관심 장소 보관함",
 };
