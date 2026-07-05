@@ -16,11 +16,19 @@ export const dynamic = "force-dynamic";
  *    filter over the cached trend list when `KAKAO_REST_API_KEY` isn't
  *    configured, so search stays testable offline.
  */
-/** Friendly category filter -> Google Places `includedTypes`. "all"/unset means no filter. */
-const CATEGORY_TYPE_MAP: Record<string, string[]> = {
-  attraction: ["tourist_attraction", "park"],
-  lodging: ["lodging"],
-  restaurant: ["restaurant", "cafe"],
+/**
+ * Friendly category filter -> Google Places `includedType`. "all"/unset
+ * means no filter. NOTE: searchText takes `includedType` (SINGULAR, one
+ * type) — the plural `includedTypes` array only exists on searchNearby.
+ * Sending the plural form here made Google reject the whole request with
+ * a 400, silently collapsing every category-filtered search to the mock
+ * fallback (which is why the live section vanished the moment the 음식점
+ * chip auto-activated, while the same query without a category worked).
+ */
+const CATEGORY_TYPE_MAP: Record<string, string> = {
+  attraction: "tourist_attraction",
+  lodging: "lodging",
+  restaurant: "restaurant",
 };
 
 /** Same categories, as a Korean keyword to append to the query text itself (e.g. "오사카" -> "오사카 관광명소"). */
@@ -48,8 +56,8 @@ export async function GET(request: NextRequest) {
     console.error("[places/search] Google API Key is completely missing");
     return NextResponse.json({ error: "Google API Key is completely missing" }, { status: 500 });
   }
-  const includedTypes = CATEGORY_TYPE_MAP[category];
-  return NextResponse.json(await searchInternational(query, googleApiKey, includedTypes, category));
+  const includedType = CATEGORY_TYPE_MAP[category];
+  return NextResponse.json(await searchInternational(query, googleApiKey, includedType, category));
 }
 
 interface GooglePlaceResult {
@@ -64,34 +72,34 @@ interface GooglePlaceResult {
 async function searchInternational(
   query: string,
   apiKey: string,
-  includedTypes?: string[],
+  includedType?: string,
   category?: string,
 ): Promise<{ places: Place[]; source: PlaceSearchSource }> {
   // A category filter is applied two ways at once, from most to least
   // specific, each step only tried if the previous one comes back empty:
-  //  1. query text expanded with the category's Korean label + includedTypes
+  //  1. query text expanded with the category's Korean label + includedType
   //     (e.g. "오사카" -> "오사카 관광명소") — helps when the plain query is
   //     just a region/place name and Google's text-relevance ranking needs
   //     the hint to surface that category.
-  //  2. the original query text + includedTypes (no expansion).
-  //  3. the original query text with no filter at all — includedTypes is an
-  //     exact-match allowlist, so a specific/misclassified place can
-  //     legitimately return nothing even though it exists.
+  //  2. the original query text + includedType (no expansion).
+  //  3. the original query text with no filter at all — a specific/
+  //     misclassified place can legitimately return nothing under a type
+  //     filter even though it exists.
   const categoryLabel = category ? CATEGORY_LABEL_KO[category] : undefined;
   const expandedQuery = categoryLabel ? `${query} ${categoryLabel}` : null;
 
   if (expandedQuery) {
-    const expanded = await callGoogleSearchText(expandedQuery, apiKey, includedTypes);
+    const expanded = await callGoogleSearchText(expandedQuery, apiKey, includedType);
     if (expanded === null) return { places: filterByName(await getTrendingPlaces(), query), source: "mock" };
     if (expanded.length > 0) return { places: expanded, source: "google" };
     console.log("[places/search] 0 results for expanded query — retrying with plain query + category filter");
   }
 
-  const places = await callGoogleSearchText(query, apiKey, includedTypes);
+  const places = await callGoogleSearchText(query, apiKey, includedType);
   if (places === null) return { places: filterByName(await getTrendingPlaces(), query), source: "mock" };
 
-  if (places.length === 0 && includedTypes) {
-    console.log("[places/search] 0 results with includedTypes — retrying without category filter");
+  if (places.length === 0 && includedType) {
+    console.log("[places/search] 0 results with includedType — retrying without category filter");
     const unfiltered = await callGoogleSearchText(query, apiKey);
     if (unfiltered !== null) return { places: unfiltered, source: "google" };
   }
@@ -99,7 +107,7 @@ async function searchInternational(
 }
 
 /** Returns null on a non-ok response (caller decides the offline fallback), otherwise the mapped place list (possibly empty). */
-async function callGoogleSearchText(query: string, apiKey: string, includedTypes?: string[]): Promise<Place[] | null> {
+async function callGoogleSearchText(query: string, apiKey: string, includedType?: string): Promise<Place[] | null> {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     cache: "no-store",
@@ -120,10 +128,11 @@ async function callGoogleSearchText(query: string, apiKey: string, includedTypes
       // ("Gyukatsu Motomura Dotonbori Branch") even for a Korean query —
       // the whole app is Korean, so ask for Korean display names.
       languageCode: "ko",
-      ...(includedTypes ? { includedTypes } : {}),
+      // Singular on purpose — see CATEGORY_TYPE_MAP.
+      ...(includedType ? { includedType } : {}),
     }),
   });
-  console.log("[places/search] Google response status:", res.status, "includedTypes:", includedTypes ?? "none");
+  console.log("[places/search] Google response status:", res.status, "includedType:", includedType ?? "none");
   if (!res.ok) {
     console.error("[places/search] Google API error:", res.status, res.statusText, await res.text());
     return null;
