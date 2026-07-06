@@ -57,7 +57,7 @@ export default function HomePage() {
       <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
         {/* ── GREETING ── */}
         <section className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight">안녕하세요, Yuna님 👋</h1>
+          <h1 className="text-2xl font-bold tracking-tight">안녕하세요, Yejin님 👋</h1>
           <p className="mt-1 text-[13px] text-slate-500">오늘은 어디로 떠나볼까요?</p>
         </section>
 

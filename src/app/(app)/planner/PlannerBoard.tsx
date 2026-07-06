@@ -16,9 +16,9 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Clock, X, Wallet, Sparkles, Trash2, Footprints, TrainFront, MapPin, ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react";
+import { Clock, X, Wallet, Sparkles, Trash2, Footprints, TrainFront, MapPin, ChevronLeft, ChevronRight, Minus, Plus, Save } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { useItineraryStore } from "@/store/itineraryStore";
+import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
 import { Pin } from "./MapMarkers";
@@ -27,6 +27,7 @@ import { PlaceSearchPanel } from "./PlaceSearchPanel";
 import { TrendSheet } from "./TrendSheet";
 import { PlaceDetailOverlay } from "./PlaceDetailOverlay";
 import { ScheduleModal } from "@/components/ScheduleModal";
+import { SavePlanModal } from "@/components/SavePlanModal";
 import {
   pad2,
   formatTime,
@@ -112,6 +113,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const resizeItem = useItineraryStore((s) => s.resizeItem);
   const removeItem = useItineraryStore((s) => s.removeItem);
   const clearDate = useItineraryStore((s) => s.clearDate);
+  const clearAllItems = useItineraryStore((s) => s.clearAllItems);
+  const savedPlans = useItineraryStore((s) => s.savedPlans);
+  const savePlanAs = useItineraryStore((s) => s.savePlanAs);
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const optimizeRoute = useItineraryStore((s) => s.optimizeRoute);
   const region = useItineraryStore((s) => s.region);
@@ -142,6 +146,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // columns or grow wide enough to become unusable.
   const [visibleDays, setVisibleDays] = useState(VISIBLE_DAYS);
   const visibleDates = useMemo(() => dateWindow(activeDate, visibleDays), [activeDate, visibleDays]);
+
+  // 계획 저장 / 비우기 — the toolbar's quick actions for the whole working
+  // itinerary (as opposed to clearDate's single-day clear in the map area).
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   const scheduleByDate = useMemo(() => {
     const map: Record<string, ItineraryItem[]> = {};
@@ -708,6 +717,43 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
                 <div className="flex items-center gap-1.5">
                   <button
+                    onClick={() => setSaveModalOpen(true)}
+                    className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                  >
+                    <Save size={11} />
+                    계획 저장
+                  </button>
+                  {clearConfirmOpen ? (
+                    <div className="flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1">
+                      <span className="text-[11px] font-medium text-rose-600">전체 비울까요?</span>
+                      <button
+                        onClick={() => {
+                          clearAllItems();
+                          setClearConfirmOpen(false);
+                          showToast("일정을 비웠어요");
+                        }}
+                        className="text-[11px] font-bold text-rose-600"
+                      >
+                        확인
+                      </button>
+                      <button onClick={() => setClearConfirmOpen(false)} className="text-[11px] text-slate-400">
+                        취소
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setClearConfirmOpen(true)}
+                      disabled={items.length === 0}
+                      className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      <Trash2 size={11} />
+                      비우기
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
                     onClick={() => shiftWindow(-1)}
                     aria-label="이전 날짜"
                     className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
@@ -990,6 +1036,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           onSave={handleSaveDetailPlace}
           onSchedule={handleScheduleFromDetail}
         />
+
+        {saveModalOpen && (
+          <SavePlanModal
+            atCap={savedPlans.length >= MAX_SAVED_PLANS}
+            onClose={() => setSaveModalOpen(false)}
+            onSave={(name) => {
+              savePlanAs(name);
+              setSaveModalOpen(false);
+              showToast(`"${name}" 저장됨`);
+            }}
+          />
+        )}
       </div>
 
       <DragOverlay>

@@ -86,7 +86,7 @@ export default function ScrapbookPage() {
         <section className="mb-8">
           <div className="mb-3 flex items-baseline justify-between">
             <div>
-              <p className="text-[13px] font-medium text-slate-500">안녕하세요, Yuna 님 👋</p>
+              <p className="text-[13px] font-medium text-slate-500">안녕하세요, Yejin 님 👋</p>
               <h2 className="text-2xl font-bold tracking-tight">크리에이터 대시보드</h2>
             </div>
             <button className="flex items-center gap-0.5 text-[13px] font-semibold text-slate-400 transition-colors hover:text-slate-700">
