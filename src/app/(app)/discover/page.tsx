@@ -1299,7 +1299,10 @@ function LivePlaceCard({ place, onAdd, onOpenDetail }: { place: Place; onAdd: ()
         </div>
       </div>
       <div className="px-3 pb-3 pt-3">
-        <p className="truncate text-sm font-bold text-slate-900">{place.name}</p>
+        <p className="truncate text-sm font-bold text-slate-900">
+          {place.name}
+          {place.nativeName && <span className="ml-1 font-normal text-slate-400">({place.nativeName})</span>}
+        </p>
         {place.address && (
           <p className="mt-0.5 line-clamp-1 flex items-center gap-1 text-[11px] text-slate-500">
             <MapPin size={11} /> {place.address}

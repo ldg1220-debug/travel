@@ -16,6 +16,8 @@ export interface Place {
   /** Google Places `place_id`, used for map markers & detail lookups */
   placeId: string;
   name: string;
+  /** Native-language display name (e.g. "魚心") when it differs from the localized `name` — only set on live Google results, to disambiguate inconsistent ko transliterations. */
+  nativeName?: string;
   category: string;
   color: string;
   lat: number;
