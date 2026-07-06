@@ -662,6 +662,32 @@ export function matchesRegionPath(spot: DiscoverSpot, scope: DiscoverScope, path
 }
 
 /**
+ * Same drill-down filter as `matchesRegionPath`, but for a `DiscoverRoute`
+ * — routes only carry a single simplified `region` label (a 시도 name like
+ * "경주" for domestic, or a city name like "오사카" for overseas) rather
+ * than the "a · b" pair spots use, so it can't reuse that function as-is.
+ * For overseas, the route's city is resolved back up to its
+ * country/continent via `regionHierarchy` so a continent- or
+ * country-level selection still matches it.
+ */
+export function routeMatchesRegionPath(route: DiscoverRoute, scope: DiscoverScope, path: string[]): boolean {
+  if (path.length === 0) return true;
+  if (scope === "domestic") {
+    return path[0] === route.region;
+  }
+  for (const continentNode of regionHierarchy(scope)) {
+    for (const countryNode of continentNode.children) {
+      if (!countryNode.children.some((c) => c.label === route.region)) continue;
+      if (path[0] && continentNode.label !== path[0]) return false;
+      if (path[1] && countryNode.label !== path[1]) return false;
+      if (path[2] && route.region !== path[2]) return false;
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Splits a free-text query into lowercase tokens on whitespace. Used
  * instead of one contiguous-substring check so multi-word queries like
  * "경주 황남동" still match a region formatted as "경주 · 황남동" — the

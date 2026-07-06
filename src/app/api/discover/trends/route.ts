@@ -6,6 +6,7 @@ import {
   parseSearchQuery,
   regionHierarchy,
   routeMatches,
+  routeMatchesRegionPath,
   seasonNow,
   spotMatches,
   type CuisineTag,
@@ -132,6 +133,7 @@ export async function GET(request: NextRequest) {
   const season = seasonNow();
   let trending = bundle.trending;
   let favorites = bundle.favorites;
+  let routes = bundle.routes;
   let notice: "coming_soon" | null = null;
 
   if (category === "season") {
@@ -144,6 +146,7 @@ export async function GET(request: NextRequest) {
   } else if (category === "region" && path.length > 0) {
     trending = trending.filter((s) => matchesRegionPath(s, scope, path));
     favorites = favorites.filter((s) => matchesRegionPath(s, scope, path));
+    routes = bundle.routes.filter((r) => routeMatchesRegionPath(r, scope, path));
 
     if (trending.length === 0 && favorites.length === 0) {
       // A fully-drilled-down (leaf) selection with nothing in it reads as
@@ -161,13 +164,14 @@ export async function GET(request: NextRequest) {
       }
       trending = (fallbackMatches.length > 0 ? fallbackMatches : [...allSpots(scope)]).sort((a, b) => b.saves - a.saves).slice(0, FALLBACK_COUNT);
       favorites = [];
+      routes = fallbackPath.length > 0 ? bundle.routes.filter((r) => routeMatchesRegionPath(r, scope, fallbackPath)) : [];
     } else {
       trending = padTrending(trending, favorites, MIN_TRENDING_COUNT);
     }
   }
 
   return NextResponse.json({
-    bundle: { trending, favorites, routes: bundle.routes },
+    bundle: { trending, favorites, routes },
     regionTree,
     season,
     notice,
