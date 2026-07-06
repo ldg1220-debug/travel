@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { colorForId } from "@/lib/placeStyle";
 import type { Place } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -123,7 +124,7 @@ export async function GET(request: NextRequest) {
         placeId: best.id,
         name: best.displayName?.text ?? "이름 미확인",
         category: best.primaryType ?? slot.label,
-        color: "#6366f1",
+        color: colorForId(best.id),
         lat: best.location?.latitude ?? 0,
         lng: best.location?.longitude ?? 0,
         rating: best.rating,
@@ -153,7 +154,7 @@ export async function GET(request: NextRequest) {
       placeId: best.id,
       name: best.place_name,
       category: best.category_group_name?.split(" > ").pop() || slot.label,
-      color: "#6366f1",
+      color: colorForId(best.id),
       lat: Number(best.y),
       lng: Number(best.x),
       address: best.road_address_name || best.address_name,

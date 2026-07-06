@@ -10,7 +10,7 @@ import type { Place } from "./types";
  */
 export function placeFromGoogleDetails(googlePlace: google.maps.places.Place): Place {
   const category = googlePlace.types?.[0] ?? "place";
-  const { color, icon } = styleForCategory(titleCase(category));
+  const { color, icon } = styleForCategory(titleCase(category), googlePlace.id);
   const lat = googlePlace.location?.lat() ?? 0;
   const lng = googlePlace.location?.lng() ?? 0;
 

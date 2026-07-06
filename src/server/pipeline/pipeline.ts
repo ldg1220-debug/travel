@@ -43,7 +43,7 @@ export async function runTrendPipeline(): Promise<PipelineSummary> {
 }
 
 function toPlace(resolved: ResolvedPlace, post: RawSnsPost): Place {
-  const { color, icon } = styleForCategory(post.category);
+  const { color, icon } = styleForCategory(post.category, resolved.placeId);
   return {
     id: resolved.placeId,
     placeId: resolved.placeId,
