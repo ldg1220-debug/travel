@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Travel Scheduler",
-  description: "Plan your trip with a map + timeline itinerary builder.",
+  title: "Tradule 트레쥴",
+  description: "지도와 타임라인으로 여행 일정을 계획하세요.",
 };
 
 export const viewport = {
