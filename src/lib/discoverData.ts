@@ -290,7 +290,7 @@ const OVERSEAS: DiscoverBundle = {
     {
       id: "o-r2",
       title: "후쿠오카-유후인 핵심 동선",
-      subtitle: "텐진 도심부터 유후인 료칸까지",
+      subtitle: "텐진 도심 산책부터 유후인 킨린코까지",
       region: "후쿠오카",
       duration: "1박 2일 · 4곳",
       gradient: "from-violet-500 to-fuchsia-400",
@@ -298,10 +298,10 @@ const OVERSEAS: DiscoverBundle = {
       likes: 1930,
       views: 15600,
       stops: [
-        { time: "09:00", name: "Tenjin Airbnb (숙소)", lat: 33.5904, lng: 130.3986 },
-        { time: "11:00", name: "Clio Court (클리오 코트)", lat: 33.5895, lng: 130.4207 },
-        { time: "15:00", name: "Yufuin Floral Village", lat: 33.2668, lng: 131.3717 },
-        { time: "18:00", name: "Yufuin Ryokan", lat: 33.2646, lng: 131.3572 },
+        { time: "09:00", name: "텐진 지하상가", lat: 33.5904, lng: 130.3986 },
+        { time: "11:00", name: "오호리공원", lat: 33.5847, lng: 130.3782 },
+        { time: "15:00", name: "유후인 플로랄 빌리지", lat: 33.2668, lng: 131.3717 },
+        { time: "17:00", name: "킨린코 호수", lat: 33.2696, lng: 131.3745 },
       ],
     },
   ],
