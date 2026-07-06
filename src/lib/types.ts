@@ -49,6 +49,23 @@ export interface ItineraryItem {
 }
 
 /**
+ * A named snapshot of a whole working itinerary — lets a user keep several
+ * trip drafts side by side (e.g. "오사카안 A" vs "오사카안 B") and switch
+ * between them instead of only ever having one active plan. Capped at
+ * MAX_SAVED_PLANS in itineraryStore.
+ */
+export interface SavedPlan {
+  id: string;
+  name: string;
+  savedAt: number;
+  items: ItineraryItem[];
+  places: Place[];
+  activeDate: string;
+  currentCity: string;
+  region: Region;
+}
+
+/**
  * Canonical shape of an `itineraries` row (see prisma/schema.prisma's
  * `Itinerary` model / src/server/db/schema.sql). No current API route
  * returns every one of these fields at once — GET /api/itineraries and

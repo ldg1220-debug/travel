@@ -45,6 +45,7 @@ import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch } from "@/lib/api";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
 import { SEASON_LABEL } from "@/lib/discoverData";
+import { colorForId } from "@/lib/placeStyle";
 import { useRecentSearches } from "@/lib/useRecentSearches";
 import type {
   CuisineTag,
@@ -206,7 +207,7 @@ function spotToPlace(spot: DiscoverSpot): Place {
 function routeStopToPlace(routeId: string, stop: DiscoverRouteStop): Place {
   const slug = stop.name.replace(/[^a-zA-Z0-9가-힣]+/g, "-");
   const id = `${routeId}-${slug}`;
-  return { id, placeId: id, name: stop.name, category: "루트 경유지", color: "#818cf8", lat: stop.lat, lng: stop.lng, icon: "pin" };
+  return { id, placeId: id, name: stop.name, category: "루트 경유지", color: colorForId(id), lat: stop.lat, lng: stop.lng, icon: "pin" };
 }
 
 /** The drill-down options one level below wherever `path` currently points. */

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ItineraryItem, Place, Region } from "@/lib/types";
+import type { ItineraryItem, Place, Region, SavedPlan } from "@/lib/types";
 import {
   DAY_MINUTES,
   DEFAULT_DURATION_MINUTES,
@@ -25,6 +25,9 @@ const MOCK_PLACE_ID_PATTERN = /^(trend-|d-|o-)/;
 function stripMockPlaces(places: Place[]): Place[] {
   return places.filter((p) => !MOCK_PLACE_ID_PATTERN.test(p.id));
 }
+
+/** Cap on how many named plans a user can keep side by side — enough to compare a handful of trip drafts without the switcher list growing unbounded. */
+export const MAX_SAVED_PLANS = 10;
 
 interface ItineraryState {
   items: ItineraryItem[];
@@ -89,6 +92,20 @@ interface ItineraryState {
    * Returns false (no-op) if there's nothing meaningful to reorder.
    */
   optimizeRoute: (date: string) => boolean;
+
+  /**
+   * Named snapshots of the whole working itinerary — lets a user keep
+   * several trip drafts side by side and switch between them to compare,
+   * instead of only ever having one active plan. Capped at MAX_SAVED_PLANS.
+   */
+  savedPlans: SavedPlan[];
+  /** Which saved plan (if any) the current working state was last loaded from/saved as — purely informational (e.g. to highlight it in the switcher list). */
+  activePlanId: string | null;
+  /** Snapshots the current working itinerary as a new named plan. Returns false (no-op) once MAX_SAVED_PLANS is reached — the caller should ask the user to delete one first. */
+  savePlanAs: (name: string) => boolean;
+  /** Replaces the working itinerary with a saved plan's snapshot. */
+  loadPlan: (id: string) => void;
+  deletePlan: (id: string) => void;
 }
 
 export const useItineraryStore = create<ItineraryState>()(
@@ -100,6 +117,8 @@ export const useItineraryStore = create<ItineraryState>()(
       currentCity: "새 여행",
       places: [],
       savedPlaces: [],
+      savedPlans: [],
+      activePlanId: null,
       setCurrentCity: (city) => set({ currentCity: city }),
 
       setActiveDate: (date) => set({ activeDate: date }),
@@ -240,6 +259,42 @@ export const useItineraryStore = create<ItineraryState>()(
         });
         return true;
       },
+
+      savePlanAs: (name) => {
+        const state = get();
+        if (state.savedPlans.length >= MAX_SAVED_PLANS) return false;
+        const plan: SavedPlan = {
+          id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name,
+          savedAt: Date.now(),
+          items: state.items,
+          places: state.places,
+          activeDate: state.activeDate,
+          currentCity: state.currentCity,
+          region: state.region,
+        };
+        set({ savedPlans: [plan, ...state.savedPlans], activePlanId: plan.id });
+        return true;
+      },
+
+      loadPlan: (id) => {
+        const plan = get().savedPlans.find((p) => p.id === id);
+        if (!plan) return;
+        set({
+          items: plan.items,
+          places: plan.places,
+          activeDate: plan.activeDate,
+          currentCity: plan.currentCity,
+          region: plan.region,
+          activePlanId: plan.id,
+        });
+      },
+
+      deletePlan: (id) =>
+        set((state) => ({
+          savedPlans: state.savedPlans.filter((p) => p.id !== id),
+          activePlanId: state.activePlanId === id ? null : state.activePlanId,
+        })),
     }),
     {
       name: "travel-scheduler-saved-places",
@@ -257,7 +312,9 @@ export const useItineraryStore = create<ItineraryState>()(
       // their browser's localStorage — deleting the injection code only
       // stops *new* pollution, it can't retroactively clean what's already
       // persisted. migrate() below does that one-time cleanup.
-      version: 3,
+      //
+      // v4: add savedPlans/activePlanId (named multi-plan snapshots).
+      version: 4,
       partialize: (state) => ({
         items: state.items,
         places: state.places,
@@ -265,6 +322,8 @@ export const useItineraryStore = create<ItineraryState>()(
         activeDate: state.activeDate,
         currentCity: state.currentCity,
         region: state.region,
+        savedPlans: state.savedPlans,
+        activePlanId: state.activePlanId,
       }),
       // No explicit migrate needed for v1 -> v2: zustand shallow-merges the
       // persisted slice over the initial state, so v1's { savedPlaces }
@@ -279,6 +338,8 @@ export const useItineraryStore = create<ItineraryState>()(
           activeDate: state.activeDate ?? todayISODate(),
           currentCity: state.currentCity ?? "새 여행",
           region: state.region ?? ("international" as Region),
+          savedPlans: state.savedPlans ?? [],
+          activePlanId: state.activePlanId ?? null,
         };
         if (version < 3) {
           migrated.places = stripMockPlaces(migrated.places);

@@ -16,7 +16,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Clock, X, Wallet, Sparkles, Trash2, Footprints, TrainFront, MapPin, ChevronLeft, ChevronRight } from "lucide-react";
+import { Clock, X, Wallet, Sparkles, Trash2, Footprints, TrainFront, MapPin, ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
@@ -39,6 +39,8 @@ import {
   TIMELINE_HOURS,
   SLOT_HEIGHT,
   VISIBLE_DAYS,
+  MIN_VISIBLE_DAYS,
+  MAX_VISIBLE_DAYS,
   DAY_MINUTES,
   MIN_DURATION_MINUTES,
   RESIZE_STEP_MINUTES,
@@ -135,7 +137,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const [detailPlace, setDetailPlace] = useState<Place | null>(null);
 
   // ── multi-day (Notion-style) timeline window ──
-  const visibleDates = useMemo(() => dateWindow(activeDate, VISIBLE_DAYS), [activeDate]);
+  // Adjustable via the +/- control next to the date nav — clamped to
+  // [MIN_VISIBLE_DAYS, MAX_VISIBLE_DAYS] so the grid can't collapse to 0
+  // columns or grow wide enough to become unusable.
+  const [visibleDays, setVisibleDays] = useState(VISIBLE_DAYS);
+  const visibleDates = useMemo(() => dateWindow(activeDate, visibleDays), [activeDate, visibleDays]);
 
   const scheduleByDate = useMemo(() => {
     const map: Record<string, ItineraryItem[]> = {};
@@ -222,7 +228,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const missing = sharedData.placesData
       .filter((item) => !places.some((p) => p.id === item.placeId))
       .map((item) => {
-        const { color, icon } = styleForCategory("Place");
+        const { color, icon } = styleForCategory("Place", item.placeId);
         return {
           id: item.placeId,
           placeId: item.placeId,
@@ -384,11 +390,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
   const handleSaveClickedPlace = () => {
     if (!clickedPlace) return;
-    const { color, icon } = styleForCategory("Place");
     const idSuffix = `${clickedPlace.lat.toFixed(5)},${clickedPlace.lng.toFixed(5)}`;
+    const id = clickedPlaceIdRef.current ?? `map-click-${idSuffix}`;
+    const { color, icon } = styleForCategory("Place", id);
     const place: Place = {
-      id: clickedPlaceIdRef.current ?? `map-click-${idSuffix}`,
-      placeId: clickedPlaceIdRef.current ?? `map-click-${idSuffix}`,
+      id,
+      placeId: id,
       name: clickedPlace.name,
       category: "Place",
       color,
@@ -714,6 +721,27 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   >
                     <ChevronRight size={13} />
                   </button>
+                  <div className="ml-1 flex items-center gap-0.5 rounded-full border border-slate-200 px-0.5 py-0.5">
+                    <button
+                      onClick={() => setVisibleDays((d) => Math.max(MIN_VISIBLE_DAYS, d - 1))}
+                      disabled={visibleDays <= MIN_VISIBLE_DAYS}
+                      aria-label="보이는 일수 줄이기"
+                      className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      <Minus size={11} />
+                    </button>
+                    <span className="min-w-[32px] text-center text-[11px] font-semibold tabular-nums text-slate-600">
+                      {visibleDays}일
+                    </span>
+                    <button
+                      onClick={() => setVisibleDays((d) => Math.min(MAX_VISIBLE_DAYS, d + 1))}
+                      disabled={visibleDays >= MAX_VISIBLE_DAYS}
+                      aria-label="보이는 일수 늘리기"
+                      className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      <Plus size={11} />
+                    </button>
+                  </div>
                   <button
                     onClick={handleOptimizeRoute}
                     disabled={schedule.length < 3}

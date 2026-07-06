@@ -161,7 +161,7 @@ async function callGoogleSearchText(query: string, apiKey: string, includedType?
 
 function googlePlaceToPlace(p: GooglePlaceResult): Place {
   const category = p.primaryType ?? "Place";
-  const { color, icon } = styleForCategory(category);
+  const { color, icon } = styleForCategory(category, p.id);
   return {
     id: p.id,
     placeId: p.id,
@@ -213,7 +213,7 @@ async function searchDomestic(query: string): Promise<{ places: Place[]; source:
 
 function kakaoDocToPlace(d: KakaoLocalDocument): Place {
   const category = d.category_group_name?.split(" > ").pop() || "Place";
-  const { color, icon } = styleForCategory(category);
+  const { color, icon } = styleForCategory(category, d.id);
   return {
     id: d.id,
     placeId: d.id,

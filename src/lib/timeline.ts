@@ -2,8 +2,10 @@
 export const TIMELINE_HOURS = Array.from({ length: 24 }, (_, i) => i);
 export const SLOT_HEIGHT = 56;
 export const MINUTE_STEPS = [0, 15, 30, 45];
-/** Number of day columns shown at once in the multi-day timeline grid. */
+/** Default number of day columns shown at once in the multi-day timeline grid — adjustable via +/- within [MIN_VISIBLE_DAYS, MAX_VISIBLE_DAYS]. */
 export const VISIBLE_DAYS = 3;
+export const MIN_VISIBLE_DAYS = 1;
+export const MAX_VISIBLE_DAYS = 7;
 /** A newly-scheduled stop's default length before anyone drags its resize handle. */
 export const DEFAULT_DURATION_MINUTES = 60;
 /** Shortest a stop can be resized down to. */
