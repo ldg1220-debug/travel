@@ -540,6 +540,325 @@ OVERSEAS.favorites.push(
   { id: "o-us6", name: "클램차우더 소서딜리토", region: "미국 · 샌프란시스코", tag: "음식점", season: "winter", saves: 3100, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 37.8087, lng: -122.4098, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["클램차우더", "해산물"] },
 );
 
+// ── city-depth pass: every overseas country above had exactly ONE seeded
+// city, so drilling 지역별 into 베트남/태국/영국/… showed a single lonely
+// chip. This block adds 2-3 real cities per country (each with a small
+// 관광지/음식점/숙소 spread) so the country→도시 level actually branches.
+// Driven by a config array + pushGeneratedBatch rather than hand-typing
+// each spot, same approach as the 오사카/경주 volume pass above. ──
+interface CitySeed {
+  /** Unique-across-file id stem, e.g. "o-vn-dn" — batch suffixes (-attr/-food/-stay) keep every generated id distinct. */
+  idPrefix: string;
+  /** "국가 · 도시", matching the COUNTRY_CONTINENT keys so the region tree picks it up automatically. */
+  region: string;
+  lat: number;
+  lng: number;
+  attractions: string[];
+  foods: { name: string; cuisine: CuisineTag; subTags: string[] }[];
+  lodgings: string[];
+}
+
+const CITY_SEEDS: CitySeed[] = [
+  // ── 아시아 ──
+  {
+    idPrefix: "o-vn-dn", region: "베트남 · 다낭", lat: 16.0544, lng: 108.2022,
+    attractions: ["미케 비치", "바나힐 골든브릿지", "오행산 마블마운틴", "다낭 대성당", "손트라 반도 전망대"],
+    foods: [
+      { name: "반미프엉 다낭", cuisine: "양식/아시안", subTags: ["반미", "베트남샌드위치"] },
+      { name: "미꽝 1A", cuisine: "양식/아시안", subTags: ["미꽝", "쌀국수"] },
+      { name: "분짜까 109", cuisine: "양식/아시안", subTags: ["분짜", "쌀국수"] },
+      { name: "하이산 베맨 해산물", cuisine: "양식/아시안", subTags: ["해산물", "씨푸드"] },
+      { name: "콩카페 다낭", cuisine: "카페/디저트", subTags: ["코코넛커피", "카페"] },
+    ],
+    lodgings: ["다낭 미케비치 리조트", "프리미어 빌리지 다낭", "다낭 하이안 리버사이드 호텔"],
+  },
+  {
+    idPrefix: "o-vn-hcm", region: "베트남 · 호치민", lat: 10.7769, lng: 106.7009,
+    attractions: ["통일궁", "노트르담 대성당", "벤탄시장", "사이공 중앙우체국", "부이비엔 워킹스트리트"],
+    foods: [
+      { name: "포호아 파스퇴르", cuisine: "양식/아시안", subTags: ["쌀국수", "포"] },
+      { name: "냐항 응온", cuisine: "양식/아시안", subTags: ["베트남가정식", "로컬푸드"] },
+      { name: "반쎄오 46A", cuisine: "양식/아시안", subTags: ["반쎄오", "베트남부침개"] },
+      { name: "콩카페 호치민", cuisine: "카페/디저트", subTags: ["코코넛커피", "카페"] },
+      { name: "사이공 스트리트푸드", cuisine: "양식/아시안", subTags: ["길거리음식", "로컬푸드"] },
+    ],
+    lodgings: ["렉스 호텔 사이공", "호치민 리버티센트럴", "사이공 백패커스 호스텔"],
+  },
+  {
+    idPrefix: "o-th-cm", region: "태국 · 치앙마이", lat: 18.7883, lng: 98.9853,
+    attractions: ["도이수텝 사원", "님만해민 거리", "올드시티 성곽", "치앙마이 선데이마켓", "왓 체디루앙"],
+    foods: [
+      { name: "카오소이 매사이", cuisine: "양식/아시안", subTags: ["카오소이", "커리국수"] },
+      { name: "님만 카페거리", cuisine: "카페/디저트", subTags: ["카페", "디저트"] },
+      { name: "치앙마이 나이트바자 푸드코트", cuisine: "양식/아시안", subTags: ["야시장", "길거리음식"] },
+      { name: "반타이 타이쿠킹", cuisine: "양식/아시안", subTags: ["태국요리", "팟타이"] },
+      { name: "통 카페 치앙마이", cuisine: "카페/디저트", subTags: ["카페", "브런치"] },
+    ],
+    lodgings: ["치앙마이 님만 부티크", "올드시티 게스트하우스", "핑리버 리조트"],
+  },
+  {
+    idPrefix: "o-th-pk", region: "태국 · 푸켓", lat: 7.8804, lng: 98.3923,
+    attractions: ["파통 비치", "빅붓다 푸켓", "프롬텝 케이프", "푸켓 올드타운", "카타 비치"],
+    foods: [
+      { name: "라야 레스토랑", cuisine: "양식/아시안", subTags: ["태국요리", "커리"] },
+      { name: "푸켓 시푸드마켓", cuisine: "양식/아시안", subTags: ["해산물", "씨푸드"] },
+      { name: "카오만까이 코분", cuisine: "양식/아시안", subTags: ["카오만까이", "치킨라이스"] },
+      { name: "파통 나이트푸드", cuisine: "양식/아시안", subTags: ["야시장", "길거리음식"] },
+      { name: "반림파 타이", cuisine: "양식/아시안", subTags: ["태국요리", "로컬푸드"] },
+    ],
+    lodgings: ["파통비치 리조트", "푸켓 카타 호텔", "올드타운 부티크스테이"],
+  },
+  {
+    idPrefix: "o-tw-ks", region: "대만 · 가오슝", lat: 22.6273, lng: 120.3014,
+    attractions: ["롄츠탄 연지담", "보얼 예술특구", "시즈완 반달만", "포광산 불광사", "류허 야시장"],
+    foods: [
+      { name: "류허야시장 굴전", cuisine: "양식/아시안", subTags: ["굴전", "야시장"] },
+      { name: "가오슝 우육면 노포", cuisine: "양식/아시안", subTags: ["우육면", "소고기국수"] },
+      { name: "단수이 아게이", cuisine: "양식/아시안", subTags: ["아게이", "로컬푸드"] },
+      { name: "리우허 버블티", cuisine: "카페/디저트", subTags: ["버블티", "밀크티"] },
+      { name: "가오슝 딤섬관", cuisine: "양식/아시안", subTags: ["딤섬", "만두"] },
+    ],
+    lodgings: ["가오슝 85빌딩 호텔", "시즈완 게스트하우스", "롄츠탄 리조트"],
+  },
+  {
+    idPrefix: "o-tw-tc", region: "대만 · 타이중", lat: 24.1477, lng: 120.6736,
+    attractions: ["무지개마을", "가오메이 습지", "국립자연과학박물관", "이중제 야시장", "친미 마을"],
+    foods: [
+      { name: "이중제 닭날개밥", cuisine: "양식/아시안", subTags: ["닭날개밥", "로컬푸드"] },
+      { name: "타이중 태양병 본점", cuisine: "카페/디저트", subTags: ["태양병", "베이커리"] },
+      { name: "펑자야시장 스낵", cuisine: "양식/아시안", subTags: ["야시장", "길거리음식"] },
+      { name: "미야하라 아이스크림", cuisine: "카페/디저트", subTags: ["아이스크림", "디저트"] },
+      { name: "타이중 우육면", cuisine: "양식/아시안", subTags: ["우육면", "소고기국수"] },
+    ],
+    lodgings: ["타이중 펑자 호텔", "국립극장 부티크스테이", "가오메이 리조트"],
+  },
+  // ── 유럽 ──
+  {
+    idPrefix: "o-uk-ed", region: "영국 · 에든버러", lat: 55.9533, lng: -3.1883,
+    attractions: ["에든버러성", "로열마일", "아서스시트", "칼튼힐", "홀리루드 궁전"],
+    foods: [
+      { name: "에든버러 피시앤칩스", cuisine: "양식/아시안", subTags: ["피시앤칩스", "영국음식"] },
+      { name: "그라스마켓 펍", cuisine: "양식/아시안", subTags: ["펍", "영국음식"] },
+      { name: "로열마일 스코티시 다이닝", cuisine: "양식/아시안", subTags: ["스코틀랜드요리", "하기스"] },
+      { name: "스톡브릿지 브런치", cuisine: "카페/디저트", subTags: ["브런치", "카페"] },
+      { name: "에든버러 하기스 전문점", cuisine: "양식/아시안", subTags: ["하기스", "전통요리"] },
+    ],
+    lodgings: ["로열마일 부티크호텔", "에든버러 올드타운 인", "프린세스스트리트 호텔"],
+  },
+  {
+    idPrefix: "o-uk-mc", region: "영국 · 맨체스터", lat: 53.4808, lng: -2.2426,
+    attractions: ["올드트래포드 스타디움", "맨체스터 대성당", "노던쿼터", "과학산업박물관", "캐슬필드"],
+    foods: [
+      { name: "노던쿼터 브런치", cuisine: "카페/디저트", subTags: ["브런치", "카페"] },
+      { name: "커리마일 인도요리", cuisine: "양식/아시안", subTags: ["인도요리", "커리"] },
+      { name: "맨체스터 피시앤칩스", cuisine: "양식/아시안", subTags: ["피시앤칩스", "영국음식"] },
+      { name: "스피니필즈 스테이크하우스", cuisine: "양식/아시안", subTags: ["스테이크", "그릴"] },
+      { name: "차이나타운 딤섬", cuisine: "양식/아시안", subTags: ["딤섬", "중식"] },
+    ],
+    lodgings: ["맨체스터 시티센터 호텔", "노던쿼터 부티크", "스피니필즈 레지던스"],
+  },
+  {
+    idPrefix: "o-fr-ni", region: "프랑스 · 니스", lat: 43.7102, lng: 7.2620,
+    attractions: ["프롬나드 데 장글레", "니스 구시가지", "마세나 광장", "카스텔 언덕 전망대", "살레야 시장"],
+    foods: [
+      { name: "니스 살라드 니수아즈", cuisine: "양식/아시안", subTags: ["샐러드", "프랑스요리"] },
+      { name: "소카 전문점 셰테레사", cuisine: "양식/아시안", subTags: ["소카", "니스음식"] },
+      { name: "비외니스 트라토리아", cuisine: "양식/아시안", subTags: ["파스타", "지중해요리"] },
+      { name: "코트다쥐르 해산물", cuisine: "양식/아시안", subTags: ["해산물", "씨푸드"] },
+      { name: "니스 젤라또 페니키아", cuisine: "카페/디저트", subTags: ["젤라또", "디저트"] },
+    ],
+    lodgings: ["프롬나드 오션뷰 호텔", "니스 구시가지 게스트하우스", "마세나 부티크스테이"],
+  },
+  {
+    idPrefix: "o-fr-ly", region: "프랑스 · 리옹", lat: 45.7640, lng: 4.8357,
+    attractions: ["푸르비에르 대성당", "리옹 구시가지", "벨쿠르 광장", "뤼미에르 박물관", "테트도르 공원"],
+    foods: [
+      { name: "리옹 부숑 전통식당", cuisine: "양식/아시안", subTags: ["부숑", "프랑스요리"] },
+      { name: "레알 드 리옹 미식시장", cuisine: "양식/아시안", subTags: ["미식시장", "프랑스요리"] },
+      { name: "벨쿠르 비스트로", cuisine: "양식/아시안", subTags: ["비스트로", "프랑스요리"] },
+      { name: "리옹 프랄린 타르트", cuisine: "카페/디저트", subTags: ["타르트", "디저트"] },
+      { name: "손강변 카페", cuisine: "카페/디저트", subTags: ["카페", "브런치"] },
+    ],
+    lodgings: ["벨쿠르 그랜드호텔", "리옹 구시가지 인", "테트도르 레지던스"],
+  },
+  {
+    idPrefix: "o-it-ve", region: "이탈리아 · 베네치아", lat: 45.4408, lng: 12.3155,
+    attractions: ["산마르코 광장", "리알토 다리", "두칼레 궁전", "부라노섬", "곤돌라 선착장"],
+    foods: [
+      { name: "베네치아 치케티 바", cuisine: "양식/아시안", subTags: ["치케티", "타파스"] },
+      { name: "리알토 시푸드", cuisine: "양식/아시안", subTags: ["해산물", "씨푸드"] },
+      { name: "산마르코 젤라또", cuisine: "카페/디저트", subTags: ["젤라또", "디저트"] },
+      { name: "부라노 트라토리아", cuisine: "양식/아시안", subTags: ["파스타", "이탈리아요리"] },
+      { name: "베네치아 리조또 하우스", cuisine: "양식/아시안", subTags: ["리조또", "이탈리아요리"] },
+    ],
+    lodgings: ["산마르코 운하뷰 호텔", "리알토 부티크", "베네치아 팔라초 스테이"],
+  },
+  {
+    idPrefix: "o-it-fi", region: "이탈리아 · 피렌체", lat: 43.7696, lng: 11.2558,
+    attractions: ["두오모 대성당", "우피치 미술관", "폰테베키오", "미켈란젤로 광장", "피티 궁전"],
+    foods: [
+      { name: "피렌체 비스테카 스테이크", cuisine: "양식/아시안", subTags: ["비스테카", "스테이크"] },
+      { name: "중앙시장 람프레도토", cuisine: "양식/아시안", subTags: ["람프레도토", "로컬푸드"] },
+      { name: "피렌체 젤라또 비볼리", cuisine: "카페/디저트", subTags: ["젤라또", "디저트"] },
+      { name: "트라토리아 마리오", cuisine: "양식/아시안", subTags: ["파스타", "이탈리아요리"] },
+      { name: "오르트라르노 와인바", cuisine: "양식/아시안", subTags: ["와인바", "이탈리아요리"] },
+    ],
+    lodgings: ["두오모뷰 부티크호텔", "피렌체 중앙시장 인", "아르노강변 레지던스"],
+  },
+  {
+    idPrefix: "o-es-md", region: "스페인 · 마드리드", lat: 40.4168, lng: -3.7038,
+    attractions: ["프라도 미술관", "마요르 광장", "레티로 공원", "마드리드 왕궁", "그란비아"],
+    foods: [
+      { name: "마드리드 추로스 초콜라테리아", cuisine: "카페/디저트", subTags: ["추로스", "디저트"] },
+      { name: "산미겔 시장 타파스", cuisine: "양식/아시안", subTags: ["타파스", "시장음식"] },
+      { name: "소브리노 데 보틴", cuisine: "양식/아시안", subTags: ["코치니요", "스페인요리"] },
+      { name: "마드리드 하몽 바", cuisine: "양식/아시안", subTags: ["하몽", "타파스"] },
+      { name: "라티나 파에야", cuisine: "양식/아시안", subTags: ["파에야", "스페인요리"] },
+    ],
+    lodgings: ["그란비아 호텔", "마요르광장 부티크", "레티로 레지던스"],
+  },
+  {
+    idPrefix: "o-es-sv", region: "스페인 · 세비야", lat: 37.3891, lng: -5.9845,
+    attractions: ["세비야 대성당", "스페인 광장", "알카사르 궁전", "히랄다 탑", "트리아나 거리"],
+    foods: [
+      { name: "세비야 타파스 바", cuisine: "양식/아시안", subTags: ["타파스", "스페인요리"] },
+      { name: "트리아나 해산물", cuisine: "양식/아시안", subTags: ["해산물", "씨푸드"] },
+      { name: "세비야 플라멩코 디너", cuisine: "양식/아시안", subTags: ["플라멩코", "디너쇼"] },
+      { name: "산타크루즈 비스트로", cuisine: "양식/아시안", subTags: ["비스트로", "스페인요리"] },
+      { name: "세비야 살모레호", cuisine: "양식/아시안", subTags: ["살모레호", "스페인수프"] },
+    ],
+    lodgings: ["산타크루즈 부티크호텔", "세비야 대성당뷰 인", "트리아나 게스트하우스"],
+  },
+  // ── 미주 ──
+  {
+    idPrefix: "o-us-la", region: "미국 · 로스앤젤레스", lat: 34.0522, lng: -118.2437,
+    attractions: ["할리우드 사인", "산타모니카 피어", "그리피스 천문대", "게티 센터", "베니스 비치"],
+    foods: [
+      { name: "인앤아웃 버거", cuisine: "양식/아시안", subTags: ["버거", "패스트푸드"] },
+      { name: "그랜드센트럴 마켓", cuisine: "양식/아시안", subTags: ["푸드마켓", "다양한음식"] },
+      { name: "코리아타운 BBQ", cuisine: "한식", subTags: ["코리안BBQ", "고기구이"] },
+      { name: "산타모니카 시푸드", cuisine: "양식/아시안", subTags: ["해산물", "씨푸드"] },
+      { name: "LA 타코트럭", cuisine: "양식/아시안", subTags: ["타코", "멕시칸"] },
+    ],
+    lodgings: ["할리우드 부티크호텔", "산타모니카 오션뷰", "다운타운 LA 레지던스"],
+  },
+  {
+    idPrefix: "o-us-lv", region: "미국 · 라스베이거스", lat: 36.1699, lng: -115.1398,
+    attractions: ["벨라지오 분수", "라스베이거스 스트립", "프리몬트 스트리트", "하이롤러 대관람차", "레드록 캐년"],
+    foods: [
+      { name: "벨라지오 뷔페", cuisine: "양식/아시안", subTags: ["뷔페", "다양한음식"] },
+      { name: "고든램지 헬스키친", cuisine: "양식/아시안", subTags: ["파인다이닝", "스테이크"] },
+      { name: "라스베이거스 스테이크하우스", cuisine: "양식/아시안", subTags: ["스테이크", "그릴"] },
+      { name: "프리몬트 푸드코트", cuisine: "양식/아시안", subTags: ["푸드코트", "다양한음식"] },
+      { name: "스트립 브런치 카페", cuisine: "카페/디저트", subTags: ["브런치", "카페"] },
+    ],
+    lodgings: ["벨라지오 리조트", "라스베이거스 스트립호텔", "프리몬트 카지노호텔"],
+  },
+  {
+    idPrefix: "o-ca-to", region: "캐나다 · 토론토", lat: 43.6532, lng: -79.3832,
+    attractions: ["CN 타워", "토론토 아일랜드", "로열 온타리오 박물관", "켄싱턴 마켓", "디스틸러리 디스트릭트"],
+    foods: [
+      { name: "세인트로렌스 마켓", cuisine: "양식/아시안", subTags: ["푸드마켓", "로컬푸드"] },
+      { name: "토론토 랍스터 시푸드", cuisine: "양식/아시안", subTags: ["해산물", "씨푸드"] },
+      { name: "켄싱턴 타코", cuisine: "양식/아시안", subTags: ["타코", "멕시칸"] },
+      { name: "차이나타운 딤섬 토론토", cuisine: "양식/아시안", subTags: ["딤섬", "중식"] },
+      { name: "토론토 푸틴 하우스", cuisine: "양식/아시안", subTags: ["푸틴", "캐나다음식"] },
+    ],
+    lodgings: ["CN타워뷰 호텔", "켄싱턴 부티크", "토론토 하버프론트 레지던스"],
+  },
+  {
+    idPrefix: "o-ca-mo", region: "캐나다 · 몬트리올", lat: 45.5017, lng: -73.5673,
+    attractions: ["노트르담 대성당", "몽로얄 공원", "올드 몬트리올", "자크카르티에 광장", "몬트리올 구항구"],
+    foods: [
+      { name: "슈워츠 델리 스모크미트", cuisine: "양식/아시안", subTags: ["스모크미트", "델리"] },
+      { name: "몬트리올 베이글 세인트비아투스", cuisine: "카페/디저트", subTags: ["베이글", "베이커리"] },
+      { name: "올드몬트리올 비스트로", cuisine: "양식/아시안", subTags: ["비스트로", "프랑스요리"] },
+      { name: "라방스 푸틴", cuisine: "양식/아시안", subTags: ["푸틴", "캐나다음식"] },
+      { name: "장탈롱 시장", cuisine: "양식/아시안", subTags: ["푸드마켓", "로컬푸드"] },
+    ],
+    lodgings: ["올드몬트리올 부티크호텔", "몽로얄 게스트하우스", "구항구 레지던스"],
+  },
+];
+
+// A few AI 추천 동선 for major new cities — routes carry only a city-level
+// `region` (matched via routeMatchesRegionPath), so these surface whenever
+// 지역별 is drilled into 방콕/파리/로마/뉴욕/다낭.
+OVERSEAS.routes.push(
+  {
+    id: "o-r3", title: "방콕 하루 사원 & 야시장 코스", subtitle: "새벽사원부터 카오산로드 팟타이까지",
+    region: "방콕", duration: "당일치기 · 4곳", gradient: "from-orange-500 to-amber-400",
+    author: "방콕러버", likes: 2140, views: 18700,
+    stops: [
+      { time: "09:00", name: "왓 아룬 (새벽사원)", lat: 13.7437, lng: 100.4888 },
+      { time: "12:00", name: "왓 포 사원", lat: 13.7465, lng: 100.4927 },
+      { time: "15:00", name: "짜뚜짝 주말시장", lat: 13.7997, lng: 100.5502 },
+      { time: "19:00", name: "카오산로드 팟타이거리", lat: 13.7589, lng: 100.4977 },
+    ],
+  },
+  {
+    id: "o-r4", title: "파리 로맨틱 랜드마크 코스", subtitle: "에펠탑부터 몽마르뜨 야경까지",
+    region: "파리", duration: "당일치기 · 4곳", gradient: "from-sky-500 to-indigo-400",
+    author: "파리지앵", likes: 3620, views: 31200,
+    stops: [
+      { time: "10:00", name: "에펠탑", lat: 48.8584, lng: 2.2945 },
+      { time: "13:00", name: "루브르 박물관", lat: 48.8606, lng: 2.3376 },
+      { time: "16:00", name: "노트르담 대성당", lat: 48.8530, lng: 2.3499 },
+      { time: "19:00", name: "몽마르뜨 크레페거리", lat: 48.8867, lng: 2.3431 },
+    ],
+  },
+  {
+    id: "o-r5", title: "로마 역사 산책 코스", subtitle: "콜로세움부터 트레비 분수까지",
+    region: "로마", duration: "당일치기 · 4곳", gradient: "from-amber-500 to-orange-400",
+    author: "로마여행자", likes: 2980, views: 25400,
+    stops: [
+      { time: "09:30", name: "콜로세움", lat: 41.8902, lng: 12.4922 },
+      { time: "12:00", name: "포로 로마노", lat: 41.8925, lng: 12.4853 },
+      { time: "15:00", name: "트레비 분수", lat: 41.9009, lng: 12.4833 },
+      { time: "18:00", name: "트라스테베레 트라토리아", lat: 41.8896, lng: 12.4696 },
+    ],
+  },
+  {
+    id: "o-r6", title: "뉴욕 맨해튼 하이라이트", subtitle: "센트럴파크부터 타임스퀘어 야경까지",
+    region: "뉴욕", duration: "당일치기 · 4곳", gradient: "from-rose-500 to-red-400",
+    author: "뉴요커", likes: 4100, views: 38800,
+    stops: [
+      { time: "10:00", name: "센트럴파크", lat: 40.7829, lng: -73.9654 },
+      { time: "13:00", name: "브루클린 피자거리", lat: 40.7081, lng: -73.9571 },
+      { time: "16:00", name: "타임스퀘어", lat: 40.758, lng: -73.9855 },
+      { time: "19:00", name: "브루클린 브릿지 야경", lat: 40.7061, lng: -73.9969 },
+    ],
+  },
+  {
+    id: "o-r7", title: "다낭 자연 & 미케비치 코스", subtitle: "바나힐 골든브릿지부터 미케비치 선셋까지",
+    region: "다낭", duration: "당일치기 · 4곳", gradient: "from-emerald-500 to-teal-400",
+    author: "다낭홀릭", likes: 1870, views: 16300,
+    stops: [
+      { time: "09:00", name: "바나힐 골든브릿지", lat: 15.9955, lng: 107.9967 },
+      { time: "13:00", name: "오행산 마블마운틴", lat: 16.0035, lng: 108.2637 },
+      { time: "16:00", name: "다낭 대성당", lat: 16.0664, lng: 108.2233 },
+      { time: "18:00", name: "미케 비치", lat: 16.0544, lng: 108.2470 },
+    ],
+  },
+);
+
+for (const city of CITY_SEEDS) {
+  pushGeneratedBatch(OVERSEAS, `${city.idPrefix}-attr`, city.attractions, city.region, "관광지", "landmark", city.lat, city.lng, 3000, 2);
+  pushGeneratedBatch(
+    OVERSEAS,
+    `${city.idPrefix}-food`,
+    city.foods.map((f) => f.name),
+    city.region,
+    "음식점",
+    "utensils",
+    city.lat,
+    city.lng,
+    2600,
+    2,
+    city.foods.map((f) => ({ cuisine: f.cuisine, subTags: f.subTags })),
+  );
+  pushGeneratedBatch(OVERSEAS, `${city.idPrefix}-stay`, city.lodgings, city.region, "숙소", "hotel", city.lat, city.lng, 2000, 1);
+}
+
 export const DISCOVER_DATA: Record<DiscoverScope, DiscoverBundle> = {
   domestic: DOMESTIC,
   overseas: OVERSEAS,
