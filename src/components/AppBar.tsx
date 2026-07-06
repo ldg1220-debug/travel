@@ -101,8 +101,9 @@ export function AppBar() {
           <SheetContent side="left" className="w-72">
             <SheetHeader>
               <SheetTitle>
-                <Link href="/" onClick={() => setMenuOpen(false)} className="transition-colors hover:text-slate-600">
-                  Travel Scheduler
+                <Link href="/" onClick={() => setMenuOpen(false)} className="flex items-baseline gap-1.5 transition-colors hover:text-slate-600">
+                  Tradule
+                  <span className="text-[13px] font-medium text-slate-400">트레쥴</span>
                 </Link>
               </SheetTitle>
             </SheetHeader>
@@ -232,7 +233,7 @@ export function AppBar() {
               <span className="text-[15px] font-bold leading-tight text-slate-900">{currentCity}</span>
             </>
           ) : (
-            <span className="text-[15px] font-bold text-slate-900">{PAGE_TITLES[pathname ?? ""] ?? "여행 스케줄러"}</span>
+            <span className="text-[15px] font-bold text-slate-900">{PAGE_TITLES[pathname ?? ""] ?? "트레쥴"}</span>
           )}
         </div>
 
