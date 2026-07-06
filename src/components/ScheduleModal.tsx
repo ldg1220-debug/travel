@@ -7,7 +7,17 @@ import { PlaceGlyph } from "@/app/(app)/planner/icons";
 import { Input } from "@/components/ui/input";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import type { Place } from "@/lib/types";
-import { MINUTE_STEPS, TIMELINE_HOURS, DURATION_OPTIONS, DEFAULT_DURATION_MINUTES, formatDateLabelShort, pad2 } from "@/lib/timeline";
+import {
+  MINUTE_STEPS,
+  TIMELINE_HOURS,
+  DURATION_OPTIONS,
+  DEFAULT_DURATION_MINUTES,
+  MIN_DURATION_MINUTES,
+  DAY_MINUTES,
+  formatDateLabelShort,
+  formatTime,
+  pad2,
+} from "@/lib/timeline";
 
 interface ScheduleModalProps {
   place: Place;
@@ -60,6 +70,20 @@ export function ScheduleModal({
   const [minute, setMinute] = useState(initialMinute);
   const [budget, setBudget] = useState(initialBudget != null ? String(initialBudget) : "");
   const [duration, setDuration] = useState(initialDuration ?? DEFAULT_DURATION_MINUTES);
+  // Derived end time, clamped so a stay can't be typed/dragged past midnight
+  // (mirrors the same clamp itineraryStore.resizeItem applies on drag).
+  const startTotalMinutes = hour * 60 + minute;
+  const maxDuration = DAY_MINUTES - startTotalMinutes;
+  const clampedDuration = Math.min(duration, maxDuration);
+  const endTotalMinutes = startTotalMinutes + clampedDuration;
+  const endTime = formatTime(Math.floor(endTotalMinutes / 60), endTotalMinutes % 60);
+
+  const handleEndTimeChange = (value: string) => {
+    const [eh, em] = value.split(":").map(Number);
+    if (Number.isNaN(eh) || Number.isNaN(em)) return;
+    const nextDuration = eh * 60 + em - startTotalMinutes;
+    if (nextDuration >= MIN_DURATION_MINUTES) setDuration(Math.min(nextDuration, maxDuration));
+  };
   // Editing an existing stop already has a concrete time to show/change;
   // creating a new one reveals the time picker only once the user actually
   // taps a day on the calendar, so the flow reads as "pick a date → then a
@@ -179,14 +203,28 @@ export function ScheduleModal({
                             onClick={() => setDuration(d.minutes)}
                             className="rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition-colors"
                             style={{
-                              background: duration === d.minutes ? place.color : "white",
-                              color: duration === d.minutes ? "white" : "#0f172a",
-                              borderColor: duration === d.minutes ? place.color : "#e5e7eb",
+                              background: clampedDuration === d.minutes ? place.color : "white",
+                              color: clampedDuration === d.minutes ? "white" : "#0f172a",
+                              borderColor: clampedDuration === d.minutes ? place.color : "#e5e7eb",
                             }}
                           >
                             {d.label}
                           </button>
                         ))}
+                      </div>
+                      {/* Typeable alternative to the presets above — some stays
+                          don't land on a round duration, so the end time itself
+                          should be directly enterable, not just picked from a
+                          fixed list. */}
+                      <div className="mt-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                        <span className="text-xs font-medium text-slate-500">종료 시간</span>
+                        <input
+                          type="time"
+                          step={60 * 15}
+                          value={endTime}
+                          onChange={(e) => handleEndTimeChange(e.target.value)}
+                          className="ml-auto h-7 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold tabular-nums text-slate-900"
+                        />
                       </div>
                     </>
                   )}

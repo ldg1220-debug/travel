@@ -13,6 +13,19 @@ import {
 } from "@/lib/timeline";
 import { haversineDistanceMeters } from "@/lib/geo";
 
+/**
+ * Curated/mock place ids all use a fixed prefix (`trend-` from
+ * mockTrends.ts, `d-`/`o-` from discoverData.ts) that never collides with a
+ * real Google Places id (long `ChIJ...`-style strings) or a Kakao Local id
+ * (plain numeric string) — used by the v3 persist migration below to strip
+ * out mock "ghost pins" that leaked into `places` before TrendSheet's
+ * auto-inject was removed.
+ */
+const MOCK_PLACE_ID_PATTERN = /^(trend-|d-|o-)/;
+function stripMockPlaces(places: Place[]): Place[] {
+  return places.filter((p) => !MOCK_PLACE_ID_PATTERN.test(p.id));
+}
+
 interface ItineraryState {
   items: ItineraryItem[];
   activeDate: string;
@@ -236,7 +249,15 @@ export const useItineraryStore = create<ItineraryState>()(
       // building — the single most damaging bug for real use. Now the plan
       // survives a reload; a logged-in user's server save/share is layered
       // on top of this, not a substitute for it.
-      version: 2,
+      //
+      // v3: strip mock/curated-seed "ghost pins" that v2 durably saved.
+      // TrendSheet used to auto-dump its mock trend spots into `places` on
+      // every fetch; that auto-inject code was removed, but anyone who had
+      // already loaded the app under v2 still has those entries stuck in
+      // their browser's localStorage — deleting the injection code only
+      // stops *new* pollution, it can't retroactively clean what's already
+      // persisted. migrate() below does that one-time cleanup.
+      version: 3,
       partialize: (state) => ({
         items: state.items,
         places: state.places,
@@ -245,10 +266,26 @@ export const useItineraryStore = create<ItineraryState>()(
         currentCity: state.currentCity,
         region: state.region,
       }),
-      // No explicit migrate needed: zustand shallow-merges the persisted
-      // slice over the initial state, so v1's { savedPlaces } carries
-      // forward and every newly-persisted field falls back to its initial
-      // value. The version bump just invalidates any incompatible cache.
+      // No explicit migrate needed for v1 -> v2: zustand shallow-merges the
+      // persisted slice over the initial state, so v1's { savedPlaces }
+      // carries forward and every newly-persisted field falls back to its
+      // initial value.
+      migrate: (persisted, version) => {
+        const state = persisted as Partial<ItineraryState>;
+        const migrated = {
+          items: state.items ?? [],
+          places: state.places ?? [],
+          savedPlaces: state.savedPlaces ?? [],
+          activeDate: state.activeDate ?? todayISODate(),
+          currentCity: state.currentCity ?? "새 여행",
+          region: state.region ?? ("international" as Region),
+        };
+        if (version < 3) {
+          migrated.places = stripMockPlaces(migrated.places);
+          migrated.savedPlaces = stripMockPlaces(migrated.savedPlaces);
+        }
+        return migrated;
+      },
     },
   ),
 );
