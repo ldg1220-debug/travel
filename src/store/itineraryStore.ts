@@ -83,6 +83,8 @@ interface ItineraryState {
   resizeItem: (id: string, durationMinutes: number) => void;
   removeItem: (id: string) => void;
   clearDate: (date: string) => void;
+  /** Clears every scheduled stop across all dates — the toolbar's 비우기 action, for starting a fresh plan. Leaves `places`/`savedPlaces` untouched. */
+  clearAllItems: () => void;
   /** Bulk-replaces the whole itinerary — used to hydrate from a shared/collaborative session. */
   setItems: (items: ItineraryItem[]) => void;
   /**
@@ -217,6 +219,8 @@ export const useItineraryStore = create<ItineraryState>()(
       setItems: (items) => set({ items }),
 
       clearDate: (date) => set((state) => ({ items: state.items.filter((i) => i.date !== date) })),
+
+      clearAllItems: () => set({ items: [] }),
 
       optimizeRoute: (date) => {
         const state = get();

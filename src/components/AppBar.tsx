@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2 } from "lucide-react";
+import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
 import { SavePlanModal } from "@/components/SavePlanModal";
@@ -48,6 +48,7 @@ export function AppBar() {
   const [toast, setToast] = useState<string | null>(null);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [plansOpen, setPlansOpen] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeDate = useItineraryStore((s) => s.activeDate);
@@ -99,40 +100,57 @@ export function AppBar() {
           </SheetTrigger>
           <SheetContent side="left" className="w-72">
             <SheetHeader>
-              <SheetTitle>Travel Scheduler</SheetTitle>
+              <SheetTitle>
+                <Link href="/" onClick={() => setMenuOpen(false)} className="transition-colors hover:text-slate-600">
+                  Travel Scheduler
+                </Link>
+              </SheetTitle>
             </SheetHeader>
             <nav className="flex flex-col gap-1 px-2">
               {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
                 const active = pathname?.startsWith(href) ?? false;
+                const isPlan = href === "/planner";
                 return (
                   <div key={href}>
-                    <Link
-                      href={href}
-                      onClick={() => setMenuOpen(false)}
-                      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                        active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
-                      }`}
-                    >
-                      <Icon size={17} />
-                      {label}
-                    </Link>
-
-                    {/* 저장된 계획 — 계획 탭 바로 아래, 여러 트립 초안을 이름 붙여
-                        저장해두고 전환/비교할 수 있는 스위처. */}
-                    {href === "/planner" && (
-                      <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 pl-3">
+                    <div className="flex items-center gap-0.5">
+                      <Link
+                        href={href}
+                        onClick={() => setMenuOpen(false)}
+                        className={`flex flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                          active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        <Icon size={17} />
+                        {label}
+                      </Link>
+                      {/* 저장된 계획 서랍 토글 — 계획 탭 자체는 그대로 이동(navigate)하고,
+                          이 화살표만 목록을 펼치거나 접는다. */}
+                      {isPlan && (
                         <button
-                          onClick={() => {
-                            setSaveModalOpen(true);
-                            setMenuOpen(false);
-                          }}
-                          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                          onClick={() => setPlansOpen((v) => !v)}
+                          aria-label={plansOpen ? "저장된 계획 접기" : "저장된 계획 펼치기"}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
                         >
-                          <Plus size={13} />
-                          현재 계획 저장
+                          <ChevronDown size={15} className={`transition-transform ${plansOpen ? "" : "-rotate-90"}`} />
                         </button>
+                      )}
+                    </div>
+
+                    {/* 저장된 계획 — 여러 트립 초안을 이름 붙여 저장해두고 전환/비교할
+                        수 있는 스위처. 서랍처럼 화살표로 펼치고 접는다. */}
+                    {isPlan && plansOpen && (
+                      <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 pl-3">
                         {savedPlans.length === 0 ? (
-                          <p className="px-2 py-1 text-[11px] text-slate-400">저장된 계획이 없어요</p>
+                          <button
+                            onClick={() => {
+                              setSaveModalOpen(true);
+                              setMenuOpen(false);
+                            }}
+                            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                          >
+                            <Plus size={13} />
+                            계획 저장
+                          </button>
                         ) : (
                           savedPlans.map((plan) => (
                             <div key={plan.id} className="group flex items-center gap-1 rounded-lg px-1 py-0.5 hover:bg-slate-50">
