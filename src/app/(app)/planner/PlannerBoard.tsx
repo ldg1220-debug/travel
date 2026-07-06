@@ -265,7 +265,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const searchParams = useSearchParams();
   const openDetailId = searchParams.get("openDetail");
 
-  const registerAt = (place: Place, date: string, hour: number, minute = 0, budget?: number) => {
+  const registerAt = (place: Place, date: string, hour: number, minute = 0, budget?: number, durationMinutes?: number) => {
     addItem({
       placeId: place.id,
       name: place.name,
@@ -273,6 +273,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       time: formatTime(hour, minute),
       coordinates: { lat: place.lat, lng: place.lng },
       budget,
+      durationMinutes,
     });
   };
 
@@ -626,7 +627,6 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             onMove={onMove}
             onCancel={cancelPress}
             pressingId={pressingId}
-            onTrendsLoaded={addPlaces}
             nearAnchors={schedule.map((s) => s.coordinates)}
           />
 
@@ -911,6 +911,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             mode={scheduleTarget.mode}
             showBudget
             initialBudget={scheduleTarget.mode === "edit" ? scheduleTarget.item.budget : undefined}
+            showDuration
+            initialDuration={scheduleTarget.mode === "edit" ? scheduleTarget.item.durationMinutes : undefined}
             isHourTaken={(date, hour) => {
               if (scheduleTarget.mode === "edit" && scheduleTarget.item.date === date && hourFromTime(scheduleTarget.item.time) === hour) {
                 return false;
@@ -918,12 +920,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               return isHourTaken(date, hour);
             }}
             onClose={() => setScheduleTarget(null)}
-            onConfirm={(date, hour, minute, budget) => {
+            onConfirm={(date, hour, minute, budget, duration) => {
               if (scheduleTarget.mode === "create") {
                 addPlaces([scheduleTarget.place]);
-                registerAt(scheduleTarget.place, date, hour, minute, budget);
+                registerAt(scheduleTarget.place, date, hour, minute, budget, duration);
               } else {
                 moveItem(scheduleTarget.item.id, date, hour, minute, budget);
+                if (duration != null) resizeItem(scheduleTarget.item.id, duration);
               }
               showToast(`${scheduleTarget.place.name} · ${formatDateLabelShort(date)} ${pad2(hour)}:${pad2(minute)}`);
               setScheduleTarget(null);

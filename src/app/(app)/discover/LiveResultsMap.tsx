@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GoogleMap, InfoWindow, OverlayView } from "@react-google-maps/api";
 import { ExternalLink, Star } from "lucide-react";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
@@ -37,6 +37,13 @@ export default function LiveResultsMap({ places, selectedId, onSelect, onOpenDet
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   // What the map is currently framed to — re-fit only when this changes.
   const fittedSigRef = useRef<string>("");
+  const sig = idSignature(places);
+  // Memoized on the result set — a fresh center object each render (e.g.
+  // from a hover state change) made @react-google-maps/api re-apply
+  // `center` and snap the camera back while the user was panning. Keyed on
+  // the id signature so it only changes when the results actually do.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const initialCenter = useMemo(() => ({ lat: places[0]?.lat ?? 37.5665, lng: places[0]?.lng ?? 126.978 }), [sig]);
 
   const fitToPlaces = useCallback((map: google.maps.Map, list: Place[]) => {
     if (list.length === 0) return;
@@ -87,7 +94,11 @@ export default function LiveResultsMap({ places, selectedId, onSelect, onOpenDet
   return (
     <GoogleMap
       mapContainerStyle={{ width: "100%", height: "100%" }}
-      center={{ lat: places[0]?.lat ?? 37.5665, lng: places[0]?.lng ?? 126.978 }}
+      // Memoized on the result set — a NEW center object each render (e.g.
+      // from a hover state change) made @react-google-maps/api re-apply
+      // `center` and snap the camera back to the first result while the
+      // user was panning. Now it only changes when the results do.
+      center={initialCenter}
       zoom={13}
       onLoad={(map) => {
         mapRef.current = map;

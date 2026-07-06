@@ -41,9 +41,23 @@ const CATEGORY_LABEL_KO: Record<string, string> = {
 /** Whether a response actually came from the live Google Places / Kakao Local API, or fell back to cached/mock data — callers that only want to show genuinely-real results (e.g. /discover's live-search section) key off this instead of assuming "200 OK" means real data. */
 export type PlaceSearchSource = "google" | "kakao" | "mock";
 
+/**
+ * Proximity filler words ("우메다 근처 맛집" → "우메다 맛집"). Google/Kakao
+ * text search doesn't understand "near X" literally — leaving these in
+ * just poisons the relevance ranking (that's why "오사카 카이유칸 근처
+ * 관광지" returned almost nothing). The remaining terms still carry both
+ * the landmark and the intent, so text relevance surfaces nearby matches.
+ */
+const LOCALITY_FILLERS = ["근처", "인근", "주변", "가까운", "근방", "옆"];
+function stripLocalityFillers(q: string): string {
+  let out = q;
+  for (const f of LOCALITY_FILLERS) out = out.split(f).join(" ");
+  return out.replace(/\s+/g, " ").trim();
+}
+
 export async function GET(request: NextRequest) {
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
-  const query = (request.nextUrl.searchParams.get("q") ?? "").trim();
+  const query = stripLocalityFillers((request.nextUrl.searchParams.get("q") ?? "").trim());
   const category = request.nextUrl.searchParams.get("category") ?? "all";
   if (!query) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
 

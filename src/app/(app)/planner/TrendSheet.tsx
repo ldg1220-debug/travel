@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -38,7 +38,6 @@ interface TrendSheetProps {
   onMove: (e: React.PointerEvent) => void;
   onCancel: () => void;
   pressingId: string | null;
-  onTrendsLoaded: (places: Place[]) => void;
   /**
    * Coordinates of the day's already-scheduled stops — when present, trend
    * cards are sorted nearest-first (and annotated with distance) so that
@@ -58,7 +57,6 @@ export function TrendSheet({
   onMove,
   onCancel,
   pressingId,
-  onTrendsLoaded,
   nearAnchors,
 }: TrendSheetProps) {
   const currentCity = useItineraryStore((s) => s.currentCity);
@@ -67,11 +65,11 @@ export function TrendSheet({
     queryFn: fetchTrends,
   });
 
-  // Put every trend spot on the map as soon as it's fetched, same as the
-  // main app's bottom sheet does for its region's trend list.
-  useEffect(() => {
-    if (trends.length > 0) onTrendsLoaded(trends.map((t) => t.place));
-  }, [trends, onTrendsLoaded]);
+  // NOTE: trend spots are intentionally NOT auto-dumped onto the map
+  // anymore. They used to be (via onTrendsLoaded → addPlaces on fetch),
+  // which plastered the map with mock Fukuoka/Yufuin pins unrelated to the
+  // user's actual trip. A trend now only gets a map marker once the user
+  // actually schedules it (the schedule modal's confirm calls addPlaces).
 
   const hasAnchors = Boolean(nearAnchors && nearAnchors.length > 0);
 
