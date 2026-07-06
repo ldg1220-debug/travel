@@ -136,8 +136,8 @@ export default function CourseBuilderPage() {
   };
 
   return (
-    <div className="min-h-full bg-slate-50 font-sans text-slate-900">
-      <div className="mx-auto max-w-3xl px-4 pb-32 pt-8 sm:px-6">
+    <div className="flex min-h-full flex-col bg-slate-50 font-sans text-slate-900">
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pb-32 pt-8 sm:px-6">
         {/* header */}
         <div className="mb-6 flex items-center gap-3">
           {step !== "scope" && (
@@ -180,21 +180,23 @@ export default function CourseBuilderPage() {
 
         {/* ── STEP: scope ── */}
         {step === "scope" && (
-          <div className="grid grid-cols-2 gap-4">
-            {([
-              { key: "domestic" as const, label: "국내 여행", flag: "🇰🇷", desc: "카카오맵 기준 실제 장소" },
-              { key: "overseas" as const, label: "해외 여행", flag: "🌐", desc: "구글맵 기준 실제 장소·평점" },
-            ]).map((s) => (
-              <button
-                key={s.key}
-                onClick={() => { setScope(s.key); setStep("region"); }}
-                className="flex flex-col items-start gap-2 rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
-              >
-                <span className="text-4xl">{s.flag}</span>
-                <span className="text-lg font-bold">{s.label}</span>
-                <span className="text-[12px] text-slate-500">{s.desc}</span>
-              </button>
-            ))}
+          <div className="flex flex-1 items-center justify-center">
+            <div className="grid w-full grid-cols-2 gap-4">
+              {([
+                { key: "domestic" as const, label: "국내 여행", flag: "🇰🇷", desc: "카카오맵 기준 실제 장소" },
+                { key: "overseas" as const, label: "해외 여행", flag: "🌐", desc: "구글맵 기준 실제 장소·평점" },
+              ]).map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => { setScope(s.key); setStep("region"); }}
+                  className="flex flex-col items-start gap-2 rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                >
+                  <span className="text-4xl">{s.flag}</span>
+                  <span className="text-lg font-bold">{s.label}</span>
+                  <span className="text-[12px] text-slate-500">{s.desc}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

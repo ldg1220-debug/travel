@@ -67,18 +67,23 @@ export default function HomePage() {
             <Link
               key={href}
               href={href}
-              className="group flex flex-col rounded-3xl border border-slate-200/70 bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200"
+              className="group flex items-center gap-3 rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200 sm:flex-col sm:items-start sm:p-5"
             >
               <span
-                className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${gradient} text-white shadow-sm`}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${gradient} text-white shadow-sm sm:mb-4 sm:h-12 sm:w-12`}
               >
-                <Icon size={22} />
+                <Icon size={20} />
               </span>
-              <h2 className="text-base font-bold tracking-tight text-slate-900">{title}</h2>
-              <p className="mt-1 flex-1 text-[13px] text-slate-500">{description}</p>
-              <span className="mt-4 flex items-center gap-0.5 text-[13px] font-semibold text-indigo-600 transition-colors group-hover:text-indigo-700">
-                시작하기 <ChevronRight size={15} />
-              </span>
+              <div className="min-w-0 flex-1 sm:w-full sm:flex-none">
+                <h2 className="truncate text-[15px] font-bold tracking-tight text-slate-900 sm:text-base">{title}</h2>
+                <p className="mt-0.5 line-clamp-1 text-[12.5px] text-slate-500 sm:mt-1 sm:line-clamp-none sm:text-[13px]">
+                  {description}
+                </p>
+                <span className="mt-4 hidden items-center gap-0.5 text-[13px] font-semibold text-indigo-600 transition-colors group-hover:text-indigo-700 sm:flex">
+                  시작하기 <ChevronRight size={15} />
+                </span>
+              </div>
+              <ChevronRight size={16} className="shrink-0 text-slate-300 sm:hidden" />
             </Link>
           ))}
         </section>

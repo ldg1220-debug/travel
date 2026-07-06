@@ -398,8 +398,8 @@ export default function DiscoverPage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") runSearch();
               }}
-              placeholder="도시, 명소, 맛집을 검색해보세요 (예: 경주)"
-              className="h-14 rounded-2xl border-slate-200 bg-white pl-12 pr-24 text-base shadow-sm shadow-slate-200/60 transition-shadow focus-visible:ring-2 focus-visible:ring-indigo-400"
+              placeholder="어디로 떠나세요?"
+              className="h-14 rounded-2xl border-slate-200 bg-white pl-12 pr-20 text-base shadow-sm shadow-slate-200/60 transition-shadow focus-visible:ring-2 focus-visible:ring-indigo-400 sm:pr-24"
             />
             <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
               {isSearching && (
@@ -414,9 +414,11 @@ export default function DiscoverPage() {
               <Button
                 onClick={() => runSearch()}
                 disabled={!queryInput.trim()}
-                className="h-10 rounded-xl bg-indigo-600 px-4 text-[13px] font-semibold hover:bg-indigo-700"
+                aria-label="검색"
+                className="h-10 rounded-xl bg-indigo-600 px-3 text-[13px] font-semibold hover:bg-indigo-700 sm:px-4"
               >
-                검색
+                <Search size={15} className="sm:hidden" />
+                <span className="hidden sm:inline">검색</span>
               </Button>
             </div>
 
@@ -449,31 +451,24 @@ export default function DiscoverPage() {
             )}
           </div>
 
-          <div className="mt-4 flex justify-center">
-            <div className="relative inline-flex rounded-2xl bg-slate-100 p-1 shadow-inner">
-              {SCOPES.map((s) => {
-                const active = scope === s.key;
-                return (
-                  <button
-                    key={s.key}
-                    onClick={() => handleScopeChange(s.key)}
-                    className={`relative z-10 flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors sm:px-7 ${
-                      active ? "text-slate-900" : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    {active && (
-                      <motion.span
-                        layoutId="scopePill"
-                        className="absolute inset-0 -z-10 rounded-xl bg-white shadow-sm"
-                        transition={{ type: "spring", stiffness: 500, damping: 34 }}
-                      />
-                    )}
-                    <span className="text-base leading-none">{s.flag}</span>
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {SCOPES.map((s) => {
+              const active = scope === s.key;
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => handleScopeChange(s.key)}
+                  className={`flex h-14 items-center justify-center gap-2 rounded-2xl border text-[15px] font-semibold shadow-sm transition-colors ${
+                    active
+                      ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                      : "border-slate-200 bg-white text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <span className="text-lg leading-none">{s.flag}</span>
+                  {s.label}
+                </button>
+              );
+            })}
           </div>
 
           {!isSearching && !expandedSection && (
