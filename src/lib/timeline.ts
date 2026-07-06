@@ -10,6 +10,14 @@ export const DEFAULT_DURATION_MINUTES = 60;
 export const MIN_DURATION_MINUTES = 15;
 /** Resize-drag snapping granularity. */
 export const RESIZE_STEP_MINUTES = 15;
+/** Preset stay-durations offered in the schedule modal (minutes → Korean label). */
+export const DURATION_OPTIONS: { minutes: number; label: string }[] = [
+  { minutes: 30, label: "30분" },
+  { minutes: 60, label: "1시간" },
+  { minutes: 90, label: "1시간 30분" },
+  { minutes: 120, label: "2시간" },
+  { minutes: 180, label: "3시간" },
+];
 export const DAY_MINUTES = 24 * 60;
 
 export function pad2(n: number): string {

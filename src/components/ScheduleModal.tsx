@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { X, Clock, CalendarDays, Trash2, Wallet } from "lucide-react";
+import { X, Clock, CalendarDays, Trash2, Wallet, Hourglass } from "lucide-react";
 import { PlaceGlyph } from "@/app/(app)/planner/icons";
 import { Input } from "@/components/ui/input";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import type { Place } from "@/lib/types";
-import { MINUTE_STEPS, TIMELINE_HOURS, formatDateLabelShort, pad2 } from "@/lib/timeline";
+import { MINUTE_STEPS, TIMELINE_HOURS, DURATION_OPTIONS, DEFAULT_DURATION_MINUTES, formatDateLabelShort, pad2 } from "@/lib/timeline";
 
 interface ScheduleModalProps {
   place: Place;
@@ -20,8 +20,11 @@ interface ScheduleModalProps {
   /** Shows an optional estimated-budget input (Planner uses this; Discover doesn't need it). */
   showBudget?: boolean;
   initialBudget?: number;
+  /** Shows the 머무는 시간 (stay-duration) picker (Planner uses this; Discover's quick-add doesn't). */
+  showDuration?: boolean;
+  initialDuration?: number;
   onClose: () => void;
-  onConfirm: (date: string, hour: number, minute: number, budget?: number) => void;
+  onConfirm: (date: string, hour: number, minute: number, budget?: number, durationMinutes?: number) => void;
   onDelete?: () => void;
 }
 
@@ -42,6 +45,8 @@ export function ScheduleModal({
   mode = "create",
   showBudget = false,
   initialBudget,
+  showDuration = false,
+  initialDuration,
   onClose,
   onConfirm,
   onDelete,
@@ -54,6 +59,7 @@ export function ScheduleModal({
   });
   const [minute, setMinute] = useState(initialMinute);
   const [budget, setBudget] = useState(initialBudget != null ? String(initialBudget) : "");
+  const [duration, setDuration] = useState(initialDuration ?? DEFAULT_DURATION_MINUTES);
   // Editing an existing stop already has a concrete time to show/change;
   // creating a new one reveals the time picker only once the user actually
   // taps a day on the calendar, so the flow reads as "pick a date → then a
@@ -84,7 +90,7 @@ export function ScheduleModal({
           <button
             onClick={onClose}
             className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
-            aria-label="Close"
+            aria-label="닫기"
           >
             <X size={14} color="#64748b" />
           </button>
@@ -98,7 +104,7 @@ export function ScheduleModal({
             </span>
             <div className="min-w-0">
               <p className="truncate text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                {place.category || "Place"}
+                {place.category || "장소"}
               </p>
               <p className="truncate text-[17px] font-semibold leading-tight text-slate-900">{place.name}</p>
             </div>
@@ -106,7 +112,7 @@ export function ScheduleModal({
 
           <div className="mt-4 -mr-1 flex-1 overflow-y-auto pr-1">
             <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              <CalendarDays size={12} /> Pick a date
+              <CalendarDays size={12} /> 날짜 선택
             </p>
             <MonthCalendar selected={date} onSelect={handleSelectDate} accentColor={place.color} />
 
@@ -120,7 +126,7 @@ export function ScheduleModal({
                   transition={{ duration: 0.18 }}
                 >
                   <p className="mb-2 mt-4 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                    <Clock size={12} /> Pick a time
+                    <Clock size={12} /> 시간 선택
                   </p>
                   <div className="-mx-1 grid max-h-[168px] grid-cols-6 gap-1.5 overflow-y-auto px-1 pb-1">
                     {TIMELINE_HOURS.map((h) => {
@@ -161,10 +167,34 @@ export function ScheduleModal({
                     ))}
                   </div>
 
+                  {showDuration && (
+                    <>
+                      <p className="mb-2 mt-4 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                        <Hourglass size={12} /> 머무는 시간
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {DURATION_OPTIONS.map((d) => (
+                          <button
+                            key={d.minutes}
+                            onClick={() => setDuration(d.minutes)}
+                            className="rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition-colors"
+                            style={{
+                              background: duration === d.minutes ? place.color : "white",
+                              color: duration === d.minutes ? "white" : "#0f172a",
+                              borderColor: duration === d.minutes ? place.color : "#e5e7eb",
+                            }}
+                          >
+                            {d.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
                   {showBudget && (
                     <>
                       <label className="mb-2 mt-4 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                        <Wallet size={12} /> Estimated budget (¥)
+                        <Wallet size={12} /> 예상 예산 (¥)
                       </label>
                       <div className="relative">
                         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">
@@ -190,10 +220,11 @@ export function ScheduleModal({
 
           <div className="mt-4 shrink-0">
             <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-              <span className="text-xs text-slate-500">Scheduled at</span>
+              <span className="text-xs text-slate-500">일정</span>
               <span className="text-base font-semibold tabular-nums text-slate-900">
                 {formatDateLabelShort(date)}
                 {dateTouched ? ` · ${pad2(hour)}:${pad2(minute)}` : ""}
+                {dateTouched && showDuration ? ` · ${DURATION_OPTIONS.find((d) => d.minutes === duration)?.label ?? `${duration}분`}` : ""}
               </span>
             </div>
 
@@ -201,18 +232,18 @@ export function ScheduleModal({
               {mode === "edit" && onDelete && (
                 <button
                   onClick={onDelete}
-                  aria-label="Remove from itinerary"
+                  aria-label="일정에서 삭제"
                   className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 text-rose-500 transition-colors hover:bg-rose-100"
                 >
                   <Trash2 size={16} />
                 </button>
               )}
               <button
-                onClick={() => onConfirm(date, hour, minute, budget.trim() ? Number(budget) : undefined)}
+                onClick={() => onConfirm(date, hour, minute, budget.trim() ? Number(budget) : undefined, showDuration ? duration : undefined)}
                 className="h-12 flex-1 rounded-2xl text-sm font-semibold text-white transition-transform active:scale-[0.98]"
                 style={{ background: place.color }}
               >
-                {mode === "edit" ? "Update Schedule" : "Register Schedule"}
+                {mode === "edit" ? "일정 수정" : "일정에 추가"}
               </button>
             </div>
           </div>
