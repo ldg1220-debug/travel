@@ -15,9 +15,63 @@ import {
   MIN_DURATION_MINUTES,
   DAY_MINUTES,
   formatDateLabelShort,
-  formatTime,
   pad2,
 } from "@/lib/timeline";
+
+/** Compact "시작"/"종료" time box — two native <select>s with hand-authored
+ * 24-hour labels ("00".."23"), so the display never flips to a locale's
+ * AM/PM (unlike a native <input type="time">, which renders 12-hour in
+ * some browsers regardless of the 24h value it holds). */
+function TimeBox({
+  label,
+  hour,
+  minute,
+  onHourChange,
+  onMinuteChange,
+  disabledHour,
+  accentColor,
+}: {
+  label: string;
+  hour: number;
+  minute: number;
+  onHourChange: (h: number) => void;
+  onMinuteChange: (m: number) => void;
+  disabledHour?: (h: number) => boolean;
+  accentColor: string;
+}) {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+      <span className="shrink-0 text-[11px] font-medium text-slate-500">{label}</span>
+      <select
+        value={hour}
+        onChange={(e) => onHourChange(Number(e.target.value))}
+        className="min-w-0 flex-1 appearance-none rounded-lg border-0 bg-slate-50 py-1.5 text-center text-[13px] font-semibold tabular-nums text-slate-900 focus:outline-none focus:ring-2"
+        style={{ ["--tw-ring-color" as string]: `${accentColor}55` }}
+        aria-label={`${label} 시`}
+      >
+        {TIMELINE_HOURS.map((h) => (
+          <option key={h} value={h} disabled={disabledHour?.(h)}>
+            {pad2(h)}
+          </option>
+        ))}
+      </select>
+      <span className="shrink-0 text-slate-400">:</span>
+      <select
+        value={minute}
+        onChange={(e) => onMinuteChange(Number(e.target.value))}
+        className="min-w-0 flex-1 appearance-none rounded-lg border-0 bg-slate-50 py-1.5 text-center text-[13px] font-semibold tabular-nums text-slate-900 focus:outline-none focus:ring-2"
+        style={{ ["--tw-ring-color" as string]: `${accentColor}55` }}
+        aria-label={`${label} 분`}
+      >
+        {MINUTE_STEPS.map((m) => (
+          <option key={m} value={m}>
+            {pad2(m)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 interface ScheduleModalProps {
   place: Place;
@@ -76,12 +130,15 @@ export function ScheduleModal({
   const maxDuration = DAY_MINUTES - startTotalMinutes;
   const clampedDuration = Math.min(duration, maxDuration);
   const endTotalMinutes = startTotalMinutes + clampedDuration;
-  const endTime = formatTime(Math.floor(endTotalMinutes / 60), endTotalMinutes % 60);
+  const endHour = Math.floor(endTotalMinutes / 60) % 24;
+  const endMinute = endTotalMinutes % 60;
 
-  const handleEndTimeChange = (value: string) => {
-    const [eh, em] = value.split(":").map(Number);
-    if (Number.isNaN(eh) || Number.isNaN(em)) return;
-    const nextDuration = eh * 60 + em - startTotalMinutes;
+  const handleEndHourChange = (h: number) => {
+    const nextDuration = h * 60 + endMinute - startTotalMinutes;
+    if (nextDuration >= MIN_DURATION_MINUTES) setDuration(Math.min(nextDuration, maxDuration));
+  };
+  const handleEndMinuteChange = (m: number) => {
+    const nextDuration = endHour * 60 + m - startTotalMinutes;
     if (nextDuration >= MIN_DURATION_MINUTES) setDuration(Math.min(nextDuration, maxDuration));
   };
   // Editing an existing stop already has a concrete time to show/change;
@@ -150,45 +207,31 @@ export function ScheduleModal({
                   transition={{ duration: 0.18 }}
                 >
                   <p className="mb-2 mt-4 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                    <Clock size={12} /> 시간 선택
+                    <Clock size={12} /> {showDuration ? "시작 · 종료 시간" : "시간 선택"}
                   </p>
-                  <div className="-mx-1 grid max-h-[168px] grid-cols-6 gap-1.5 overflow-y-auto px-1 pb-1">
-                    {TIMELINE_HOURS.map((h) => {
-                      const taken = isHourTaken(date, h);
-                      const active = h === hour;
-                      return (
-                        <button
-                          key={h}
-                          disabled={taken}
-                          onClick={() => setHour(h)}
-                          className="h-10 rounded-xl text-[12.5px] font-semibold tabular-nums transition-all disabled:cursor-not-allowed"
-                          style={{
-                            background: active ? place.color : taken ? "#f1f5f9" : "white",
-                            color: active ? "white" : taken ? "#cbd5e1" : "#0f172a",
-                            border: active ? `1px solid ${place.color}` : "1px solid #e5e7eb",
-                          }}
-                        >
-                          {pad2(h)}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-3 flex gap-1 rounded-xl bg-slate-100 p-1">
-                    {MINUTE_STEPS.map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => setMinute(m)}
-                        className="flex-1 rounded-lg py-1.5 text-xs font-medium tabular-nums transition-all"
-                        style={{
-                          background: minute === m ? "white" : "transparent",
-                          color: minute === m ? "#0f172a" : "#64748b",
-                          boxShadow: minute === m ? "0 1px 3px rgba(15,23,42,0.08)" : "none",
-                        }}
-                      >
-                        :{pad2(m)}
-                      </button>
-                    ))}
+                  <div className="flex items-center gap-2">
+                    <TimeBox
+                      label="시작"
+                      hour={hour}
+                      minute={minute}
+                      onHourChange={setHour}
+                      onMinuteChange={setMinute}
+                      disabledHour={(h) => isHourTaken(date, h)}
+                      accentColor={place.color}
+                    />
+                    {showDuration && (
+                      <>
+                        <span className="shrink-0 text-slate-300">→</span>
+                        <TimeBox
+                          label="종료"
+                          hour={endHour}
+                          minute={endMinute}
+                          onHourChange={handleEndHourChange}
+                          onMinuteChange={handleEndMinuteChange}
+                          accentColor={place.color}
+                        />
+                      </>
+                    )}
                   </div>
 
                   {showDuration && (
@@ -211,20 +254,6 @@ export function ScheduleModal({
                             {d.label}
                           </button>
                         ))}
-                      </div>
-                      {/* Typeable alternative to the presets above — some stays
-                          don't land on a round duration, so the end time itself
-                          should be directly enterable, not just picked from a
-                          fixed list. */}
-                      <div className="mt-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                        <span className="text-xs font-medium text-slate-500">종료 시간</span>
-                        <input
-                          type="time"
-                          step={60 * 15}
-                          value={endTime}
-                          onChange={(e) => handleEndTimeChange(e.target.value)}
-                          className="ml-auto h-7 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold tabular-nums text-slate-900"
-                        />
                       </div>
                     </>
                   )}

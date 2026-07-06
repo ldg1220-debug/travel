@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Heart, MapPin, X } from "lucide-react";
+import { Heart, X } from "lucide-react";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { PlaceGlyph } from "@/app/(app)/planner/icons";
 
@@ -54,9 +54,6 @@ export default function SavedPlacesPage() {
                   <p className="truncate text-[14px] font-semibold text-slate-900">{place.name}</p>
                   <p className="truncate text-[12px] text-slate-500">{place.memo || place.address || place.category}</p>
                 </div>
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400">
-                  <MapPin size={14} />
-                </span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();

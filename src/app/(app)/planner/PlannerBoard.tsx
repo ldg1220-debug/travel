@@ -623,7 +623,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               </div>
               <button
                 onClick={() => clearDate(activeDate)}
-                aria-label="Clear today's schedule"
+                aria-label="오늘 일정 비우기"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700"
               >
                 <Trash2 size={15} />
@@ -701,21 +701,61 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
           {tab === "schedule" ? (
             <>
-              <div className="flex items-center justify-between px-5 pb-2 pt-3">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900">
-                    <Clock size={12} color="white" />
-                  </span>
-                  <span className="text-[13px] font-semibold text-slate-900">일정</span>
-                  {totalBudget > 0 && (
-                    <Badge className="gap-1 rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 hover:bg-emerald-50">
-                      <Wallet size={11} />
-                      ¥{totalBudget.toLocaleString()}
-                    </Badge>
-                  )}
+              <div className="px-5 pb-2 pt-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900">
+                      <Clock size={12} color="white" />
+                    </span>
+                    <span className="text-[13px] font-semibold text-slate-900">일정</span>
+                    {totalBudget > 0 && (
+                      <Badge className="gap-1 rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 hover:bg-emerald-50">
+                        <Wallet size={11} />
+                        ¥{totalBudget.toLocaleString()}
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => shiftWindow(-1)}
+                      aria-label="이전 날짜"
+                      className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+                    >
+                      <ChevronLeft size={13} />
+                    </button>
+                    <button
+                      onClick={() => shiftWindow(1)}
+                      aria-label="다음 날짜"
+                      className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+                    >
+                      <ChevronRight size={13} />
+                    </button>
+                    <div className="ml-1 flex items-center gap-0.5 rounded-full border border-slate-200 px-0.5 py-0.5">
+                      <button
+                        onClick={() => setVisibleDays((d) => Math.max(MIN_VISIBLE_DAYS, d - 1))}
+                        disabled={visibleDays <= MIN_VISIBLE_DAYS}
+                        aria-label="보이는 일수 줄이기"
+                        className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <Minus size={11} />
+                      </button>
+                      <span className="min-w-[32px] text-center text-[11px] font-semibold tabular-nums text-slate-600">
+                        {visibleDays}일
+                      </span>
+                      <button
+                        onClick={() => setVisibleDays((d) => Math.min(MAX_VISIBLE_DAYS, d + 1))}
+                        disabled={visibleDays >= MAX_VISIBLE_DAYS}
+                        aria-label="보이는 일수 늘리기"
+                        className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <Plus size={11} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="mt-2 flex items-center gap-1.5">
                   <button
                     onClick={() => setSaveModalOpen(true)}
                     className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
@@ -750,48 +790,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       비우기
                     </button>
                   )}
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => shiftWindow(-1)}
-                    aria-label="이전 날짜"
-                    className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
-                  >
-                    <ChevronLeft size={13} />
-                  </button>
-                  <button
-                    onClick={() => shiftWindow(1)}
-                    aria-label="다음 날짜"
-                    className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
-                  >
-                    <ChevronRight size={13} />
-                  </button>
-                  <div className="ml-1 flex items-center gap-0.5 rounded-full border border-slate-200 px-0.5 py-0.5">
-                    <button
-                      onClick={() => setVisibleDays((d) => Math.max(MIN_VISIBLE_DAYS, d - 1))}
-                      disabled={visibleDays <= MIN_VISIBLE_DAYS}
-                      aria-label="보이는 일수 줄이기"
-                      className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      <Minus size={11} />
-                    </button>
-                    <span className="min-w-[32px] text-center text-[11px] font-semibold tabular-nums text-slate-600">
-                      {visibleDays}일
-                    </span>
-                    <button
-                      onClick={() => setVisibleDays((d) => Math.min(MAX_VISIBLE_DAYS, d + 1))}
-                      disabled={visibleDays >= MAX_VISIBLE_DAYS}
-                      aria-label="보이는 일수 늘리기"
-                      className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      <Plus size={11} />
-                    </button>
-                  </div>
                   <button
                     onClick={handleOptimizeRoute}
                     disabled={schedule.length < 3}
-                    className="group relative ml-1 inline-flex items-center gap-1.5 rounded-full p-[1.5px] text-[11px] font-semibold shadow-sm transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
+                    className="group relative ml-auto inline-flex items-center gap-1.5 rounded-full p-[1.5px] text-[11px] font-semibold shadow-sm transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:pointer-events-none"
                     style={{ background: "linear-gradient(120deg,#FF6B6B,#F5A524,#4A90E2)" }}
                   >
                     <span className="flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-slate-800 transition-colors group-hover:bg-transparent group-hover:text-white">
@@ -1151,6 +1153,12 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
 
   const effectiveDuration = liveDuration ?? item.durationMinutes;
   const height = (Math.max(MIN_DURATION_MINUTES, effectiveDuration) / 60) * SLOT_HEIGHT;
+  // Narrow day columns (3+ day view on a phone) leave so little width that
+  // icon + name + badge + delete crammed into one row truncates the name to
+  // a single character. 30 minutes is tall enough for two lines, so give the
+  // name its own full-width row and push icon/time/badge/delete to a second,
+  // denser row underneath instead.
+  const stacked = effectiveDuration >= 30;
 
   return (
     <motion.div
@@ -1170,35 +1178,67 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
       className="pointer-events-auto relative flex cursor-pointer items-center overflow-hidden rounded-lg"
     >
       <span className="self-stretch" style={{ width: 4, background: display.color }} />
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5">
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md" style={{ background: display.color }}>
-          <PlaceGlyph icon={display.icon} size={10} color="white" />
-        </span>
-        <div className="min-w-0 flex-1">
+      {stacked ? (
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-1.5 py-1">
           <p className="truncate text-[11px] font-semibold leading-tight text-slate-900">{display.name}</p>
-          <p className="truncate text-[9.5px] tabular-nums leading-tight text-slate-500">
-            {item.time} · {effectiveDuration}분
-          </p>
+          <div className="flex min-w-0 items-center gap-1">
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-md" style={{ background: display.color }}>
+              <PlaceGlyph icon={display.icon} size={9} color="white" />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[9px] tabular-nums leading-tight text-slate-500">
+              {item.time} · {effectiveDuration}분
+            </span>
+            {order != null && (
+              <span
+                className="shrink-0 rounded-full px-1.5 text-[9px] font-semibold leading-4 text-white"
+                style={{ background: display.color }}
+              >
+                #{order}
+              </span>
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove(item.id);
+              }}
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-white/70"
+              aria-label="삭제"
+            >
+              <X size={9} color="#94a3b8" />
+            </button>
+          </div>
         </div>
-        {order != null && (
-          <span
-            className="shrink-0 rounded-full px-1.5 text-[9px] font-semibold leading-4 text-white"
-            style={{ background: display.color }}
-          >
-            #{order}
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md" style={{ background: display.color }}>
+            <PlaceGlyph icon={display.icon} size={10} color="white" />
           </span>
-        )}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove(item.id);
-          }}
-          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-white/70"
-          aria-label="삭제"
-        >
-          <X size={9} color="#94a3b8" />
-        </button>
-      </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[11px] font-semibold leading-tight text-slate-900">{display.name}</p>
+            <p className="truncate text-[9.5px] tabular-nums leading-tight text-slate-500">
+              {item.time} · {effectiveDuration}분
+            </p>
+          </div>
+          {order != null && (
+            <span
+              className="shrink-0 rounded-full px-1.5 text-[9px] font-semibold leading-4 text-white"
+              style={{ background: display.color }}
+            >
+              #{order}
+            </span>
+          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(item.id);
+            }}
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full hover:bg-white/70"
+            aria-label="삭제"
+          >
+            <X size={9} color="#94a3b8" />
+          </button>
+        </div>
+      )}
 
       {/* bottom-edge resize handle — drag to change this stop's length in 15-minute steps */}
       <div
