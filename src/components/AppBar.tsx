@@ -3,8 +3,8 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown } from "lucide-react";
+import { useSession, signOut } from "next-auth/react";
+import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown, LogIn, LogOut } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
 import { SavePlanModal } from "@/components/SavePlanModal";
@@ -45,6 +45,7 @@ export function AppBar() {
   const { data: session } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loginReason, setLoginReason] = useState<string | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -74,6 +75,7 @@ export function AppBar() {
   const handleInvite = async () => {
     if (!session?.user) {
       setLoginReason("일정을 공유하려면 로그인해주세요.");
+      setLoginOpen(true);
       return;
     }
     try {
@@ -220,6 +222,41 @@ export function AppBar() {
                 {SAVED_PLACES_NAV_ITEM.label}
               </Link>
             </div>
+
+            {/* 계정 — 로그아웃 상태면 로그인/회원가입 진입, 로그인 상태면
+                프로필 + 로그아웃. mt-auto 로 서랍 맨 아래에 고정. */}
+            <div className="mt-auto border-t border-slate-100 px-2 pb-2 pt-3">
+              {session?.user ? (
+                <div className="flex items-center gap-3 rounded-xl px-2 py-1.5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-bold text-white">
+                    {(session.user.name ?? session.user.email ?? "?").trim().charAt(0).toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-semibold text-slate-800">{session.user.name ?? "여행자"}</p>
+                    {session.user.email && <p className="truncate text-[11px] text-slate-400">{session.user.email}</p>}
+                  </div>
+                  <button
+                    onClick={() => signOut()}
+                    aria-label="로그아웃"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    <LogOut size={16} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    setLoginReason(null);
+                    setLoginOpen(true);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-3 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                >
+                  <LogIn size={17} />
+                  로그인 / 회원가입
+                </button>
+              )}
+            </div>
           </SheetContent>
         </Sheet>
 
@@ -250,7 +287,7 @@ export function AppBar() {
         )}
       </header>
 
-      {loginReason && <LoginModal reason={loginReason} onClose={() => setLoginReason(null)} />}
+      {loginOpen && <LoginModal reason={loginReason ?? undefined} onClose={() => setLoginOpen(false)} />}
 
       {saveModalOpen && (
         <SavePlanModal
