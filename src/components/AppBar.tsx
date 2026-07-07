@@ -305,9 +305,8 @@ export function AppBar() {
               </span>
               <span className="text-[15px] font-bold leading-tight text-slate-900 dark:text-slate-100">{currentCity}</span>
             </>
-          ) : pathname === "/" ? (
-            // Home: lettering-only wordmark instead of the "홈" title, with the
-            // slogan — wordmark bold, slogan thin, for contrast.
+          ) : pathname === "/" || pathname === "/discover" ? (
+            // 홈/탐색: page-title 대신 워드마크 + 슬로건 (워드마크 굵게, 슬로건 가늘게).
             <Link href="/" className="flex items-baseline gap-2 transition-opacity hover:opacity-80">
               <ThemedLogo form="wordmark" imgClassName="h-7 w-auto" glow={false} textClassName="text-[19px]" />
               <span className="hidden text-[11px] font-light tracking-wide text-slate-500 min-[400px]:inline dark:text-slate-400">
