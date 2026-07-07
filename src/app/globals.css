@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: `dark:` utilities respond to a `.dark` class on <html>
+   (toggled by ThemeToggle), not just the OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -37,11 +41,22 @@
   --color-ring: var(--ring);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Dark theme — driven by the `.dark` class (ThemeToggle), so the toggle fully
+   controls it regardless of OS setting. */
+.dark {
+  --background: #0b1120;
+  --foreground: #e2e8f0;
+
+  --primary: #e2e8f0;
+  --primary-foreground: #0b1120;
+  --secondary: #1e293b;
+  --secondary-foreground: #e2e8f0;
+  --accent: #1e293b;
+  --accent-foreground: #e2e8f0;
+  --border: #334155;
+  --input: #334155;
+  --muted-foreground: #94a3b8;
+  --ring: #475569;
 }
 
 body {

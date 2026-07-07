@@ -51,10 +51,10 @@ export function LoginModal({ onClose, reason }: LoginModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative w-full max-w-[360px] overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div className="relative w-full max-w-[360px] overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900">
         <button
           onClick={onClose}
-          className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-100/80 backdrop-blur transition-colors hover:bg-slate-200"
+          className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-100/80 backdrop-blur transition-colors hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700"
           aria-label="닫기"
         >
           <Icon name="x" size={14} color="#64748b" />
@@ -63,21 +63,40 @@ export function LoginModal({ onClose, reason }: LoginModalProps) {
         <div className="px-7 pb-7 pt-9">
           {/* ── brand ── */}
           <div className="flex flex-col items-center text-center">
-            <BrandLogo
-              imgClassName="h-16 w-auto"
-              fallback={
-                <>
-                  <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-[26px] shadow-lg shadow-indigo-200">
-                    ✈️
-                  </span>
-                  <div className="mt-3 flex items-baseline gap-1.5">
-                    <span className="text-xl font-bold tracking-tight text-slate-900">Tradule</span>
-                    <span className="text-[12px] font-medium text-slate-400">트레쥴</span>
+            <span className="dark:hidden">
+              <BrandLogo
+                imgClassName="h-16 w-auto"
+                fallback={
+                  <div className="flex flex-col items-center">
+                    <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-[26px] shadow-lg shadow-indigo-200">
+                      ✈️
+                    </span>
+                    <div className="mt-3 flex items-baseline gap-1.5">
+                      <span className="text-xl font-bold tracking-tight text-slate-900">Tradule</span>
+                      <span className="text-[12px] font-medium text-slate-400">트레쥴</span>
+                    </div>
                   </div>
-                </>
-              }
-            />
-            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
+                }
+              />
+            </span>
+            <span className="hidden dark:inline">
+              <BrandLogo
+                variant="light"
+                imgClassName="h-16 w-auto"
+                fallback={
+                  <div className="flex flex-col items-center">
+                    <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-[26px] shadow-lg">
+                      ✈️
+                    </span>
+                    <div className="mt-3 flex items-baseline gap-1.5">
+                      <span className="text-xl font-bold tracking-tight text-slate-100">Tradule</span>
+                      <span className="text-[12px] font-medium text-slate-400">트레쥴</span>
+                    </div>
+                  </div>
+                }
+              />
+            </span>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400">
               {reason ?? "로그인하면 일정을 저장하고 어디서든 이어볼 수 있어요."}
             </p>
           </div>
