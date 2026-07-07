@@ -17,9 +17,16 @@ import { formatDateLabel } from "@/lib/timeline";
 // 일정(계획)과는 완전히 분리된 두 개의 보관함: 다녀온 여행 보관함(지난
 // itinerary/trip 기록, /scrapbook)과 관심 장소 보관함(찜해둔 개별 장소,
 // /saved-places) — 후자는 하단에 독립된 탭으로 별도 배치.
-const NAV_ITEMS = [
-  { href: "/discover", label: "여행 계획짜기", icon: Search },
-  { href: "/course", label: "코스 만들기", icon: Sparkles },
+// 코스 만들기는 여행 계획짜기의 하위 플로우(지역 고르고 코스 조립)라서
+// 최상위 탭이 아니라 여행 계획짜기 아래 서랍(sub-item)으로 들어간다.
+interface NavItem {
+  href: string;
+  label: string;
+  icon: typeof Search;
+  sub?: { href: string; label: string; icon: typeof Search }[];
+}
+const NAV_ITEMS: NavItem[] = [
+  { href: "/discover", label: "여행 계획짜기", icon: Search, sub: [{ href: "/course", label: "코스 만들기", icon: Sparkles }] },
   { href: "/planner", label: "계획", icon: Calendar },
   { href: "/scrapbook", label: "다녀온 여행 보관함", icon: Book },
 ];
@@ -115,7 +122,7 @@ export function AppBar() {
               </div>
             </SheetHeader>
             <nav className="flex flex-col gap-1 px-2">
-              {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+              {NAV_ITEMS.map(({ href, label, icon: Icon, sub }) => {
                 const active = pathname?.startsWith(href) ?? false;
                 const isPlan = href === "/planner";
                 return (
@@ -204,6 +211,30 @@ export function AppBar() {
                             </div>
                           ))
                         )}
+                      </div>
+                    )}
+
+                    {/* 하위 플로우 링크 (예: 여행 계획짜기 → 코스 만들기) — 항상 펼쳐진 서랍 */}
+                    {sub && (
+                      <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 dark:border-slate-800 pl-3">
+                        {sub.map(({ href: subHref, label: subLabel, icon: SubIcon }) => {
+                          const subActive = pathname?.startsWith(subHref) ?? false;
+                          return (
+                            <Link
+                              key={subHref}
+                              href={subHref}
+                              onClick={() => setMenuOpen(false)}
+                              className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] font-medium transition-colors ${
+                                subActive
+                                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                              }`}
+                            >
+                              <SubIcon size={14} />
+                              {subLabel}
+                            </Link>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

@@ -1,46 +1,51 @@
-import type { DiscoverScope } from "@/lib/discoverData";
+import { regionHierarchy, type DiscoverScope, type RegionNode } from "@/lib/discoverData";
+import { CONTINENT_EMOJI, COUNTRY_EMOJI, DOMESTIC_CANONICAL } from "@/lib/regions";
 
 /**
- * Region picklists for the 추천 코스 마법사 (course builder). These are
- * just the text labels used to seed a live Places/Kakao search (e.g.
- * "강릉 맛집") — not a geographic dataset, so a short curated list of the
- * major/popular areas per 시·도 (domestic) or per country (overseas) is
- * enough and keeps the picker tidy. Any place actually returned comes
- * from the live API, not from here.
+ * 코스 만들기의 지역 선택 — 탐색(지역별)과 **같은 통합 지역 트리**를 쓴다.
+ *  - 국내: 광역(8도+특별·광역시) → 시/군 (2단계에서 검색 시작)
+ *  - 해외: 대륙 → 국가 → 도시 (3단계에서 검색 시작)
+ * leaf 라벨은 라이브 Places/Kakao 검색의 시드 텍스트("강릉 맛집")로만
+ * 쓰이므로, 데이터가 없는 지역을 골라도 실제 검색은 그대로 동작한다.
  */
-export interface RegionGroup {
-  /** 시·도 (domestic) or 국가 (overseas). */
+export interface CourseRegionNode {
   label: string;
   emoji?: string;
-  /** Cities / areas searchable within it. */
-  cities: string[];
+  children: CourseRegionNode[];
 }
 
-export const DOMESTIC_REGIONS: RegionGroup[] = [
-  { label: "서울", emoji: "🏙️", cities: ["강남", "홍대·마포", "종로·광화문", "성수", "명동·을지로", "잠실·송파", "이태원·용산"] },
-  { label: "경기", emoji: "🌆", cities: ["수원", "가평", "파주", "용인", "포천", "양평", "인천"] },
-  { label: "강원", emoji: "⛰️", cities: ["강릉", "속초", "춘천", "평창", "정선", "양양", "동해"] },
-  { label: "충청", emoji: "🌾", cities: ["대전", "청주", "공주", "보령", "단양", "태안", "천안"] },
-  { label: "전라", emoji: "🍚", cities: ["전주", "여수", "순천", "목포", "담양", "군산", "남원"] },
-  { label: "경상", emoji: "🌊", cities: ["부산", "대구", "경주", "통영", "안동", "포항", "거제", "진주"] },
-  { label: "제주", emoji: "🌴", cities: ["제주시", "서귀포", "애월", "성산", "중문", "한림"] },
-];
-
-export const OVERSEAS_REGIONS: RegionGroup[] = [
-  { label: "일본", emoji: "🇯🇵", cities: ["오사카", "도쿄", "후쿠오카", "교토", "삿포로", "오키나와", "나고야"] },
-  { label: "베트남", emoji: "🇻🇳", cities: ["다낭", "호치민", "하노이", "나트랑", "호이안", "푸꾸옥"] },
-  { label: "태국", emoji: "🇹🇭", cities: ["방콕", "치앙마이", "푸켓", "파타야"] },
-  { label: "대만", emoji: "🇹🇼", cities: ["타이베이", "가오슝", "타이중", "화롄"] },
-  { label: "이탈리아", emoji: "🇮🇹", cities: ["로마", "베네치아", "피렌체", "밀라노", "나폴리"] },
-  { label: "스페인", emoji: "🇪🇸", cities: ["바르셀로나", "마드리드", "세비야", "그라나다"] },
-  { label: "미국", emoji: "🇺🇸", cities: ["샌프란시스코", "뉴욕", "로스앤젤레스", "라스베이거스", "하와이"] },
-];
-
-export function regionsForScope(scope: DiscoverScope): RegionGroup[] {
-  return scope === "domestic" ? DOMESTIC_REGIONS : OVERSEAS_REGIONS;
+function withEmoji(node: RegionNode, emoji?: string): CourseRegionNode {
+  return { label: node.label, emoji, children: node.children.map((c) => withEmoji(c, COUNTRY_EMOJI[c.label])) };
 }
 
-/** One "slot" of the course — a category the user fills with exactly one place. `tag` maps to the live-search category filter (undefined = pure text query, e.g. 카페). */
+export function courseRegionTree(scope: DiscoverScope): CourseRegionNode[] {
+  if (scope === "domestic") {
+    return DOMESTIC_CANONICAL.map((p) => ({
+      label: p.label,
+      emoji: p.emoji,
+      children: p.children.map((c) => ({ label: c, children: [] })),
+    }));
+  }
+  return regionHierarchy("overseas").map((cont) => withEmoji(cont, CONTINENT_EMOJI[cont.label]));
+}
+
+/** 검색을 시작할 수 있는 깊이 — 국내는 시/군(2), 해외는 도시(3). */
+export function searchableDepth(scope: DiscoverScope): number {
+  return scope === "domestic" ? 2 : 3;
+}
+
+/** Walks `tree` down `path`, returning the children at that point ([] past a leaf). */
+export function courseNodesAtPath(tree: CourseRegionNode[], path: string[]): CourseRegionNode[] {
+  let nodes = tree;
+  for (const label of path) {
+    const next = nodes.find((n) => n.label === label);
+    if (!next) return [];
+    nodes = next.children;
+  }
+  return nodes;
+}
+
+/** One "slot" of the course — a category the user fills with places. `tag` maps to the live-search category filter (undefined = pure text query, e.g. 카페). */
 export interface CourseSlot {
   key: string;
   label: string;

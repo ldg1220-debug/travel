@@ -136,14 +136,14 @@ export async function GET(request: NextRequest) {
   let routes = bundle.routes;
   let notice: "coming_soon" | null = null;
 
-  if (category === "season") {
-    trending = trending.filter((s) => s.season === season);
-    favorites = favorites.filter((s) => s.season === season);
-    trending = padTrending(trending, favorites, MIN_TRENDING_COUNT);
-  } else if (category === "hot") {
-    trending = [...trending].sort((a, b) => b.saves - a.saves);
-    favorites = [];
-  } else if (category === "region" && path.length > 0) {
+  // 계절/핫한 are combinable check-filters (each stacks on top of a region
+  // drill-down); the legacy exclusive `category` values keep working by
+  // implying the matching check.
+  const seasonCheck = request.nextUrl.searchParams.get("season") === "1" || category === "season";
+  const hotCheck = request.nextUrl.searchParams.get("hot") === "1" || category === "hot";
+  const regionActive = (category === "region" || category === "all") && path.length > 0;
+
+  if (regionActive) {
     trending = trending.filter((s) => matchesRegionPath(s, scope, path));
     favorites = favorites.filter((s) => matchesRegionPath(s, scope, path));
     routes = bundle.routes.filter((r) => routeMatchesRegionPath(r, scope, path));
@@ -165,10 +165,26 @@ export async function GET(request: NextRequest) {
       trending = (fallbackMatches.length > 0 ? fallbackMatches : [...allSpots(scope)]).sort((a, b) => b.saves - a.saves).slice(0, FALLBACK_COUNT);
       favorites = [];
       routes = fallbackPath.length > 0 ? bundle.routes.filter((r) => routeMatchesRegionPath(r, scope, fallbackPath)) : [];
-    } else {
-      trending = padTrending(trending, favorites, MIN_TRENDING_COUNT);
     }
   }
+
+  if (seasonCheck && notice === null) {
+    const st = trending.filter((s) => s.season === season);
+    const sf = favorites.filter((s) => s.season === season);
+    // Region + season can legitimately intersect to nothing — keep the
+    // region results rather than showing an empty page.
+    if (st.length + sf.length > 0) {
+      trending = st;
+      favorites = sf;
+    }
+  }
+  if (hotCheck) {
+    trending = [...trending].sort((a, b) => b.saves - a.saves);
+    favorites = [...favorites].sort((a, b) => b.saves - a.saves);
+    // Legacy hot-only view showed a single ranked list.
+    if (!regionActive && !seasonCheck) favorites = [];
+  }
+  if (notice === null) trending = padTrending(trending, favorites, MIN_TRENDING_COUNT);
 
   return NextResponse.json({
     bundle: { trending, favorites, routes },
