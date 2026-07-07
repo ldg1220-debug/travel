@@ -28,7 +28,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/discover", label: "여행 계획짜기", icon: Search, sub: [{ href: "/course", label: "코스 만들기", icon: Sparkles }] },
   { href: "/planner", label: "계획", icon: Calendar },
-  { href: "/scrapbook", label: "다녀온 여행 보관함", icon: Book },
+  { href: "/scrapbook", label: "여행 보관함", icon: Book },
 ];
 const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", icon: Heart };
 
@@ -36,7 +36,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/": "홈",
   "/discover": "어디로 떠나시나요?",
   "/course": "코스 만들기",
-  "/scrapbook": "다녀온 여행 보관함",
+  "/scrapbook": "여행 보관함",
   "/saved-places": "관심 장소 보관함",
 };
 
