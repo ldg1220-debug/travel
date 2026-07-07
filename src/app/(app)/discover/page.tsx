@@ -33,6 +33,7 @@ import {
   Eye,
   ExternalLink,
   X,
+  BedDouble,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -57,7 +58,8 @@ import type {
   RegionNode,
   SpotIconKey,
 } from "@/lib/discoverData";
-import type { Place, PlaceIcon } from "@/lib/types";
+import type { Place, PlaceIcon, Region } from "@/lib/types";
+import { bookingProviders, isLodging, hasAffiliateLink } from "@/lib/affiliates";
 
 // Always client-only — see RoutePreviewMap.tsx / lib/maps/mapResize.ts.
 const RoutePreviewMap = dynamic(() => import("./RoutePreviewMap"), { ssr: false });
@@ -104,12 +106,19 @@ const CUISINE_FILTERS: { key: CuisineFilter; label: string }[] = [
 const SEARCH_PAGE_LIMIT = 10;
 
 /** Client-side sort for the 실시간 검색 결과 section (≤20 results, so sorting in the browser is fine). "relevance" keeps Google's own ranking. */
-type LiveSortKey = "relevance" | "rating" | "reviews";
+type LiveSortKey = "relevance" | "popularity" | "rating" | "reviews" | "price";
 const LIVE_SORTS: { key: LiveSortKey; label: string }[] = [
   { key: "relevance", label: "관련도순" },
+  { key: "popularity", label: "인기순" },
   { key: "rating", label: "별점순" },
   { key: "reviews", label: "리뷰많은순" },
+  { key: "price", label: "가격대순" },
 ];
+
+/** Popularity = rating weighted by how many reviews back it (a 4.9 with 3 reviews shouldn't outrank a 4.6 with 8,000). */
+function popularityScore(p: Place): number {
+  return (p.rating ?? 0) * Math.log10((p.reviewCount ?? 0) + 10);
+}
 
 /** Google `primaryType` -> Korean badge label for live result cards; unmapped types fall back to the raw type with underscores spaced. */
 const LIVE_TYPE_LABELS: Record<string, string> = {
@@ -931,8 +940,11 @@ function SearchResults({
   const [selectedLiveId, setSelectedLiveId] = useState<string | null>(null);
   const sortedLiveResults = useMemo(() => {
     if (!liveResults) return [];
+    if (liveSort === "popularity") return [...liveResults].sort((a, b) => popularityScore(b) - popularityScore(a));
     if (liveSort === "rating") return [...liveResults].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
     if (liveSort === "reviews") return [...liveResults].sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0));
+    // 가격대순: 저렴한 순(오름차순). Google이 가격대를 안 준 곳은 맨 뒤로.
+    if (liveSort === "price") return [...liveResults].sort((a, b) => (a.priceLevel ?? Infinity) - (b.priceLevel ?? Infinity));
     return liveResults;
   }, [liveResults, liveSort]);
 
@@ -1032,6 +1044,7 @@ function SearchResults({
               <LivePlaceCard
                 key={place.id}
                 place={place}
+                region={scope === "overseas" ? "international" : "domestic"}
                 onAdd={() => onAddLivePlace(place)}
                 onOpenDetail={() => {
                   setSelectedLiveId(place.id);
@@ -1271,7 +1284,20 @@ function SpotCard({
 // ── live search result card — a real Google Places / Kakao Local hit, not
 // one of /discover's own curated spots, so there's no gradient/saves/
 // subTags to show, just whatever the live API actually returned. ──
-function LivePlaceCard({ place, onAdd, onOpenDetail }: { place: Place; onAdd: () => void; onOpenDetail: () => void }) {
+function LivePlaceCard({
+  place,
+  region,
+  onAdd,
+  onOpenDetail,
+}: {
+  place: Place;
+  region: Region;
+  onAdd: () => void;
+  onOpenDetail: () => void;
+}) {
+  const lodging = isLodging(place.category);
+  const providers = lodging ? bookingProviders(place.name, region) : [];
+  const showAffiliate = hasAffiliateLink(providers);
   return (
     <div
       onClick={onOpenDetail}
@@ -1316,6 +1342,9 @@ function LivePlaceCard({ place, onAdd, onOpenDetail }: { place: Place; onAdd: ()
               {place.reviewCount != null && (
                 <span className="truncate font-normal text-slate-400">· 리뷰 {fmt(place.reviewCount)}</span>
               )}
+              {place.priceLevel != null && place.priceLevel > 0 && (
+                <span className="shrink-0 font-semibold text-emerald-600">· {"₩".repeat(place.priceLevel)}</span>
+              )}
             </span>
           ) : (
             <span className="text-[10.5px] font-medium text-slate-400">실제 지도 데이터</span>
@@ -1344,6 +1373,30 @@ function LivePlaceCard({ place, onAdd, onOpenDetail }: { place: Place; onAdd: ()
             </button>
           </span>
         </div>
+        {lodging && providers.length > 0 && (
+          <div className="mt-2 border-t border-slate-100 pt-2">
+            <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-slate-400">
+              <BedDouble size={11} className="text-indigo-400" /> 최저가 예약
+              {showAffiliate && <span className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-400">제휴</span>}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {providers.map((p) => (
+                <a
+                  key={p.key}
+                  href={p.url}
+                  target="_blank"
+                  // sponsored+nofollow per Google's affiliate-link policy; noreferrer for privacy.
+                  rel="sponsored nofollow noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ color: p.brand, borderColor: `${p.brand}55` }}
+                  className="rounded-full border bg-white px-2 py-1 text-[10.5px] font-semibold transition-colors hover:bg-slate-50"
+                >
+                  {p.label}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -81,10 +81,20 @@ interface GooglePlaceResult {
   location?: { latitude: number; longitude: number };
   rating?: number;
   userRatingCount?: number;
+  priceLevel?: string;
   primaryType?: string;
   photos?: { name: string }[];
   googleMapsUri?: string;
 }
+
+/** Google's price-level enum → 0 (free) – 4 (very expensive). */
+const PRICE_LEVEL_MAP: Record<string, number> = {
+  PRICE_LEVEL_FREE: 0,
+  PRICE_LEVEL_INEXPENSIVE: 1,
+  PRICE_LEVEL_MODERATE: 2,
+  PRICE_LEVEL_EXPENSIVE: 3,
+  PRICE_LEVEL_VERY_EXPENSIVE: 4,
+};
 
 // Concept words that describe an *experience*, not a place name — Google
 // text search treats "야경"/"전망" literally, so "우메다 야경" only matches
@@ -207,7 +217,7 @@ async function rawGoogleSearch(
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
       "X-Goog-FieldMask":
-        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryType,places.photos,places.googleMapsUri",
+        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.priceLevel,places.primaryType,places.photos,places.googleMapsUri",
     },
     body: JSON.stringify({
       textQuery: query,
@@ -286,6 +296,7 @@ function googlePlaceToPlace(p: GooglePlaceResult, nativeText?: string): Place {
     lng: p.location?.longitude ?? 0,
     rating: p.rating,
     reviewCount: p.userRatingCount,
+    priceLevel: p.priceLevel ? PRICE_LEVEL_MAP[p.priceLevel] : undefined,
     address: p.formattedAddress,
     photoName: p.photos?.[0]?.name,
     googleMapsUri: p.googleMapsUri,
