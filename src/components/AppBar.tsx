@@ -7,6 +7,7 @@ import { useSession, signOut } from "next-auth/react";
 import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown, LogIn, LogOut } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
+import { BrandLogo } from "@/components/BrandLogo";
 import { SavePlanModal } from "@/components/SavePlanModal";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { saveItinerary } from "@/lib/api";
@@ -104,8 +105,15 @@ export function AppBar() {
             <SheetHeader>
               <SheetTitle>
                 <Link href="/" onClick={() => setMenuOpen(false)} className="flex items-baseline gap-1.5 transition-colors hover:text-slate-600">
-                  Tradule
-                  <span className="text-[13px] font-medium text-slate-400">트레쥴</span>
+                  <BrandLogo
+                    imgClassName="h-9 w-auto"
+                    fallback={
+                      <>
+                        Tradule
+                        <span className="text-[13px] font-medium text-slate-400">트레쥴</span>
+                      </>
+                    }
+                  />
                 </Link>
               </SheetTitle>
             </SheetHeader>

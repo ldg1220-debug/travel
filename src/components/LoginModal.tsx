@@ -2,6 +2,7 @@
 
 import { signIn } from "next-auth/react";
 import { Icon } from "./Icon";
+import { BrandLogo } from "./BrandLogo";
 
 interface LoginModalProps {
   onClose: () => void;
@@ -62,13 +63,20 @@ export function LoginModal({ onClose, reason }: LoginModalProps) {
         <div className="px-7 pb-7 pt-9">
           {/* ── brand ── */}
           <div className="flex flex-col items-center text-center">
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-[26px] shadow-lg shadow-indigo-200">
-              ✈️
-            </span>
-            <div className="mt-3 flex items-baseline gap-1.5">
-              <span className="text-xl font-bold tracking-tight text-slate-900">Tradule</span>
-              <span className="text-[12px] font-medium text-slate-400">트레쥴</span>
-            </div>
+            <BrandLogo
+              imgClassName="h-16 w-auto"
+              fallback={
+                <>
+                  <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-[26px] shadow-lg shadow-indigo-200">
+                    ✈️
+                  </span>
+                  <div className="mt-3 flex items-baseline gap-1.5">
+                    <span className="text-xl font-bold tracking-tight text-slate-900">Tradule</span>
+                    <span className="text-[12px] font-medium text-slate-400">트레쥴</span>
+                  </div>
+                </>
+              }
+            />
             <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
               {reason ?? "로그인하면 일정을 저장하고 어디서든 이어볼 수 있어요."}
             </p>
