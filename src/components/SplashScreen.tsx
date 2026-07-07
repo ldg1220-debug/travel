@@ -48,7 +48,7 @@ export function SplashScreen() {
     >
       <div className="flex flex-col items-center gap-4">
         <BrandLogo
-          imgClassName="h-24 w-auto animate-[fadeInUp_0.5s_ease-out]"
+          imgClassName="h-40 w-auto animate-[fadeInUp_0.5s_ease-out]"
           fallback={
             <>
               <span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-indigo-500 to-violet-500 text-[32px] shadow-xl shadow-indigo-200">

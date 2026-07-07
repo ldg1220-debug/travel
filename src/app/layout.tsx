@@ -40,6 +40,8 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="h-full bg-slate-200">
+        {/* Fetch the brand logo ASAP so it's ready for the splash (React hoists this to <head>). */}
+        <link rel="preload" href="/brand/tradule-logo.png" as="image" />
         <SplashScreen />
         <Providers>{children}</Providers>
       </body>

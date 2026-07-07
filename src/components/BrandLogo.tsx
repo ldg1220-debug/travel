@@ -19,25 +19,20 @@ export function BrandLogo({
   imgClassName?: string;
   alt?: string;
 }) {
-  // Show the fallback by default and only reveal the image once it *loads*, so
-  // a missing/404 asset never flashes a broken-image icon. onError drops the
-  // <img> entirely, leaving the fallback in place.
-  const [loaded, setLoaded] = useState(false);
+  // Render the logo eagerly so it paints as soon as it decodes (important for
+  // the ~1.3s splash — a hidden/deferred image wouldn't load in time). If the
+  // asset is missing, onError swaps in the fallback (text/✈️ mark).
   const [failed, setFailed] = useState(false);
+  if (failed) return <>{fallback}</>;
   return (
-    <>
-      {!loaded && fallback}
-      {!failed && (
-        // eslint-disable-next-line @next/next/no-img-element -- static brand asset with a load/error fallback; next/image can't express the "show text until this file loads" degrade path.
-        <img
-          src="/brand/tradule-logo.png"
-          alt={alt}
-          onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
-          className={imgClassName}
-          style={loaded ? undefined : { display: "none" }}
-        />
-      )}
-    </>
+    // eslint-disable-next-line @next/next/no-img-element -- static brand asset with an onError fallback; next/image can't express the "show text if the file is absent" degrade path.
+    <img
+      src="/brand/tradule-logo.png"
+      alt={alt}
+      loading="eager"
+      fetchPriority="high"
+      onError={() => setFailed(true)}
+      className={imgClassName}
+    />
   );
 }

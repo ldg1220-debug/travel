@@ -106,7 +106,7 @@ export function AppBar() {
               <SheetTitle>
                 <Link href="/" onClick={() => setMenuOpen(false)} className="flex items-baseline gap-1.5 transition-colors hover:text-slate-600">
                   <BrandLogo
-                    imgClassName="h-9 w-auto"
+                    imgClassName="h-12 w-auto"
                     fallback={
                       <>
                         Tradule
