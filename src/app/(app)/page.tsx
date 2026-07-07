@@ -57,14 +57,14 @@ export default function HomePage() {
   // 로그인한 사용자면 이름으로 인사, 아니면 일반 인사(하드코딩된 이름 제거).
   const firstName = session?.user?.name?.trim().split(/\s+/)[0];
   return (
-    <div className="min-h-full bg-slate-50 font-sans text-slate-900">
+    <div className="min-h-full bg-slate-50 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
-        {/* ── GREETING ── */}
+        {/* ── GREETING ── (the brand wordmark + slogan live in the top bar) */}
         <section className="mb-8">
           <h1 className="text-2xl font-bold tracking-tight">
             {firstName ? `안녕하세요, ${firstName}님 👋` : "안녕하세요 👋"}
           </h1>
-          <p className="mt-1 text-[13px] text-slate-500">오늘은 어디로 떠나볼까요?</p>
+          <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">오늘은 어디로 떠나볼까요?</p>
         </section>
 
         {/* ── QUICK ACCESS ── */}
@@ -73,7 +73,7 @@ export default function HomePage() {
             <Link
               key={href}
               href={href}
-              className="group flex items-center gap-3 rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200 sm:flex-col sm:items-start sm:p-5"
+              className="group flex items-center gap-3 rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200 sm:flex-col sm:items-start sm:p-5 dark:border-slate-800 dark:bg-slate-900 dark:hover:shadow-none"
             >
               <span
                 className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${gradient} text-white shadow-sm sm:mb-4 sm:h-12 sm:w-12`}
@@ -81,8 +81,8 @@ export default function HomePage() {
                 <Icon size={20} />
               </span>
               <div className="min-w-0 flex-1 sm:w-full sm:flex-none">
-                <h2 className="truncate text-[15px] font-bold tracking-tight text-slate-900 sm:text-base">{title}</h2>
-                <p className="mt-0.5 line-clamp-1 text-[12.5px] text-slate-500 sm:mt-1 sm:line-clamp-none sm:text-[13px]">
+                <h2 className="truncate text-[15px] font-bold tracking-tight text-slate-900 sm:text-base dark:text-slate-100">{title}</h2>
+                <p className="mt-0.5 line-clamp-1 text-[12.5px] text-slate-500 sm:mt-1 sm:line-clamp-none sm:text-[13px] dark:text-slate-400">
                   {description}
                 </p>
                 <span className="mt-4 hidden items-center gap-0.5 text-[13px] font-semibold text-indigo-600 transition-colors group-hover:text-indigo-700 sm:flex">
@@ -115,7 +115,7 @@ export default function HomePage() {
 
           <Link
             href="/discover"
-            className="group block overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200"
+            className="group block overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200 dark:border-slate-800 dark:bg-slate-900 dark:hover:shadow-none"
           >
             <div className={`relative h-36 bg-gradient-to-br ${TOP_TRENDING.gradient}`}>
               <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
@@ -130,7 +130,7 @@ export default function HomePage() {
             </div>
             <div className="flex items-center justify-between px-4 py-4">
               <div className="min-w-0">
-                <p className="truncate text-base font-bold text-slate-900">{TOP_TRENDING.name}</p>
+                <p className="truncate text-base font-bold text-slate-900 dark:text-slate-100">{TOP_TRENDING.name}</p>
                 <p className="mt-0.5 flex items-center gap-1 text-[12px] text-slate-500">
                   <MapPin size={12} /> {TOP_TRENDING.region}
                 </p>

@@ -142,31 +142,56 @@ async function searchInternational(
   // matches, so we fan out into category-augmented variants and MERGE them
   // — that's what turns "우메다" into a full spread of spots instead of one
   // building. `aug` variants only matter once the direct ones came back thin.
-  const augLabels = concept || includedType === "tourist_attraction"
-    ? ["관광명소", "명소", "전망대", "가볼만한곳", "맛집"]
-    : ["관광명소", "맛집", "명소", "카페", "가볼만한곳"];
-  const attempts: { q: string; type?: string }[] = [];
-  if (categoryLabel) attempts.push({ q: `${query} ${categoryLabel}`, type: includedType });
-  attempts.push({ q: query, type: primaryType });
-  if (primaryType) attempts.push({ q: query, type: undefined }); // unfiltered fallback for a misclassified place
-  for (const lbl of augLabels) if (locality) attempts.push({ q: `${locality} ${lbl}`, type: undefined });
+  const augLabels =
+    concept || includedType === "tourist_attraction"
+      ? ["관광명소", "명소", "전망대", "가볼만한곳", "맛집"]
+      : ["관광명소", "맛집", "명소", "카페", "가볼만한곳"];
+
+  // Direct attempts, most-specific first (query as typed, category-expanded, unfiltered fallback).
+  const direct: { q: string; type?: string }[] = [];
+  if (categoryLabel) direct.push({ q: `${query} ${categoryLabel}`, type: includedType });
+  direct.push({ q: query, type: primaryType });
+  if (primaryType) direct.push({ q: query, type: undefined }); // unfiltered fallback for a misclassified place
 
   const merged: Place[] = [];
   let anyOk = false;
   let firstFailed = false;
+  let isFirst = true;
   const tried = new Set<string>();
-  for (const a of attempts) {
-    if (merged.length >= FANOUT_TARGET) break;
+  const attempt = async (a: { q: string; type?: string }) => {
     const key = `${a.q}|${a.type ?? ""}`;
-    if (tried.has(key)) continue;
+    if (tried.has(key)) return;
     tried.add(key);
     const res = await callGoogleSearchText(a.q, apiKey, a.type);
     if (res === null) {
-      if (!anyOk && attempts.indexOf(a) === 0) firstFailed = true;
-      continue;
+      if (isFirst && !anyOk) firstFailed = true;
+      isFirst = false;
+      return;
     }
+    isFirst = false;
     anyOk = true;
     mergePlaces(merged, res);
+  };
+
+  for (const a of direct) {
+    if (merged.length >= FANOUT_TARGET) break;
+    await attempt(a);
+  }
+
+  // Fan out into "{locality} 관광명소/맛집/…" ONLY when it genuinely helps:
+  //  - a concept query (야경/전망/…) always wants the wider spread, and
+  //  - a bare area/landmark query ("우메다") that came back thin does too.
+  // A specific business name ("우오신") that already returned several real
+  // hits must NOT pull in the area's famous attractions (e.g. 도톤보리), and
+  // an explicit category chip relies on its own expansion, not generic
+  // augmentation — so both skip the fan-out.
+  const FANOUT_MIN = 4;
+  const wantFanout = !includedType && (concept || merged.length < FANOUT_MIN);
+  if (wantFanout && locality) {
+    for (const lbl of augLabels) {
+      if (merged.length >= FANOUT_TARGET) break;
+      await attempt({ q: `${locality} ${lbl}`, type: undefined });
+    }
   }
 
   if (merged.length === 0) {

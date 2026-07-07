@@ -7,7 +7,8 @@ import { useSession, signOut } from "next-auth/react";
 import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown, LogIn, LogOut } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
-import { BrandLogo } from "@/components/BrandLogo";
+import { ThemedLogo } from "@/components/BrandLogo";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { saveItinerary } from "@/lib/api";
@@ -91,31 +92,27 @@ export function AppBar() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-3 backdrop-blur">
+      <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
         <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
           <SheetTrigger asChild>
             <button
               aria-label="메뉴"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-700 transition-colors hover:bg-slate-100"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <Menu size={20} />
             </button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-72">
+          <SheetContent side="left" className="w-72 dark:border-slate-800 dark:bg-slate-900">
             <SheetHeader>
-              <SheetTitle>
-                <Link href="/" onClick={() => setMenuOpen(false)} className="flex items-baseline gap-1.5 transition-colors hover:text-slate-600">
-                  <BrandLogo
-                    imgClassName="h-16 w-auto"
-                    fallback={
-                      <>
-                        Tradule
-                        <span className="text-[13px] font-medium text-slate-400">트레쥴</span>
-                      </>
-                    }
-                  />
-                </Link>
-              </SheetTitle>
+              <div className="flex items-center justify-between pr-8">
+                <SheetTitle>
+                  <Link href="/" onClick={() => setMenuOpen(false)} className="flex items-baseline gap-1.5 transition-opacity hover:opacity-80">
+                    {/* compact header → lettering-only wordmark (the full graffiti emblem lives on roomy surfaces: splash/login) */}
+                    <ThemedLogo form="wordmark" imgClassName="h-10 w-auto" textClassName="text-2xl" />
+                  </Link>
+                </SheetTitle>
+                <ThemeToggle />
+              </div>
             </SheetHeader>
             <nav className="flex flex-col gap-1 px-2">
               {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
@@ -128,7 +125,7 @@ export function AppBar() {
                         href={href}
                         onClick={() => setMenuOpen(false)}
                         className={`flex flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                          active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
+                          active ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                         }`}
                       >
                         <Icon size={17} />
@@ -150,7 +147,7 @@ export function AppBar() {
                     {/* 저장된 계획 — 여러 트립 초안을 이름 붙여 저장해두고 전환/비교할
                         수 있는 스위처. 서랍처럼 화살표로 펼치고 접는다. */}
                     {isPlan && plansOpen && (
-                      <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 pl-3">
+                      <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 dark:border-slate-800 pl-3">
                         {savedPlans.length === 0 ? (
                           <button
                             onClick={() => {
@@ -216,7 +213,7 @@ export function AppBar() {
 
             {/* 관심 장소 보관함 — 일정/여행 기록과는 무관한 개별 찜 목록이라
                 위 메뉴와 구분선으로 분리된 독립 탭으로 하단에 배치. */}
-            <div className="mt-2 border-t border-slate-100 px-2 pt-2">
+            <div className="mt-2 border-t border-slate-100 dark:border-slate-800 px-2 pt-2">
               <Link
                 href={SAVED_PLACES_NAV_ITEM.href}
                 onClick={() => setMenuOpen(false)}
@@ -233,20 +230,20 @@ export function AppBar() {
 
             {/* 계정 — 로그아웃 상태면 로그인/회원가입 진입, 로그인 상태면
                 프로필 + 로그아웃. mt-auto 로 서랍 맨 아래에 고정. */}
-            <div className="mt-auto border-t border-slate-100 px-2 pb-2 pt-3">
+            <div className="mt-auto border-t border-slate-100 dark:border-slate-800 px-2 pb-2 pt-3">
               {session?.user ? (
                 <div className="flex items-center gap-3 rounded-xl px-2 py-1.5">
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-bold text-white">
                     {(session.user.name ?? session.user.email ?? "?").trim().charAt(0).toUpperCase()}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-semibold text-slate-800">{session.user.name ?? "여행자"}</p>
+                    <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{session.user.name ?? "여행자"}</p>
                     {session.user.email && <p className="truncate text-[11px] text-slate-400">{session.user.email}</p>}
                   </div>
                   <button
                     onClick={() => signOut()}
                     aria-label="로그아웃"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                   >
                     <LogOut size={16} />
                   </button>
@@ -258,7 +255,7 @@ export function AppBar() {
                     setLoginOpen(true);
                     setMenuOpen(false);
                   }}
-                  className="flex w-full items-center gap-3 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                  className="flex w-full items-center gap-3 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
                 >
                   <LogIn size={17} />
                   로그인 / 회원가입
@@ -275,10 +272,19 @@ export function AppBar() {
                 {formatDateLabel(activeDate)}
                 {isShared && " · 공유됨"}
               </span>
-              <span className="text-[15px] font-bold leading-tight text-slate-900">{currentCity}</span>
+              <span className="text-[15px] font-bold leading-tight text-slate-900 dark:text-slate-100">{currentCity}</span>
             </>
+          ) : pathname === "/" ? (
+            // Home: lettering-only wordmark instead of the "홈" title, with the
+            // slogan — wordmark bold, slogan thin, for contrast.
+            <Link href="/" className="flex items-baseline gap-2 transition-opacity hover:opacity-80">
+              <ThemedLogo form="wordmark" imgClassName="h-7 w-auto" glow={false} textClassName="text-[19px]" />
+              <span className="hidden text-[11px] font-light tracking-wide text-slate-500 min-[400px]:inline dark:text-slate-400">
+                당신의 여행 파트너
+              </span>
+            </Link>
           ) : (
-            <span className="text-[15px] font-bold text-slate-900">{PAGE_TITLES[pathname ?? ""] ?? "트레쥴"}</span>
+            <span className="text-[15px] font-bold text-slate-900 dark:text-slate-100">{PAGE_TITLES[pathname ?? ""] ?? "트레쥴"}</span>
           )}
         </div>
 
@@ -286,7 +292,7 @@ export function AppBar() {
           <button
             onClick={handleInvite}
             aria-label="초대하기"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             <UserPlus size={18} />
           </button>

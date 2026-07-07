@@ -39,7 +39,16 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="h-full bg-slate-200">
+      <head>
+        {/* No-flash theme init: apply the saved (or OS-preferred) theme before paint. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})()",
+          }}
+        />
+      </head>
+      <body className="h-full bg-slate-200 dark:bg-slate-950">
         {/* Fetch the brand logo ASAP so it's ready for the splash (React hoists this to <head>). */}
         <link rel="preload" href="/brand/tradule-logo.png" as="image" />
         <SplashScreen />
