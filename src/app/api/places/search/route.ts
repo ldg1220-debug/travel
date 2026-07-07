@@ -81,10 +81,48 @@ interface GooglePlaceResult {
   location?: { latitude: number; longitude: number };
   rating?: number;
   userRatingCount?: number;
+  priceLevel?: string;
   primaryType?: string;
   photos?: { name: string }[];
   googleMapsUri?: string;
 }
+
+/** Google's price-level enum → 0 (free) – 4 (very expensive). */
+const PRICE_LEVEL_MAP: Record<string, number> = {
+  PRICE_LEVEL_FREE: 0,
+  PRICE_LEVEL_INEXPENSIVE: 1,
+  PRICE_LEVEL_MODERATE: 2,
+  PRICE_LEVEL_EXPENSIVE: 3,
+  PRICE_LEVEL_VERY_EXPENSIVE: 4,
+};
+
+// Concept words that describe an *experience*, not a place name — Google
+// text search treats "야경"/"전망" literally, so "우메다 야경" only matches
+// the one spot with that phrase in its name (우메다 스카이빌딩) instead of
+// every night-view spot in Umeda. Detecting them lets us (a) bias toward
+// tourist_attraction and (b) fan out into "그 지역의 명소들" rather than
+// "그 이름의 장소 하나".
+const CONCEPT_ATTRACTION_KEYWORDS = [
+  "야경", "전망대", "전망", "뷰", "노을", "일몰", "일출", "파노라마", "스카이라인", "포토스팟", "산책", "야경명소",
+];
+function hasConceptKeyword(q: string): boolean {
+  return CONCEPT_ATTRACTION_KEYWORDS.some((k) => q.includes(k));
+}
+
+// Trailing concept/category words stripped to recover the bare locality
+// (e.g. "우메다 야경" → "우메다", "우메다 맛집" → "우메다") so fan-out can
+// re-query "{locality} 관광명소 / 맛집 / …". Superset of the concept list.
+const LOCALITY_STRIP_WORDS = [
+  ...CONCEPT_ATTRACTION_KEYWORDS,
+  "관광명소", "명소", "맛집", "음식점", "밥집", "숙소", "호텔", "카페", "여행", "가볼만한곳", "가볼만한",
+];
+function toLocalityBase(q: string): string {
+  let out = q;
+  for (const w of LOCALITY_STRIP_WORDS) out = out.split(w).join(" ");
+  return out.replace(/\s+/g, " ").trim();
+}
+
+const FANOUT_TARGET = 12; // stop firing extra queries once we have this many merged hits
 
 async function searchInternational(
   query: string,
@@ -92,39 +130,86 @@ async function searchInternational(
   includedType?: string,
   category?: string,
 ): Promise<{ places: Place[]; source: PlaceSearchSource }> {
-  // A category filter is applied two ways at once, from most to least
-  // specific, each step only tried if the previous one comes back empty:
-  //  1. query text expanded with the category's Korean label + includedType
-  //     (e.g. "오사카" -> "오사카 관광명소") — helps when the plain query is
-  //     just a region/place name and Google's text-relevance ranking needs
-  //     the hint to surface that category.
-  //  2. the original query text + includedType (no expansion).
-  //  3. the original query text with no filter at all — a specific/
-  //     misclassified place can legitimately return nothing under a type
-  //     filter even though it exists.
+  const concept = hasConceptKeyword(query);
+  // Bias bare concept queries ("우메다 야경") toward attractions even when
+  // the user picked no category chip.
+  const primaryType = includedType ?? (concept ? "tourist_attraction" : undefined);
   const categoryLabel = category ? CATEGORY_LABEL_KO[category] : undefined;
-  const expandedQuery = categoryLabel ? `${query} ${categoryLabel}` : null;
+  const locality = toLocalityBase(query);
 
-  if (expandedQuery) {
-    const expanded = await callGoogleSearchText(expandedQuery, apiKey, includedType);
-    if (expanded === null) return { places: filterByName(await getTrendingPlaces(), query), source: "mock" };
-    if (expanded.length > 0) return { places: expanded, source: "google" };
-    console.log("[places/search] 0 results for expanded query — retrying with plain query + category filter");
+  // Ordered attempts, most-specific first. A bare area/landmark query
+  // ("우메다") or a concept query ("우메다 야경") returns only 1-2 literal
+  // matches, so we fan out into category-augmented variants and MERGE them
+  // — that's what turns "우메다" into a full spread of spots instead of one
+  // building. `aug` variants only matter once the direct ones came back thin.
+  const augLabels = concept || includedType === "tourist_attraction"
+    ? ["관광명소", "명소", "전망대", "가볼만한곳", "맛집"]
+    : ["관광명소", "맛집", "명소", "카페", "가볼만한곳"];
+  const attempts: { q: string; type?: string }[] = [];
+  if (categoryLabel) attempts.push({ q: `${query} ${categoryLabel}`, type: includedType });
+  attempts.push({ q: query, type: primaryType });
+  if (primaryType) attempts.push({ q: query, type: undefined }); // unfiltered fallback for a misclassified place
+  for (const lbl of augLabels) if (locality) attempts.push({ q: `${locality} ${lbl}`, type: undefined });
+
+  const merged: Place[] = [];
+  let anyOk = false;
+  let firstFailed = false;
+  const tried = new Set<string>();
+  for (const a of attempts) {
+    if (merged.length >= FANOUT_TARGET) break;
+    const key = `${a.q}|${a.type ?? ""}`;
+    if (tried.has(key)) continue;
+    tried.add(key);
+    const res = await callGoogleSearchText(a.q, apiKey, a.type);
+    if (res === null) {
+      if (!anyOk && attempts.indexOf(a) === 0) firstFailed = true;
+      continue;
+    }
+    anyOk = true;
+    mergePlaces(merged, res);
   }
 
-  const places = await callGoogleSearchText(query, apiKey, includedType);
-  if (places === null) return { places: filterByName(await getTrendingPlaces(), query), source: "mock" };
-
-  if (places.length === 0 && includedType) {
-    console.log("[places/search] 0 results with includedType — retrying without category filter");
-    const unfiltered = await callGoogleSearchText(query, apiKey);
-    if (unfiltered !== null) return { places: unfiltered, source: "google" };
+  if (merged.length === 0) {
+    // Nothing real came back. Only fall back to the offline mock list if a
+    // call actually errored (key/quota/network) — a genuine empty result
+    // from Google is still "google", just with no hits.
+    if (firstFailed || !anyOk) return { places: filterByName(await getTrendingPlaces(), query), source: "mock" };
+    return { places: [], source: "google" };
   }
-  return { places, source: "google" };
+  return { places: merged.slice(0, 20), source: "google" };
 }
 
-/** Returns null on a non-ok response (caller decides the offline fallback), otherwise the mapped place list (possibly empty). */
+/**
+ * One searchText call, resolved into `Place[]` with duplicate listings and
+ * (optionally) a native-language name attached. Returns null only on a
+ * non-ok *Korean* response (caller decides the offline fallback).
+ *
+ * Fires the Korean call and a no-languageCode "native" call in parallel:
+ * Google's `languageCode:ko` transliterates a kanji shop name (魚心)
+ * inconsistently — 우오신 / 어심 / 어신 — so the same place reads as several
+ * different names. Joining the native name back on by place id (ids are
+ * language-independent) lets the UI show "우오신 (魚心)", making it obvious
+ * they're the same shop. Best-effort: if the native call fails, names just
+ * render Korean-only as before.
+ */
 async function callGoogleSearchText(query: string, apiKey: string, includedType?: string): Promise<Place[] | null> {
+  const [ko, native] = await Promise.all([
+    rawGoogleSearch(query, apiKey, includedType, "ko"),
+    rawGoogleSearch(query, apiKey, includedType, undefined),
+  ]);
+  if (ko === null) return null;
+  const nativeById = new Map<string, string>();
+  for (const p of native ?? []) if (p.id && p.displayName?.text) nativeById.set(p.id, p.displayName.text);
+  return ko.map((p) => googlePlaceToPlace(p, nativeById.get(p.id)));
+}
+
+/** Raw searchText fetch for one language. Returns null on a non-ok response, else the (possibly empty) place array. */
+async function rawGoogleSearch(
+  query: string,
+  apiKey: string,
+  includedType: string | undefined,
+  languageCode: string | undefined,
+): Promise<GooglePlaceResult[] | null> {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     cache: "no-store",
@@ -132,46 +217,86 @@ async function callGoogleSearchText(query: string, apiKey: string, includedType?
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
       "X-Goog-FieldMask":
-        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryType,places.photos,places.googleMapsUri",
+        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.priceLevel,places.primaryType,places.photos,places.googleMapsUri",
     },
     body: JSON.stringify({
       textQuery: query,
-      // 20 is the New Places API's per-request cap for searchText (no
-      // pageToken support in this simplified call) — a generic query like
-      // "도톤보리 맛집" should come back with as many real hits as Google
-      // itself has, not an arbitrarily small slice of them.
-      maxResultCount: 20,
-      // Without this, Google localizes names/addresses to English
-      // ("Gyukatsu Motomura Dotonbori Branch") even for a Korean query —
-      // the whole app is Korean, so ask for Korean display names.
-      languageCode: "ko",
-      // Singular on purpose — see CATEGORY_TYPE_MAP.
-      ...(includedType ? { includedType } : {}),
+      maxResultCount: 20, // New Places API per-request cap for searchText
+      ...(languageCode ? { languageCode } : {}),
+      ...(includedType ? { includedType } : {}), // singular on purpose — see CATEGORY_TYPE_MAP
     }),
   });
-  console.log("[places/search] Google response status:", res.status, "includedType:", includedType ?? "none");
   if (!res.ok) {
-    console.error("[places/search] Google API error:", res.status, res.statusText, await res.text());
+    // Only log the Korean (primary) failure loudly; a failed native lookup is non-fatal.
+    if (languageCode === "ko") {
+      console.error("[places/search] Google API error:", res.status, res.statusText, await res.text());
+    }
     return null;
   }
   const data = (await res.json()) as { places?: GooglePlaceResult[] };
-  console.log("[places/search] Google API Response:", JSON.stringify(data));
-  return (data.places ?? []).map(googlePlaceToPlace);
+  return data.places ?? [];
 }
 
-function googlePlaceToPlace(p: GooglePlaceResult): Place {
+/**
+ * Collapses whitespace/punctuation/parenthetical suffixes so listing
+ * variants of one shop compare equal: "우오신", "우오신(UOSHIN)", "우오신 "
+ * all normalize to the same key.
+ */
+function normalizeName(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[（(【「][^）)】」]*[）)】」]/g, "") // drop "(UOSHIN)" / "「…」" suffixes
+    .replace(/[\s·・,，.\-–—!！?？'"''""|｜/]/g, "")
+    .trim();
+}
+
+/** Cluster key = normalized name + coordinate (~11m). Same-name listings at the same spot (different floors, stale dupes) collapse; genuinely different branches (different coords) stay separate. */
+function clusterKey(p: Place): string {
+  return `${normalizeName(p.name)}@${p.lat.toFixed(4)},${p.lng.toFixed(4)}`;
+}
+
+/** How "complete" a listing is — used to keep the richest of a duplicate cluster (has rating, reviews, photo). */
+function infoScore(p: Place): number {
+  return (p.rating != null ? 2 : 0) + ((p.reviewCount ?? 0) > 0 ? 1 : 0) + (p.photoName ? 1 : 0) + (p.reviewCount ?? 0) / 1e6;
+}
+
+/** Merge `incoming` into `acc`, de-duplicating by cluster and keeping the richest listing (but never losing a native name). */
+function mergePlaces(acc: Place[], incoming: Place[]): void {
+  const index = new Map<string, number>();
+  acc.forEach((p, i) => index.set(clusterKey(p), i));
+  for (const p of incoming) {
+    const key = clusterKey(p);
+    const at = index.get(key);
+    if (at === undefined) {
+      index.set(key, acc.length);
+      acc.push(p);
+      continue;
+    }
+    const winner = infoScore(p) > infoScore(acc[at]) ? { ...p } : { ...acc[at] };
+    winner.nativeName = acc[at].nativeName ?? p.nativeName; // don't lose a native name during merge
+    acc[at] = winner;
+  }
+}
+
+function googlePlaceToPlace(p: GooglePlaceResult, nativeText?: string): Place {
   const category = p.primaryType ?? "Place";
   const { color, icon } = styleForCategory(category, p.id);
+  const name = p.displayName?.text ?? "이름 미확인 장소";
+  // Only attach a native name when it's meaningfully different from the
+  // Korean one (otherwise "우오신 (우오신)").
+  const nativeName = nativeText && normalizeName(nativeText) !== normalizeName(name) ? nativeText : undefined;
   return {
     id: p.id,
     placeId: p.id,
-    name: p.displayName?.text ?? "이름 미확인 장소",
+    name,
+    nativeName,
     category,
     color,
     lat: p.location?.latitude ?? 0,
     lng: p.location?.longitude ?? 0,
     rating: p.rating,
     reviewCount: p.userRatingCount,
+    priceLevel: p.priceLevel ? PRICE_LEVEL_MAP[p.priceLevel] : undefined,
     address: p.formattedAddress,
     photoName: p.photos?.[0]?.name,
     googleMapsUri: p.googleMapsUri,

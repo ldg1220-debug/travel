@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Search, Calendar, Book, ChevronRight, Flame, MapPin, TrendingUp, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -52,12 +53,17 @@ const TOP_TRENDING = {
 // above every screen in this group — this page owns only the content
 // below it, not another header.
 export default function HomePage() {
+  const { data: session } = useSession();
+  // 로그인한 사용자면 이름으로 인사, 아니면 일반 인사(하드코딩된 이름 제거).
+  const firstName = session?.user?.name?.trim().split(/\s+/)[0];
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
         {/* ── GREETING ── */}
         <section className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight">안녕하세요, Yejin님 👋</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {firstName ? `안녕하세요, ${firstName}님 👋` : "안녕하세요 👋"}
+          </h1>
           <p className="mt-1 text-[13px] text-slate-500">오늘은 어디로 떠나볼까요?</p>
         </section>
 

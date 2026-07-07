@@ -16,6 +16,8 @@ export interface Place {
   /** Google Places `place_id`, used for map markers & detail lookups */
   placeId: string;
   name: string;
+  /** Native-language display name (e.g. "魚心") when it differs from the localized `name` — only set on live Google results, to disambiguate inconsistent ko transliterations. */
+  nativeName?: string;
   category: string;
   color: string;
   lat: number;
@@ -23,6 +25,8 @@ export interface Place {
   rating?: number;
   /** Number of Google reviews backing `rating` — only present on live Google results. */
   reviewCount?: number;
+  /** Coarse Google price tier, 0 (free) – 4 (very expensive). A proxy for cost (Places has no real nightly rate) — used for the 가격대순 sort on lodging results. Undefined when Google didn't provide one. */
+  priceLevel?: number;
   address?: string;
   /** First Google photo resource name (`places/…/photos/…`) — rendered through the keyless /api/places/photo proxy. */
   photoName?: string;
