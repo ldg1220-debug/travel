@@ -55,14 +55,48 @@ function stripLocalityFillers(q: string): string {
   return out.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * "X 근처 Y" (오사카 레고랜드 근처 맛집) — merely stripping the filler and
+ * text-searching lets the landmark's name-match dominate (every result is
+ * LEGOLAND itself). Split it instead: `landmark` gets geocoded first, then
+ * `want` is searched with a locationBias circle around that point.
+ */
+function parseNearQuery(raw: string): { landmark: string; want: string } | null {
+  for (const f of LOCALITY_FILLERS) {
+    const idx = raw.indexOf(f);
+    if (idx > 0) {
+      const landmark = raw.slice(0, idx).trim();
+      const want = raw.slice(idx + f.length).trim();
+      if (landmark) return { landmark, want };
+    }
+  }
+  return null;
+}
+
+/** Intent word → Places includedType for the near-search ("맛집" → restaurant). */
+const NEAR_WANT_TYPE: [string, string][] = [
+  ["맛집", "restaurant"], ["음식점", "restaurant"], ["밥집", "restaurant"], ["레스토랑", "restaurant"],
+  ["카페", "cafe"], ["커피", "cafe"],
+  ["숙소", "lodging"], ["호텔", "lodging"], ["게스트하우스", "lodging"],
+  ["관광지", "tourist_attraction"], ["명소", "tourist_attraction"], ["가볼만한곳", "tourist_attraction"],
+  ["술집", "bar"],
+];
+function nearWantType(want: string): string | undefined {
+  return NEAR_WANT_TYPE.find(([k]) => want.includes(k))?.[1];
+}
+
+const NEAR_RADIUS_M = 3000;
+
 export async function GET(request: NextRequest) {
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
-  const query = stripLocalityFillers((request.nextUrl.searchParams.get("q") ?? "").trim());
+  const rawQuery = (request.nextUrl.searchParams.get("q") ?? "").trim();
+  const near = parseNearQuery(rawQuery);
+  const query = stripLocalityFillers(rawQuery);
   const category = request.nextUrl.searchParams.get("category") ?? "all";
   if (!query) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
 
   if (region === "domestic") {
-    return NextResponse.json(await searchDomestic(query));
+    return NextResponse.json(await searchDomestic(query, near));
   }
 
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -71,7 +105,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Google API Key is completely missing" }, { status: 500 });
   }
   const includedType = CATEGORY_TYPE_MAP[category];
-  return NextResponse.json(await searchInternational(query, googleApiKey, includedType, category));
+  return NextResponse.json(await searchInternational(query, googleApiKey, includedType, category, near));
 }
 
 interface GooglePlaceResult {
@@ -129,7 +163,31 @@ async function searchInternational(
   apiKey: string,
   includedType?: string,
   category?: string,
+  near?: { landmark: string; want: string } | null,
 ): Promise<{ places: Place[]; source: PlaceSearchSource }> {
+  // ── "X 근처 Y": geocode the landmark, then search Y with a locationBias
+  // circle around it — otherwise the landmark's name-match dominates and
+  // every result is the landmark itself. Falls through to the normal text
+  // path when the anchor or the biased search comes back empty.
+  if (near) {
+    const landmarkHits = await rawGoogleSearch(near.landmark, apiKey, undefined, "ko");
+    const anchor = landmarkHits?.[0];
+    if (anchor?.location) {
+      const want = near.want || (category ? CATEGORY_LABEL_KO[category] : "") || "맛집";
+      const type = includedType ?? nearWantType(want);
+      const nearby = await callGoogleSearchText(want, apiKey, type, {
+        lat: anchor.location.latitude,
+        lng: anchor.location.longitude,
+      });
+      const filtered = (nearby ?? []).filter((p) => p.id !== anchor.id);
+      if (filtered.length > 0) {
+        const merged: Place[] = [];
+        mergePlaces(merged, filtered);
+        return { places: merged.slice(0, 20), source: "google" };
+      }
+    }
+  }
+
   const concept = hasConceptKeyword(query);
   // Bias bare concept queries ("우메다 야경") toward attractions even when
   // the user picked no category chip.
@@ -217,10 +275,15 @@ async function searchInternational(
  * they're the same shop. Best-effort: if the native call fails, names just
  * render Korean-only as before.
  */
-async function callGoogleSearchText(query: string, apiKey: string, includedType?: string): Promise<Place[] | null> {
+async function callGoogleSearchText(
+  query: string,
+  apiKey: string,
+  includedType?: string,
+  bias?: { lat: number; lng: number },
+): Promise<Place[] | null> {
   const [ko, native] = await Promise.all([
-    rawGoogleSearch(query, apiKey, includedType, "ko"),
-    rawGoogleSearch(query, apiKey, includedType, undefined),
+    rawGoogleSearch(query, apiKey, includedType, "ko", bias),
+    rawGoogleSearch(query, apiKey, includedType, undefined, bias),
   ]);
   if (ko === null) return null;
   const nativeById = new Map<string, string>();
@@ -234,6 +297,7 @@ async function rawGoogleSearch(
   apiKey: string,
   includedType: string | undefined,
   languageCode: string | undefined,
+  bias?: { lat: number; lng: number },
 ): Promise<GooglePlaceResult[] | null> {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
@@ -249,6 +313,8 @@ async function rawGoogleSearch(
       maxResultCount: 20, // New Places API per-request cap for searchText
       ...(languageCode ? { languageCode } : {}),
       ...(includedType ? { includedType } : {}), // singular on purpose — see CATEGORY_TYPE_MAP
+      // "X 근처 Y" — anchor the text search to a circle around the resolved landmark.
+      ...(bias ? { locationBias: { circle: { center: { latitude: bias.lat, longitude: bias.lng }, radius: NEAR_RADIUS_M } } } : {}),
     }),
   });
   if (!res.ok) {
@@ -339,24 +405,53 @@ interface KakaoLocalDocument {
   y: string;
 }
 
-async function searchDomestic(query: string): Promise<{ places: Place[]; source: PlaceSearchSource }> {
+/** One Kakao Local keyword call; `at` anchors it to a coordinate + radius ("근처" searches). size=15 is Kakao's per-page max. */
+async function kakaoKeyword(
+  query: string,
+  apiKey: string,
+  at?: { x: string; y: string },
+): Promise<KakaoLocalDocument[] | null> {
+  const params = new URLSearchParams({ query, size: "15" });
+  if (at) {
+    params.set("x", at.x);
+    params.set("y", at.y);
+    params.set("radius", String(NEAR_RADIUS_M));
+    params.set("sort", "distance");
+  }
+  const res = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?${params.toString()}`, {
+    cache: "no-store",
+    headers: { Authorization: `KakaoAK ${apiKey}` },
+  });
+  console.log("[places/search] Kakao response status:", res.status);
+  if (!res.ok) {
+    console.error("[places/search] Kakao API error:", res.status, res.statusText, await res.text());
+    return null;
+  }
+  const data = (await res.json()) as { documents?: KakaoLocalDocument[] };
+  return data.documents ?? [];
+}
+
+async function searchDomestic(
+  query: string,
+  near?: { landmark: string; want: string } | null,
+): Promise<{ places: Place[]; source: PlaceSearchSource }> {
   const apiKey = process.env.KAKAO_REST_API_KEY;
   console.log("[places/search] Using Kakao API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
-    // size=15 is Kakao Local's own per-page maximum for keyword search (no
-    // slicing it back down afterward — a popular query deserves all 15,
-    // not an arbitrarily smaller subset of them).
-    const res = await fetch(
-      `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=15`,
-      { cache: "no-store", headers: { Authorization: `KakaoAK ${apiKey}` } },
-    );
-    console.log("[places/search] Kakao response status:", res.status);
-    if (res.ok) {
-      const data = (await res.json()) as { documents?: KakaoLocalDocument[] };
-      console.log("[places/search] Kakao API Response:", JSON.stringify(data));
-      return { places: (data.documents ?? []).map(kakaoDocToPlace), source: "kakao" };
+    // "X 근처 Y" — resolve the landmark first, then keyword-search Y sorted
+    // by distance within a radius of it (Kakao supports x/y/radius natively).
+    if (near) {
+      const landmarkDocs = await kakaoKeyword(near.landmark, apiKey);
+      const anchor = landmarkDocs?.[0];
+      if (anchor) {
+        const want = near.want || "맛집";
+        const nearby = await kakaoKeyword(want, apiKey, { x: anchor.x, y: anchor.y });
+        const filtered = (nearby ?? []).filter((d) => d.id !== anchor.id);
+        if (filtered.length > 0) return { places: filtered.map(kakaoDocToPlace), source: "kakao" };
+      }
     }
-    console.error("[places/search] Kakao API error:", res.status, res.statusText, await res.text());
+    const docs = await kakaoKeyword(query, apiKey);
+    if (docs !== null) return { places: docs.map(kakaoDocToPlace), source: "kakao" };
   }
   return { places: filterByName(DOMESTIC_PLACES, query), source: "mock" };
 }

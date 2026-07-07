@@ -83,6 +83,7 @@ const SEARCH_CATEGORY_FILTERS: { key: SpotCategoryFilter; label: string }[] = [
   { key: "테마파크", label: "테마파크" },
   { key: "음식점", label: "음식점" },
   { key: "술집", label: "술집" },
+  { key: "카페", label: "카페" },
   { key: "숙소", label: "숙소" },
 ];
 
@@ -1026,61 +1027,7 @@ function SearchResults({
 
   return (
     <div className="space-y-12">
-      {hasLiveResults && page === 1 && (
-        <section>
-          <SectionHeader
-            icon={Search}
-            iconClass="text-emerald-500"
-            emoji="🔎"
-            title={`"${query}" 실시간 검색 결과`}
-            caption={scope === "overseas" ? "Google 지도 기준 실제 장소 · 평점" : "카카오맵 기준 실제 장소"}
-          />
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {LIVE_SORTS.map((s) => {
-              const active = liveSort === s.key;
-              return (
-                <button
-                  key={s.key}
-                  onClick={() => setLiveSort(s.key)}
-                  className={`rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
-                    active ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-emerald-300"
-                  }`}
-                >
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
-          {/* 검색된 가게들이 플래그로 찍힌 결과 지도 — 플래그 탭 = 요약
-              팝업(메뉴 링크·상세), 아래 목록 카드 탭 = 해당 플래그 선택 */}
-          <MapProvider>
-            <div className="mt-4 h-72 overflow-hidden rounded-2xl border border-slate-200 shadow-sm sm:h-80">
-              <LiveResultsMap
-                places={sortedLiveResults}
-                selectedId={selectedLiveId}
-                onSelect={setSelectedLiveId}
-                onOpenDetail={onOpenLiveDetail}
-              />
-            </div>
-          </MapProvider>
-
-          <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {sortedLiveResults.map((place) => (
-              <LivePlaceCard
-                key={place.id}
-                place={place}
-                region={scope === "overseas" ? "international" : "domestic"}
-                onAdd={() => onAddLivePlace(place)}
-                onOpenDetail={() => {
-                  setSelectedLiveId(place.id);
-                  onOpenLiveDetail(place);
-                }}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
+      {/* ── ① 관련 지역 인기 루트 ── */}
       {routes.length > 0 && page === 1 && (
         <section>
           <SectionHeader icon={Crown} iconClass="text-amber-500" emoji="🏆" title={`"${query}" 인기 루트`} caption="좋아요 · 조회수가 높은 여행자들의 루트" />
@@ -1208,6 +1155,62 @@ function SearchResults({
               </button>
             </div>
           )}
+        </section>
+      )}
+
+      {/* ── ③ 그 외 종합 — 실시간(Google/Kakao) 전체 결과, 맨 마지막 ── */}
+      {hasLiveResults && page === 1 && (
+        <section>
+          <SectionHeader
+            icon={Search}
+            iconClass="text-emerald-500"
+            emoji="🔎"
+            title={`"${query}" 그 외 종합 결과`}
+            caption={scope === "overseas" ? "Google 지도 기준 실제 장소 · 평점" : "카카오맵 기준 실제 장소"}
+          />
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {LIVE_SORTS.map((s) => {
+              const active = liveSort === s.key;
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => setLiveSort(s.key)}
+                  className={`rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
+                    active ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-emerald-300"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+          {/* 검색된 가게들이 플래그로 찍힌 결과 지도 — 플래그 탭 = 요약
+              팝업(메뉴 링크·상세), 아래 목록 카드 탭 = 해당 플래그 선택 */}
+          <MapProvider>
+            <div className="mt-4 h-72 overflow-hidden rounded-2xl border border-slate-200 shadow-sm sm:h-80">
+              <LiveResultsMap
+                places={sortedLiveResults}
+                selectedId={selectedLiveId}
+                onSelect={setSelectedLiveId}
+                onOpenDetail={onOpenLiveDetail}
+              />
+            </div>
+          </MapProvider>
+
+          <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+            {sortedLiveResults.map((place) => (
+              <LivePlaceCard
+                key={place.id}
+                place={place}
+                region={scope === "overseas" ? "international" : "domestic"}
+                onAdd={() => onAddLivePlace(place)}
+                onOpenDetail={() => {
+                  setSelectedLiveId(place.id);
+                  onOpenLiveDetail(place);
+                }}
+              />
+            ))}
+          </div>
         </section>
       )}
     </div>
