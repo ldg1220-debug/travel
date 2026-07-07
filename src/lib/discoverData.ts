@@ -8,6 +8,8 @@
  * swap this module's contents for a DB-backed query, same as those.
  */
 
+import { CONTINENT_ORDER, DOMESTIC_CANONICAL, SIDO_PROVINCE } from "./regions";
+
 export type DiscoverScope = "domestic" | "overseas";
 export type Season = "spring" | "summer" | "fall" | "winter";
 
@@ -924,6 +926,14 @@ const WORLD_CITIES: WorldCity[] = [
   ["뉴질랜드", "오클랜드", -36.8485, 174.7633], ["뉴질랜드", "웰링턴", -41.2865, 174.7762], ["뉴질랜드", "크라이스트처치", -43.5321, 172.6362],
   ["뉴질랜드", "퀸즈타운", -45.0312, 168.6626], ["뉴질랜드", "로터루아", -38.1368, 176.2497], ["뉴질랜드", "해밀턴", -37.787, 175.2793],
   ["뉴질랜드", "더니든", -45.8788, 170.5028],
+  // 아프리카 (신규 대륙)
+  ["이집트", "카이로", 30.0444, 31.2357], ["이집트", "룩소르", 25.6872, 32.6396], ["이집트", "후르가다", 27.2579, 33.8116],
+  ["모로코", "마라케시", 31.6295, -7.9811], ["모로코", "카사블랑카", 33.5731, -7.5898], ["모로코", "셰프샤우엔", 35.1688, -5.2636],
+  ["남아프리카공화국", "케이프타운", -33.9249, 18.4241], ["남아프리카공화국", "요하네스버그", -26.2041, 28.0473],
+  ["케냐", "나이로비", -1.2921, 36.8219], ["케냐", "몸바사", -4.0435, 39.6682],
+  // 남미 보강 (신규 국가)
+  ["아르헨티나", "부에노스아이레스", -34.6037, -58.3816], ["아르헨티나", "멘도사", -32.8895, -68.8458],
+  ["페루", "리마", -12.0464, -77.0428], ["페루", "쿠스코", -13.5319, -71.9675],
 ];
 
 // Neutral, no-false-claim name suffixes — combined with the city name to
@@ -1035,10 +1045,16 @@ const COUNTRY_CONTINENT: Record<string, string> = {
   이탈리아: "유럽",
   스페인: "유럽",
   독일: "유럽",
-  미국: "미주",
-  캐나다: "미주",
-  멕시코: "미주",
-  브라질: "미주",
+  이집트: "아프리카",
+  모로코: "아프리카",
+  남아프리카공화국: "아프리카",
+  케냐: "아프리카",
+  미국: "북미",
+  캐나다: "북미",
+  멕시코: "북미",
+  브라질: "남미",
+  아르헨티나: "남미",
+  페루: "남미",
   호주: "오세아니아",
   뉴질랜드: "오세아니아",
 };
@@ -1060,30 +1076,55 @@ export function regionHierarchy(scope: DiscoverScope): RegionNode[] {
       if (!countries.has(country)) countries.set(country, new Set());
       if (city) countries.get(country)!.add(city);
     }
-    return Array.from(tree.entries()).map(([continent, countries]) => ({
+    // Fixed canonical continent order (아시아→유럽→아프리카→북미→남미→오세아니아)
+    // instead of data-insertion order, so the drill-down reads like an atlas.
+    const ordered = [...CONTINENT_ORDER.filter((c) => tree.has(c)), ...Array.from(tree.keys()).filter((c) => !CONTINENT_ORDER.includes(c))];
+    return ordered.map((continent) => ({
       label: continent,
-      children: Array.from(countries.entries()).map(([country, cities]) => ({
+      children: Array.from(tree.get(continent)!.entries()).map(([country, cities]) => ({
         label: country,
         children: Array.from(cities).map((city) => ({ label: city, children: [] })),
       })),
     }));
   }
-  const tree = new Map<string, Set<string>>();
-  for (const s of spots) {
-    const [region, neighborhood] = s.region.split(" · ");
-    if (!tree.has(region)) tree.set(region, new Set());
-    if (neighborhood) tree.get(region)!.add(neighborhood);
+  // 국내: 광역(도/특별시) → 시/군 → 동. The canonical 8도+광역시 skeleton
+  // (regions.ts) is always shown; data-derived 동네 leaves merge into it.
+  // A 시도 label with a SIDO_PROVINCE parent (e.g. 경주→경상북도) nests one
+  // level deeper than a metro city (서울 · 종로 stays 2-level).
+  const canonical = new Map<string, Map<string, Set<string>>>();
+  for (const prov of DOMESTIC_CANONICAL) {
+    canonical.set(prov.label, new Map(prov.children.map((c) => [c, new Set<string>()])));
   }
-  return Array.from(tree.entries()).map(([region, neighborhoods]) => ({
-    label: region,
-    children: Array.from(neighborhoods).map((n) => ({ label: n, children: [] })),
+  for (const s of spots) {
+    const [sido, neighborhood] = s.region.split(" · ");
+    const province = SIDO_PROVINCE[sido] ?? sido;
+    if (!canonical.has(province)) canonical.set(province, new Map());
+    const level2 = canonical.get(province)!;
+    if (province === sido) {
+      // metro: 동네 is the level-2 entry itself
+      if (neighborhood) {
+        if (!level2.has(neighborhood)) level2.set(neighborhood, new Set());
+      }
+    } else {
+      // 도: 시/군 at level 2, 동 at level 3
+      if (!level2.has(sido)) level2.set(sido, new Set());
+      if (neighborhood) level2.get(sido)!.add(neighborhood);
+    }
+  }
+  return Array.from(canonical.entries()).map(([province, level2]) => ({
+    label: province,
+    children: Array.from(level2.entries()).map(([city, dongs]) => ({
+      label: city,
+      children: Array.from(dongs).map((d) => ({ label: d, children: [] })),
+    })),
   }));
 }
 
 /**
  * `path` is up to 3 labels deep, most-general first — [continent, country,
- * city] for overseas, [region, neighborhood] for domestic. Every non-empty
- * segment must match; an empty path matches everything.
+ * city] for overseas, [광역, 시/군, 동] for domestic (metro cities like 서울
+ * have their 동네 at level 2). Every non-empty segment must match; an empty
+ * path matches everything.
  */
 export function matchesRegionPath(spot: DiscoverSpot, scope: DiscoverScope, path: string[]): boolean {
   if (path.length === 0) return true;
@@ -1095,8 +1136,17 @@ export function matchesRegionPath(spot: DiscoverSpot, scope: DiscoverScope, path
     if (path[2] && b !== path[2]) return false;
     return true;
   }
-  if (path[0] && a !== path[0]) return false;
-  if (path[1] && b !== path[1]) return false;
+  const province = SIDO_PROVINCE[a] ?? a;
+  if (province === a) {
+    // metro (서울 · 종로): [서울, 종로]
+    if (path[0] && a !== path[0]) return false;
+    if (path[1] && b !== path[1]) return false;
+    return true;
+  }
+  // 도 소속 (경주 · 황남동): [경상북도, 경주, 황남동]
+  if (path[0] && province !== path[0]) return false;
+  if (path[1] && a !== path[1]) return false;
+  if (path[2] && b !== path[2]) return false;
   return true;
 }
 
@@ -1105,14 +1155,16 @@ export function matchesRegionPath(spot: DiscoverSpot, scope: DiscoverScope, path
  * — routes only carry a single simplified `region` label (a 시도 name like
  * "경주" for domestic, or a city name like "오사카" for overseas) rather
  * than the "a · b" pair spots use, so it can't reuse that function as-is.
- * For overseas, the route's city is resolved back up to its
- * country/continent via `regionHierarchy` so a continent- or
- * country-level selection still matches it.
+ * The route's label is resolved back up its hierarchy (도 for domestic,
+ * country/continent for overseas) so a broader selection still matches it.
  */
 export function routeMatchesRegionPath(route: DiscoverRoute, scope: DiscoverScope, path: string[]): boolean {
   if (path.length === 0) return true;
   if (scope === "domestic") {
-    return path[0] === route.region;
+    const province = SIDO_PROVINCE[route.region] ?? route.region;
+    if (path[0] && path[0] !== province) return false;
+    if (path[1] && province !== route.region && path[1] !== route.region) return false;
+    return true;
   }
   for (const continentNode of regionHierarchy(scope)) {
     for (const countryNode of continentNode.children) {

@@ -63,6 +63,38 @@ function score(rating?: number, reviews?: number): number {
   return rating * Math.log10((reviews ?? 0) + 10);
 }
 
+/** Haversine distance in km. */
+function distKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+/**
+ * Popularity minus a travel-distance penalty from the previous stop — so the
+ * course flows through the city instead of zig-zagging (a slightly
+ * lower-rated café 500m away beats a top-rated one across town). ~0.35점 per
+ * km, capped so a genuinely famous far-away spot can still win.
+ */
+function proximityScore(rating: number | undefined, reviews: number | undefined, lat: number, lng: number, prev: { lat: number; lng: number } | null): number {
+  const base = score(rating, reviews);
+  if (!prev || !lat || !lng) return base;
+  return base - Math.min(distKm(prev.lat, prev.lng, lat, lng) * 0.35, 4);
+}
+
+/** Same-shop duplicate guard: normalized-name prefix match (우오신/우오신 우메다점) so the course doesn't book the same brand twice. */
+function normName(s: string): string {
+  return s.toLowerCase().replace(/[（(【「][^）)】」]*[）)】」]/g, "").replace(/[\s·・,，.\-–—!！?？'"|｜/]/g, "");
+}
+function sameShop(a: string, b: string): boolean {
+  const na = normName(a);
+  const nb = normName(b);
+  if (!na || !nb) return false;
+  return na.startsWith(nb) || nb.startsWith(na);
+}
+
 async function googleTop(query: string, apiKey: string, includedType?: string): Promise<GooglePlace[]> {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
@@ -114,9 +146,16 @@ export async function GET(request: NextRequest) {
       const type = slot.category ? CATEGORY_TYPE[slot.category] : undefined;
       const label = slot.category ? CATEGORY_LABEL[slot.category] : "";
       const results = await googleTop(`${city} ${slot.keyword}${label ? " " + label : ""}`, apiKey, type);
+      // Popularity + proximity to the previous stop (keeps the day walkable),
+      // skipping ids already used AND same-brand duplicates by name.
+      const prev = course.length > 0 ? { lat: course[course.length - 1].lat, lng: course[course.length - 1].lng } : null;
       const best = results
-        .filter((p) => !used.has(p.id))
-        .sort((a, b) => score(b.rating, b.userRatingCount) - score(a.rating, a.userRatingCount))[0];
+        .filter((p) => !used.has(p.id) && !course.some((c) => sameShop(c.name, p.displayName?.text ?? "")))
+        .sort(
+          (a, b) =>
+            proximityScore(b.rating, b.userRatingCount, b.location?.latitude ?? 0, b.location?.longitude ?? 0, prev) -
+            proximityScore(a.rating, a.userRatingCount, a.location?.latitude ?? 0, a.location?.longitude ?? 0, prev),
+        )[0];
       if (!best) continue;
       used.add(best.id);
       course.push({
@@ -146,7 +185,13 @@ export async function GET(request: NextRequest) {
   if (!apiKey) return NextResponse.json({ course: [], source: "mock" });
   for (const slot of RECOMMEND_SLOTS) {
     const results = await kakaoTop(`${city} ${slot.keyword}`, apiKey);
-    const best = results.filter((d) => !used.has(d.id))[0];
+    // Kakao has no ratings — among its (already relevance-ranked) top hits,
+    // prefer the one closest to the previous stop; skip same-brand names.
+    const prev = course.length > 0 ? { lat: course[course.length - 1].lat, lng: course[course.length - 1].lng } : null;
+    const candidates = results.filter((d) => !used.has(d.id) && !course.some((c) => sameShop(c.name, d.place_name)));
+    const best = prev
+      ? [...candidates.slice(0, 5)].sort((a, b) => distKm(prev.lat, prev.lng, Number(a.y), Number(a.x)) - distKm(prev.lat, prev.lng, Number(b.y), Number(b.x)))[0]
+      : candidates[0];
     if (!best) continue;
     used.add(best.id);
     course.push({

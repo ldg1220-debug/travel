@@ -10,12 +10,12 @@ import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchLivePlaceSearch, fetchRecommendedCourse, type RecommendedStop } from "@/lib/api";
-import { COURSE_SLOTS, regionsForScope, type CourseSlot } from "@/lib/courseRegions";
+import { COURSE_SLOTS, courseNodesAtPath, courseRegionTree, searchableDepth, type CourseSlot } from "@/lib/courseRegions";
 import { todayISODate, pad2, formatDateLabel } from "@/lib/timeline";
 import type { DiscoverScope } from "@/lib/discoverData";
 import type { Place } from "@/lib/types";
 
-type Step = "scope" | "region" | "city" | "build";
+type Step = "scope" | "drill" | "build";
 
 export default function CourseBuilderPage() {
   const router = useRouter();
@@ -27,8 +27,8 @@ export default function CourseBuilderPage() {
 
   const [step, setStep] = useState<Step>("scope");
   const [scope, setScope] = useState<DiscoverScope>("domestic");
-  const [region, setRegion] = useState<string | null>(null);
-  const [city, setCity] = useState<string | null>(null);
+  // 통합 지역 트리 드릴다운 경로 — 국내 [광역, 시/군], 해외 [대륙, 국가, 도시].
+  const [path, setPath] = useState<string[]>([]);
   // slot key -> chosen places (multiple allowed per slot)
   const [picks, setPicks] = useState<Record<string, Place[]>>({});
   const [activeSlot, setActiveSlot] = useState<string>(COURSE_SLOTS[0].key);
@@ -41,19 +41,48 @@ export default function CourseBuilderPage() {
   const [aiCourse, setAiCourse] = useState<RecommendedStop[] | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
 
-  const regions = regionsForScope(scope);
-  const regionGroup = regions.find((r) => r.label === region) ?? null;
+  const tree = courseRegionTree(scope);
+  const options = courseNodesAtPath(tree, path);
+  const maxDepth = searchableDepth(scope);
+  const city = path.length > 0 ? path[path.length - 1] : null;
 
   const showToast = (m: string) => {
     setToast(m);
     setTimeout(() => setToast(null), 1800);
   };
 
-  const reset = (toStep: Step) => {
-    if (toStep === "scope") { setRegion(null); setCity(null); setPicks({}); }
-    if (toStep === "region") { setCity(null); setPicks({}); }
-    if (toStep === "city") { setPicks({}); setActiveSlot(COURSE_SLOTS[0].key); }
-    setStep(toStep);
+  /** Drill one level deeper; reaching the searchable depth (or a leaf) starts the build step. */
+  const drillInto = (label: string) => {
+    const next = [...path, label];
+    setPath(next);
+    if (next.length >= maxDepth || courseNodesAtPath(tree, next).length === 0) {
+      setPicks({});
+      setActiveSlot(COURSE_SLOTS[0].key);
+      setStep("build");
+    }
+  };
+
+  /** Back one step: build → last drill level; drill → pop a level (or scope at the root). */
+  const goBack = () => {
+    if (path.length === 0) {
+      setStep("scope");
+      return;
+    }
+    setPath(path.slice(0, -1));
+    setPicks({});
+    setStep("drill");
+  };
+
+  /** Breadcrumb jump — truncate the path to `depth`; a searchable-depth segment reopens the build step, anything shallower reopens the drill. */
+  const jumpTo = (depth: number) => {
+    const next = path.slice(0, depth);
+    setPath(next);
+    setPicks({});
+    if (depth === 0) {
+      setStep("scope");
+      return;
+    }
+    setStep(next.length >= maxDepth || courseNodesAtPath(tree, next).length === 0 ? "build" : "drill");
   };
 
   // Flattened picks in slot order (관광지 → 점심 → … ), preserving pick
@@ -142,7 +171,7 @@ export default function CourseBuilderPage() {
         <div className="mb-6 flex items-center gap-3">
           {step !== "scope" && (
             <button
-              onClick={() => reset(step === "region" ? "scope" : step === "city" ? "region" : "city")}
+              onClick={goBack}
               aria-label="뒤로"
               className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
             >
@@ -155,26 +184,29 @@ export default function CourseBuilderPage() {
             </h1>
             <p className="mt-0.5 text-[13px] text-slate-500">
               {step === "scope" && "국내 여행부터 시작해볼까요?"}
-              {step === "region" && `${scope === "domestic" ? "어느 지역" : "어느 나라"}으로 떠나시나요?`}
-              {step === "city" && `${region} 안에서 도시를 골라주세요`}
+              {step === "drill" &&
+                (scope === "domestic"
+                  ? path.length === 0
+                    ? "어느 지역으로 떠나시나요?"
+                    : `${path[path.length - 1]} 안에서 시·군을 골라주세요`
+                  : path.length === 0
+                    ? "어느 대륙으로 떠나시나요?"
+                    : path.length === 1
+                      ? `${path[0]}에서 나라를 골라주세요`
+                      : `${path[path.length - 1]}에서 도시를 골라주세요`)}
               {step === "build" && `${city} 코스를 카테고리별로 채워보세요 (여러 곳 담기 가능)`}
             </p>
           </div>
         </div>
 
-        {/* breadcrumb */}
-        {(region || city) && (
+        {/* breadcrumb — 드릴다운 경로, 누르면 그 단계로 점프 */}
+        {path.length > 0 && (
           <div className="mb-5 flex flex-wrap items-center gap-1.5 text-[12px]">
-            {region && (
-              <button onClick={() => reset("city")} className="rounded-full bg-indigo-600 px-3 py-1 font-semibold text-white">
-                {region}
+            {path.map((label, i) => (
+              <button key={label} onClick={() => jumpTo(i + 1) /* keep up to this segment */} className="rounded-full bg-indigo-600 px-3 py-1 font-semibold text-white">
+                {label}
               </button>
-            )}
-            {city && (
-              <button onClick={() => reset("build")} className="rounded-full bg-indigo-600 px-3 py-1 font-semibold text-white">
-                {city}
-              </button>
-            )}
+            ))}
           </div>
         )}
 
@@ -188,7 +220,7 @@ export default function CourseBuilderPage() {
               ]).map((s) => (
                 <button
                   key={s.key}
-                  onClick={() => { setScope(s.key); setStep("region"); }}
+                  onClick={() => { setScope(s.key); setPath([]); setStep("drill"); }}
                   className="flex flex-col items-start gap-2 rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
                 >
                   <span className="text-4xl">{s.flag}</span>
@@ -200,36 +232,35 @@ export default function CourseBuilderPage() {
           </div>
         )}
 
-        {/* ── STEP: region (시·도 / 국가) ── */}
-        {step === "region" && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {regions.map((r) => (
-              <button
-                key={r.label}
-                onClick={() => { setRegion(r.label); setStep("city"); }}
-                className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left font-semibold shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
-              >
-                <span className="text-2xl">{r.emoji}</span>
-                {r.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* ── STEP: city ── */}
-        {step === "city" && regionGroup && (
-          <div className="flex flex-wrap gap-2.5">
-            {regionGroup.cities.map((c) => (
-              <button
-                key={c}
-                onClick={() => { setCity(c); setStep("build"); }}
-                className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-[14px] font-semibold shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* ── STEP: drill (국내 광역→시·군 / 해외 대륙→국가→도시 — 탐색의 지역별과 같은 통합 트리) ── */}
+        {step === "drill" &&
+          (path.length === 0 ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {options.map((r) => (
+                <button
+                  key={r.label}
+                  onClick={() => drillInto(r.label)}
+                  className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left font-semibold shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
+                >
+                  <span className="text-2xl">{r.emoji ?? "📍"}</span>
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2.5">
+              {options.map((c) => (
+                <button
+                  key={c.label}
+                  onClick={() => drillInto(c.label)}
+                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-[14px] font-semibold shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
+                >
+                  {c.emoji ? `${c.emoji} ` : ""}
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          ))}
 
         {/* ── STEP: build course ── */}
         {step === "build" && city && (

@@ -65,7 +65,6 @@ import { bookingProviders, isLodging, hasAffiliateLink } from "@/lib/affiliates"
 const RoutePreviewMap = dynamic(() => import("./RoutePreviewMap"), { ssr: false });
 const LiveResultsMap = dynamic(() => import("./LiveResultsMap"), { ssr: false });
 
-type CategoryFilter = "all" | "season" | "hot" | "region";
 type SectionKind = "trending" | "favorites" | "routes";
 const COMPACT_SPOT_COUNT = 4;
 const COMPACT_ROUTE_COUNT = 2;
@@ -75,12 +74,6 @@ const SCOPES: { key: DiscoverScope; label: string; flag: string }[] = [
   { key: "overseas", label: "해외 여행", flag: "🌐" },
 ];
 
-const CATEGORY_FILTERS: { key: CategoryFilter; label: string }[] = [
-  { key: "all", label: "전체" },
-  { key: "season", label: "계절별" },
-  { key: "hot", label: "최근 핫한" },
-  { key: "region", label: "지역별" },
-];
 
 /** Search results' "카테고리별 장소" sub-filter chips — a coarser subset of PlaceCategoryTag focused on trip-planning essentials (맛집/숙소 pickup), not every tag the data model supports. */
 type SpotCategoryFilter = "all" | PlaceCategoryTag;
@@ -244,7 +237,11 @@ export default function DiscoverPage() {
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
 
   const [scope, setScope] = useState<DiscoverScope>("domestic");
-  const [category, setCategory] = useState<CategoryFilter>("all");
+  // 계절/핫한 are combinable check-filters; 지역별 opens the drill-down and
+  // its path stacks with both checks (e.g. 경상북도>경주 + 🍂계절 + 🔥핫한).
+  const [seasonCheck, setSeasonCheck] = useState(false);
+  const [hotCheck, setHotCheck] = useState(false);
+  const [regionOpen, setRegionOpen] = useState(false);
   const [regionPath, setRegionPath] = useState<string[]>([]);
   const [queryInput, setQueryInput] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
@@ -281,10 +278,10 @@ export default function DiscoverPage() {
     toastTimer.current = setTimeout(() => setToast(null), 1800);
   };
 
-  // ── browse feed: branches by scope + category, hits a real API route ──
+  // ── browse feed: scope + combinable filters (지역 path × 계절 × 핫한) ──
   const { data: browseData } = useQuery({
-    queryKey: ["discover-trends", scope, category, category === "region" ? regionPath : null],
-    queryFn: () => fetchDiscoverBundle(scope, category, category === "region" ? regionPath : []),
+    queryKey: ["discover-trends", scope, seasonCheck, hotCheck, regionPath],
+    queryFn: () => fetchDiscoverBundle(scope, regionPath.length > 0 ? "region" : "all", regionPath, { season: seasonCheck, hot: hotCheck }),
     enabled: activeQuery.trim().length === 0,
   });
 
@@ -318,7 +315,9 @@ export default function DiscoverPage() {
 
   const handleScopeChange = (next: DiscoverScope) => {
     setScope(next);
-    setCategory("all");
+    setSeasonCheck(false);
+    setHotCheck(false);
+    setRegionOpen(false);
     setRegionPath([]);
     setExpandedSection(null);
     clearSearch();
@@ -482,27 +481,53 @@ export default function DiscoverPage() {
 
           {!isSearching && !expandedSection && (
             <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-              {CATEGORY_FILTERS.map((c) => {
-                const active = category === c.key;
-                return (
-                  <button
-                    key={c.key}
-                    onClick={() => {
-                      setCategory(c.key);
-                      setRegionPath([]);
-                    }}
-                    className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
-                      active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                    }`}
-                  >
-                    {c.key === "season" && "🍂 "}
-                    {c.key === "hot" && "🔥 "}
-                    {c.key === "region" && "📍 "}
-                    {c.label}
-                    {c.key === "season" && browseData?.season ? ` · ${SEASON_LABEL[browseData.season]}` : ""}
-                  </button>
-                );
-              })}
+              {/* 전체 = 모든 필터 해제 */}
+              <button
+                onClick={() => {
+                  setSeasonCheck(false);
+                  setHotCheck(false);
+                  setRegionOpen(false);
+                  setRegionPath([]);
+                }}
+                className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                  !seasonCheck && !hotCheck && regionPath.length === 0
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                }`}
+              >
+                전체
+              </button>
+              {/* 계절/핫한: 서로도, 지역과도 겹쳐 쓸 수 있는 체크 필터 */}
+              <button
+                onClick={() => setSeasonCheck((v) => !v)}
+                aria-pressed={seasonCheck}
+                className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                  seasonCheck ? "border-amber-500 bg-amber-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                }`}
+              >
+                {seasonCheck ? "✓ " : ""}🍂 계절별{browseData?.season ? ` · ${SEASON_LABEL[browseData.season]}` : ""}
+              </button>
+              <button
+                onClick={() => setHotCheck((v) => !v)}
+                aria-pressed={hotCheck}
+                className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                  hotCheck ? "border-rose-500 bg-rose-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                }`}
+              >
+                {hotCheck ? "✓ " : ""}🔥 최근 핫한
+              </button>
+              {/* 지역별: 드릴다운 열기/닫기 (경로는 유지) */}
+              <button
+                onClick={() => setRegionOpen((v) => !v)}
+                aria-pressed={regionOpen || regionPath.length > 0}
+                className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                  regionOpen || regionPath.length > 0
+                    ? "border-indigo-600 bg-indigo-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                }`}
+              >
+                📍 지역별{regionPath.length > 0 ? ` · ${regionPath[regionPath.length - 1]}` : ""}
+              </button>
             </div>
           )}
 
@@ -526,8 +551,8 @@ export default function DiscoverPage() {
             </div>
           )}
 
-          {/* 지역별 drill-down: 대륙→국가→도시 (overseas) / 시도→동네 (domestic) */}
-          {!isSearching && !expandedSection && category === "region" && (
+          {/* 지역별 drill-down: 대륙→국가→도시 (해외) / 광역→시군→동 (국내) */}
+          {!isSearching && !expandedSection && (regionOpen || regionPath.length > 0) && (
             <div className="mt-3 flex flex-col items-center gap-2">
               {regionPath.length > 0 && (
                 <div className="flex flex-wrap items-center justify-center gap-1.5">
@@ -597,7 +622,7 @@ export default function DiscoverPage() {
           /* ── BROWSE CONTENT (switches on scope + category) ── */
           <AnimatePresence mode="wait">
             <motion.div
-              key={`${scope}-${category}-${regionPath.join("/")}`}
+              key={`${scope}-${seasonCheck}-${hotCheck}-${regionPath.join("/")}`}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
@@ -620,10 +645,10 @@ export default function DiscoverPage() {
               {bundle && bundle.trending.length > 0 && (
                 <>
                   <SectionHeader
-                    icon={category === "hot" ? Flame : category === "season" ? Sparkles : Flame}
+                    icon={hotCheck ? Flame : seasonCheck ? Sparkles : Flame}
                     iconClass="text-rose-500"
-                    emoji={category === "season" ? "🍂" : "🔥"}
-                    title={category === "hot" ? "지금 가장 핫한 장소" : category === "season" ? "이 계절 추천" : "지금 뜨는 장소"}
+                    emoji={seasonCheck && !hotCheck ? "🍂" : "🔥"}
+                    title={hotCheck ? "지금 가장 핫한 장소" : seasonCheck ? "이 계절 추천" : "지금 뜨는 장소"}
                     caption="지금 가장 많이 담긴 실시간 핫플"
                     onSeeAll={bundle.trending.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("trending") : undefined}
                   />

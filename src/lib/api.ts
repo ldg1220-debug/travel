@@ -153,9 +153,13 @@ export async function fetchDiscoverBundle(
   scope: DiscoverScope,
   category: string,
   path: string[],
+  /** 계절/핫한 check-filters — combinable with each other and with a region path. */
+  checks?: { season?: boolean; hot?: boolean },
 ): Promise<DiscoverBrowseResponse> {
   const params = new URLSearchParams({ scope, category });
   if (path.length > 0) params.set("path", path.join(","));
+  if (checks?.season) params.set("season", "1");
+  if (checks?.hot) params.set("hot", "1");
   const res = await fetch(`/api/discover/trends?${params.toString()}`);
   if (!res.ok) throw new Error("Failed to load discover feed");
   return res.json();
