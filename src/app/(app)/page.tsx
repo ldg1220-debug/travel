@@ -59,12 +59,12 @@ export default function HomePage() {
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
-        {/* ── GREETING ── */}
+        {/* ── GREETING ── (the brand wordmark + slogan live in the top bar) */}
         <section className="mb-8">
           <h1 className="text-2xl font-bold tracking-tight">
             {firstName ? `안녕하세요, ${firstName}님 👋` : "안녕하세요 👋"}
           </h1>
-          <p className="mt-1 text-[13px] text-slate-500">오늘은 어디로 떠나볼까요?</p>
+          <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">오늘은 어디로 떠나볼까요?</p>
         </section>
 
         {/* ── QUICK ACCESS ── */}

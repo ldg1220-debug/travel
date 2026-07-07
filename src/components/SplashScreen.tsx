@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BrandLogo } from "./BrandLogo";
+import { ThemedLogo } from "./BrandLogo";
 
 const SESSION_KEY = "tradule_splash_shown";
 
@@ -47,40 +47,8 @@ export function SplashScreen() {
       aria-hidden
     >
       <div className="flex flex-col items-center gap-4">
-        {/* black logo in light mode, white logo in dark mode */}
-        <span className="dark:hidden">
-          <BrandLogo
-            imgClassName="h-40 w-auto animate-[fadeInUp_0.5s_ease-out]"
-            fallback={
-              <div className="flex flex-col items-center gap-3">
-                <span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-indigo-500 to-violet-500 text-[32px] shadow-xl shadow-indigo-200">
-                  ✈️
-                </span>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-2xl font-bold tracking-tight text-slate-900">Tradule</span>
-                  <span className="text-[13px] font-medium text-slate-400">트레쥴</span>
-                </div>
-              </div>
-            }
-          />
-        </span>
-        <span className="hidden dark:inline">
-          <BrandLogo
-            variant="light"
-            imgClassName="h-40 w-auto animate-[fadeInUp_0.5s_ease-out]"
-            fallback={
-              <div className="flex flex-col items-center gap-3">
-                <span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-indigo-500 to-violet-500 text-[32px] shadow-xl">
-                  ✈️
-                </span>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-2xl font-bold tracking-tight text-slate-100">Tradule</span>
-                  <span className="text-[13px] font-medium text-slate-400">트레쥴</span>
-                </div>
-              </div>
-            }
-          />
-        </span>
+        {/* full graffiti emblem, sized up — black in light mode, cyan neon in dark mode */}
+        <ThemedLogo imgClassName="h-56 w-auto animate-[fadeInUp_0.5s_ease-out]" />
         {/* subtle loading dots */}
         <div className="mt-2 flex gap-1.5">
           {[0, 1, 2].map((i) => (

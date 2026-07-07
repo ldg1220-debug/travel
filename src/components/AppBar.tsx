@@ -7,7 +7,7 @@ import { useSession, signOut } from "next-auth/react";
 import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown, LogIn, LogOut } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
-import { BrandLogo } from "@/components/BrandLogo";
+import { ThemedLogo } from "@/components/BrandLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
@@ -107,28 +107,8 @@ export function AppBar() {
               <div className="flex items-center justify-between pr-8">
                 <SheetTitle>
                   <Link href="/" onClick={() => setMenuOpen(false)} className="flex items-baseline gap-1.5 transition-opacity hover:opacity-80">
-                    {/* black logo in light mode, white logo in dark mode (each hides its own fallback too) */}
-                    <span className="dark:hidden">
-                      <BrandLogo
-                        imgClassName="h-20 w-auto"
-                        fallback={
-                          <span className="flex items-baseline gap-1.5">
-                            Tradule<span className="text-[13px] font-medium text-slate-400">트레쥴</span>
-                          </span>
-                        }
-                      />
-                    </span>
-                    <span className="hidden dark:inline">
-                      <BrandLogo
-                        variant="light"
-                        imgClassName="h-20 w-auto"
-                        fallback={
-                          <span className="flex items-baseline gap-1.5 text-slate-100">
-                            Tradule<span className="text-[13px] font-medium text-slate-400">트레쥴</span>
-                          </span>
-                        }
-                      />
-                    </span>
+                    {/* compact header → lettering-only wordmark (the full graffiti emblem lives on roomy surfaces: splash/login) */}
+                    <ThemedLogo form="wordmark" imgClassName="h-10 w-auto" textClassName="text-2xl" />
                   </Link>
                 </SheetTitle>
                 <ThemeToggle />
@@ -294,6 +274,15 @@ export function AppBar() {
               </span>
               <span className="text-[15px] font-bold leading-tight text-slate-900 dark:text-slate-100">{currentCity}</span>
             </>
+          ) : pathname === "/" ? (
+            // Home: lettering-only wordmark instead of the "홈" title, with the
+            // slogan — wordmark bold, slogan thin, for contrast.
+            <Link href="/" className="flex items-baseline gap-2 transition-opacity hover:opacity-80">
+              <ThemedLogo form="wordmark" imgClassName="h-7 w-auto" glow={false} textClassName="text-[19px]" />
+              <span className="hidden text-[11px] font-light tracking-wide text-slate-500 min-[400px]:inline dark:text-slate-400">
+                당신의 여행 파트너
+              </span>
+            </Link>
           ) : (
             <span className="text-[15px] font-bold text-slate-900 dark:text-slate-100">{PAGE_TITLES[pathname ?? ""] ?? "트레쥴"}</span>
           )}
