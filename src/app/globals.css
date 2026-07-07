@@ -59,6 +59,43 @@
   --ring: #475569;
 }
 
+/* ── Broad dark surface remap ──
+   The inner pages (탐색/플래너/스크랩북/코스/관심장소) use hundreds of raw
+   slate utilities (bg-white cards, text-slate-900, border-slate-200, …).
+   Remapping those literal classes under `.dark` themes every page at once
+   without a per-element pass. Notes:
+   - Only literal utility classes are targeted, NOT the `dark:` variants
+     (e.g. `.dark\:bg-white`), so explicit per-element dark overrides still win.
+   - Opacity-white chips (bg-white/85 …) sit on colored/gradient cards and stay
+     light, so the last rule forces their text dark to stay readable.
+   - Gradients and colored utilities are untouched, so cards keep their look. */
+.dark .bg-white { background-color: #0f172a; }
+.dark .bg-slate-50 { background-color: #0b1120; }
+.dark .bg-slate-100 { background-color: #1e293b; }
+.dark .border-slate-200,
+.dark .border-slate-200\/70,
+.dark .border-slate-100,
+.dark .border-slate-300 { border-color: #1e293b; }
+.dark .text-slate-900 { color: #f1f5f9; }
+.dark .text-slate-800 { color: #e2e8f0; }
+.dark .text-slate-700 { color: #cbd5e1; }
+.dark .text-slate-600 { color: #cbd5e1; }
+.dark .text-slate-500 { color: #94a3b8; }
+/* dark accent (active chips/buttons that were bg-slate-900 + text-white) should
+   invert to a light chip so they stand out on the now-dark page */
+.dark .bg-slate-900 { background-color: #e2e8f0; }
+.dark .border-slate-900 { border-color: #e2e8f0; }
+.dark .bg-slate-900.text-white,
+.dark .bg-slate-900 .text-white { color: #0f172a; }
+/* keep translucent-white chips/badges (on colored cards) readable with dark text */
+.dark .bg-white\/85,
+.dark .bg-white\/90,
+.dark .bg-white\/80,
+.dark .bg-white\/70 { color: #1e293b; }
+/* map placeholder / fake-map surfaces (arbitrary + custom classes) */
+.dark .bg-\[\#eef2f4\] { background-color: #0f172a; }
+.dark .map-bg { background-color: #0f172a; background-image: none; }
+
 body {
   background: var(--background);
   color: var(--foreground);
