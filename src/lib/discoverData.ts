@@ -983,6 +983,83 @@ WORLD_CITIES.forEach(([country, city, lat, lng], idx) => {
   pushGeneratedBatch(OVERSEAS, `${prefix}-stay`, stayNames, region, "숙소", "hotel", lat, lng, 1900, 1);
 });
 
+// ── domestic breadth pass: the overseas registry above grew 해외 to 1,800+
+// spots, but 국내 was still only 제주2/서울4/부산2/경주46 — drilling 지역별
+// into almost any Korean region showed 1-2 lonely cards or the coming-soon
+// fallback. Same template-generator approach, one entry per canonical
+// 시/군/구 (regions.ts): metro 동네 keep the "시도 · 동네" format the
+// existing data uses; 도-cities use their bare label ("강릉"). ──
+type DomesticCitySeed = [region: string, lat: number, lng: number];
+const DOMESTIC_CITY_SEEDS: DomesticCitySeed[] = [
+  // 서울 (구/동네)
+  ["서울 · 종로", 37.573, 126.9794], ["서울 · 성수", 37.5445, 127.0557], ["서울 · 강남", 37.4979, 127.0276],
+  ["서울 · 홍대", 37.5563, 126.922], ["서울 · 명동", 37.5636, 126.983], ["서울 · 잠실", 37.5133, 127.1001],
+  ["서울 · 이태원", 37.5347, 126.9945],
+  // 부산
+  ["부산 · 해운대", 35.1587, 129.1604], ["부산 · 광안리", 35.1532, 129.1187], ["부산 · 남포동", 35.0988, 129.0304],
+  ["부산 · 사하", 35.0983, 128.977], ["부산 · 기장", 35.2446, 129.2222],
+  // 인천
+  ["인천 · 송도", 37.3825, 126.6567], ["인천 · 월미도", 37.4753, 126.5972], ["인천 · 강화", 37.7468, 126.4878],
+  ["인천 · 영종도", 37.4933, 126.5386],
+  // 제주
+  ["제주 · 제주시", 33.4996, 126.5312], ["제주 · 서귀포", 33.2541, 126.5601], ["제주 · 애월", 33.4623, 126.3096],
+  ["제주 · 성산", 33.4586, 126.9425], ["제주 · 중문", 33.2496, 126.412], ["제주 · 한림", 33.4108, 126.2691],
+  // 경기
+  ["수원", 37.2636, 127.0286], ["용인", 37.2411, 127.1776], ["가평", 37.8315, 127.5105],
+  ["파주", 37.7599, 126.78], ["포천", 37.8949, 127.2003], ["양평", 37.4914, 127.4874],
+  // 강원
+  ["강릉", 37.7519, 128.8761], ["속초", 38.207, 128.5918], ["춘천", 37.8813, 127.7298],
+  ["평창", 37.3705, 128.3897], ["양양", 38.0754, 128.6191], ["정선", 37.3806, 128.6608], ["동해", 37.5247, 129.1143],
+  // 충청
+  ["대전", 36.3504, 127.3845], ["청주", 36.6424, 127.489], ["공주", 36.4465, 127.119],
+  ["단양", 36.9845, 128.3655], ["보령", 36.3331, 126.6129], ["태안", 36.7456, 126.2978], ["천안", 36.8151, 127.1139],
+  // 전라
+  ["광주", 35.1595, 126.8526], ["전주", 35.8242, 127.148], ["여수", 34.7604, 127.6622],
+  ["순천", 34.9507, 127.4872], ["목포", 34.8118, 126.3922], ["군산", 35.9678, 126.7369], ["담양", 35.3211, 126.988],
+  // 경상 (경주는 위에 실명 데이터가 이미 풍부해서 제외)
+  ["대구", 35.8714, 128.6014], ["울산", 35.5384, 129.3114], ["통영", 34.8544, 128.4331],
+  ["거제", 34.8806, 128.6211], ["진주", 35.18, 128.1076], ["김해", 35.2285, 128.8894],
+  ["남해", 34.8376, 127.8924], ["안동", 36.5684, 128.7294], ["포항", 36.019, 129.3435],
+  ["문경", 36.5866, 128.1867], ["울릉", 37.4844, 130.9058],
+];
+
+const DOM_ATTR_SUFFIXES = ["대표 전망대", "구시가지 산책길", "중앙시장", "시립 미술관", "시민공원", "문화의 거리", "야경 명소", "핫플 골목", "전통 한옥길", "레트로 골목"];
+const DOM_FOOD_SUFFIXES: { suffix: string; cuisine: CuisineTag; subTags: string[] }[] = [
+  { suffix: "로컬 맛집", cuisine: "한식", subTags: ["로컬맛집", "현지음식"] },
+  { suffix: "전통시장 먹거리", cuisine: "한식", subTags: ["시장", "길거리음식"] },
+  { suffix: "노포 국밥집", cuisine: "한식", subTags: ["국밥", "노포"] },
+  { suffix: "감성 브런치 카페", cuisine: "카페/디저트", subTags: ["브런치", "카페"] },
+  { suffix: "디저트 카페", cuisine: "카페/디저트", subTags: ["디저트", "카페"] },
+  { suffix: "한우 구이집", cuisine: "한식", subTags: ["한우", "구이"] },
+  { suffix: "분식 골목", cuisine: "한식", subTags: ["분식", "길거리음식"] },
+  { suffix: "해물 맛집", cuisine: "한식", subTags: ["해산물", "회"] },
+];
+const DOM_STAY_SUFFIXES = ["시티 호텔", "게스트하우스", "한옥스테이", "리버뷰 펜션", "부티크 스테이"];
+
+DOMESTIC_CITY_SEEDS.forEach(([region, lat, lng], idx) => {
+  const label = region.split(" · ").pop()!;
+  const off = [...label].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+  const prefix = `d-gen${idx}`;
+  const attrNames = rotatePick(DOM_ATTR_SUFFIXES, off, 4).map((s) => `${label} ${s}`);
+  const foods = rotatePick(DOM_FOOD_SUFFIXES, off, 4);
+  const stayNames = rotatePick(DOM_STAY_SUFFIXES, off, 2).map((s) => `${label} ${s}`);
+  pushGeneratedBatch(DOMESTIC, `${prefix}-attr`, attrNames, region, "관광지", "landmark", lat, lng, 2600, 2);
+  pushGeneratedBatch(
+    DOMESTIC,
+    `${prefix}-food`,
+    foods.map((f) => `${label} ${f.suffix}`),
+    region,
+    "음식점",
+    "utensils",
+    lat,
+    lng,
+    2200,
+    1,
+    foods.map((f) => ({ cuisine: f.cuisine, subTags: f.subTags })),
+  );
+  pushGeneratedBatch(DOMESTIC, `${prefix}-stay`, stayNames, region, "숙소", "hotel", lat, lng, 1700, 1);
+});
+
 export const DISCOVER_DATA: Record<DiscoverScope, DiscoverBundle> = {
   domestic: DOMESTIC,
   overseas: OVERSEAS,
