@@ -145,6 +145,77 @@ const LIVE_TYPE_LABELS: Record<string, string> = {
 };
 const liveTypeLabel = (category: string) => LIVE_TYPE_LABELS[category] ?? category.replace(/_/g, " ");
 
+/** "그 외 종합 결과" 테마 그룹 — 관광지/테마파크/음식점/술집/카페/숙소 순서로 묶어
+ * 보여주고, 어느 카테고리에도 안 걸리는 결과는 기타로 모은다. */
+type LiveBucketKey = "관광지" | "테마파크" | "음식점" | "술집" | "카페" | "숙소" | "기타";
+const LIVE_BUCKET_GROUPS: { key: LiveBucketKey; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
+  { key: "관광지", label: "관광지", icon: Landmark },
+  { key: "테마파크", label: "테마파크", icon: Tent },
+  { key: "음식점", label: "음식점", icon: UtensilsCrossed },
+  { key: "술집", label: "술집", icon: Wine },
+  { key: "카페", label: "카페", icon: Coffee },
+  { key: "숙소", label: "숙소", icon: Hotel },
+  { key: "기타", label: "기타", icon: MapPin },
+];
+/** Google `primaryType`(영문) / Kakao `category_group_name`(국문) 원시 카테고리
+ * 문자열을 위 6+1개 테마 버킷으로 매핑한다. 정확히 일치하는 값이 없으면
+ * 키워드 휴리스틱으로 한 번 더 시도하고, 그래도 안 걸리면 기타로 보낸다. */
+const LIVE_BUCKET_BY_TYPE: Record<string, LiveBucketKey> = {
+  amusement_park: "테마파크",
+  water_park: "테마파크",
+  theme_park: "테마파크",
+  aquarium: "테마파크",
+  zoo: "테마파크",
+  restaurant: "음식점",
+  japanese_restaurant: "음식점",
+  sushi_restaurant: "음식점",
+  ramen_restaurant: "음식점",
+  yakiniku_restaurant: "음식점",
+  tonkatsu_restaurant: "음식점",
+  korean_restaurant: "음식점",
+  chinese_restaurant: "음식점",
+  italian_restaurant: "음식점",
+  french_restaurant: "음식점",
+  seafood_restaurant: "음식점",
+  barbecue_restaurant: "음식점",
+  fast_food_restaurant: "음식점",
+  izakaya_restaurant: "술집",
+  bar: "술집",
+  pub: "술집",
+  night_club: "술집",
+  cafe: "카페",
+  coffee_shop: "카페",
+  bakery: "카페",
+  dessert_shop: "카페",
+  hotel: "숙소",
+  lodging: "숙소",
+  resort_hotel: "숙소",
+  motel: "숙소",
+  tourist_attraction: "관광지",
+  shopping_mall: "관광지",
+  market: "관광지",
+  park: "관광지",
+  museum: "관광지",
+  art_gallery: "관광지",
+  관광명소: "관광지",
+  문화시설: "관광지",
+  공원: "관광지",
+  숙박: "숙소",
+  음식점: "음식점",
+  카페: "카페",
+};
+function liveCategoryBucket(category: string): LiveBucketKey {
+  const mapped = LIVE_BUCKET_BY_TYPE[category];
+  if (mapped) return mapped;
+  if (/술집|호프|이자카야|포차|와인바|맥주|pub|bar/i.test(category)) return "술집";
+  if (/카페|디저트|베이커리|cafe|coffee|dessert|bakery/i.test(category)) return "카페";
+  if (/테마파크|놀이공원|워터파크|아쿠아리움|동물원|amusement|theme_park|water_park|aquarium|zoo/i.test(category)) return "테마파크";
+  if (/숙박|호텔|모텔|hotel|lodging|motel|resort/i.test(category)) return "숙소";
+  if (/음식|식당|맛집|restaurant|food/i.test(category)) return "음식점";
+  if (/관광|박물관|미술관|공원|명소|시장|쇼핑|tourist|museum|park|market|mall|gallery/i.test(category)) return "관광지";
+  return "기타";
+}
+
 const SPOT_ICONS: Record<SpotIconKey, React.ComponentType<{ size?: number; className?: string }>> = {
   coffee: Coffee,
   camera: Camera,
@@ -974,6 +1045,23 @@ function SearchResults({
     return liveResults;
   }, [liveResults, liveSort]);
 
+  // 정렬된 결과를 테마 버킷으로 묶는다 — 비어있는 버킷은 만들지 않는다
+  // (예: 이 검색에 술집이 하나도 없으면 술집 섹션/칩 자체가 안 나온다).
+  const liveBuckets = useMemo(() => {
+    const groups = new Map<LiveBucketKey, Place[]>();
+    for (const place of sortedLiveResults) {
+      const key = liveCategoryBucket(place.category ?? "");
+      const list = groups.get(key) ?? [];
+      list.push(place);
+      groups.set(key, list);
+    }
+    return LIVE_BUCKET_GROUPS.map((g) => ({ ...g, places: groups.get(g.key) ?? [] })).filter((g) => g.places.length > 0);
+  }, [sortedLiveResults]);
+
+  const scrollToLiveBucket = (key: LiveBucketKey) => {
+    document.getElementById(`live-bucket-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   if (data && !autoSynced && !userPickedCategory) {
     setAutoSynced(true);
     if (data.appliedCategory !== "all") setCategoryFilter(data.appliedCategory as SpotCategoryFilter);
@@ -1184,6 +1272,23 @@ function SearchResults({
               );
             })}
           </div>
+
+          {/* 테마 칩 — 페이지 이동이 아니라 아래 해당 테마 섹션으로 스크롤 이동만 한다. */}
+          {liveBuckets.length > 1 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {liveBuckets.map((g) => (
+                <button
+                  key={g.key}
+                  onClick={() => scrollToLiveBucket(g.key)}
+                  className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11.5px] font-medium text-slate-600 transition-colors hover:border-emerald-300 hover:text-emerald-600"
+                >
+                  <g.icon size={12} />
+                  {g.label} <span className="text-slate-400">{g.places.length}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* 검색된 가게들이 플래그로 찍힌 결과 지도 — 플래그 탭 = 요약
               팝업(메뉴 링크·상세), 아래 목록 카드 탭 = 해당 플래그 선택 */}
           <MapProvider>
@@ -1197,18 +1302,29 @@ function SearchResults({
             </div>
           </MapProvider>
 
-          <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {sortedLiveResults.map((place) => (
-              <LivePlaceCard
-                key={place.id}
-                place={place}
-                region={scope === "overseas" ? "international" : "domestic"}
-                onAdd={() => onAddLivePlace(place)}
-                onOpenDetail={() => {
-                  setSelectedLiveId(place.id);
-                  onOpenLiveDetail(place);
-                }}
-              />
+          <div className="mt-6 space-y-8">
+            {liveBuckets.map((g) => (
+              <div key={g.key} id={`live-bucket-${g.key}`} className="scroll-mt-20">
+                <div className="mb-3 flex items-center gap-1.5 text-[13px] font-bold text-slate-700 dark:text-slate-200">
+                  <g.icon size={14} className="text-slate-400" />
+                  {g.label}
+                  <span className="text-[11px] font-medium text-slate-400">{g.places.length}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  {g.places.map((place) => (
+                    <LivePlaceCard
+                      key={place.id}
+                      place={place}
+                      region={scope === "overseas" ? "international" : "domestic"}
+                      onAdd={() => onAddLivePlace(place)}
+                      onOpenDetail={() => {
+                        setSelectedLiveId(place.id);
+                        onOpenLiveDetail(place);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </section>
