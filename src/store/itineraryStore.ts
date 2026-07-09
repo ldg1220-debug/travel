@@ -66,6 +66,17 @@ interface ItineraryState {
   /** Adds or overwrites a `savedPlaces` entry by id — the detail overlay's "저장하기" action. */
   upsertSavedPlace: (place: Place) => void;
   isHourTaken: (date: string, hour: number) => boolean;
+  /**
+   * Exact minute-level overlap check — unlike isHourTaken (which treats a
+   * whole clock hour as blocked the instant ANY item touches it, even a
+   * 10:00-10:30 stop), this only reports a conflict when the candidate
+   * [startMinutes, startMinutes+durationMinutes) range truly overlaps an
+   * existing item. Used by ScheduleModal's start-hour picker so a stop can
+   * be booked right after another one ends within the same hour instead of
+   * being forced to the next hour. `excludeId` lets editing a stop ignore
+   * its own current slot.
+   */
+  hasConflict: (date: string, startMinutes: number, durationMinutes: number, excludeId?: string) => boolean;
   addItem: (item: Omit<ItineraryItem, "id" | "durationMinutes"> & { durationMinutes?: number }) => void;
   /**
    * Reschedules an existing item to a new date/time (drag-and-drop moves,
@@ -103,8 +114,15 @@ interface ItineraryState {
   savedPlans: SavedPlan[];
   /** Which saved plan (if any) the current working state was last loaded from/saved as — purely informational (e.g. to highlight it in the switcher list). */
   activePlanId: string | null;
-  /** Snapshots the current working itinerary as a new named plan. Returns false (no-op) once MAX_SAVED_PLANS is reached — the caller should ask the user to delete one first. */
-  savePlanAs: (name: string) => boolean;
+  /**
+   * Snapshots the current working itinerary as a named plan. If
+   * `overwriteId` is given, replaces that existing plan's contents in place
+   * (used when the user picks "덮어쓰기" on a duplicate name) instead of
+   * adding a new entry — otherwise returns false (no-op) once
+   * MAX_SAVED_PLANS is reached, and the caller should ask the user to
+   * delete one first.
+   */
+  savePlanAs: (name: string, overwriteId?: string) => boolean;
   /** Replaces the working itinerary with a saved plan's snapshot. */
   loadPlan: (id: string) => void;
   deletePlan: (id: string) => void;
@@ -158,6 +176,14 @@ export const useItineraryStore = create<ItineraryState>()(
           (item) =>
             item.date === date &&
             rangesOverlap(minutesFromTime(item.time), item.durationMinutes, hour * 60, 60),
+        ),
+
+      hasConflict: (date, startMinutes, durationMinutes, excludeId) =>
+        get().items.some(
+          (item) =>
+            item.date === date &&
+            item.id !== excludeId &&
+            rangesOverlap(minutesFromTime(item.time), item.durationMinutes, startMinutes, durationMinutes),
         ),
 
       addItem: (item) =>
@@ -264,8 +290,30 @@ export const useItineraryStore = create<ItineraryState>()(
         return true;
       },
 
-      savePlanAs: (name) => {
+      savePlanAs: (name, overwriteId) => {
         const state = get();
+        if (overwriteId) {
+          const exists = state.savedPlans.some((p) => p.id === overwriteId);
+          if (!exists) return false;
+          set({
+            savedPlans: state.savedPlans.map((p) =>
+              p.id === overwriteId
+                ? {
+                    ...p,
+                    name,
+                    savedAt: Date.now(),
+                    items: state.items,
+                    places: state.places,
+                    activeDate: state.activeDate,
+                    currentCity: state.currentCity,
+                    region: state.region,
+                  }
+                : p,
+            ),
+            activePlanId: overwriteId,
+          });
+          return true;
+        }
         if (state.savedPlans.length >= MAX_SAVED_PLANS) return false;
         const plan: SavedPlan = {
           id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

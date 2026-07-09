@@ -305,6 +305,7 @@ export default function DiscoverPage() {
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const addItem = useItineraryStore((s) => s.addItem);
   const isHourTaken = useItineraryStore((s) => s.isHourTaken);
+  const hasConflict = useItineraryStore((s) => s.hasConflict);
   const setCurrentCity = useItineraryStore((s) => s.setCurrentCity);
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
 
@@ -319,6 +320,9 @@ export default function DiscoverPage() {
   const [activeQuery, setActiveQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [scheduleSpot, setScheduleSpot] = useState<Place | null>(null);
+  // Set by the "+" quick-add button — asks whether the tapped place should
+  // go to 일정 or 관심 장소 instead of assuming one or the other.
+  const [addChoiceTarget, setAddChoiceTarget] = useState<{ place: Place; city: string } | null>(null);
   const [detailPlace, setDetailPlace] = useState<Place | null>(null);
   const [routeTarget, setRouteTarget] = useState<DiscoverRoute | null>(null);
   const [previewRoute, setPreviewRoute] = useState<DiscoverRoute | null>(null);
@@ -397,9 +401,11 @@ export default function DiscoverPage() {
 
   // /planner's header shows whichever city was most recently scheduled/
   // opened from here — replaces what used to be a fixed "Fukuoka × Yufuin".
+  // The "+" quick-add button used to always assume "일정에 추가" — ambiguous,
+  // since 관심 장소(찜) is just as common an intent. It now opens a tiny
+  // choice sheet (below) instead of jumping straight to the schedule modal.
   const handleAddSpot = (spot: DiscoverSpot) => {
-    setCurrentCity(cityFromRegion(spot.region, scope));
-    setScheduleSpot(spotToPlace(spot));
+    setAddChoiceTarget({ place: spotToPlace(spot), city: cityFromRegion(spot.region, scope) });
   };
 
   // Tapping the card itself (not the [+] quick-add button) opens the 딥
@@ -417,8 +423,20 @@ export default function DiscoverPage() {
   // There's no clean "region" field to derive a city from, so the search
   // query itself doubles as the header label.
   const handleAddLivePlace = (place: Place) => {
-    setCurrentCity(activeQuery.trim());
-    setScheduleSpot(place);
+    setAddChoiceTarget({ place, city: activeQuery.trim() });
+  };
+
+  const confirmAddToSchedule = () => {
+    if (!addChoiceTarget) return;
+    setCurrentCity(addChoiceTarget.city);
+    setScheduleSpot(addChoiceTarget.place);
+    setAddChoiceTarget(null);
+  };
+  const confirmAddToFavorites = () => {
+    if (!addChoiceTarget) return;
+    upsertSavedPlace(addChoiceTarget.place);
+    showToast(`${addChoiceTarget.place.name} 관심 장소에 저장됨`);
+    setAddChoiceTarget(null);
   };
 
   const handleOpenLiveDetail = (place: Place) => {
@@ -790,14 +808,49 @@ export default function DiscoverPage() {
         )}
       </div>
 
+      {/* "+" 퀵 버튼 — 일정에 추가할지 관심 장소(찜)에 추가할지 물어보는
+          작은 선택 시트. 예전에는 항상 일정 추가로 바로 넘어가서 관심
+          장소로 찜만 하고 싶을 때도 스케줄 모달부터 봐야 했다. */}
+      {addChoiceTarget && (
+        <div
+          className="fixed inset-0 z-[70] flex items-end justify-center px-4 pb-4 sm:items-center sm:pb-0"
+          onClick={() => setAddChoiceTarget(null)}
+        >
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" />
+          <div
+            className="relative w-full max-w-[340px] rounded-3xl bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="truncate text-[15px] font-bold text-slate-900">{addChoiceTarget.place.name}</p>
+            <p className="mt-0.5 text-[12.5px] text-slate-500">어디에 추가할까요?</p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                onClick={confirmAddToSchedule}
+                className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-slate-900 text-sm font-semibold text-white transition-transform active:scale-[0.98]"
+              >
+                <CalendarRange size={15} /> 일정에 추가
+              </button>
+              <button
+                onClick={confirmAddToFavorites}
+                className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl border border-slate-200 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                <Heart size={15} /> 관심 장소에 추가
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {scheduleSpot && (
         <ScheduleModal
           place={scheduleSpot}
           initialDate={todayISODate()}
           isHourTaken={isHourTaken}
+          hasConflict={hasConflict}
           mode="create"
+          showDuration
           onClose={() => setScheduleSpot(null)}
-          onConfirm={(date, hour, minute) => {
+          onConfirm={(date, hour, minute, _budget, duration) => {
             addPlaces([scheduleSpot]);
             addItem({
               placeId: scheduleSpot.id,
@@ -805,6 +858,7 @@ export default function DiscoverPage() {
               date,
               time: `${pad2(hour)}:${pad2(minute)}`,
               coordinates: { lat: scheduleSpot.lat, lng: scheduleSpot.lng },
+              durationMinutes: duration,
             });
             showToast(`${scheduleSpot.name} · ${formatDateLabelShort(date)} ${pad2(hour)}:${pad2(minute)}`);
             setScheduleSpot(null);
@@ -1256,7 +1310,22 @@ function SearchResults({
             title={`"${query}" 그 외 종합 결과`}
             caption={scope === "overseas" ? "Google 지도 기준 실제 장소 · 평점" : "카카오맵 기준 실제 장소"}
           />
-          <div className="mt-3 flex flex-wrap gap-1.5">
+          {/* 검색된 가게들이 플래그로 찍힌 결과 지도 — 정렬/테마 칩보다 먼저,
+              섹션에 들어오면 바로 한눈에 지도부터 보이도록 맨 위에 둔다.
+              플래그 탭 = 요약 팝업(메뉴 링크·상세), 아래 목록 카드 탭 = 해당
+              플래그 선택. */}
+          <MapProvider>
+            <div className="mt-3 h-72 overflow-hidden rounded-2xl border border-slate-200 shadow-sm sm:h-80">
+              <LiveResultsMap
+                places={sortedLiveResults}
+                selectedId={selectedLiveId}
+                onSelect={setSelectedLiveId}
+                onOpenDetail={onOpenLiveDetail}
+              />
+            </div>
+          </MapProvider>
+
+          <div className="mt-4 flex flex-wrap gap-1.5">
             {LIVE_SORTS.map((s) => {
               const active = liveSort === s.key;
               return (
@@ -1288,19 +1357,6 @@ function SearchResults({
               ))}
             </div>
           )}
-
-          {/* 검색된 가게들이 플래그로 찍힌 결과 지도 — 플래그 탭 = 요약
-              팝업(메뉴 링크·상세), 아래 목록 카드 탭 = 해당 플래그 선택 */}
-          <MapProvider>
-            <div className="mt-4 h-72 overflow-hidden rounded-2xl border border-slate-200 shadow-sm sm:h-80">
-              <LiveResultsMap
-                places={sortedLiveResults}
-                selectedId={selectedLiveId}
-                onSelect={setSelectedLiveId}
-                onOpenDetail={onOpenLiveDetail}
-              />
-            </div>
-          </MapProvider>
 
           <div className="mt-6 space-y-8">
             {liveBuckets.map((g) => (

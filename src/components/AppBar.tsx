@@ -336,11 +336,12 @@ export function AppBar() {
       {saveModalOpen && (
         <SavePlanModal
           atCap={savedPlans.length >= MAX_SAVED_PLANS}
+          savedPlans={savedPlans}
           onClose={() => setSaveModalOpen(false)}
-          onSave={(name) => {
-            savePlanAs(name);
+          onSave={(name, overwriteId) => {
+            savePlanAs(name, overwriteId);
             setSaveModalOpen(false);
-            showToast(`"${name}" 저장됨`);
+            showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
           }}
         />
       )}

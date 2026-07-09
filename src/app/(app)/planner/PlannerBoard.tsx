@@ -74,6 +74,8 @@ type ScheduleTarget =
   | { mode: "create"; place: Place }
   | { mode: "edit"; place: Place; item: ItineraryItem };
 
+const EMPTY_SCHEDULE: ItineraryItem[] = [];
+
 // ─────────────────────────────────────────────────────────────
 export function PlannerBoard({ shareToken }: PlannerBoardProps) {
   return (
@@ -108,6 +110,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const setActiveDate = useItineraryStore((s) => s.setActiveDate);
   const items = useItineraryStore((s) => s.items);
   const isHourTaken = useItineraryStore((s) => s.isHourTaken);
+  const hasConflictStore = useItineraryStore((s) => s.hasConflict);
   const addItem = useItineraryStore((s) => s.addItem);
   const moveItem = useItineraryStore((s) => s.moveItem);
   const resizeItem = useItineraryStore((s) => s.resizeItem);
@@ -139,6 +142,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // "딥 다이브" detail overlay — opened from a saved-list row, a search
   // selection, or a trend card tap while on the 관심 장소 tab.
   const [detailPlace, setDetailPlace] = useState<Place | null>(null);
+
+  // A place just found via the map's search box, not yet scheduled — shown
+  // as a single temporary pin (see scheduleMapPlaces below) so it stays
+  // tappable/draggable onto a slot, without permanently cluttering the map
+  // with every place ever searched for across the whole session (that's
+  // what `places` used to do — see PR history for "맵에 남아있는 스팟포인트").
+  const [pendingSearchPlace, setPendingSearchPlace] = useState<Place | null>(null);
 
   // ── multi-day (Notion-style) timeline window ──
   // Adjustable via the +/- control next to the date nav — clamped to
@@ -181,7 +191,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     return map;
   }, [scheduleByDate, visibleDates]);
 
-  const schedule = scheduleByDate[activeDate] ?? [];
+  // A stable empty-array fallback (module-level, not a fresh literal per
+  // render) so `schedule` has a consistent identity when the active date
+  // has no items — scheduleMapPlaces (below) depends on it in a useMemo.
+  const schedule = scheduleByDate[activeDate] ?? EMPTY_SCHEDULE;
   const orderByPlace = orderByDate[activeDate] ?? {};
   const totalBudget = items.reduce((sum, s) => sum + (s.budget ?? 0), 0);
 
@@ -198,6 +211,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const firedLong = useRef(false);
   const startPos = useRef<{ x: number; y: number } | null>(null);
   const last = useRef({ x: 0, y: 0 });
+  // Set by onDown right before a press starts — lets the shared onUp/drag
+  // logic tell a map pin (which, since the P2/P7 map-scoping fix, only ever
+  // represents an already-scheduled stop or the one pending search result)
+  // apart from a TrendSheet suggestion card (an independent "try adding
+  // this" invitation that should stay tap-to-add-again-able until the
+  // dedicated duplicate-via-drag feature exists, instead of editing the
+  // first occurrence it happens to share an id with).
+  const pressSource = useRef<"trend" | "pin">("trend");
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -320,6 +341,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // overridden once `places` updates and that effect re-runs.
   const handlePlaceDiscovered = (place: Place) => {
     addPlaces([place]);
+    setPendingSearchPlace(place);
     showToast(`${place.name} added to map`);
     skipNextFitRef.current = true;
     mapRef.current?.panTo({ lat: place.lat, lng: place.lng });
@@ -466,7 +488,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       if (dropped) {
         if (isHourTaken(dropped.date, dropped.hour)) showToast(`${pad2(dropped.hour)}:00 is already booked`);
         else {
-          registerAt(place, dropped.date, dropped.hour, 0);
+          // Dragging a pin that's already on today's schedule reschedules
+          // it (moveItem) instead of adding a second stop at the same
+          // place — only a brand-new (not-yet-scheduled) pin creates one.
+          const existing = pressSource.current === "pin" ? schedule.find((s) => s.placeId === place.id) : undefined;
+          if (existing) moveItem(existing.id, dropped.date, dropped.hour);
+          else {
+            registerAt(place, dropped.date, dropped.hour, 0);
+            if (place.id === pendingSearchPlace?.id) setPendingSearchPlace(null);
+          }
           showToast(`${place.name} · ${formatDateLabelShort(dropped.date)} ${pad2(dropped.hour)}:00`);
         }
       }
@@ -495,6 +525,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       startDrag(place, last.current.x, last.current.y);
     }, 500);
   };
+  // TrendSheet cards and map pins share onDown/onUp/startDrag, but only a
+  // map pin should be treated as "editing/moving an existing stop" when its
+  // id happens to match one already on today's schedule — see pressSource.
+  const onTrendDown = (place: Place, e: React.PointerEvent) => {
+    pressSource.current = "trend";
+    onDown(place, e);
+  };
+  const onPinDown = (place: Place, e: React.PointerEvent) => {
+    pressSource.current = "pin";
+    onDown(place, e);
+  };
   const onUp = (place: Place) => {
     if (pressTimer.current) {
       clearTimeout(pressTimer.current);
@@ -505,7 +546,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         // tab-gated below), so this branch only matters for TrendSheet
         // cards, which are shown on both tabs.
         if (tab === "saved") openDetailFor(place);
-        else openCreateModal(place);
+        else {
+          // A tap on a pin that's already scheduled today opens it for
+          // editing instead of silently offering to add a duplicate stop —
+          // but only for an actual map pin; a TrendSheet card stays
+          // tap-to-add-again-able (see pressSource above).
+          const existing = pressSource.current === "pin" ? schedule.find((s) => s.placeId === place.id) : undefined;
+          if (existing) openEditModal(existing);
+          else openCreateModal(place);
+        }
       }
       // Close after the click/no-click decision is made, not before —
       // closing on pointerdown would shift the sheet's cards mid-tap and
@@ -548,12 +597,30 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     .filter((p): p is Place => Boolean(p))
     .map((p) => ({ lat: p.lat, lng: p.lng }));
 
+  // Map pins for the 일정 tab — restricted to today's actually-scheduled
+  // stops (plus, if there is one, the single place just found via the map
+  // search box but not yet scheduled) instead of the full `places` catalog,
+  // which only ever grows across a whole session and used to leave every
+  // previously-searched place (even from an unrelated city) permanently
+  // pinned on the map. Also naturally limits the pins/route to the active
+  // day — switching days shows only that day's stops, not every day at once.
+  const scheduleMapPlaces = useMemo(() => {
+    const scheduled = schedule
+      .map((s) => places.find((p) => p.id === s.placeId) ?? fallbackDisplay(s.name))
+      .map((p, i) => ({ ...p, id: schedule[i].placeId }));
+    const scheduledIds = new Set(scheduled.map((p) => p.id));
+    if (pendingSearchPlace && !scheduledIds.has(pendingSearchPlace.id)) {
+      return [...scheduled, pendingSearchPlace];
+    }
+    return scheduled;
+  }, [schedule, places, pendingSearchPlace]);
+
   const selectedSavedPlace = selectedSavedId ? savedPlaces.find((p) => p.id === selectedSavedId) ?? null : null;
 
   // Whichever list the current tab is actually showing markers for — the
   // map's smart-zoom (below) fits to this, not always `places`, so
   // switching tabs re-frames the camera to what's actually visible.
-  const visibleMarkerPlaces = tab === "schedule" ? places : savedPlaces;
+  const visibleMarkerPlaces = tab === "schedule" ? scheduleMapPlaces : savedPlaces;
 
   // Frozen at first paint — after that, every viewport change goes through
   // fitBounds (below) instead of fighting the imperative map with a
@@ -619,7 +686,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           {tab === "schedule" && (
             <div className="absolute inset-x-3 top-3 z-20 flex items-center gap-2">
               <div className="min-w-0 flex-1">
-                <PlacesSearchInput onSelect={handlePlaceDiscovered} />
+                <PlacesSearchInput region={region} onSelect={handlePlaceDiscovered} />
               </div>
               <button
                 onClick={() => clearDate(activeDate)}
@@ -638,7 +705,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           <TrendSheet
             open={sheetOpen}
             onOpenChange={setSheetOpen}
-            onDown={onDown}
+            onDown={onTrendDown}
             onUp={onUp}
             onMove={onMove}
             onCancel={cancelPress}
@@ -653,11 +720,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             onMapLoad={onMapLoad}
             tab={tab}
             routePoints={routePoints}
-            places={places}
+            places={scheduleMapPlaces}
             orderByPlace={orderByPlace}
             pressingId={pressingId}
             draggingPlaceId={drag?.place.id ?? null}
-            onDown={onDown}
+            onDown={onPinDown}
             onUp={onUp}
             onMove={onMove}
             onCancel={cancelPress}
@@ -995,11 +1062,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               }
               return isHourTaken(date, hour);
             }}
+            hasConflict={(date, startMinutes, durationMinutes) =>
+              hasConflictStore(date, startMinutes, durationMinutes, scheduleTarget.mode === "edit" ? scheduleTarget.item.id : undefined)
+            }
             onClose={() => setScheduleTarget(null)}
             onConfirm={(date, hour, minute, budget, duration) => {
               if (scheduleTarget.mode === "create") {
                 addPlaces([scheduleTarget.place]);
                 registerAt(scheduleTarget.place, date, hour, minute, budget, duration);
+                if (scheduleTarget.place.id === pendingSearchPlace?.id) setPendingSearchPlace(null);
               } else {
                 moveItem(scheduleTarget.item.id, date, hour, minute, budget);
                 if (duration != null) resizeItem(scheduleTarget.item.id, duration);
@@ -1042,11 +1113,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         {saveModalOpen && (
           <SavePlanModal
             atCap={savedPlans.length >= MAX_SAVED_PLANS}
+            savedPlans={savedPlans}
             onClose={() => setSaveModalOpen(false)}
-            onSave={(name) => {
-              savePlanAs(name);
+            onSave={(name, overwriteId) => {
+              savePlanAs(name, overwriteId);
               setSaveModalOpen(false);
-              showToast(`"${name}" 저장됨`);
+              showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
             }}
           />
         )}

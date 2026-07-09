@@ -3,20 +3,31 @@
 import { useState } from "react";
 import { Icon } from "./Icon";
 import { Input } from "@/components/ui/input";
+import type { SavedPlan } from "@/lib/types";
 
 interface SavePlanModalProps {
   atCap: boolean;
+  savedPlans: SavedPlan[];
   onClose: () => void;
-  onSave: (name: string) => void;
+  onSave: (name: string, overwriteId?: string) => void;
 }
 
-/** Small naming prompt for "현재 계획을 새 이름으로 저장" — opened from the AppBar's 계획 menu. */
-export function SavePlanModal({ atCap, onClose, onSave }: SavePlanModalProps) {
+/** Small naming prompt for "현재 계획을 새 이름으로 저장" — opened from the AppBar's 계획 메뉴. */
+export function SavePlanModal({ atCap, savedPlans, onClose, onSave }: SavePlanModalProps) {
   const [name, setName] = useState("");
+  // Set once the typed name collides with an existing saved plan — asks
+  // whether to overwrite it in place or keep both under the same name,
+  // instead of silently stacking a second plan with an identical label.
+  const [duplicate, setDuplicate] = useState<SavedPlan | null>(null);
 
   const handleSave = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
+    const existing = savedPlans.find((p) => p.name === trimmed);
+    if (existing) {
+      setDuplicate(existing);
+      return;
+    }
     onSave(trimmed);
   };
 
@@ -38,6 +49,26 @@ export function SavePlanModal({ atCap, onClose, onSave }: SavePlanModalProps) {
           <p className="mt-1 text-[13px] text-slate-500">
             최대 10개까지 저장할 수 있어요. 기존 계획을 삭제한 뒤 다시 저장해주세요.
           </p>
+        ) : duplicate ? (
+          <>
+            <p className="mt-1 text-[13px] text-slate-500">
+              &ldquo;{duplicate.name}&rdquo; 계획이 이미 있어요. 덮어쓸까요, 다른 이름으로 저장할까요?
+            </p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                onClick={() => onSave(name.trim(), duplicate.id)}
+                className="h-11 w-full rounded-2xl bg-slate-900 text-sm font-semibold text-white transition-transform active:scale-[0.98]"
+              >
+                덮어쓰기
+              </button>
+              <button
+                onClick={() => setDuplicate(null)}
+                className="h-11 w-full rounded-2xl border border-slate-200 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                다른 이름으로 저장
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <p className="mt-1 text-[13px] text-slate-500">지금 짜고 있는 일정을 이름을 붙여 스냅샷으로 저장해요.</p>
