@@ -1227,10 +1227,12 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
   const height = (Math.max(MIN_DURATION_MINUTES, effectiveDuration) / 60) * SLOT_HEIGHT;
   // Narrow day columns (3+ day view on a phone) leave so little width that
   // icon + name + badge + delete crammed into one row truncates the name to
-  // a single character. 30 minutes is tall enough for two lines, so give the
-  // name its own full-width row and push icon/time/badge/delete to a second,
-  // denser row underneath instead.
-  const stacked = effectiveDuration >= 30;
+  // a single character. 45+ minutes is tall enough for two lines, so give
+  // the name its own full-width row and push icon/time/badge/delete to a
+  // second, denser row underneath. A 15/30-minute stop is too short for two
+  // lines at all (they'd clip/overlap), so those render name+time+duration
+  // together on one truncating line instead — see the `roomy ? … : …` below.
+  const roomy = effectiveDuration >= 45;
 
   return (
     <motion.div
@@ -1250,7 +1252,7 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
       className="pointer-events-auto relative flex cursor-pointer items-center overflow-hidden rounded-lg"
     >
       <span className="self-stretch" style={{ width: 4, background: display.color }} />
-      {stacked ? (
+      {roomy ? (
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-1.5 py-1">
           <p className="truncate text-[11px] font-semibold leading-tight text-slate-900">{display.name}</p>
           <div className="flex min-w-0 items-center gap-1">
@@ -1281,16 +1283,18 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
           </div>
         </div>
       ) : (
+        // 15/30분짜리 칸은 두 줄을 넣기엔 세로 공간이 부족해 글자가 깨지므로,
+        // 이름·시간·소요시간을 한 줄에 이어 붙이고 그 한 줄만 truncate한다.
         <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md" style={{ background: display.color }}>
-            <PlaceGlyph icon={display.icon} size={10} color="white" />
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-md" style={{ background: display.color }}>
+            <PlaceGlyph icon={display.icon} size={9} color="white" />
           </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[11px] font-semibold leading-tight text-slate-900">{display.name}</p>
-            <p className="truncate text-[9.5px] tabular-nums leading-tight text-slate-500">
+          <p className="min-w-0 flex-1 truncate text-[10px] leading-tight text-slate-900">
+            <span className="font-semibold">{display.name}</span>{" "}
+            <span className="tabular-nums text-slate-500">
               {item.time} · {effectiveDuration}분
-            </p>
-          </div>
+            </span>
+          </p>
           {order != null && (
             <span
               className="shrink-0 rounded-full px-1.5 text-[9px] font-semibold leading-4 text-white"
