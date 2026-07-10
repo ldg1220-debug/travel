@@ -103,6 +103,40 @@ type ScheduleTarget =
 
 const EMPTY_SCHEDULE: ItineraryItem[] = [];
 
+/**
+ * Tailwind v4's default palette (text-slate-900 etc.) is defined in oklch(),
+ * which html-to-image's SVG-serialize-then-rasterize approach doesn't
+ * reliably resolve — the exported PNG can render that text fully invisible
+ * (transparent, or blended into a similarly-toned background) even though
+ * it looks completely normal live in the browser. Walking the subtree and
+ * copying each element's already-browser-resolved computed color/
+ * background/border (always plain rgb()/rgba(), never oklch()) into inline
+ * styles right before capture sidesteps the serializer entirely. Returns a
+ * restore function that undoes it once the capture is done.
+ */
+function inlineComputedColors(root: HTMLElement): () => void {
+  const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>("*"))];
+  const prev = elements.map((el) => ({
+    el,
+    color: el.style.color,
+    backgroundColor: el.style.backgroundColor,
+    borderColor: el.style.borderColor,
+  }));
+  for (const el of elements) {
+    const computed = getComputedStyle(el);
+    el.style.color = computed.color;
+    el.style.backgroundColor = computed.backgroundColor;
+    el.style.borderColor = computed.borderColor;
+  }
+  return () => {
+    for (const p of prev) {
+      p.el.style.color = p.color;
+      p.el.style.backgroundColor = p.backgroundColor;
+      p.el.style.borderColor = p.borderColor;
+    }
+  };
+}
+
 // ─────────────────────────────────────────────────────────────
 export function PlannerBoard({ shareToken }: PlannerBoardProps) {
   return (
@@ -281,17 +315,22 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       // Let layout settle before html-to-image measures the DOM.
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-      const { toPng } = await import("html-to-image");
-      const dataUrl = await toPng(capture, { backgroundColor: "#ffffff", pixelRatio: 2 });
-      const link = document.createElement("a");
-      link.download = `${currentCity || "일정"}-${activeDate}.png`;
-      link.href = dataUrl;
-      // Some browsers only honor `download` (i.e. keep the suggested
-      // filename instead of falling back to a generic one) when the anchor
-      // is actually attached to the document at click time.
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      const restoreColors = inlineComputedColors(capture);
+      try {
+        const { toPng } = await import("html-to-image");
+        const dataUrl = await toPng(capture, { backgroundColor: "#ffffff", pixelRatio: 2 });
+        const link = document.createElement("a");
+        link.download = `${currentCity || "일정"}-${activeDate}.png`;
+        link.href = dataUrl;
+        // Some browsers only honor `download` (i.e. keep the suggested
+        // filename instead of falling back to a generic one) when the anchor
+        // is actually attached to the document at click time.
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } finally {
+        restoreColors();
+      }
     } catch {
       showToast("이미지 저장에 실패했어요");
     } finally {
