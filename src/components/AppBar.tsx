@@ -1,18 +1,20 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown, LogIn, LogOut } from "lucide-react";
+import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown, LogIn, LogOut, X } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
 import { ThemedLogo } from "@/components/BrandLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
+import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { saveItinerary } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
+import type { SavedPlan } from "@/lib/types";
 
 // 일정(계획)과는 완전히 분리된 두 개의 보관함: 다녀온 여행 보관함(지난
 // itinerary/trip 기록, /scrapbook)과 관심 장소 보관함(찜해둔 개별 장소,
@@ -59,6 +61,11 @@ export function AppBar() {
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [plansOpen, setPlansOpen] = useState(false);
+  // 저장된 계획 미리보기 — 목록에서 계획을 누르면 바로 열지 않고, 그 계획에
+  // 일정이 들어있는 날짜만 표시(다른 색 점)한 월간 달력을 먼저 보여준 뒤
+  // "세부일정 보기"를 눌러야 실제로 플래너로 이동하게 한다.
+  const [previewPlan, setPreviewPlan] = useState<SavedPlan | null>(null);
+  const [previewDate, setPreviewDate] = useState<string>("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeDate = useItineraryStore((s) => s.activeDate);
@@ -70,6 +77,9 @@ export function AppBar() {
   const savePlanAs = useItineraryStore((s) => s.savePlanAs);
   const loadPlan = useItineraryStore((s) => s.loadPlan);
   const deletePlan = useItineraryStore((s) => s.deletePlan);
+  const setActiveDate = useItineraryStore((s) => s.setActiveDate);
+
+  const previewMarkedDates = useMemo(() => new Set((previewPlan?.items ?? []).map((i) => i.date)), [previewPlan]);
 
   const isPlanner = pathname?.startsWith("/planner") ?? false;
   // /planner is the base route; /planner/{shareToken} is the only sub-route.
@@ -177,9 +187,12 @@ export function AppBar() {
                             <div key={plan.id} className="group flex items-center gap-1 rounded-lg px-1 py-0.5 hover:bg-slate-50">
                               <button
                                 onClick={() => {
-                                  loadPlan(plan.id);
+                                  const firstMarked = plan.items.length > 0
+                                    ? [...plan.items].map((i) => i.date).sort()[0]
+                                    : plan.activeDate;
+                                  setPreviewPlan(plan);
+                                  setPreviewDate(firstMarked);
                                   setMenuOpen(false);
-                                  router.push("/planner");
                                 }}
                                 className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left"
                               >
@@ -350,6 +363,37 @@ export function AppBar() {
             showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
           }}
         />
+      )}
+
+      {previewPlan && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setPreviewPlan(null)} />
+          <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl dark:bg-slate-900">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="truncate text-lg font-bold text-slate-900 dark:text-slate-100">{previewPlan.name}</h3>
+              <button
+                onClick={() => setPreviewPlan(null)}
+                aria-label="닫기"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="mb-3 text-[12px] text-slate-500 dark:text-slate-400">일정이 있는 날짜에 점이 표시돼요. 날짜를 고르면 그 날부터 보여줘요.</p>
+            <MonthCalendar selected={previewDate} onSelect={setPreviewDate} markedDates={previewMarkedDates} accentColor="#4f46e5" />
+            <button
+              onClick={() => {
+                loadPlan(previewPlan.id);
+                setActiveDate(previewDate);
+                setPreviewPlan(null);
+                router.push("/planner");
+              }}
+              className="mt-4 h-11 w-full rounded-xl bg-indigo-600 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+            >
+              세부일정 보기
+            </button>
+          </div>
+        </div>
       )}
 
       {toast && (

@@ -1057,7 +1057,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
                     <button
                       onClick={() => setMonthViewOpen((v) => !v)}
                       aria-label={monthViewOpen ? "월간 달력 접기" : "월간 달력 보기"}
@@ -1106,7 +1106,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   </div>
                 </div>
 
-                <div className="mt-2 flex items-center gap-1.5">
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <button
                     onClick={() => setSaveModalOpen(true)}
                     className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
