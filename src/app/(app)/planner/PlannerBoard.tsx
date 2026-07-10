@@ -690,11 +690,60 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (!data) return;
     const item = items.find((i) => i.id === itemId);
     if (!item) return;
-    if (item.date === data.date && hourFromTime(item.time) === data.hour) return;
 
-    const occupant = items.find((i) => i.id !== itemId && i.date === data.date && hourFromTime(i.time) === data.hour);
-    moveItem(itemId, data.date, data.hour);
-    showToast(occupant ? "일정이 서로 교체되었습니다" : `${item.name} · ${formatDateLabelShort(data.date)} ${pad2(data.hour)}:00`);
+    // Sub-hour precision: derive the drop time from the dragged card's
+    // absolute top edge against a stable per-day reference (that day
+    // column's hour-0 cell), snapped to 15-minute steps — not from an
+    // offset against whichever cell dnd-kit's collision detection resolved
+    // as `over`. The draggable card and each droppable cell are the same
+    // height, so for a sub-cell-height drag the "over" cell can flip to the
+    // next hour before the pointer has even cleared the current one; an
+    // offset measured against THAT cell then goes negative and clamps to
+    // :00, which is exactly why drops used to always snap to the top of an
+    // hour regardless of where the ghost visually hovered.
+    const dayTop = slotRefs.current[`${data.date}|0`]?.getBoundingClientRect().top;
+    const activeTop = active.rect.current.translated?.top ?? over.rect.top;
+    const totalMinutesFromDayTop = dayTop != null ? ((activeTop - dayTop) / SLOT_HEIGHT) * 60 : data.hour * 60;
+    const snappedTotalMinutes = Math.max(
+      0,
+      Math.min(DAY_MINUTES - RESIZE_STEP_MINUTES, Math.round(totalMinutesFromDayTop / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES),
+    );
+    const dropHour = Math.floor(snappedTotalMinutes / 60);
+    const dropMinute = snappedTotalMinutes % 60;
+    const dropDate = data.date;
+
+    // Ctrl/Cmd-held drag duplicates the stop at the drop slot instead of
+    // moving it — e.g. booking the same hotel again for a second night
+    // without re-searching it from scratch.
+    const activatorEvent = event.activatorEvent as PointerEvent | undefined;
+    const isDuplicate = Boolean(activatorEvent?.ctrlKey || activatorEvent?.metaKey);
+
+    if (isDuplicate) {
+      addItem({
+        placeId: item.placeId,
+        name: item.name,
+        date: dropDate,
+        time: formatTime(dropHour, dropMinute),
+        coordinates: item.coordinates,
+        budget: item.budget,
+        durationMinutes: item.durationMinutes,
+      });
+      showToast(`${item.name} 복제됨 · ${formatDateLabelShort(dropDate)} ${pad2(dropHour)}:${pad2(dropMinute)}`);
+      return;
+    }
+
+    if (item.date === dropDate && hourFromTime(item.time) === dropHour && minutesFromTime(item.time) % 60 === dropMinute) return;
+
+    const occupant = items.find(
+      (i) =>
+        i.id !== itemId &&
+        i.date === dropDate &&
+        rangesOverlap(minutesFromTime(i.time), i.durationMinutes, dropHour * 60 + dropMinute, item.durationMinutes),
+    );
+    moveItem(itemId, dropDate, dropHour, dropMinute);
+    showToast(
+      occupant ? "일정이 서로 교체되었습니다" : `${item.name} · ${formatDateLabelShort(dropDate)} ${pad2(dropHour)}:${pad2(dropMinute)}`,
+    );
   };
 
   const dragItem = gridDragItemId ? items.find((i) => i.id === gridDragItemId) ?? null : null;
