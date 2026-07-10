@@ -140,23 +140,11 @@ export interface SharedItinerary {
   updatedAt: string;
 }
 
+/** A shared link is a read-only snapshot as of when it was created/last re-shared — nothing pushes edits back to it automatically. */
 export async function fetchSharedItinerary(shareToken: string): Promise<SharedItinerary> {
   const res = await fetch(`/api/itineraries/shared/${shareToken}`);
   if (!res.ok) throw new Error("Failed to load shared itinerary");
   return res.json();
-}
-
-export async function pushSharedItinerary(
-  shareToken: string,
-  region: Region,
-  placesData: ItineraryItem[],
-): Promise<void> {
-  const res = await fetch(`/api/itineraries/shared/${shareToken}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ region, placesData }),
-  });
-  if (!res.ok) throw new Error("Failed to sync shared itinerary");
 }
 
 export interface DiscoverBrowseResponse {
