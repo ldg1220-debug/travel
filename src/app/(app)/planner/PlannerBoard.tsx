@@ -35,6 +35,8 @@ import {
   Plus,
   Save,
   CalendarDays,
+  Maximize2,
+  Minimize2,
   ImageDown,
   Share2,
 } from "lucide-react";
@@ -146,6 +148,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const activePlanId = useItineraryStore((s) => s.activePlanId);
   const savePlanAs = useItineraryStore((s) => s.savePlanAs);
+  const setPlanRemoteInfo = useItineraryStore((s) => s.setPlanRemoteInfo);
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const optimizeRoute = useItineraryStore((s) => s.optimizeRoute);
   const region = useItineraryStore((s) => s.region);
@@ -220,6 +223,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     }
   };
 
+  // 일정만 크게 보기 — on a phone, map(45%) + tabs + toolbar + day headers
+  // left only a few rows of the actual hour grid on screen at once even
+  // after the whole-page-scroll fix, since all of that chrome still sits
+  // above the grid on every screen. This forces the map to its collapsed
+  // height and hides the tab switcher + action toolbar, leaving just the
+  // day headers + grid to fill the screen; the same button un-collapses
+  // everything again.
+  const [scheduleExpanded, setScheduleExpanded] = useState(false);
+
   // "이미지로 저장" — captures the schedule panel (day headers + timeline)
   // as a PNG, Notion-screenshot style, so a plan can be shared/glanced at
   // outside the app without everyone needing to open it here.
@@ -249,7 +261,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     // are freed from flex sizing here, not just the inner scroller.
     const targets = [capture, scroller].filter((el): el is HTMLDivElement => el != null);
     const prevStyles = targets.map((el) => ({ flex: el.style.flex, height: el.style.height, overflow: el.style.overflow }));
+    // On a narrow phone, each day column is only ~100px wide — barely
+    // enough to show a truncated place name live, and outright unreadable
+    // once html-to-image rasterizes it (font metrics in the cloned/
+    // serialized DOM don't quite match the live layout, so already-tight
+    // text overlaps further). Forcing a desktop-width capture regardless
+    // of the viewing device gives every day column the same ~220px a
+    // laptop browser would have, so the exported PNG is legible no matter
+    // how narrow the phone that generated it is.
+    const prevWidth = capture.style.width;
+    const captureWidth = Math.max(900, 42 + visibleDates.length * 220);
     try {
+      capture.style.width = `${captureWidth}px`;
       for (const el of targets) {
         el.style.flex = "none";
         el.style.overflow = "visible";
@@ -272,6 +295,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     } catch {
       showToast("이미지 저장에 실패했어요");
     } finally {
+      capture.style.width = prevWidth;
       targets.forEach((el, i) => {
         el.style.flex = prevStyles[i].flex;
         el.style.height = prevStyles[i].height;
@@ -297,8 +321,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // browsing a different city before this plan was ever saved. Once the
   // working itinerary matches a saved plan, its real name is what a
   // recipient should see, not that guess (see the same fix in AppBar.tsx).
-  const activePlanName = savedPlans.find((p) => p.id === activePlanId)?.name;
-  const planTitle = activePlanName ?? currentCity;
+  const activePlan = savedPlans.find((p) => p.id === activePlanId);
+  const planTitle = activePlan?.name ?? currentCity;
   const handleShareToKakao = async () => {
     if (!session?.user) {
       setLoginReason("카카오톡으로 공유하려면 로그인해주세요.");
@@ -311,7 +335,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     }
     setSharing(true);
     try {
-      const { shareToken: token } = await saveItinerary(region, items, planTitle);
+      // Reusing the active plan's own remoteId (if it has one from an
+      // earlier save/share) updates that plan's own server row and link
+      // instead of always creating a fresh row — otherwise every share
+      // from an account collided on "the user's one itinerary," so
+      // sharing a second, different plan silently overwrote and reused
+      // the same link a previous recipient already had open.
+      const { id, shareToken: token } = await saveItinerary(region, items, planTitle, activePlan?.remoteId);
+      if (activePlan) setPlanRemoteInfo(activePlan.id, id, token);
       const url = `${window.location.origin}/planner/${token}`;
       await shareToKakao({
         title: planTitle ? `${planTitle} 여행 계획` : "여행 계획",
@@ -399,6 +430,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     toastTimer.current = setTimeout(() => setToast(null), 1600);
   }, []);
 
+  // "비우기" (both the single-tap 오늘 일정 비우기 icon next to the map, and
+  // the toolbar's whole-plan 비우기) is destructive and — on a shared link —
+  // gets pushed to the server within a second, permanently wiping it for
+  // every viewer with no version history to recover from. An 8-second undo
+  // window doesn't help once someone has already left and come back, but it
+  // does cover the actual reported failure mode: a single mis-tap.
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null);
+  const undoToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showUndoToast = (message: string, onUndo: () => void) => {
+    setUndoToast({ message, onUndo });
+    if (undoToastTimer.current) clearTimeout(undoToastTimer.current);
+    undoToastTimer.current = setTimeout(() => setUndoToast(null), 8000);
+  };
+
   // ── Task 3: collaborative sync (polling — the fastest reliable option
   // without a WebSocket server or a service like Supabase in this stack) ──
   // Tracks the last payload we ourselves applied/pushed, so an echoed poll
@@ -406,6 +451,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // no-op, but the guard keeps the subscriber from re-triggering constantly).
   const lastSyncedSnapshotRef = useRef<string | null>(null);
   const suppressNextPushRef = useRef(false);
+  // A shared link's `activeDate` starts at whatever the local store already
+  // has (today's date, for a browser that's never opened the app before) —
+  // nothing else ever pointed it at the plan's own dates, so a 7/11-7/13
+  // trip opened on 7/10 landed one day short of the actual plan. Jump once,
+  // the first time this share's data arrives, to the plan's earliest date;
+  // never again after that, so it doesn't fight the viewer's own later
+  // navigation every time a poll brings in an unrelated edit.
+  const hasJumpedToSharedDateRef = useRef(false);
   const pushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: sharedData } = useQuery({
@@ -424,6 +477,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
     setRegion(sharedData.region);
     setItems(sharedData.placesData);
+
+    if (!hasJumpedToSharedDateRef.current && sharedData.placesData.length > 0) {
+      hasJumpedToSharedDateRef.current = true;
+      const earliestDate = [...sharedData.placesData].map((i) => i.date).sort()[0];
+      setActiveDate(earliestDate);
+      setWindowStart(earliestDate);
+    }
 
     // A collaborator's local `places` catalog may not have every place the
     // trip's items reference (e.g. the owner found it via search on their
@@ -445,7 +505,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       });
     if (missing.length > 0) addPlaces(missing);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `places` intentionally excluded: only need it to seed missing markers once per incoming snapshot, not on every local places change
-  }, [sharedData, setRegion, setItems, addPlaces]);
+  }, [sharedData, setRegion, setItems, addPlaces, setActiveDate]);
 
   useEffect(() => {
     if (!shareToken) return;
@@ -923,7 +983,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         setDragPreviewSlot(null);
       }}
     >
-      <div ref={boardRef} className="relative flex h-full flex-col overflow-hidden bg-white font-sans">
+      {/* The whole board is now ONE scroll container (this div), not a fixed
+          h-full/overflow-hidden shell with the map pinned and only the
+          schedule scrolling inside a small leftover region — on a real
+          phone, map(45%) + tabs + toolbar + day headers ate nearly all of
+          the remaining 55%, leaving the actual hour grid only a sliver tall
+          to scroll within (worse still inside some in-app browsers, whose
+          dvh accounting is unreliable). Scrolling the map away with
+          everything else means the schedule gets the full viewport once
+          you scroll past it, on any browser. */}
+      <div ref={boardRef} className="relative flex h-full flex-col overflow-y-auto bg-white font-sans">
         {/* ── MAP AREA — real Google Maps, auto-fit to every visible place ── */}
         {/* min-h is a safety floor: h-[45%] depends on the flex ancestor
             chain resolving before the Maps SDK measures the container (it
@@ -931,7 +1000,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             size, a layout race could leave the map permanently at 0px. */}
         <div
           className={`relative w-full shrink-0 overflow-hidden bg-[#eef2f4] transition-[height] duration-300 ${
-            mapCollapsed ? "h-14 min-h-14" : "h-[45%] min-h-[260px]"
+            mapCollapsed || scheduleExpanded ? "h-14 min-h-14" : "h-[45%] min-h-[260px]"
           }`}
         >
           {tab === "schedule" && (
@@ -948,9 +1017,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 {mapCollapsed ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
               </button>
               <button
-                onClick={() => clearDate(activeDate)}
+                onClick={() => {
+                  if (schedule.length === 0) return;
+                  const snapshot = items;
+                  clearDate(activeDate);
+                  showUndoToast(`${formatDateLabelShort(activeDate)} 일정을 비웠어요`, () => setItems(snapshot));
+                }}
+                disabled={schedule.length === 0}
                 aria-label="오늘 일정 비우기"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Trash2 size={15} />
               </button>
@@ -961,7 +1036,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               would drop mapRef and re-trigger the whole Maps SDK load) but
               visually hidden, so expanding back just needs a resize nudge
               instead of a full re-init. */}
-          <div className={mapCollapsed ? "hidden" : "contents"}>
+          <div className={mapCollapsed || scheduleExpanded ? "hidden" : "contents"}>
           {/* Available on both tabs — a tap routes to the schedule modal
               or the 딥 다이브 detail overlay depending on `tab` (see onUp
               above); trending spots still merge into the shared `places`
@@ -1004,7 +1079,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         </div>
 
         {/* ── LOWER PANEL — 일정 timeline vs 관심 장소 search+list ── */}
-        <div className="flex min-h-0 flex-1 flex-col border-t border-slate-200 bg-white">
+        <div className="flex flex-col border-t border-slate-200 bg-white">
+          {!scheduleExpanded && (
           <div className="px-4 pt-3">
             <div className="inline-flex w-full rounded-2xl bg-slate-100 p-1 shadow-inner">
               {PLANNER_TABS.map((t) => {
@@ -1030,22 +1106,6 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               })}
             </div>
           </div>
-
-          {/* 공유받은 계획 저장 — /planner/[shareToken]로 들어온 경우, 이 화면에서
-              보고 있는(동기화된) 일정을 내 계획 목록에 스냅샷으로 저장할 수
-              있게 눈에 띄는 배너로 안내한다. 실제 저장 로직은 기존 계획 저장
-              모달(SavePlanModal)을 그대로 재사용 — 지금 스토어에 들어있는
-              items가 바로 공유받아 동기화된 그 일정이기 때문. */}
-          {shareToken && (
-            <div className="mx-4 mt-3 flex items-center justify-between gap-2 rounded-2xl border border-indigo-100 bg-indigo-50 px-3.5 py-2.5">
-              <p className="text-[12px] font-medium text-indigo-700">공유받은 계획을 보고 있어요.</p>
-              <button
-                onClick={() => setSaveModalOpen(true)}
-                className="shrink-0 rounded-full bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-indigo-700"
-              >
-                내 계획으로 저장하기
-              </button>
-            </div>
           )}
 
           {tab === "schedule" ? (
@@ -1111,9 +1171,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         <Plus size={11} />
                       </button>
                     </div>
+                    <button
+                      onClick={() => setScheduleExpanded((v) => !v)}
+                      aria-label={scheduleExpanded ? "축소해서 보기" : "일정만 크게 보기"}
+                      aria-pressed={scheduleExpanded}
+                      className={`ml-1 flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
+                        scheduleExpanded ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      {scheduleExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                    </button>
                   </div>
                 </div>
 
+                {!scheduleExpanded && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <button
                     onClick={() => setSaveModalOpen(true)}
@@ -1143,9 +1214,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       <span className="text-[11px] font-medium text-rose-600">전체 비울까요?</span>
                       <button
                         onClick={() => {
+                          const snapshot = items;
                           clearAllItems();
                           setClearConfirmOpen(false);
-                          showToast("일정을 비웠어요");
+                          showUndoToast("일정을 비웠어요", () => setItems(snapshot));
                         }}
                         className="text-[11px] font-bold text-rose-600"
                       >
@@ -1177,10 +1249,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     </span>
                   </button>
                 </div>
+                )}
               </div>
 
               {monthViewOpen ? (
-                <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-1">
+                <div className="px-5 pb-6 pt-1">
                   <MonthCalendar
                     selected={activeDate}
                     onSelect={(date) => {
@@ -1195,7 +1268,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   />
                 </div>
               ) : (
-                <div ref={scheduleCaptureRef} className="flex min-h-0 flex-1 flex-col bg-white">
+                <div ref={scheduleCaptureRef} className="flex flex-col bg-white">
               {/* day-column headers */}
               <div className="flex border-b border-slate-100 px-4">
                 <div className="w-[42px] shrink-0" />
@@ -1215,7 +1288,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 })}
               </div>
 
-              <div ref={timelineScrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+              <div ref={timelineScrollRef} className="px-4 pb-6">
                 <div className="flex" style={{ height: TIMELINE_HOURS.length * SLOT_HEIGHT }}>
                   {/* hour gutter */}
                   <div className="w-[42px] shrink-0">
@@ -1302,7 +1375,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               )}
             </>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-6 pt-3">
+            <div className="flex flex-col gap-3 px-4 pb-6 pt-3">
               <PlaceSearchPanel region={region} onRegionChange={setRegion} onSelect={handleSavedPlaceDiscovered} />
               {savedPlaces.length === 0 ? (
                 <p className="mt-6 text-center text-[12px] text-slate-400">
@@ -1430,6 +1503,30 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           )}
         </AnimatePresence>
 
+        {/* undo toast — for destructive 비우기 actions (see showUndoToast) */}
+        <AnimatePresence>
+          {undoToast && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, x: "-50%" }}
+              animate={{ opacity: 1, y: 0, x: "-50%" }}
+              exit={{ opacity: 0, y: 10, x: "-50%" }}
+              className="fixed bottom-6 left-1/2 z-[60] flex items-center gap-2.5 rounded-full bg-slate-900/90 py-2 pl-3.5 pr-2 text-xs text-white"
+            >
+              <span>{undoToast.message}</span>
+              <button
+                onClick={() => {
+                  undoToast.onUndo();
+                  setUndoToast(null);
+                  if (undoToastTimer.current) clearTimeout(undoToastTimer.current);
+                }}
+                className="rounded-full bg-white/15 px-2.5 py-1 font-semibold text-white transition-colors hover:bg-white/25"
+              >
+                실행 취소
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <PlaceDetailOverlay
           place={detailPlace}
           onClose={() => setDetailPlace(null)}
@@ -1443,9 +1540,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             savedPlans={savedPlans}
             onClose={() => setSaveModalOpen(false)}
             onSave={(name, overwriteId) => {
-              savePlanAs(name, overwriteId);
+              const planId = savePlanAs(name, overwriteId);
               setSaveModalOpen(false);
               showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
+              if (planId && session?.user) {
+                const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
+                if (plan) {
+                  saveItinerary(plan.region, plan.items, plan.name, plan.remoteId)
+                    .then(({ id, shareToken: token }) => setPlanRemoteInfo(planId, id, token))
+                    .catch(() => {});
+                }
+              }
             }}
           />
         )}

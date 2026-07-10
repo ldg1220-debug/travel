@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
@@ -12,7 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
-import { saveItinerary } from "@/lib/api";
+import { saveItinerary, fetchUserItineraries } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import type { SavedPlan } from "@/lib/types";
 
@@ -78,8 +78,23 @@ export function AppBar() {
   const loadPlan = useItineraryStore((s) => s.loadPlan);
   const deletePlan = useItineraryStore((s) => s.deletePlan);
   const setActiveDate = useItineraryStore((s) => s.setActiveDate);
+  const setPlanRemoteInfo = useItineraryStore((s) => s.setPlanRemoteInfo);
+  const hydrateSavedPlansFromServer = useItineraryStore((s) => s.hydrateSavedPlansFromServer);
 
   const previewMarkedDates = useMemo(() => new Set((previewPlan?.items ?? []).map((i) => i.date)), [previewPlan]);
+
+  // 계정 기준 계획 동기화 — 저장된 계획은 기존엔 이 브라우저의 로컬 저장소
+  // 안에만 있어서, 같은 계정으로 다른 기기에서 로그인해도 안 보였다. 로그인
+  // 상태가 되는 순간 한 번, 서버에 저장된 이 계정의 계획들을 가져와 로컬
+  // 목록에 없는 것만 채워 넣는다 (이미 로컬에 있는 건 덮어쓰지 않음).
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (!session?.user || hydratedRef.current) return;
+    hydratedRef.current = true;
+    fetchUserItineraries()
+      .then((remote) => hydrateSavedPlansFromServer(remote))
+      .catch(() => {});
+  }, [session, hydrateSavedPlansFromServer]);
 
   const isPlanner = pathname?.startsWith("/planner") ?? false;
   // /planner is the base route; /planner/{shareToken} is the only sub-route.
@@ -384,9 +399,20 @@ export function AppBar() {
           savedPlans={savedPlans}
           onClose={() => setSaveModalOpen(false)}
           onSave={(name, overwriteId) => {
-            savePlanAs(name, overwriteId);
+            const planId = savePlanAs(name, overwriteId);
             setSaveModalOpen(false);
             showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
+            // 로그인 상태면 이 계획 전용 서버 행에 동기화 — 다른 기기에서
+            // 같은 계정으로 로그인했을 때도 보이도록. remoteId가 이미 있으면
+            // 그 행을 갱신(같은 링크 유지), 없으면 새로 만든다.
+            if (planId && session?.user) {
+              const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
+              if (plan) {
+                saveItinerary(plan.region, plan.items, plan.name, plan.remoteId)
+                  .then(({ id, shareToken }) => setPlanRemoteInfo(planId, id, shareToken))
+                  .catch(() => {});
+              }
+            }
           }}
         />
       )}

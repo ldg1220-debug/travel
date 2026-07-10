@@ -67,6 +67,18 @@ export interface SavedPlan {
   activeDate: string;
   currentCity: string;
   region: Region;
+  /**
+   * This plan's own row in the server `itineraries` table, once it's been
+   * saved while logged in — lets re-sharing or re-saving the SAME plan
+   * update that one row/shareToken instead of each save/share silently
+   * reusing whichever itinerary row happened to be the user's most recent
+   * one (the old "one itinerary per user" model, which made every share
+   * link from an account alias the same underlying data no matter which
+   * plan was actually shared). Undefined for a plan that's only ever
+   * existed locally (not logged in, or saved before this existed).
+   */
+  remoteId?: number;
+  shareToken?: string;
 }
 
 /**
