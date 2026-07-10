@@ -73,7 +73,7 @@ import {
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
-import { fetchSharedItinerary, pushSharedItinerary, saveItinerary } from "@/lib/api";
+import { fetchSharedItinerary, saveItinerary } from "@/lib/api";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import type { ItineraryItem, Place } from "@/lib/types";
@@ -344,9 +344,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       const { id, shareToken: token } = await saveItinerary(region, items, planTitle, activePlan?.remoteId);
       if (activePlan) setPlanRemoteInfo(activePlan.id, id, token);
       const url = `${window.location.origin}/planner/${token}`;
+      const dates = [...new Set(items.map((i) => i.date))].sort();
+      const dateRangeLabel =
+        dates.length === 0 ? "" : dates.length === 1 ? formatDateLabelShort(dates[0]) : `${formatDateLabelShort(dates[0])} ~ ${formatDateLabelShort(dates[dates.length - 1])}`;
       await shareToKakao({
         title: planTitle ? `${planTitle} 여행 계획` : "여행 계획",
-        description: `${items.length}개의 일정이 담긴 여행 계획을 확인해보세요.`,
+        description: dateRangeLabel,
         url,
       });
     } catch {
@@ -444,36 +447,26 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     undoToastTimer.current = setTimeout(() => setUndoToast(null), 8000);
   };
 
-  // ── Task 3: collaborative sync (polling — the fastest reliable option
-  // without a WebSocket server or a service like Supabase in this stack) ──
-  // Tracks the last payload we ourselves applied/pushed, so an echoed poll
-  // response doesn't bounce back into another push (which would just be a
-  // no-op, but the guard keeps the subscriber from re-triggering constantly).
-  const lastSyncedSnapshotRef = useRef<string | null>(null);
-  const suppressNextPushRef = useRef(false);
-  // A shared link's `activeDate` starts at whatever the local store already
-  // has (today's date, for a browser that's never opened the app before) —
-  // nothing else ever pointed it at the plan's own dates, so a 7/11-7/13
-  // trip opened on 7/10 landed one day short of the actual plan. Jump once,
-  // the first time this share's data arrives, to the plan's earliest date;
-  // never again after that, so it doesn't fight the viewer's own later
-  // navigation every time a poll brings in an unrelated edit.
+  // ── Task 3: shared-link viewing (one-time load, not live collaboration) ──
+  // Used to poll and push local edits straight back to the shared row every
+  // ~1s, so anyone with the link could silently overwrite it for everyone
+  // else (an accidental 비우기 from one viewer emptied it permanently, with
+  // no way back). A shared link now behaves like a snapshot instead: it
+  // loads once, local edits while viewing stay local, and reopening the
+  // same link later shows the original data exactly as it was sent —
+  // nothing is ever written back unless the viewer explicitly saves their
+  // own copy via 계획 저장.
   const hasJumpedToSharedDateRef = useRef(false);
-  const pushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: sharedData } = useQuery({
     queryKey: ["shared-itinerary", shareToken],
     queryFn: () => fetchSharedItinerary(shareToken as string),
     enabled: Boolean(shareToken),
-    refetchInterval: shareToken ? 3000 : false,
+    staleTime: Infinity,
   });
 
   useEffect(() => {
     if (!sharedData) return;
-    const snapshot = JSON.stringify({ region: sharedData.region, placesData: sharedData.placesData });
-    if (snapshot === lastSyncedSnapshotRef.current) return;
-    lastSyncedSnapshotRef.current = snapshot;
-    suppressNextPushRef.current = true;
 
     setRegion(sharedData.region);
     setItems(sharedData.placesData);
@@ -485,9 +478,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       setWindowStart(earliestDate);
     }
 
-    // A collaborator's local `places` catalog may not have every place the
-    // trip's items reference (e.g. the owner found it via search on their
-    // own session) — synthesize a minimal marker so it's still visible.
+    // A viewer's local `places` catalog may not have every place the trip's
+    // items reference (e.g. the owner found it via search on their own
+    // session) — synthesize a minimal marker so it's still visible.
     const missing = sharedData.placesData
       .filter((item) => !places.some((p) => p.id === item.placeId))
       .map((item) => {
@@ -506,30 +499,6 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (missing.length > 0) addPlaces(missing);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `places` intentionally excluded: only need it to seed missing markers once per incoming snapshot, not on every local places change
   }, [sharedData, setRegion, setItems, addPlaces, setActiveDate]);
-
-  useEffect(() => {
-    if (!shareToken) return;
-    const unsubscribe = useItineraryStore.subscribe((state, prevState) => {
-      if (suppressNextPushRef.current) {
-        suppressNextPushRef.current = false;
-        return;
-      }
-      if (state.items === prevState.items && state.region === prevState.region) return;
-
-      if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
-      pushTimerRef.current = setTimeout(() => {
-        const snapshot = JSON.stringify({ region: state.region, placesData: state.items });
-        lastSyncedSnapshotRef.current = snapshot;
-        pushSharedItinerary(shareToken, state.region, state.items).catch(() => {
-          showToast("Sync failed — will retry on the next change");
-        });
-      }, 800);
-    });
-    return () => {
-      unsubscribe();
-      if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
-    };
-  }, [shareToken, showToast]);
 
   const searchParams = useSearchParams();
   const openDetailId = searchParams.get("openDetail");
