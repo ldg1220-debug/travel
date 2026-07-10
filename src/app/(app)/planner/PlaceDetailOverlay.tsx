@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
-import { ExternalLink, Star, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, Star, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGoogleMapsStatus } from "./MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
@@ -129,6 +129,18 @@ interface PlaceDetailFormProps {
 function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
   const [category, setCategory] = useState(place.category);
   const [memo, setMemo] = useState(place.memo ?? "");
+  // Which gallery photo is open full-screen — null = lightbox closed.
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // Review text is clamped to 4 lines by default; toggled open per-review
+  // by index instead of a single flag, so expanding one doesn't expand all.
+  const [expandedReviews, setExpandedReviews] = useState<Set<number>>(new Set());
+  const toggleReviewExpanded = (i: number) =>
+    setExpandedReviews((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
 
   // Google reviews + photo gallery — the in-app menu-tab substitute. Only
   // fetched for live Google places; null while loading or when unavailable.
@@ -179,20 +191,32 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
         </div>
       )}
 
-      {/* 사진 갤러리 — 실제 업체·음식 사진 (구글 Places 사진 프록시) */}
+      {/* 사진 갤러리 — 실제 업체·음식 사진 (구글 Places 사진 프록시). 탭하면
+          더 크게 볼 수 있는 라이트박스가 열린다. */}
       {gallery.length > 1 && (
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {gallery.map((name) => (
-            // eslint-disable-next-line @next/next/no-img-element -- served via /api/places/photo redirect proxy
-            <img
-              key={name}
-              src={`/api/places/photo?name=${encodeURIComponent(name)}&w=400`}
-              alt={place.name}
-              loading="lazy"
-              className="h-24 w-32 shrink-0 rounded-xl object-cover"
-            />
+          {gallery.map((name, i) => (
+            <button key={name} onClick={() => setLightboxIndex(i)} className="shrink-0" aria-label={`${place.name} 사진 크게 보기`}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- served via /api/places/photo redirect proxy */}
+              <img
+                src={`/api/places/photo?name=${encodeURIComponent(name)}&w=400`}
+                alt={place.name}
+                loading="lazy"
+                className="h-24 w-32 rounded-xl object-cover"
+              />
+            </button>
           ))}
         </div>
+      )}
+
+      {lightboxIndex != null && (
+        <PhotoLightbox
+          photoNames={gallery}
+          index={lightboxIndex}
+          alt={place.name}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={setLightboxIndex}
+        />
       )}
 
       {place.googleMapsUri && (
@@ -221,7 +245,23 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
                     {r.when && <span className="text-slate-400">· {r.when}</span>}
                   </span>
                 </div>
-                {r.text && <p className="mt-1 line-clamp-4 text-[12px] leading-relaxed text-slate-600">{r.text}</p>}
+                {r.text && (
+                  <>
+                    <p
+                      className={`mt-1 text-[12px] leading-relaxed text-slate-600 ${expandedReviews.has(i) ? "" : "line-clamp-4"}`}
+                    >
+                      {r.text}
+                    </p>
+                    {r.text.length > 140 && (
+                      <button
+                        onClick={() => toggleReviewExpanded(i)}
+                        className="mt-0.5 text-[11px] font-semibold text-slate-500 hover:text-slate-700"
+                      >
+                        {expandedReviews.has(i) ? "접기" : "더보기"}
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -271,5 +311,75 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
         )}
       </div>
     </div>
+  );
+}
+
+interface PhotoLightboxProps {
+  photoNames: string[];
+  index: number;
+  alt: string;
+  onClose: () => void;
+  onNavigate: (index: number) => void;
+}
+
+/** Full-screen photo viewer opened by tapping a gallery thumbnail — prev/next cycles through every photo the gallery has, not just the one that was tapped. */
+function PhotoLightbox({ photoNames, index, alt, onClose, onNavigate }: PhotoLightboxProps) {
+  const hasPrev = index > 0;
+  const hasNext = index < photoNames.length - 1;
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/90"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        aria-label="닫기"
+        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+      >
+        <X size={18} />
+      </button>
+
+      {hasPrev && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onNavigate(index - 1);
+          }}
+          aria-label="이전 사진"
+          className="absolute left-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 sm:left-4"
+        >
+          <ChevronLeft size={20} />
+        </button>
+      )}
+
+      {/* eslint-disable-next-line @next/next/no-img-element -- served via /api/places/photo redirect proxy */}
+      <img
+        src={`/api/places/photo?name=${encodeURIComponent(photoNames[index])}&w=1200`}
+        alt={alt}
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[85vh] max-w-[92vw] rounded-lg object-contain"
+      />
+
+      {hasNext && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onNavigate(index + 1);
+          }}
+          aria-label="다음 사진"
+          className="absolute right-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 sm:right-4"
+        >
+          <ChevronRight size={20} />
+        </button>
+      )}
+
+      <span className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/40 px-2.5 py-1 text-[11px] font-medium tabular-nums text-white">
+        {index + 1} / {photoNames.length}
+      </span>
+    </motion.div>
   );
 }
