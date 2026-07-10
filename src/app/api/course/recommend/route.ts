@@ -149,13 +149,19 @@ export async function GET(request: NextRequest) {
       // Popularity + proximity to the previous stop (keeps the day walkable),
       // skipping ids already used AND same-brand duplicates by name.
       const prev = course.length > 0 ? { lat: course[course.length - 1].lat, lng: course[course.length - 1].lng } : null;
-      const best = results
+      // Picking strictly the #1-ranked candidate every time made "AI 추천
+      // 동선" return the exact same course for the same city on every
+      // request — a random pick among the top few keeps quality (still
+      // ranked candidates only) while actually varying run to run.
+      const topPool = results
         .filter((p) => !used.has(p.id) && !course.some((c) => sameShop(c.name, p.displayName?.text ?? "")))
         .sort(
           (a, b) =>
             proximityScore(b.rating, b.userRatingCount, b.location?.latitude ?? 0, b.location?.longitude ?? 0, prev) -
             proximityScore(a.rating, a.userRatingCount, a.location?.latitude ?? 0, a.location?.longitude ?? 0, prev),
-        )[0];
+        )
+        .slice(0, 3);
+      const best = topPool[Math.floor(Math.random() * topPool.length)];
       if (!best) continue;
       used.add(best.id);
       course.push({
@@ -189,9 +195,13 @@ export async function GET(request: NextRequest) {
     // prefer the one closest to the previous stop; skip same-brand names.
     const prev = course.length > 0 ? { lat: course[course.length - 1].lat, lng: course[course.length - 1].lng } : null;
     const candidates = results.filter((d) => !used.has(d.id) && !course.some((c) => sameShop(c.name, d.place_name)));
-    const best = prev
-      ? [...candidates.slice(0, 5)].sort((a, b) => distKm(prev.lat, prev.lng, Number(a.y), Number(a.x)) - distKm(prev.lat, prev.lng, Number(b.y), Number(b.x)))[0]
-      : candidates[0];
+    // Same reasoning as the overseas branch above — random pick among the
+    // top few (still Kakao's own relevance/proximity ranking) instead of
+    // always the single best, so re-running gives a different course.
+    const topPool = prev
+      ? [...candidates.slice(0, 5)].sort((a, b) => distKm(prev.lat, prev.lng, Number(a.y), Number(a.x)) - distKm(prev.lat, prev.lng, Number(b.y), Number(b.x))).slice(0, 3)
+      : candidates.slice(0, 3);
+    const best = topPool[Math.floor(Math.random() * topPool.length)];
     if (!best) continue;
     used.add(best.id);
     course.push({

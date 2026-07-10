@@ -92,6 +92,13 @@ interface ItineraryState {
    * negative or day-spanning block.
    */
   resizeItem: (id: string, durationMinutes: number) => void;
+  /**
+   * Resizes a stop by dragging its *top* handle — moves the start time
+   * while keeping the end time fixed, so the block visually grows/shrinks
+   * upward instead of downward (15-minute snapping/bounds are done by the
+   * caller before this is invoked).
+   */
+  retimeItem: (id: string, startMinutes: number, durationMinutes: number) => void;
   removeItem: (id: string) => void;
   clearDate: (date: string) => void;
   /** Clears every scheduled stop across all dates — the toolbar's 비우기 action, for starting a fresh plan. Leaves `places`/`savedPlaces` untouched. */
@@ -249,6 +256,16 @@ export const useItineraryStore = create<ItineraryState>()(
             const maxDuration = DAY_MINUTES - minutesFromTime(i.time);
             const clamped = Math.min(maxDuration, Math.max(MIN_DURATION_MINUTES, durationMinutes));
             return { ...i, durationMinutes: clamped };
+          }),
+        })),
+
+      retimeItem: (id, startMinutes, durationMinutes) =>
+        set((state) => ({
+          items: state.items.map((i) => {
+            if (i.id !== id) return i;
+            const clampedStart = Math.max(0, Math.min(DAY_MINUTES - MIN_DURATION_MINUTES, startMinutes));
+            const clampedDuration = Math.min(DAY_MINUTES - clampedStart, Math.max(MIN_DURATION_MINUTES, durationMinutes));
+            return { ...i, time: formatTime(Math.floor(clampedStart / 60), clampedStart % 60), durationMinutes: clampedDuration };
           }),
         })),
 

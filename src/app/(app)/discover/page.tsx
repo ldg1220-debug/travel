@@ -67,7 +67,18 @@ const LiveResultsMap = dynamic(() => import("./LiveResultsMap"), { ssr: false })
 
 type SectionKind = "trending" | "favorites" | "routes";
 const COMPACT_SPOT_COUNT = 4;
+/** How many of the top-ranked candidates the compact preview draws its random pick from — keeps the shown spots genuinely popular while still varying which ones surface each visit. */
+const COMPACT_POOL_SIZE = 10;
 const COMPACT_ROUTE_COUNT = 2;
+
+function shuffled<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
 
 const SCOPES: { key: DiscoverScope; label: string; flag: string }[] = [
   { key: "domestic", label: "국내 여행", flag: "🇰🇷" },
@@ -475,8 +486,18 @@ export default function DiscoverPage() {
     router.push("/planner");
   };
 
-  const trendingCompact = bundle?.trending.slice(0, COMPACT_SPOT_COUNT) ?? [];
-  const favoritesCompact = bundle?.favorites.slice(0, COMPACT_SPOT_COUNT) ?? [];
+  // Randomized pick from the top-ranked pool, re-rolled only when the
+  // underlying bundle changes (a fresh fetch / filter change) — previously
+  // this always sliced the exact same first N items in the exact same
+  // order, so the page read identically on every single visit.
+  const trendingCompact = useMemo(
+    () => (bundle ? shuffled(bundle.trending.slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT) : []),
+    [bundle],
+  );
+  const favoritesCompact = useMemo(
+    () => (bundle ? shuffled(bundle.favorites.slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT) : []),
+    [bundle],
+  );
   const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
 
   return (

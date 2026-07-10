@@ -176,6 +176,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const addItem = useItineraryStore((s) => s.addItem);
   const moveItem = useItineraryStore((s) => s.moveItem);
   const resizeItem = useItineraryStore((s) => s.resizeItem);
+  const retimeItem = useItineraryStore((s) => s.retimeItem);
   const removeItem = useItineraryStore((s) => s.removeItem);
   const clearDate = useItineraryStore((s) => s.clearDate);
   const clearAllItems = useItineraryStore((s) => s.clearAllItems);
@@ -1353,25 +1354,24 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                           const display = place ?? fallbackDisplay(item.name);
                           const order = orderByDate[date]?.[item.placeId];
                           const startMinutes = minutesFromTime(item.time);
+                          const prevItem = index > 0 ? dayItems[index - 1] : null;
                           const nextItem = dayItems[index + 1];
+                          const minStartMinutes = prevItem ? minutesFromTime(prevItem.time) + prevItem.durationMinutes : 0;
                           const maxDurationMinutes = (nextItem ? minutesFromTime(nextItem.time) : DAY_MINUTES) - startMinutes;
 
                           return (
-                            <div
+                            <ScheduledCard
                               key={item.id}
-                              className="pointer-events-none absolute inset-x-0.5 z-10"
-                              style={{ top: (startMinutes / 60) * SLOT_HEIGHT }}
-                            >
-                              <ScheduledCard
-                                item={item}
-                                display={display}
-                                order={order}
-                                maxDurationMinutes={maxDurationMinutes}
-                                onOpenEdit={openEditModal}
-                                onRemove={removeItem}
-                                onResize={resizeItem}
-                              />
-                            </div>
+                              item={item}
+                              display={display}
+                              order={order}
+                              minStartMinutes={minStartMinutes}
+                              maxDurationMinutes={maxDurationMinutes}
+                              onOpenEdit={openEditModal}
+                              onRemove={removeItem}
+                              onResize={resizeItem}
+                              onRetime={retimeItem}
+                            />
                           );
                         })}
                       </div>
@@ -1625,29 +1625,39 @@ function DroppableCell({ date, hour, highlighted, registerRef, children }: Dropp
 }
 
 // ── a scheduled stop, draggable to any other slot/day; click to edit;
-// bottom edge drag-resizes its duration in 15-minute steps ──
+// both edges drag-resize its length in 15-minute steps — the bottom handle
+// grows/shrinks downward (end time moves), the top handle grows/shrinks
+// upward (start time moves, end time stays put) ──
 interface ScheduledCardProps {
   item: ItineraryItem;
   display: Place;
   order: number | undefined;
-  /** How long this stop is allowed to grow to via the resize handle — the gap to the next stop, or to end-of-day if it's the day's last one. */
+  /** How long this stop is allowed to grow to via the bottom resize handle — the gap to the next stop, or to end-of-day if it's the day's last one. */
   maxDurationMinutes: number;
+  /** Earliest minutes-from-day-start the top resize handle may reach — the previous stop's end, or day start (0). */
+  minStartMinutes: number;
   onOpenEdit: (item: ItineraryItem) => void;
   onRemove: (id: string) => void;
   onResize: (id: string, durationMinutes: number) => void;
+  onRetime: (id: string, startMinutes: number, durationMinutes: number) => void;
 }
 
-function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, onRemove, onResize }: ScheduledCardProps) {
+function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinutes, onOpenEdit, onRemove, onResize, onRetime }: ScheduledCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `sched-${item.id}`,
     data: { itemId: item.id },
   });
 
-  // Live-resize state: the handle tracks pointer movement locally for
-  // instant visual feedback and only commits to the store (onResize) on
-  // pointerup, instead of dispatching a store update on every pixel moved.
+  const baseStart = minutesFromTime(item.time);
+
+  // Live-resize state: each handle tracks pointer movement locally for
+  // instant visual feedback and only commits to the store on pointerup,
+  // instead of dispatching a store update on every pixel moved.
   const [liveDuration, setLiveDuration] = useState<number | null>(null);
+  const [liveStartMinutes, setLiveStartMinutes] = useState<number | null>(null);
   const resizeStartRef = useRef<{ y: number; duration: number } | null>(null);
+  const topResizeStartRef = useRef<{ y: number; start: number; duration: number } | null>(null);
+  const pendingTopRef = useRef<{ start: number; duration: number } | null>(null);
 
   const handleResizeDown = (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -1672,7 +1682,39 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
     });
   };
 
+  const handleTopResizeDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    topResizeStartRef.current = { y: e.clientY, start: baseStart, duration: item.durationMinutes };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const handleTopResizeMove = (e: React.PointerEvent) => {
+    if (!topResizeStartRef.current) return;
+    const { y, start, duration } = topResizeStartRef.current;
+    const end = start + duration;
+    const deltaMinutes = ((e.clientY - y) / SLOT_HEIGHT) * 60;
+    const snappedStart = Math.round((start + deltaMinutes) / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES;
+    const clampedStart = Math.max(minStartMinutes, Math.min(snappedStart, end - MIN_DURATION_MINUTES));
+    pendingTopRef.current = { start: clampedStart, duration: end - clampedStart };
+    setLiveStartMinutes(clampedStart);
+    setLiveDuration(end - clampedStart);
+  };
+  const handleTopResizeUp = (e: React.PointerEvent) => {
+    if (!topResizeStartRef.current) return;
+    topResizeStartRef.current = null;
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    if (pendingTopRef.current) {
+      onRetime(item.id, pendingTopRef.current.start, pendingTopRef.current.duration);
+      pendingTopRef.current = null;
+    }
+    setLiveStartMinutes(null);
+    setLiveDuration(null);
+  };
+
+  const effectiveStart = liveStartMinutes ?? baseStart;
   const effectiveDuration = liveDuration ?? item.durationMinutes;
+  const effectiveTimeLabel = liveStartMinutes != null ? formatTime(Math.floor(effectiveStart / 60), effectiveStart % 60) : item.time;
+  const top = (effectiveStart / 60) * SLOT_HEIGHT;
   const height = (Math.max(MIN_DURATION_MINUTES, effectiveDuration) / 60) * SLOT_HEIGHT;
   // Narrow day columns (3+ day view on a phone) leave so little width that
   // icon + name + badge + delete crammed into one row truncates the name to
@@ -1696,9 +1738,10 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
         background: `${display.color}12`,
         border: `1px solid ${display.color}40`,
         touchAction: "none",
+        top,
         height,
       }}
-      className="pointer-events-auto relative flex cursor-pointer items-center overflow-hidden rounded-lg"
+      className="pointer-events-auto absolute inset-x-0.5 z-10 flex cursor-pointer items-center overflow-hidden rounded-lg"
     >
       <span className="self-stretch" style={{ width: 4, background: display.color }} />
       {roomy ? (
@@ -1709,7 +1752,7 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
               <PlaceGlyph icon={display.icon} size={9} color="white" />
             </span>
             <span className="min-w-0 flex-1 truncate text-[9px] tabular-nums leading-tight text-slate-500">
-              {item.time} · {effectiveDuration}분
+              {effectiveTimeLabel} · {effectiveDuration}분
             </span>
             {order != null && (
               <span
@@ -1741,7 +1784,7 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
           <p className="min-w-0 flex-1 truncate text-[10px] leading-tight text-slate-900">
             <span className="font-semibold">{display.name}</span>{" "}
             <span className="tabular-nums text-slate-500">
-              {item.time} · {effectiveDuration}분
+              {effectiveTimeLabel} · {effectiveDuration}분
             </span>
           </p>
           {order != null && (
@@ -1764,6 +1807,18 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
           </button>
         </div>
       )}
+
+      {/* top-edge resize handle — drag to change this stop's start time in 15-minute steps, growing/shrinking upward with the end time held fixed */}
+      <div
+        onPointerDown={handleTopResizeDown}
+        onPointerMove={handleTopResizeMove}
+        onPointerUp={handleTopResizeUp}
+        onPointerCancel={handleTopResizeUp}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute inset-x-0 top-0 flex h-2.5 cursor-ns-resize touch-none items-start justify-center"
+      >
+        <span className="mt-0.5 h-0.5 w-5 rounded-full bg-slate-400/60" />
+      </div>
 
       {/* bottom-edge resize handle — drag to change this stop's length in 15-minute steps */}
       <div
