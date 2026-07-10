@@ -144,6 +144,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const clearDate = useItineraryStore((s) => s.clearDate);
   const clearAllItems = useItineraryStore((s) => s.clearAllItems);
   const savedPlans = useItineraryStore((s) => s.savedPlans);
+  const activePlanId = useItineraryStore((s) => s.activePlanId);
   const savePlanAs = useItineraryStore((s) => s.savePlanAs);
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const optimizeRoute = useItineraryStore((s) => s.optimizeRoute);
@@ -291,6 +292,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginReason, setLoginReason] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  // `currentCity` is only a best-guess label (updated whenever a discover
+  // spot/route gets scheduled) and can be stale — e.g. left over from
+  // browsing a different city before this plan was ever saved. Once the
+  // working itinerary matches a saved plan, its real name is what a
+  // recipient should see, not that guess (see the same fix in AppBar.tsx).
+  const activePlanName = savedPlans.find((p) => p.id === activePlanId)?.name;
+  const planTitle = activePlanName ?? currentCity;
   const handleShareToKakao = async () => {
     if (!session?.user) {
       setLoginReason("카카오톡으로 공유하려면 로그인해주세요.");
@@ -303,10 +311,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     }
     setSharing(true);
     try {
-      const { shareToken: token } = await saveItinerary(region, items, currentCity);
+      const { shareToken: token } = await saveItinerary(region, items, planTitle);
       const url = `${window.location.origin}/planner/${token}`;
       await shareToKakao({
-        title: currentCity ? `${currentCity} 여행 계획` : "여행 계획",
+        title: planTitle ? `${planTitle} 여행 계획` : "여행 계획",
         description: `${items.length}개의 일정이 담긴 여행 계획을 확인해보세요.`,
         url,
       });
