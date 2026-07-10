@@ -17,6 +17,27 @@ import type { Place } from "@/lib/types";
 
 type Step = "scope" | "drill" | "build";
 
+// ── representative photo behind a scope/region tile — live Google Places
+// lookup by name (same /api/discover/spot-photo proxy CourseSpotCard's
+// no-photoName fallback already uses), gracefully falling back to a plain
+// gradient if the API has no key or no match for that query. ──
+function TilePhoto({ query, className }: { query: string; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <div className={`bg-gradient-to-br from-indigo-400 to-violet-500 ${className ?? ""}`} />;
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- /api/discover/spot-photo proxy
+    <img
+      src={`/api/discover/spot-photo?q=${encodeURIComponent(query)}`}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className={`object-cover ${className ?? ""}`}
+    />
+  );
+}
+
 export default function CourseBuilderPage() {
   const router = useRouter();
   const addPlaces = useItineraryStore((s) => s.addPlaces);
@@ -215,17 +236,23 @@ export default function CourseBuilderPage() {
           <div className="flex flex-1 items-center justify-center">
             <div className="grid w-full grid-cols-2 gap-4">
               {([
-                { key: "domestic" as const, label: "국내 여행", flag: "🇰🇷", desc: "카카오맵 기준 실제 장소" },
-                { key: "overseas" as const, label: "해외 여행", flag: "🌐", desc: "구글맵 기준 실제 장소·평점" },
+                { key: "domestic" as const, label: "국내 여행", flag: "🇰🇷", desc: "카카오맵 기준 실제 장소", photoQuery: "경복궁 야경" },
+                { key: "overseas" as const, label: "해외 여행", flag: "🌐", desc: "구글맵 기준 실제 장소·평점", photoQuery: "파리 에펠탑 야경" },
               ]).map((s) => (
                 <button
                   key={s.key}
                   onClick={() => { setScope(s.key); setPath([]); setStep("drill"); }}
-                  className="flex flex-col items-start gap-2 rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                  className="group relative flex flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
                 >
-                  <span className="text-4xl">{s.flag}</span>
-                  <span className="text-lg font-bold">{s.label}</span>
-                  <span className="text-[12px] text-slate-500">{s.desc}</span>
+                  <div className="relative h-28 w-full sm:h-36">
+                    <TilePhoto query={s.photoQuery} className="absolute inset-0 h-full w-full" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
+                    <span className="absolute left-3 top-3 text-3xl drop-shadow-md">{s.flag}</span>
+                  </div>
+                  <div className="p-4">
+                    <span className="block text-lg font-bold">{s.label}</span>
+                    <span className="mt-0.5 block text-[12px] text-slate-500">{s.desc}</span>
+                  </div>
                 </button>
               ))}
             </div>
@@ -240,10 +267,14 @@ export default function CourseBuilderPage() {
                 <button
                   key={r.label}
                   onClick={() => drillInto(r.label)}
-                  className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left font-semibold shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
                 >
-                  <span className="text-2xl">{r.emoji ?? "📍"}</span>
-                  {r.label}
+                  <div className="relative h-20 w-full">
+                    <TilePhoto query={`${r.label} 여행`} className="absolute inset-0 h-full w-full" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                    <span className="absolute left-2 top-2 text-xl drop-shadow-md">{r.emoji ?? "📍"}</span>
+                  </div>
+                  <span className="px-3 py-2.5 text-[13.5px] font-semibold">{r.label}</span>
                 </button>
               ))}
             </div>
