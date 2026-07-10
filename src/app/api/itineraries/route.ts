@@ -5,30 +5,40 @@ import { pool } from "@/lib/server/db";
 import type { ItineraryItem, Region } from "@/lib/types";
 
 interface SaveItineraryBody {
+  /**
+   * The specific server row to update (must belong to this user) — omit to
+   * create a new row. Without this, every save/share from the same account
+   * used to collide on "the user's one itinerary," so sharing a second,
+   * unrelated plan silently overwrote and reused the same link the first
+   * plan's recipients already had open.
+   */
+  id?: number;
   title?: string;
   region: Region;
   /** The frontend's `schedule` array — stored as-is in the placesData JSONB column. */
   placesData: ItineraryItem[];
 }
 
-/** The current user's most recently saved itinerary, if any. */
+/** Every itinerary the current user has ever saved/shared, most recent first. */
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.json({ itinerary: null });
+    return NextResponse.json({ itineraries: [] });
   }
 
   const result = await pool.query(
-    `select id, title, region, "placesData", "shareToken" from itineraries where "userId" = $1 order by updated_at desc limit 1`,
+    `select id, title, region, "placesData", "shareToken" from itineraries where "userId" = $1 order by updated_at desc`,
     [session.user.id],
   );
-  return NextResponse.json({ itinerary: result.rows[0] ?? null });
+  return NextResponse.json({ itineraries: result.rows });
 }
 
 /**
- * Upserts the current user's itinerary (one saved trip per user for now).
- * Always ensures a shareToken exists and returns it, so both a plain
- * "저장" and an "초대하기" (which also saves first) can reuse this route.
+ * Creates or updates one of the current user's itineraries. Passing `id`
+ * updates that specific row (a re-save or re-share of an already-known
+ * plan, reusing its existing shareToken); omitting it always inserts a new
+ * row with a fresh shareToken, so two different plans never end up
+ * aliasing the same link.
  */
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -40,18 +50,22 @@ export async function POST(request: NextRequest) {
   const title = body.title?.trim() || "My Trip";
   const placesDataJson = JSON.stringify(body.placesData ?? []);
 
-  const existing = await pool.query(
-    `select id, "shareToken" from itineraries where "userId" = $1 limit 1`,
-    [session.user.id],
-  );
-
-  if (existing.rowCount) {
-    const shareToken = existing.rows[0].shareToken ?? randomUUID();
-    await pool.query(
-      `update itineraries set title = $2, region = $3, "placesData" = $4, "shareToken" = $5, updated_at = now() where id = $1`,
-      [existing.rows[0].id, title, body.region, placesDataJson, shareToken],
+  if (body.id) {
+    const existing = await pool.query(
+      `select id, "shareToken" from itineraries where id = $1 and "userId" = $2`,
+      [body.id, session.user.id],
     );
-    return NextResponse.json({ id: existing.rows[0].id, shareToken });
+    if (existing.rowCount) {
+      const shareToken = existing.rows[0].shareToken ?? randomUUID();
+      await pool.query(
+        `update itineraries set title = $2, region = $3, "placesData" = $4, "shareToken" = $5, updated_at = now() where id = $1`,
+        [body.id, title, body.region, placesDataJson, shareToken],
+      );
+      return NextResponse.json({ id: body.id, shareToken });
+    }
+    // Given id doesn't exist or belongs to someone else — fall through and
+    // create a fresh row rather than erroring, so a stale client-side id
+    // (e.g. after a local reset) degrades to "just make a new plan".
   }
 
   const shareToken = randomUUID();

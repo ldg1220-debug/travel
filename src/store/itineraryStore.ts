@@ -122,10 +122,22 @@ interface ItineraryState {
    * MAX_SAVED_PLANS is reached, and the caller should ask the user to
    * delete one first.
    */
-  savePlanAs: (name: string, overwriteId?: string) => boolean;
+  savePlanAs: (name: string, overwriteId?: string) => string | null;
   /** Replaces the working itinerary with a saved plan's snapshot. */
   loadPlan: (id: string) => void;
   deletePlan: (id: string) => void;
+  /** Attaches a plan's server-side identity after a successful sync, so re-saving/re-sharing it later reuses that same row/link instead of creating a new one. */
+  setPlanRemoteInfo: (id: string, remoteId: number, shareToken: string) => void;
+  /**
+   * Merges itineraries fetched from the server (see fetchUserItineraries)
+   * into the local saved-plans list — only adds plans this device doesn't
+   * already have (matched by remoteId), so a plan saved on another device
+   * while logged into the same account shows up here too, without
+   * clobbering anything already saved locally on this one.
+   */
+  hydrateSavedPlansFromServer: (
+    remote: { id: number; title: string; region: Region; placesData: ItineraryItem[]; shareToken: string }[],
+  ) => void;
 }
 
 export const useItineraryStore = create<ItineraryState>()(
@@ -294,7 +306,7 @@ export const useItineraryStore = create<ItineraryState>()(
         const state = get();
         if (overwriteId) {
           const exists = state.savedPlans.some((p) => p.id === overwriteId);
-          if (!exists) return false;
+          if (!exists) return null;
           set({
             savedPlans: state.savedPlans.map((p) =>
               p.id === overwriteId
@@ -312,9 +324,9 @@ export const useItineraryStore = create<ItineraryState>()(
             ),
             activePlanId: overwriteId,
           });
-          return true;
+          return overwriteId;
         }
-        if (state.savedPlans.length >= MAX_SAVED_PLANS) return false;
+        if (state.savedPlans.length >= MAX_SAVED_PLANS) return null;
         const plan: SavedPlan = {
           id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           name,
@@ -326,7 +338,7 @@ export const useItineraryStore = create<ItineraryState>()(
           region: state.region,
         };
         set({ savedPlans: [plan, ...state.savedPlans], activePlanId: plan.id });
-        return true;
+        return plan.id;
       },
 
       loadPlan: (id) => {
@@ -347,6 +359,32 @@ export const useItineraryStore = create<ItineraryState>()(
           savedPlans: state.savedPlans.filter((p) => p.id !== id),
           activePlanId: state.activePlanId === id ? null : state.activePlanId,
         })),
+
+      setPlanRemoteInfo: (id, remoteId, shareToken) =>
+        set((state) => ({
+          savedPlans: state.savedPlans.map((p) => (p.id === id ? { ...p, remoteId, shareToken } : p)),
+        })),
+
+      hydrateSavedPlansFromServer: (remote) => {
+        const state = get();
+        const knownRemoteIds = new Set(state.savedPlans.map((p) => p.remoteId).filter((id): id is number => id != null));
+        const newPlans: SavedPlan[] = remote
+          .filter((r) => !knownRemoteIds.has(r.id))
+          .map((r) => ({
+            id: `plan-remote-${r.id}`,
+            name: r.title,
+            savedAt: Date.now(),
+            items: r.placesData,
+            places: [],
+            activeDate: r.placesData[0]?.date ?? todayISODate(),
+            currentCity: r.title,
+            region: r.region,
+            remoteId: r.id,
+            shareToken: r.shareToken,
+          }));
+        if (newPlans.length === 0) return;
+        set((s) => ({ savedPlans: [...newPlans, ...s.savedPlans] }));
+      },
     }),
     {
       name: "travel-scheduler-saved-places",

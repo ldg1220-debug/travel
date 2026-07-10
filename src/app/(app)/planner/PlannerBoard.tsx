@@ -148,6 +148,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const activePlanId = useItineraryStore((s) => s.activePlanId);
   const savePlanAs = useItineraryStore((s) => s.savePlanAs);
+  const setPlanRemoteInfo = useItineraryStore((s) => s.setPlanRemoteInfo);
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const optimizeRoute = useItineraryStore((s) => s.optimizeRoute);
   const region = useItineraryStore((s) => s.region);
@@ -320,8 +321,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // browsing a different city before this plan was ever saved. Once the
   // working itinerary matches a saved plan, its real name is what a
   // recipient should see, not that guess (see the same fix in AppBar.tsx).
-  const activePlanName = savedPlans.find((p) => p.id === activePlanId)?.name;
-  const planTitle = activePlanName ?? currentCity;
+  const activePlan = savedPlans.find((p) => p.id === activePlanId);
+  const planTitle = activePlan?.name ?? currentCity;
   const handleShareToKakao = async () => {
     if (!session?.user) {
       setLoginReason("카카오톡으로 공유하려면 로그인해주세요.");
@@ -334,7 +335,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     }
     setSharing(true);
     try {
-      const { shareToken: token } = await saveItinerary(region, items, planTitle);
+      // Reusing the active plan's own remoteId (if it has one from an
+      // earlier save/share) updates that plan's own server row and link
+      // instead of always creating a fresh row — otherwise every share
+      // from an account collided on "the user's one itinerary," so
+      // sharing a second, different plan silently overwrote and reused
+      // the same link a previous recipient already had open.
+      const { id, shareToken: token } = await saveItinerary(region, items, planTitle, activePlan?.remoteId);
+      if (activePlan) setPlanRemoteInfo(activePlan.id, id, token);
       const url = `${window.location.origin}/planner/${token}`;
       await shareToKakao({
         title: planTitle ? `${planTitle} 여행 계획` : "여행 계획",
@@ -1532,9 +1540,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             savedPlans={savedPlans}
             onClose={() => setSaveModalOpen(false)}
             onSave={(name, overwriteId) => {
-              savePlanAs(name, overwriteId);
+              const planId = savePlanAs(name, overwriteId);
               setSaveModalOpen(false);
               showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
+              if (planId && session?.user) {
+                const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
+                if (plan) {
+                  saveItinerary(plan.region, plan.items, plan.name, plan.remoteId)
+                    .then(({ id, shareToken: token }) => setPlanRemoteInfo(planId, id, token))
+                    .catch(() => {});
+                }
+              }
             }}
           />
         )}

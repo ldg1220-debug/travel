@@ -95,18 +95,42 @@ export async function fetchRecommendedCourse(scope: DiscoverScope, city: string)
   }
 }
 
+/**
+ * Creates or updates one of the current user's server-side itineraries.
+ * Pass `id` (a SavedPlan's own `remoteId`, if it has one) to update that
+ * specific plan in place and reuse its existing shareToken — omitting it
+ * always creates a new row, so saving/sharing a plan that was never synced
+ * before doesn't collide with any other plan's row.
+ */
 export async function saveItinerary(
   region: Region,
   placesData: ItineraryItem[],
   title?: string,
+  id?: number,
 ): Promise<{ id: number; shareToken: string }> {
   const res = await fetch("/api/itineraries", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ region, placesData, title }),
+    body: JSON.stringify({ id, region, placesData, title }),
   });
   if (!res.ok) throw new Error("Failed to save itinerary");
   return res.json();
+}
+
+export interface UserItinerary {
+  id: number;
+  title: string;
+  region: Region;
+  placesData: ItineraryItem[];
+  shareToken: string;
+}
+
+/** Every itinerary the logged-in user has saved/shared across any device — used to hydrate 저장된 계획 on login. */
+export async function fetchUserItineraries(): Promise<UserItinerary[]> {
+  const res = await fetch("/api/itineraries");
+  if (!res.ok) return [];
+  const data = (await res.json()) as { itineraries?: UserItinerary[] };
+  return data.itineraries ?? [];
 }
 
 export interface SharedItinerary {
