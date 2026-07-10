@@ -399,6 +399,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     toastTimer.current = setTimeout(() => setToast(null), 1600);
   }, []);
 
+  // "비우기" (both the single-tap 오늘 일정 비우기 icon next to the map, and
+  // the toolbar's whole-plan 비우기) is destructive and — on a shared link —
+  // gets pushed to the server within a second, permanently wiping it for
+  // every viewer with no version history to recover from. An 8-second undo
+  // window doesn't help once someone has already left and come back, but it
+  // does cover the actual reported failure mode: a single mis-tap.
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null);
+  const undoToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showUndoToast = (message: string, onUndo: () => void) => {
+    setUndoToast({ message, onUndo });
+    if (undoToastTimer.current) clearTimeout(undoToastTimer.current);
+    undoToastTimer.current = setTimeout(() => setUndoToast(null), 8000);
+  };
+
   // ── Task 3: collaborative sync (polling — the fastest reliable option
   // without a WebSocket server or a service like Supabase in this stack) ──
   // Tracks the last payload we ourselves applied/pushed, so an echoed poll
@@ -948,9 +962,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 {mapCollapsed ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
               </button>
               <button
-                onClick={() => clearDate(activeDate)}
+                onClick={() => {
+                  if (schedule.length === 0) return;
+                  const snapshot = items;
+                  clearDate(activeDate);
+                  showUndoToast(`${formatDateLabelShort(activeDate)} 일정을 비웠어요`, () => setItems(snapshot));
+                }}
+                disabled={schedule.length === 0}
                 aria-label="오늘 일정 비우기"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Trash2 size={15} />
               </button>
@@ -1143,9 +1163,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       <span className="text-[11px] font-medium text-rose-600">전체 비울까요?</span>
                       <button
                         onClick={() => {
+                          const snapshot = items;
                           clearAllItems();
                           setClearConfirmOpen(false);
-                          showToast("일정을 비웠어요");
+                          showUndoToast("일정을 비웠어요", () => setItems(snapshot));
                         }}
                         className="text-[11px] font-bold text-rose-600"
                       >
@@ -1426,6 +1447,30 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               className="fixed bottom-6 left-1/2 z-[60] rounded-full bg-slate-900/90 px-3.5 py-2 text-xs text-white"
             >
               {toast}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* undo toast — for destructive 비우기 actions (see showUndoToast) */}
+        <AnimatePresence>
+          {undoToast && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, x: "-50%" }}
+              animate={{ opacity: 1, y: 0, x: "-50%" }}
+              exit={{ opacity: 0, y: 10, x: "-50%" }}
+              className="fixed bottom-6 left-1/2 z-[60] flex items-center gap-2.5 rounded-full bg-slate-900/90 py-2 pl-3.5 pr-2 text-xs text-white"
+            >
+              <span>{undoToast.message}</span>
+              <button
+                onClick={() => {
+                  undoToast.onUndo();
+                  setUndoToast(null);
+                  if (undoToastTimer.current) clearTimeout(undoToastTimer.current);
+                }}
+                className="rounded-full bg-white/15 px-2.5 py-1 font-semibold text-white transition-colors hover:bg-white/25"
+              >
+                실행 취소
+              </button>
             </motion.div>
           )}
         </AnimatePresence>
