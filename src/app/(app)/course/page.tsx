@@ -500,46 +500,95 @@ function SlotResults({
 
   return (
     <div className="mt-5 grid grid-cols-2 gap-4 md:grid-cols-3">
-      {results.map((place) => {
-        const isPicked = pickedIds.includes(place.id);
-        return (
-          <div
-            key={place.id}
-            className={`group overflow-hidden rounded-2xl border bg-white shadow-sm transition-all ${
-              isPicked ? "border-emerald-400 ring-2 ring-emerald-200" : "border-slate-200/70 hover:-translate-y-0.5 hover:shadow-lg"
-            }`}
-          >
-            <button onClick={() => onOpenDetail(place)} className="block w-full text-left">
-              <div className="relative flex h-24 items-center justify-center bg-gradient-to-br from-emerald-400 to-teal-500">
-                {place.photoName ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- /api/places/photo proxy
-                  <img src={`/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=400`} alt={place.name} loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
-                ) : (
-                  <MapPin size={22} className="text-white/90" />
-                )}
-              </div>
-            </button>
-            <div className="px-3 pb-3 pt-2.5">
-              <p className="truncate text-[13px] font-bold text-slate-900">{place.name}</p>
-              {place.rating != null && (
-                <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
-                  <Star size={10} className="fill-amber-400 text-amber-400" />
-                  {place.rating.toFixed(1)}
-                  {place.reviewCount != null && <span className="font-normal text-slate-400">· {place.reviewCount.toLocaleString()}</span>}
-                </p>
-              )}
-              <button
-                onClick={() => onToggle(place)}
-                className={`mt-2 flex h-8 w-full items-center justify-center gap-1 rounded-lg text-[12px] font-semibold transition-colors ${
-                  isPicked ? "bg-emerald-500 text-white hover:bg-emerald-600" : "bg-slate-100 text-slate-600 hover:bg-indigo-500 hover:text-white"
-                }`}
-              >
-                {isPicked ? <><Check size={13} /> 담김 · 빼기</> : <><Plus size={13} /> 코스에 담기</>}
-              </button>
-            </div>
-          </div>
-        );
-      })}
+      {results.map((place) => (
+        <CourseSpotCard
+          key={place.id}
+          place={place}
+          slot={slot}
+          city={city}
+          picked={pickedIds.includes(place.id)}
+          onToggle={() => onToggle(place)}
+          onOpenDetail={() => onOpenDetail(place)}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ── one course pick card — mirrors /discover's LivePlaceCard styling
+// (photo + rating row + slot badge) so 코스 만들기 doesn't look like a
+// stripped-down version of 여행 계획짜기. Kakao Local (국내) results never
+// carry a `photoName` the way Google Places ones do, so this falls back to
+// /api/discover/spot-photo's live name+city lookup — the same fallback
+// discover's own curated SpotCard uses — instead of a bare gradient+pin. ──
+function CourseSpotCard({
+  place,
+  slot,
+  city,
+  picked,
+  onToggle,
+  onOpenDetail,
+}: {
+  place: Place;
+  slot: CourseSlot;
+  city: string;
+  picked: boolean;
+  onToggle: () => void;
+  onOpenDetail: () => void;
+}) {
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const photoSrc = place.photoName
+    ? `/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=400`
+    : `/api/discover/spot-photo?q=${encodeURIComponent(`${place.name} ${city}`)}`;
+
+  return (
+    <div
+      className={`group overflow-hidden rounded-2xl border bg-white shadow-sm transition-all ${
+        picked ? "border-emerald-400 ring-2 ring-emerald-200" : "border-slate-200/70 hover:-translate-y-0.5 hover:shadow-lg"
+      }`}
+    >
+      <button onClick={onOpenDetail} className="block w-full text-left">
+        <div className="relative flex h-24 items-center justify-center bg-gradient-to-br from-emerald-400 to-teal-500">
+          {!photoFailed ? (
+            // eslint-disable-next-line @next/next/no-img-element -- /api/places/photo or /api/discover/spot-photo proxy
+            <img
+              src={photoSrc}
+              alt={place.name}
+              loading="lazy"
+              onError={() => setPhotoFailed(true)}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : (
+            <>
+              <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
+              <MapPin size={22} className="text-white/90" />
+            </>
+          )}
+          <span className="absolute right-1.5 top-1.5 rounded-full bg-white/85 px-1.5 py-0.5 text-[9.5px] font-semibold text-slate-700 backdrop-blur">
+            {slot.emoji} {slot.label}
+          </span>
+        </div>
+      </button>
+      <div className="px-3 pb-3 pt-2.5">
+        <p className="truncate text-[13px] font-bold text-slate-900">{place.name}</p>
+        {place.rating != null ? (
+          <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
+            <Star size={10} className="fill-amber-400 text-amber-400" />
+            {place.rating.toFixed(1)}
+            {place.reviewCount != null && <span className="font-normal text-slate-400">· {place.reviewCount.toLocaleString()}</span>}
+          </p>
+        ) : place.address ? (
+          <p className="mt-0.5 truncate text-[11px] text-slate-400">{place.address}</p>
+        ) : null}
+        <button
+          onClick={onToggle}
+          className={`mt-2 flex h-8 w-full items-center justify-center gap-1 rounded-lg text-[12px] font-semibold transition-colors ${
+            picked ? "bg-emerald-500 text-white hover:bg-emerald-600" : "bg-slate-100 text-slate-600 hover:bg-indigo-500 hover:text-white"
+          }`}
+        >
+          {picked ? <><Check size={13} /> 담김 · 빼기</> : <><Plus size={13} /> 코스에 담기</>}
+        </button>
+      </div>
     </div>
   );
 }
