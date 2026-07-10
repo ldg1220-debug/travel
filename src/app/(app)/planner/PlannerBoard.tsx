@@ -73,7 +73,8 @@ import {
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
-import { fetchSharedItinerary, saveItinerary } from "@/lib/api";
+import { fetchSharedItinerary } from "@/lib/api";
+import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import type { ItineraryItem, Place } from "@/lib/types";
@@ -381,7 +382,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       // from an account collided on "the user's one itinerary," so
       // sharing a second, different plan silently overwrote and reused
       // the same link a previous recipient already had open.
-      const { id, shareToken: token } = await saveItinerary(region, items, planTitle, activePlan?.remoteId);
+      const { id, shareToken: token } = await syncPlanToServer(
+        activePlan?.id ?? "unsaved-share",
+        region,
+        items,
+        planTitle,
+        activePlan?.remoteId,
+      );
       if (activePlan) setPlanRemoteInfo(activePlan.id, id, token);
       const url = `${window.location.origin}/planner/${token}`;
       const dates = [...new Set(items.map((i) => i.date))].sort();
@@ -1554,7 +1561,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               if (planId && session?.user) {
                 const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
                 if (plan) {
-                  saveItinerary(plan.region, plan.items, plan.name, plan.remoteId)
+                  syncPlanToServer(planId, plan.region, plan.items, plan.name, plan.remoteId)
                     .then(({ id, shareToken: token }) => setPlanRemoteInfo(planId, id, token))
                     .catch(() => {});
                 }

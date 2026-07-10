@@ -12,7 +12,8 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
-import { saveItinerary, fetchUserItineraries } from "@/lib/api";
+import { fetchUserItineraries } from "@/lib/api";
+import { syncPlanToServer } from "@/lib/planSync";
 import { formatDateLabel } from "@/lib/timeline";
 import type { SavedPlan } from "@/lib/types";
 
@@ -103,8 +104,8 @@ export function AppBar() {
   // spot/route gets scheduled) and can look stale/arbitrary once a plan has
   // actually been named — once the working itinerary matches a saved plan,
   // show that plan's real name instead.
-  const activePlanName = savedPlans.find((p) => p.id === activePlanId)?.name;
-  const plannerHeaderTitle = activePlanName ?? currentCity;
+  const activePlan = savedPlans.find((p) => p.id === activePlanId);
+  const plannerHeaderTitle = activePlan?.name ?? currentCity;
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -119,7 +120,19 @@ export function AppBar() {
       return;
     }
     try {
-      const { shareToken } = await saveItinerary(region, items);
+      // Reuse the active plan's own remoteId (if it has one) instead of
+      // always inserting a fresh row — otherwise this button alone creates
+      // an orphaned duplicate server row every time it's clicked for an
+      // already-saved plan, which a later hydration pulls back in as a
+      // second copy of the same plan.
+      const { id, shareToken } = await syncPlanToServer(
+        activePlanId ?? "unsaved-share",
+        region,
+        items,
+        activePlan?.name ?? currentCity,
+        activePlan?.remoteId,
+      );
+      if (activePlan) setPlanRemoteInfo(activePlan.id, id, shareToken);
       const url = `${window.location.origin}/planner/${shareToken}`;
       await navigator.clipboard.writeText(url);
       showToast("초대 링크가 복사되었어요");
@@ -408,7 +421,7 @@ export function AppBar() {
             if (planId && session?.user) {
               const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
               if (plan) {
-                saveItinerary(plan.region, plan.items, plan.name, plan.remoteId)
+                syncPlanToServer(planId, plan.region, plan.items, plan.name, plan.remoteId)
                   .then(({ id, shareToken }) => setPlanRemoteInfo(planId, id, shareToken))
                   .catch(() => {});
               }
