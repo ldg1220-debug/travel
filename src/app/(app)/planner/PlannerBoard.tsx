@@ -35,6 +35,8 @@ import {
   Plus,
   Save,
   CalendarDays,
+  Maximize2,
+  Minimize2,
   ImageDown,
   Share2,
 } from "lucide-react";
@@ -220,6 +222,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     }
   };
 
+  // 일정만 크게 보기 — on a phone, map(45%) + tabs + toolbar + day headers
+  // left only a few rows of the actual hour grid on screen at once even
+  // after the whole-page-scroll fix, since all of that chrome still sits
+  // above the grid on every screen. This forces the map to its collapsed
+  // height and hides the tab switcher + action toolbar, leaving just the
+  // day headers + grid to fill the screen; the same button un-collapses
+  // everything again.
+  const [scheduleExpanded, setScheduleExpanded] = useState(false);
+
   // "이미지로 저장" — captures the schedule panel (day headers + timeline)
   // as a PNG, Notion-screenshot style, so a plan can be shared/glanced at
   // outside the app without everyone needing to open it here.
@@ -249,7 +260,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     // are freed from flex sizing here, not just the inner scroller.
     const targets = [capture, scroller].filter((el): el is HTMLDivElement => el != null);
     const prevStyles = targets.map((el) => ({ flex: el.style.flex, height: el.style.height, overflow: el.style.overflow }));
+    // On a narrow phone, each day column is only ~100px wide — barely
+    // enough to show a truncated place name live, and outright unreadable
+    // once html-to-image rasterizes it (font metrics in the cloned/
+    // serialized DOM don't quite match the live layout, so already-tight
+    // text overlaps further). Forcing a desktop-width capture regardless
+    // of the viewing device gives every day column the same ~220px a
+    // laptop browser would have, so the exported PNG is legible no matter
+    // how narrow the phone that generated it is.
+    const prevWidth = capture.style.width;
+    const captureWidth = Math.max(900, 42 + visibleDates.length * 220);
     try {
+      capture.style.width = `${captureWidth}px`;
       for (const el of targets) {
         el.style.flex = "none";
         el.style.overflow = "visible";
@@ -272,6 +294,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     } catch {
       showToast("이미지 저장에 실패했어요");
     } finally {
+      capture.style.width = prevWidth;
       targets.forEach((el, i) => {
         el.style.flex = prevStyles[i].flex;
         el.style.height = prevStyles[i].height;
@@ -420,6 +443,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // no-op, but the guard keeps the subscriber from re-triggering constantly).
   const lastSyncedSnapshotRef = useRef<string | null>(null);
   const suppressNextPushRef = useRef(false);
+  // A shared link's `activeDate` starts at whatever the local store already
+  // has (today's date, for a browser that's never opened the app before) —
+  // nothing else ever pointed it at the plan's own dates, so a 7/11-7/13
+  // trip opened on 7/10 landed one day short of the actual plan. Jump once,
+  // the first time this share's data arrives, to the plan's earliest date;
+  // never again after that, so it doesn't fight the viewer's own later
+  // navigation every time a poll brings in an unrelated edit.
+  const hasJumpedToSharedDateRef = useRef(false);
   const pushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: sharedData } = useQuery({
@@ -438,6 +469,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
     setRegion(sharedData.region);
     setItems(sharedData.placesData);
+
+    if (!hasJumpedToSharedDateRef.current && sharedData.placesData.length > 0) {
+      hasJumpedToSharedDateRef.current = true;
+      const earliestDate = [...sharedData.placesData].map((i) => i.date).sort()[0];
+      setActiveDate(earliestDate);
+      setWindowStart(earliestDate);
+    }
 
     // A collaborator's local `places` catalog may not have every place the
     // trip's items reference (e.g. the owner found it via search on their
@@ -459,7 +497,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       });
     if (missing.length > 0) addPlaces(missing);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `places` intentionally excluded: only need it to seed missing markers once per incoming snapshot, not on every local places change
-  }, [sharedData, setRegion, setItems, addPlaces]);
+  }, [sharedData, setRegion, setItems, addPlaces, setActiveDate]);
 
   useEffect(() => {
     if (!shareToken) return;
@@ -954,7 +992,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             size, a layout race could leave the map permanently at 0px. */}
         <div
           className={`relative w-full shrink-0 overflow-hidden bg-[#eef2f4] transition-[height] duration-300 ${
-            mapCollapsed ? "h-14 min-h-14" : "h-[45%] min-h-[260px]"
+            mapCollapsed || scheduleExpanded ? "h-14 min-h-14" : "h-[45%] min-h-[260px]"
           }`}
         >
           {tab === "schedule" && (
@@ -990,7 +1028,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               would drop mapRef and re-trigger the whole Maps SDK load) but
               visually hidden, so expanding back just needs a resize nudge
               instead of a full re-init. */}
-          <div className={mapCollapsed ? "hidden" : "contents"}>
+          <div className={mapCollapsed || scheduleExpanded ? "hidden" : "contents"}>
           {/* Available on both tabs — a tap routes to the schedule modal
               or the 딥 다이브 detail overlay depending on `tab` (see onUp
               above); trending spots still merge into the shared `places`
@@ -1034,6 +1072,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
         {/* ── LOWER PANEL — 일정 timeline vs 관심 장소 search+list ── */}
         <div className="flex flex-col border-t border-slate-200 bg-white">
+          {!scheduleExpanded && (
           <div className="px-4 pt-3">
             <div className="inline-flex w-full rounded-2xl bg-slate-100 p-1 shadow-inner">
               {PLANNER_TABS.map((t) => {
@@ -1059,22 +1098,6 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               })}
             </div>
           </div>
-
-          {/* 공유받은 계획 저장 — /planner/[shareToken]로 들어온 경우, 이 화면에서
-              보고 있는(동기화된) 일정을 내 계획 목록에 스냅샷으로 저장할 수
-              있게 눈에 띄는 배너로 안내한다. 실제 저장 로직은 기존 계획 저장
-              모달(SavePlanModal)을 그대로 재사용 — 지금 스토어에 들어있는
-              items가 바로 공유받아 동기화된 그 일정이기 때문. */}
-          {shareToken && (
-            <div className="mx-4 mt-3 flex items-center justify-between gap-2 rounded-2xl border border-indigo-100 bg-indigo-50 px-3.5 py-2.5">
-              <p className="text-[12px] font-medium text-indigo-700">공유받은 계획을 보고 있어요.</p>
-              <button
-                onClick={() => setSaveModalOpen(true)}
-                className="shrink-0 rounded-full bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-indigo-700"
-              >
-                내 계획으로 저장하기
-              </button>
-            </div>
           )}
 
           {tab === "schedule" ? (
@@ -1140,9 +1163,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         <Plus size={11} />
                       </button>
                     </div>
+                    <button
+                      onClick={() => setScheduleExpanded((v) => !v)}
+                      aria-label={scheduleExpanded ? "축소해서 보기" : "일정만 크게 보기"}
+                      aria-pressed={scheduleExpanded}
+                      className={`ml-1 flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
+                        scheduleExpanded ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      {scheduleExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                    </button>
                   </div>
                 </div>
 
+                {!scheduleExpanded && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <button
                     onClick={() => setSaveModalOpen(true)}
@@ -1207,6 +1241,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     </span>
                   </button>
                 </div>
+                )}
               </div>
 
               {monthViewOpen ? (
