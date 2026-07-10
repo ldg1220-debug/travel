@@ -937,7 +937,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         setDragPreviewSlot(null);
       }}
     >
-      <div ref={boardRef} className="relative flex h-full flex-col overflow-hidden bg-white font-sans">
+      {/* The whole board is now ONE scroll container (this div), not a fixed
+          h-full/overflow-hidden shell with the map pinned and only the
+          schedule scrolling inside a small leftover region — on a real
+          phone, map(45%) + tabs + toolbar + day headers ate nearly all of
+          the remaining 55%, leaving the actual hour grid only a sliver tall
+          to scroll within (worse still inside some in-app browsers, whose
+          dvh accounting is unreliable). Scrolling the map away with
+          everything else means the schedule gets the full viewport once
+          you scroll past it, on any browser. */}
+      <div ref={boardRef} className="relative flex h-full flex-col overflow-y-auto bg-white font-sans">
         {/* ── MAP AREA — real Google Maps, auto-fit to every visible place ── */}
         {/* min-h is a safety floor: h-[45%] depends on the flex ancestor
             chain resolving before the Maps SDK measures the container (it
@@ -1024,7 +1033,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         </div>
 
         {/* ── LOWER PANEL — 일정 timeline vs 관심 장소 search+list ── */}
-        <div className="flex min-h-0 flex-1 flex-col border-t border-slate-200 bg-white">
+        <div className="flex flex-col border-t border-slate-200 bg-white">
           <div className="px-4 pt-3">
             <div className="inline-flex w-full rounded-2xl bg-slate-100 p-1 shadow-inner">
               {PLANNER_TABS.map((t) => {
@@ -1201,7 +1210,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               </div>
 
               {monthViewOpen ? (
-                <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-1">
+                <div className="px-5 pb-6 pt-1">
                   <MonthCalendar
                     selected={activeDate}
                     onSelect={(date) => {
@@ -1216,7 +1225,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   />
                 </div>
               ) : (
-                <div ref={scheduleCaptureRef} className="flex min-h-0 flex-1 flex-col bg-white">
+                <div ref={scheduleCaptureRef} className="flex flex-col bg-white">
               {/* day-column headers */}
               <div className="flex border-b border-slate-100 px-4">
                 <div className="w-[42px] shrink-0" />
@@ -1236,7 +1245,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 })}
               </div>
 
-              <div ref={timelineScrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+              <div ref={timelineScrollRef} className="px-4 pb-6">
                 <div className="flex" style={{ height: TIMELINE_HOURS.length * SLOT_HEIGHT }}>
                   {/* hour gutter */}
                   <div className="w-[42px] shrink-0">
@@ -1323,7 +1332,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               )}
             </>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-6 pt-3">
+            <div className="flex flex-col gap-3 px-4 pb-6 pt-3">
               <PlaceSearchPanel region={region} onRegionChange={setRegion} onSelect={handleSavedPlaceDiscovered} />
               {savedPlaces.length === 0 ? (
                 <p className="mt-6 text-center text-[12px] text-slate-400">
