@@ -36,6 +36,8 @@ interface MonthCalendarProps {
   onSelect: (date: string) => void;
   /** Highlight color for the selected day — defaults to near-black to match the app's default UI. */
   accentColor?: string;
+  /** ISO dates that get a small dot under the day number (e.g. days that already have scheduled stops) — lets the month view double as an at-a-glance overview, not just a date picker. */
+  markedDates?: Set<string>;
 }
 
 /**
@@ -43,7 +45,7 @@ interface MonthCalendarProps {
  * past or future month, is reachable via the ‹ › month nav instead of only
  * a short "next N days" window.
  */
-export function MonthCalendar({ selected, onSelect, accentColor = "#111827" }: MonthCalendarProps) {
+export function MonthCalendar({ selected, onSelect, accentColor = "#111827", markedDates }: MonthCalendarProps) {
   const [selYear, selMonth] = selected.split("-").map(Number);
   const [viewYear, setViewYear] = useState(selYear);
   const [viewMonth, setViewMonth] = useState(selMonth - 1); // 0-indexed
@@ -108,8 +110,9 @@ export function MonthCalendar({ selected, onSelect, accentColor = "#111827" }: M
         {cells.map((cell) => {
           const isSelected = cell.date === selected;
           const isToday = cell.date === today;
+          const marked = markedDates?.has(cell.date) ?? false;
           return (
-            <div key={cell.date} className="flex items-center justify-center py-0.5">
+            <div key={cell.date} className="relative flex items-center justify-center py-0.5">
               <button
                 onClick={() => handleDayClick(cell)}
                 className="flex h-8 w-8 items-center justify-center rounded-full text-[12px] font-medium tabular-nums transition-colors"
@@ -121,6 +124,12 @@ export function MonthCalendar({ selected, onSelect, accentColor = "#111827" }: M
               >
                 {Number(cell.date.split("-")[2])}
               </button>
+              {marked && (
+                <span
+                  className="pointer-events-none absolute bottom-0.5 h-1 w-1 rounded-full"
+                  style={{ background: isSelected ? "white" : accentColor }}
+                />
+              )}
             </div>
           );
         })}

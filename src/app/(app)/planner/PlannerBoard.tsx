@@ -16,8 +16,27 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Clock, X, Wallet, Sparkles, Trash2, Footprints, TrainFront, MapPin, ChevronLeft, ChevronRight, Minus, Plus, Save } from "lucide-react";
+import {
+  Clock,
+  X,
+  Wallet,
+  Sparkles,
+  Trash2,
+  Footprints,
+  TrainFront,
+  MapPin,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  Minus,
+  Plus,
+  Save,
+  CalendarDays,
+  ImageDown,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
@@ -49,6 +68,7 @@ import {
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
 import { fetchSharedItinerary, pushSharedItinerary } from "@/lib/api";
+import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import type { ItineraryItem, Place } from "@/lib/types";
 import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
 
@@ -107,6 +127,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // Zustand (src/store/itineraryStore.ts) — no local/hardcoded data here.
   const places = useItineraryStore((s) => s.places);
   const activeDate = useItineraryStore((s) => s.activeDate);
+  const currentCity = useItineraryStore((s) => s.currentCity);
   const setActiveDate = useItineraryStore((s) => s.setActiveDate);
   const items = useItineraryStore((s) => s.items);
   const isHourTaken = useItineraryStore((s) => s.isHourTaken);
@@ -156,6 +177,93 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // columns or grow wide enough to become unusable.
   const [visibleDays, setVisibleDays] = useState(VISIBLE_DAYS);
   const visibleDates = useMemo(() => dateWindow(activeDate, visibleDays), [activeDate, visibleDays]);
+
+  // Month-grid view toggle — the day-column strip only ever shows a few
+  // days at once; this swaps it for a full month at a glance (Notion/Google
+  // Calendar style), with a dot under any day that already has stops.
+  // Tapping a day jumps the strip there and collapses back automatically.
+  const [monthViewOpen, setMonthViewOpen] = useState(false);
+  const markedDates = useMemo(() => new Set(items.map((i) => i.date)), [items]);
+
+  // Map collapse — the map area normally always eats 45% of the screen;
+  // collapsing it (keeping just the search bar visible) hands that space
+  // to the schedule list, useful once you're mostly reviewing/editing a
+  // plan rather than actively picking new spots off the map.
+  const [mapCollapsed, setMapCollapsed] = useState(false);
+  const toggleMapCollapsed = () => {
+    const wasCollapsed = mapCollapsed;
+    setMapCollapsed(!wasCollapsed);
+    // Expanding again: the Maps SDK doesn't notice its container resizing
+    // back up on its own (see nudgeGoogleMapResize), so force a re-measure
+    // once the CSS transition has actually finished — center/zoom are left
+    // as they were, no need to re-fit bounds, since collapsing never moved
+    // the camera in the first place.
+    if (wasCollapsed && mapRef.current) {
+      const map = mapRef.current;
+      setTimeout(() => nudgeGoogleMapResize(map), 320);
+    }
+  };
+
+  // "이미지로 저장" — captures the schedule panel (day headers + timeline)
+  // as a PNG, Notion-screenshot style, so a plan can be shared/glanced at
+  // outside the app without everyone needing to open it here.
+  const scheduleCaptureRef = useRef<HTMLDivElement | null>(null);
+  // The 24-hour grid lives inside its own scrollable div (only ~4-5 hours
+  // fit on screen at once) — html-to-image renders exactly what's laid out,
+  // which for an `overflow-y-auto` container is only its clipped viewport,
+  // not the full scrolled content. Temporarily lifting that clip for the
+  // capture is what makes the exported image show the whole day.
+  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
+  const [capturing, setCapturing] = useState(false);
+  const handleCaptureSchedule = async () => {
+    const capture = scheduleCaptureRef.current;
+    const scroller = timelineScrollRef.current;
+    if (!capture || capturing) return;
+    setCapturing(true);
+
+    // Both this panel and its inner scroll area are `flex-1` (flex: 1 1
+    // 0%), which is what makes the panel scrollable in the first place —
+    // flex-grow/shrink actively resizes them to fit the flex parent
+    // regardless of `height`, so `height: auto` alone does nothing. A
+    // flex CHILD that overflows its box also doesn't stretch the box to
+    // contain it (default `overflow: visible` just lets the overflow
+    // paint past the boundary without the parent growing) — so
+    // `toPng`, which sizes its output canvas to the target element's own
+    // rect, would crop to the small on-screen viewport unless BOTH levels
+    // are freed from flex sizing here, not just the inner scroller.
+    const targets = [capture, scroller].filter((el): el is HTMLDivElement => el != null);
+    const prevStyles = targets.map((el) => ({ flex: el.style.flex, height: el.style.height, overflow: el.style.overflow }));
+    try {
+      for (const el of targets) {
+        el.style.flex = "none";
+        el.style.overflow = "visible";
+        el.style.height = "auto";
+      }
+      // Let layout settle before html-to-image measures the DOM.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const { toPng } = await import("html-to-image");
+      const dataUrl = await toPng(capture, { backgroundColor: "#ffffff", pixelRatio: 2 });
+      const link = document.createElement("a");
+      link.download = `${currentCity || "일정"}-${activeDate}.png`;
+      link.href = dataUrl;
+      // Some browsers only honor `download` (i.e. keep the suggested
+      // filename instead of falling back to a generic one) when the anchor
+      // is actually attached to the document at click time.
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch {
+      showToast("이미지 저장에 실패했어요");
+    } finally {
+      targets.forEach((el, i) => {
+        el.style.flex = prevStyles[i].flex;
+        el.style.height = prevStyles[i].height;
+        el.style.overflow = prevStyles[i].overflow;
+      });
+      setCapturing(false);
+    }
+  };
 
   // 계획 저장 / 비우기 — the toolbar's quick actions for the whole working
   // itinerary (as opposed to clearDate's single-day clear in the map area).
@@ -682,12 +790,24 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             chain resolving before the Maps SDK measures the container (it
             only measures once, on mount) — without a concrete fallback
             size, a layout race could leave the map permanently at 0px. */}
-        <div className="relative h-[45%] min-h-[260px] w-full shrink-0 overflow-hidden bg-[#eef2f4]">
+        <div
+          className={`relative w-full shrink-0 overflow-hidden bg-[#eef2f4] transition-[height] duration-300 ${
+            mapCollapsed ? "h-14 min-h-14" : "h-[45%] min-h-[260px]"
+          }`}
+        >
           {tab === "schedule" && (
             <div className="absolute inset-x-3 top-3 z-20 flex items-center gap-2">
               <div className="min-w-0 flex-1">
                 <PlacesSearchInput region={region} onSelect={handlePlaceDiscovered} />
               </div>
+              <button
+                onClick={toggleMapCollapsed}
+                aria-label={mapCollapsed ? "지도 펼치기" : "지도 접기"}
+                aria-pressed={mapCollapsed}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700"
+              >
+                {mapCollapsed ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
+              </button>
               <button
                 onClick={() => clearDate(activeDate)}
                 aria-label="오늘 일정 비우기"
@@ -698,6 +818,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             </div>
           )}
 
+          {/* Collapsed: keep TrendSheet/PlannerGoogleMap mounted (unmounting
+              would drop mapRef and re-trigger the whole Maps SDK load) but
+              visually hidden, so expanding back just needs a resize nudge
+              instead of a full re-init. */}
+          <div className={mapCollapsed ? "hidden" : "contents"}>
           {/* Available on both tabs — a tap routes to the schedule modal
               or the 딥 다이브 detail overlay depending on `tab` (see onUp
               above); trending spots still merge into the shared `places`
@@ -736,6 +861,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             onCloseClickedPlace={() => setClickedPlace(null)}
             onSaveClickedPlace={handleSaveClickedPlace}
           />
+          </div>
         </div>
 
         {/* ── LOWER PANEL — 일정 timeline vs 관심 장소 search+list ── */}
@@ -785,6 +911,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
                   <div className="flex items-center gap-1.5">
                     <button
+                      onClick={() => setMonthViewOpen((v) => !v)}
+                      aria-label={monthViewOpen ? "월간 달력 접기" : "월간 달력 보기"}
+                      aria-pressed={monthViewOpen}
+                      className={`flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
+                        monthViewOpen ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      <CalendarDays size={13} />
+                    </button>
+                    <button
                       onClick={() => shiftWindow(-1)}
                       aria-label="이전 날짜"
                       className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
@@ -830,6 +966,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     <Save size={11} />
                     계획 저장
                   </button>
+                  <button
+                    onClick={handleCaptureSchedule}
+                    disabled={capturing || schedule.length === 0}
+                    className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <ImageDown size={11} />
+                    {capturing ? "저장 중…" : "이미지로 저장"}
+                  </button>
                   {clearConfirmOpen ? (
                     <div className="flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1">
                       <span className="text-[11px] font-medium text-rose-600">전체 비울까요?</span>
@@ -871,6 +1015,19 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 </div>
               </div>
 
+              {monthViewOpen ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-1">
+                  <MonthCalendar
+                    selected={activeDate}
+                    onSelect={(date) => {
+                      setActiveDate(date);
+                      setMonthViewOpen(false);
+                    }}
+                    markedDates={markedDates}
+                  />
+                </div>
+              ) : (
+                <div ref={scheduleCaptureRef} className="flex min-h-0 flex-1 flex-col bg-white">
               {/* day-column headers */}
               <div className="flex border-b border-slate-100 px-4">
                 <div className="w-[42px] shrink-0" />
@@ -890,7 +1047,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 })}
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+              <div ref={timelineScrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
                 <div className="flex" style={{ height: TIMELINE_HOURS.length * SLOT_HEIGHT }}>
                   {/* hour gutter */}
                   <div className="w-[42px] shrink-0">
@@ -973,6 +1130,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   })}
                 </div>
               </div>
+                </div>
+              )}
             </>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-6 pt-3">
