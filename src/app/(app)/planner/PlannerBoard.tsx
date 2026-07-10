@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -35,9 +36,11 @@ import {
   Save,
   CalendarDays,
   ImageDown,
+  Share2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
+import { LoginModal } from "@/components/LoginModal";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
@@ -68,7 +71,8 @@ import {
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
-import { fetchSharedItinerary, pushSharedItinerary } from "@/lib/api";
+import { fetchSharedItinerary, pushSharedItinerary, saveItinerary } from "@/lib/api";
+import { shareToKakao } from "@/lib/kakaoShare";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import type { ItineraryItem, Place } from "@/lib/types";
 import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
@@ -280,6 +284,38 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // itinerary (as opposed to clearDate's single-day clear in the map area).
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+
+  // 카카오톡 공유 — needs a logged-in owner (the shared link is served from
+  // that user's saved itinerary row, POST /api/itineraries requires auth).
+  const { data: session } = useSession();
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginReason, setLoginReason] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const handleShareToKakao = async () => {
+    if (!session?.user) {
+      setLoginReason("카카오톡으로 공유하려면 로그인해주세요.");
+      setLoginOpen(true);
+      return;
+    }
+    if (items.length === 0) {
+      showToast("공유할 일정이 없어요");
+      return;
+    }
+    setSharing(true);
+    try {
+      const { shareToken: token } = await saveItinerary(region, items, currentCity);
+      const url = `${window.location.origin}/planner/${token}`;
+      await shareToKakao({
+        title: currentCity ? `${currentCity} 여행 계획` : "여행 계획",
+        description: `${items.length}개의 일정이 담긴 여행 계획을 확인해보세요.`,
+        url,
+      });
+    } catch {
+      showToast("카카오톡 공유에 실패했어요");
+    } finally {
+      setSharing(false);
+    }
+  };
 
   const scheduleByDate = useMemo(() => {
     const map: Record<string, ItineraryItem[]> = {};
@@ -987,6 +1023,23 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             </div>
           </div>
 
+          {/* 공유받은 계획 저장 — /planner/[shareToken]로 들어온 경우, 이 화면에서
+              보고 있는(동기화된) 일정을 내 계획 목록에 스냅샷으로 저장할 수
+              있게 눈에 띄는 배너로 안내한다. 실제 저장 로직은 기존 계획 저장
+              모달(SavePlanModal)을 그대로 재사용 — 지금 스토어에 들어있는
+              items가 바로 공유받아 동기화된 그 일정이기 때문. */}
+          {shareToken && (
+            <div className="mx-4 mt-3 flex items-center justify-between gap-2 rounded-2xl border border-indigo-100 bg-indigo-50 px-3.5 py-2.5">
+              <p className="text-[12px] font-medium text-indigo-700">공유받은 계획을 보고 있어요.</p>
+              <button
+                onClick={() => setSaveModalOpen(true)}
+                className="shrink-0 rounded-full bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-indigo-700"
+              >
+                내 계획으로 저장하기
+              </button>
+            </div>
+          )}
+
           {tab === "schedule" ? (
             <>
               <div className="px-5 pb-2 pt-3">
@@ -1068,6 +1121,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   >
                     <ImageDown size={11} />
                     {capturing ? "저장 중…" : "이미지로 저장"}
+                  </button>
+                  <button
+                    onClick={handleShareToKakao}
+                    disabled={sharing || items.length === 0}
+                    className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <Share2 size={11} />
+                    {sharing ? "공유 중…" : "카카오톡 공유"}
                   </button>
                   {clearConfirmOpen ? (
                     <div className="flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1">
@@ -1380,6 +1441,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             }}
           />
         )}
+
+        {loginOpen && <LoginModal reason={loginReason ?? undefined} onClose={() => setLoginOpen(false)} />}
       </div>
 
       <DragOverlay>

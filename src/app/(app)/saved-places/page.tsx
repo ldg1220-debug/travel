@@ -2,10 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, X } from "lucide-react";
+import { Heart, Share2, X } from "lucide-react";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { PlaceGlyph } from "@/app/(app)/planner/icons";
 import { CATEGORY_OPTIONS } from "@/app/(app)/planner/PlaceDetailOverlay";
+import { shareToKakao } from "@/lib/kakaoShare";
+import type { Place } from "@/lib/types";
 
 // Saved places whose `category` isn't one of the 6 canonical values (e.g. a
 // raw Google `primaryType` or Kakao category string that was never manually
@@ -32,6 +34,25 @@ export default function SavedPlacesPage() {
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
 
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [toast, setToast] = useState<string | null>(null);
+
+  // 관심 장소 카카오톡 공유 — 이 앱엔 개별 장소용 공유 링크(shareToken)가
+  // 없으므로, 구글 지도 좌표 링크로 공유한다 (계획 공유는 실제 서버에 저장된
+  // itinerary의 shareToken을 쓰는 PlannerBoard의 handleShareToKakao와 다름).
+  const handleSharePlace = async (place: Place) => {
+    const url = `https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lng}`;
+    try {
+      await shareToKakao({
+        title: place.name,
+        description: place.memo || place.address || CATEGORY_LABEL[place.category] || "관심 장소",
+        url,
+        buttonTitle: "지도에서 보기",
+      });
+    } catch {
+      setToast("카카오톡 공유에 실패했어요");
+      setTimeout(() => setToast(null), 1600);
+    }
+  };
 
   const counts = useMemo(() => {
     const map = new Map<string, number>();
@@ -152,6 +173,16 @@ export default function SavedPlacesPage() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        handleSharePlace(place);
+                      }}
+                      aria-label={`${place.name} 카카오톡 공유`}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    >
+                      <Share2 size={14} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
                         removeSavedPlace(place.id);
                       }}
                       aria-label={`${place.name} 저장 해제`}
@@ -166,6 +197,12 @@ export default function SavedPlacesPage() {
           </>
         )}
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-slate-900/90 px-3.5 py-2 text-xs text-white">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
