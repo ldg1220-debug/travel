@@ -2,66 +2,51 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Search, Loader2 } from "lucide-react";
-import { useGoogleMapsStatus } from "./MapProvider";
-import { placeFromGoogleDetails } from "@/lib/placeAdapters";
-import type { Place } from "@/lib/types";
+import type { Place, Region } from "@/lib/types";
 
 const DEBOUNCE_MS = 400;
-// Roughly between Fukuoka and Yufuin, so predictions bias toward this trip.
-const BIAS_CENTER = { lat: 33.45, lng: 130.9 };
 
 interface PlacesSearchInputProps {
+  region: Region;
   onSelect: (place: Place) => void;
 }
 
 /**
- * Google Places Autocomplete (New), cost-controlled per Google's guidance:
- *  - one AutocompleteSessionToken reused across every keystroke of a
- *    search, discarded once a place is selected (or the input is cleared)
- *  - the actual prediction fetch is debounced ~400ms so typing doesn't
- *    fire a request per character
- *  - Place.fetchFields() on selection is restricted to exactly the fields
- *    this app renders (name/geometry/id/category) instead of "ALL"
+ * The map's quick "장소 검색" box — routes through the same `/api/places/search`
+ * endpoint (Google Places / Kakao Local + landmark-radius "X 근처 Y" parsing)
+ * that 여행 계획짜기(discover)'s search uses, instead of Google's raw
+ * Autocomplete Suggestion API. Autocomplete only ever prefix-matches a real
+ * place's own name, so "카이유칸 근처 맛집" returned nothing — this box now
+ * behaves identically to discover's search for that kind of query.
  */
-export function PlacesSearchInput({ onSelect }: PlacesSearchInputProps) {
-  const { isLoaded } = useGoogleMapsStatus();
+export function PlacesSearchInput({ region, onSelect }: PlacesSearchInputProps) {
   const [query, setQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<google.maps.places.AutocompleteSuggestion[]>([]);
+  const [results, setResults] = useState<Place[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
 
-  const sessionTokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
 
   const trimmedQuery = query.trim();
-  // Derived at render time rather than reset via effect+setState on the
-  // empty-query path — nothing to synchronize with an external system there.
-  const visibleSuggestions = trimmedQuery ? suggestions : [];
+  const visibleResults = trimmedQuery ? results : [];
   const showLoading = loading && trimmedQuery.length > 0;
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!isLoaded || !trimmedQuery) return;
+    if (!trimmedQuery) return;
 
     const thisRequestId = ++requestIdRef.current;
 
     debounceRef.current = setTimeout(async () => {
-      // Only flip the spinner on once the debounce window elapses and a
-      // request is actually about to go out, not while still typing.
       setLoading(true);
-      if (!sessionTokenRef.current) {
-        sessionTokenRef.current = new google.maps.places.AutocompleteSessionToken();
-      }
       try {
-        const { suggestions: results } = await google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-          input: trimmedQuery,
-          sessionToken: sessionTokenRef.current,
-          locationBias: { ...BIAS_CENTER, radius: 60000 },
-        });
-        if (requestIdRef.current === thisRequestId) setSuggestions(results);
+        const url = `/api/places/search?region=${region}&q=${encodeURIComponent(trimmedQuery)}`;
+        const res = await fetch(url);
+        const data = (await res.json()) as { places?: Place[] };
+        if (requestIdRef.current === thisRequestId) setResults(data.places ?? []);
       } catch {
-        if (requestIdRef.current === thisRequestId) setSuggestions([]);
+        if (requestIdRef.current === thisRequestId) setResults([]);
       } finally {
         if (requestIdRef.current === thisRequestId) setLoading(false);
       }
@@ -70,23 +55,13 @@ export function PlacesSearchInput({ onSelect }: PlacesSearchInputProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [trimmedQuery, isLoaded]);
+  }, [trimmedQuery, region]);
 
-  const handleSelect = async (suggestion: google.maps.places.AutocompleteSuggestion) => {
-    const prediction = suggestion.placePrediction;
-    if (!prediction) return;
-
-    const place = prediction.toPlace();
-    // Minimal field mask — keeps this call (and the whole autocomplete
-    // session it closes out) as cheap as possible.
-    await place.fetchFields({ fields: ["displayName", "location", "id", "types"] });
-
-    onSelect(placeFromGoogleDetails(place));
-
+  const handleSelect = (place: Place) => {
+    onSelect(place);
     setQuery("");
-    setSuggestions([]);
+    setResults([]);
     setOpen(false);
-    sessionTokenRef.current = null; // session ends once a place is chosen
   };
 
   return (
@@ -100,24 +75,32 @@ export function PlacesSearchInput({ onSelect }: PlacesSearchInputProps) {
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
-          placeholder={isLoaded ? "장소 검색…" : "검색 준비 중…"}
-          disabled={!isLoaded}
-          className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
+          placeholder="장소 검색… (예: 카이유칸 근처 맛집)"
+          className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-slate-400"
         />
         {showLoading && <Loader2 size={14} className="shrink-0 animate-spin text-slate-400" />}
       </div>
 
-      {open && visibleSuggestions.length > 0 && (
-        <div className="absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-          {visibleSuggestions.map((s) => (
+      {open && visibleResults.length > 0 && (
+        <div className="absolute inset-x-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+          {visibleResults.map((p) => (
             <button
-              key={s.placePrediction?.placeId}
-              onClick={() => handleSelect(s)}
-              className="block w-full truncate px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              key={p.id}
+              onClick={() => handleSelect(p)}
+              className="flex w-full items-center gap-2 truncate px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
             >
-              {s.placePrediction?.text.text}
+              <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              {p.rating != null && (
+                <span className="shrink-0 text-[11px] tabular-nums text-slate-400">★{p.rating.toFixed(1)}</span>
+              )}
             </button>
           ))}
+        </div>
+      )}
+
+      {open && !showLoading && trimmedQuery && visibleResults.length === 0 && (
+        <div className="absolute inset-x-0 top-full z-30 mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[12px] text-slate-400 shadow-lg">
+          검색 결과가 없어요.
         </div>
       )}
     </div>

@@ -87,6 +87,9 @@ function nearWantType(want: string): string | undefined {
 
 const NEAR_RADIUS_M = 3000;
 
+/** Category spread for a bare "X 근처" (no "Y" named) — one query per label, merged, so the grouped live-results UI has something in each theme bucket instead of whatever one generic query happened to surface. */
+const NEAR_FANOUT_LABELS = ["관광명소", "맛집", "카페", "술집", "숙소"];
+
 export async function GET(request: NextRequest) {
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
   const rawQuery = (request.nextUrl.searchParams.get("q") ?? "").trim();
@@ -156,7 +159,14 @@ function toLocalityBase(q: string): string {
   return out.replace(/\s+/g, " ").trim();
 }
 
-const FANOUT_TARGET = 12; // stop firing extra queries once we have this many merged hits
+// Stop firing extra fan-out queries once we have this many merged hits.
+// Was 12 — but the augLabels loop below tries labels in a fixed order
+// (관광명소 first) and bails the instant the running total crosses the
+// target, so a landmark whose first 1-2 labels alone cleared 12 never got
+// to try 카페/술집/숙소 at all, leaving those theme buckets empty even
+// though the total count looked reasonable. Raised to match the final
+// response cap so every label gets a real chance to contribute.
+const FANOUT_TARGET = 20;
 
 async function searchInternational(
   query: string,
@@ -173,17 +183,29 @@ async function searchInternational(
     const landmarkHits = await rawGoogleSearch(near.landmark, apiKey, undefined, "ko");
     const anchor = landmarkHits?.[0];
     if (anchor?.location) {
-      const want = near.want || (category ? CATEGORY_LABEL_KO[category] : "") || "맛집";
-      const type = includedType ?? nearWantType(want);
-      const nearby = await callGoogleSearchText(want, apiKey, type, {
-        lat: anchor.location.latitude,
-        lng: anchor.location.longitude,
-      });
-      const filtered = (nearby ?? []).filter((p) => p.id !== anchor.id);
+      const bias = { lat: anchor.location.latitude, lng: anchor.location.longitude };
+      const merged: Place[] = [];
+      const explicitWant = near.want || (category && category !== "all" ? CATEGORY_LABEL_KO[category] : "");
+      if (explicitWant) {
+        // A specific "Y" was named ("맛집", "카페", 스타벅스 …) — one focused
+        // query for exactly that.
+        const type = includedType ?? nearWantType(explicitWant);
+        const nearby = await callGoogleSearchText(explicitWant, apiKey, type, bias);
+        if (nearby) mergePlaces(merged, nearby);
+      } else {
+        // No "Y" at all ("카이유칸 근처" with nothing after) — fan out
+        // across several categories within the radius instead of one
+        // generic "맛집" call, so every theme bucket in the grouped live
+        // results gets a chance to have something in it.
+        for (const lbl of NEAR_FANOUT_LABELS) {
+          if (merged.length >= FANOUT_TARGET) break;
+          const nearby = await callGoogleSearchText(`${near.landmark} ${lbl}`, apiKey, undefined, bias);
+          if (nearby) mergePlaces(merged, nearby);
+        }
+      }
+      const filtered = merged.filter((p) => p.id !== anchor.id);
       if (filtered.length > 0) {
-        const merged: Place[] = [];
-        mergePlaces(merged, filtered);
-        return { places: merged.slice(0, 20), source: "google" };
+        return { places: filtered.slice(0, 20), source: "google" };
       }
     }
   }

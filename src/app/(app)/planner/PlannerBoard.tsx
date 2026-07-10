@@ -16,8 +16,27 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Clock, X, Wallet, Sparkles, Trash2, Footprints, TrainFront, MapPin, ChevronLeft, ChevronRight, Minus, Plus, Save } from "lucide-react";
+import {
+  Clock,
+  X,
+  Wallet,
+  Sparkles,
+  Trash2,
+  Footprints,
+  TrainFront,
+  MapPin,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  Minus,
+  Plus,
+  Save,
+  CalendarDays,
+  ImageDown,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
@@ -49,6 +68,7 @@ import {
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
 import { fetchSharedItinerary, pushSharedItinerary } from "@/lib/api";
+import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import type { ItineraryItem, Place } from "@/lib/types";
 import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
 
@@ -73,6 +93,8 @@ type PlannerTabKey = (typeof PLANNER_TABS)[number]["key"];
 type ScheduleTarget =
   | { mode: "create"; place: Place }
   | { mode: "edit"; place: Place; item: ItineraryItem };
+
+const EMPTY_SCHEDULE: ItineraryItem[] = [];
 
 // ─────────────────────────────────────────────────────────────
 export function PlannerBoard({ shareToken }: PlannerBoardProps) {
@@ -105,9 +127,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // Zustand (src/store/itineraryStore.ts) — no local/hardcoded data here.
   const places = useItineraryStore((s) => s.places);
   const activeDate = useItineraryStore((s) => s.activeDate);
+  const currentCity = useItineraryStore((s) => s.currentCity);
   const setActiveDate = useItineraryStore((s) => s.setActiveDate);
   const items = useItineraryStore((s) => s.items);
   const isHourTaken = useItineraryStore((s) => s.isHourTaken);
+  const hasConflictStore = useItineraryStore((s) => s.hasConflict);
   const addItem = useItineraryStore((s) => s.addItem);
   const moveItem = useItineraryStore((s) => s.moveItem);
   const resizeItem = useItineraryStore((s) => s.resizeItem);
@@ -140,12 +164,106 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // selection, or a trend card tap while on the 관심 장소 tab.
   const [detailPlace, setDetailPlace] = useState<Place | null>(null);
 
+  // A place just found via the map's search box, not yet scheduled — shown
+  // as a single temporary pin (see scheduleMapPlaces below) so it stays
+  // tappable/draggable onto a slot, without permanently cluttering the map
+  // with every place ever searched for across the whole session (that's
+  // what `places` used to do — see PR history for "맵에 남아있는 스팟포인트").
+  const [pendingSearchPlace, setPendingSearchPlace] = useState<Place | null>(null);
+
   // ── multi-day (Notion-style) timeline window ──
   // Adjustable via the +/- control next to the date nav — clamped to
   // [MIN_VISIBLE_DAYS, MAX_VISIBLE_DAYS] so the grid can't collapse to 0
   // columns or grow wide enough to become unusable.
   const [visibleDays, setVisibleDays] = useState(VISIBLE_DAYS);
   const visibleDates = useMemo(() => dateWindow(activeDate, visibleDays), [activeDate, visibleDays]);
+
+  // Month-grid view toggle — the day-column strip only ever shows a few
+  // days at once; this swaps it for a full month at a glance (Notion/Google
+  // Calendar style), with a dot under any day that already has stops.
+  // Tapping a day jumps the strip there and collapses back automatically.
+  const [monthViewOpen, setMonthViewOpen] = useState(false);
+  const markedDates = useMemo(() => new Set(items.map((i) => i.date)), [items]);
+
+  // Map collapse — the map area normally always eats 45% of the screen;
+  // collapsing it (keeping just the search bar visible) hands that space
+  // to the schedule list, useful once you're mostly reviewing/editing a
+  // plan rather than actively picking new spots off the map.
+  const [mapCollapsed, setMapCollapsed] = useState(false);
+  const toggleMapCollapsed = () => {
+    const wasCollapsed = mapCollapsed;
+    setMapCollapsed(!wasCollapsed);
+    // Expanding again: the Maps SDK doesn't notice its container resizing
+    // back up on its own (see nudgeGoogleMapResize), so force a re-measure
+    // once the CSS transition has actually finished — center/zoom are left
+    // as they were, no need to re-fit bounds, since collapsing never moved
+    // the camera in the first place.
+    if (wasCollapsed && mapRef.current) {
+      const map = mapRef.current;
+      setTimeout(() => nudgeGoogleMapResize(map), 320);
+    }
+  };
+
+  // "이미지로 저장" — captures the schedule panel (day headers + timeline)
+  // as a PNG, Notion-screenshot style, so a plan can be shared/glanced at
+  // outside the app without everyone needing to open it here.
+  const scheduleCaptureRef = useRef<HTMLDivElement | null>(null);
+  // The 24-hour grid lives inside its own scrollable div (only ~4-5 hours
+  // fit on screen at once) — html-to-image renders exactly what's laid out,
+  // which for an `overflow-y-auto` container is only its clipped viewport,
+  // not the full scrolled content. Temporarily lifting that clip for the
+  // capture is what makes the exported image show the whole day.
+  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
+  const [capturing, setCapturing] = useState(false);
+  const handleCaptureSchedule = async () => {
+    const capture = scheduleCaptureRef.current;
+    const scroller = timelineScrollRef.current;
+    if (!capture || capturing) return;
+    setCapturing(true);
+
+    // Both this panel and its inner scroll area are `flex-1` (flex: 1 1
+    // 0%), which is what makes the panel scrollable in the first place —
+    // flex-grow/shrink actively resizes them to fit the flex parent
+    // regardless of `height`, so `height: auto` alone does nothing. A
+    // flex CHILD that overflows its box also doesn't stretch the box to
+    // contain it (default `overflow: visible` just lets the overflow
+    // paint past the boundary without the parent growing) — so
+    // `toPng`, which sizes its output canvas to the target element's own
+    // rect, would crop to the small on-screen viewport unless BOTH levels
+    // are freed from flex sizing here, not just the inner scroller.
+    const targets = [capture, scroller].filter((el): el is HTMLDivElement => el != null);
+    const prevStyles = targets.map((el) => ({ flex: el.style.flex, height: el.style.height, overflow: el.style.overflow }));
+    try {
+      for (const el of targets) {
+        el.style.flex = "none";
+        el.style.overflow = "visible";
+        el.style.height = "auto";
+      }
+      // Let layout settle before html-to-image measures the DOM.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const { toPng } = await import("html-to-image");
+      const dataUrl = await toPng(capture, { backgroundColor: "#ffffff", pixelRatio: 2 });
+      const link = document.createElement("a");
+      link.download = `${currentCity || "일정"}-${activeDate}.png`;
+      link.href = dataUrl;
+      // Some browsers only honor `download` (i.e. keep the suggested
+      // filename instead of falling back to a generic one) when the anchor
+      // is actually attached to the document at click time.
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch {
+      showToast("이미지 저장에 실패했어요");
+    } finally {
+      targets.forEach((el, i) => {
+        el.style.flex = prevStyles[i].flex;
+        el.style.height = prevStyles[i].height;
+        el.style.overflow = prevStyles[i].overflow;
+      });
+      setCapturing(false);
+    }
+  };
 
   // 계획 저장 / 비우기 — the toolbar's quick actions for the whole working
   // itinerary (as opposed to clearDate's single-day clear in the map area).
@@ -181,7 +299,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     return map;
   }, [scheduleByDate, visibleDates]);
 
-  const schedule = scheduleByDate[activeDate] ?? [];
+  // A stable empty-array fallback (module-level, not a fresh literal per
+  // render) so `schedule` has a consistent identity when the active date
+  // has no items — scheduleMapPlaces (below) depends on it in a useMemo.
+  const schedule = scheduleByDate[activeDate] ?? EMPTY_SCHEDULE;
   const orderByPlace = orderByDate[activeDate] ?? {};
   const totalBudget = items.reduce((sum, s) => sum + (s.budget ?? 0), 0);
 
@@ -198,6 +319,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const firedLong = useRef(false);
   const startPos = useRef<{ x: number; y: number } | null>(null);
   const last = useRef({ x: 0, y: 0 });
+  // Set by onDown right before a press starts — lets the shared onUp/drag
+  // logic tell a map pin (which, since the P2/P7 map-scoping fix, only ever
+  // represents an already-scheduled stop or the one pending search result)
+  // apart from a TrendSheet suggestion card (an independent "try adding
+  // this" invitation that should stay tap-to-add-again-able until the
+  // dedicated duplicate-via-drag feature exists, instead of editing the
+  // first occurrence it happens to share an id with).
+  const pressSource = useRef<"trend" | "pin">("trend");
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -320,6 +449,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // overridden once `places` updates and that effect re-runs.
   const handlePlaceDiscovered = (place: Place) => {
     addPlaces([place]);
+    setPendingSearchPlace(place);
     showToast(`${place.name} added to map`);
     skipNextFitRef.current = true;
     mapRef.current?.panTo({ lat: place.lat, lng: place.lng });
@@ -466,7 +596,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       if (dropped) {
         if (isHourTaken(dropped.date, dropped.hour)) showToast(`${pad2(dropped.hour)}:00 is already booked`);
         else {
-          registerAt(place, dropped.date, dropped.hour, 0);
+          // Dragging a pin that's already on today's schedule reschedules
+          // it (moveItem) instead of adding a second stop at the same
+          // place — only a brand-new (not-yet-scheduled) pin creates one.
+          const existing = pressSource.current === "pin" ? schedule.find((s) => s.placeId === place.id) : undefined;
+          if (existing) moveItem(existing.id, dropped.date, dropped.hour);
+          else {
+            registerAt(place, dropped.date, dropped.hour, 0);
+            if (place.id === pendingSearchPlace?.id) setPendingSearchPlace(null);
+          }
           showToast(`${place.name} · ${formatDateLabelShort(dropped.date)} ${pad2(dropped.hour)}:00`);
         }
       }
@@ -495,6 +633,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       startDrag(place, last.current.x, last.current.y);
     }, 500);
   };
+  // TrendSheet cards and map pins share onDown/onUp/startDrag, but only a
+  // map pin should be treated as "editing/moving an existing stop" when its
+  // id happens to match one already on today's schedule — see pressSource.
+  const onTrendDown = (place: Place, e: React.PointerEvent) => {
+    pressSource.current = "trend";
+    onDown(place, e);
+  };
+  const onPinDown = (place: Place, e: React.PointerEvent) => {
+    pressSource.current = "pin";
+    onDown(place, e);
+  };
   const onUp = (place: Place) => {
     if (pressTimer.current) {
       clearTimeout(pressTimer.current);
@@ -505,7 +654,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         // tab-gated below), so this branch only matters for TrendSheet
         // cards, which are shown on both tabs.
         if (tab === "saved") openDetailFor(place);
-        else openCreateModal(place);
+        else {
+          // A tap on a pin that's already scheduled today opens it for
+          // editing instead of silently offering to add a duplicate stop —
+          // but only for an actual map pin; a TrendSheet card stays
+          // tap-to-add-again-able (see pressSource above).
+          const existing = pressSource.current === "pin" ? schedule.find((s) => s.placeId === place.id) : undefined;
+          if (existing) openEditModal(existing);
+          else openCreateModal(place);
+        }
       }
       // Close after the click/no-click decision is made, not before —
       // closing on pointerdown would shift the sheet's cards mid-tap and
@@ -533,11 +690,60 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (!data) return;
     const item = items.find((i) => i.id === itemId);
     if (!item) return;
-    if (item.date === data.date && hourFromTime(item.time) === data.hour) return;
 
-    const occupant = items.find((i) => i.id !== itemId && i.date === data.date && hourFromTime(i.time) === data.hour);
-    moveItem(itemId, data.date, data.hour);
-    showToast(occupant ? "일정이 서로 교체되었습니다" : `${item.name} · ${formatDateLabelShort(data.date)} ${pad2(data.hour)}:00`);
+    // Sub-hour precision: derive the drop time from the dragged card's
+    // absolute top edge against a stable per-day reference (that day
+    // column's hour-0 cell), snapped to 15-minute steps — not from an
+    // offset against whichever cell dnd-kit's collision detection resolved
+    // as `over`. The draggable card and each droppable cell are the same
+    // height, so for a sub-cell-height drag the "over" cell can flip to the
+    // next hour before the pointer has even cleared the current one; an
+    // offset measured against THAT cell then goes negative and clamps to
+    // :00, which is exactly why drops used to always snap to the top of an
+    // hour regardless of where the ghost visually hovered.
+    const dayTop = slotRefs.current[`${data.date}|0`]?.getBoundingClientRect().top;
+    const activeTop = active.rect.current.translated?.top ?? over.rect.top;
+    const totalMinutesFromDayTop = dayTop != null ? ((activeTop - dayTop) / SLOT_HEIGHT) * 60 : data.hour * 60;
+    const snappedTotalMinutes = Math.max(
+      0,
+      Math.min(DAY_MINUTES - RESIZE_STEP_MINUTES, Math.round(totalMinutesFromDayTop / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES),
+    );
+    const dropHour = Math.floor(snappedTotalMinutes / 60);
+    const dropMinute = snappedTotalMinutes % 60;
+    const dropDate = data.date;
+
+    // Ctrl/Cmd-held drag duplicates the stop at the drop slot instead of
+    // moving it — e.g. booking the same hotel again for a second night
+    // without re-searching it from scratch.
+    const activatorEvent = event.activatorEvent as PointerEvent | undefined;
+    const isDuplicate = Boolean(activatorEvent?.ctrlKey || activatorEvent?.metaKey);
+
+    if (isDuplicate) {
+      addItem({
+        placeId: item.placeId,
+        name: item.name,
+        date: dropDate,
+        time: formatTime(dropHour, dropMinute),
+        coordinates: item.coordinates,
+        budget: item.budget,
+        durationMinutes: item.durationMinutes,
+      });
+      showToast(`${item.name} 복제됨 · ${formatDateLabelShort(dropDate)} ${pad2(dropHour)}:${pad2(dropMinute)}`);
+      return;
+    }
+
+    if (item.date === dropDate && hourFromTime(item.time) === dropHour && minutesFromTime(item.time) % 60 === dropMinute) return;
+
+    const occupant = items.find(
+      (i) =>
+        i.id !== itemId &&
+        i.date === dropDate &&
+        rangesOverlap(minutesFromTime(i.time), i.durationMinutes, dropHour * 60 + dropMinute, item.durationMinutes),
+    );
+    moveItem(itemId, dropDate, dropHour, dropMinute);
+    showToast(
+      occupant ? "일정이 서로 교체되었습니다" : `${item.name} · ${formatDateLabelShort(dropDate)} ${pad2(dropHour)}:${pad2(dropMinute)}`,
+    );
   };
 
   const dragItem = gridDragItemId ? items.find((i) => i.id === gridDragItemId) ?? null : null;
@@ -548,12 +754,30 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     .filter((p): p is Place => Boolean(p))
     .map((p) => ({ lat: p.lat, lng: p.lng }));
 
+  // Map pins for the 일정 tab — restricted to today's actually-scheduled
+  // stops (plus, if there is one, the single place just found via the map
+  // search box but not yet scheduled) instead of the full `places` catalog,
+  // which only ever grows across a whole session and used to leave every
+  // previously-searched place (even from an unrelated city) permanently
+  // pinned on the map. Also naturally limits the pins/route to the active
+  // day — switching days shows only that day's stops, not every day at once.
+  const scheduleMapPlaces = useMemo(() => {
+    const scheduled = schedule
+      .map((s) => places.find((p) => p.id === s.placeId) ?? fallbackDisplay(s.name))
+      .map((p, i) => ({ ...p, id: schedule[i].placeId }));
+    const scheduledIds = new Set(scheduled.map((p) => p.id));
+    if (pendingSearchPlace && !scheduledIds.has(pendingSearchPlace.id)) {
+      return [...scheduled, pendingSearchPlace];
+    }
+    return scheduled;
+  }, [schedule, places, pendingSearchPlace]);
+
   const selectedSavedPlace = selectedSavedId ? savedPlaces.find((p) => p.id === selectedSavedId) ?? null : null;
 
   // Whichever list the current tab is actually showing markers for — the
   // map's smart-zoom (below) fits to this, not always `places`, so
   // switching tabs re-frames the camera to what's actually visible.
-  const visibleMarkerPlaces = tab === "schedule" ? places : savedPlaces;
+  const visibleMarkerPlaces = tab === "schedule" ? scheduleMapPlaces : savedPlaces;
 
   // Frozen at first paint — after that, every viewport change goes through
   // fitBounds (below) instead of fighting the imperative map with a
@@ -615,12 +839,24 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             chain resolving before the Maps SDK measures the container (it
             only measures once, on mount) — without a concrete fallback
             size, a layout race could leave the map permanently at 0px. */}
-        <div className="relative h-[45%] min-h-[260px] w-full shrink-0 overflow-hidden bg-[#eef2f4]">
+        <div
+          className={`relative w-full shrink-0 overflow-hidden bg-[#eef2f4] transition-[height] duration-300 ${
+            mapCollapsed ? "h-14 min-h-14" : "h-[45%] min-h-[260px]"
+          }`}
+        >
           {tab === "schedule" && (
             <div className="absolute inset-x-3 top-3 z-20 flex items-center gap-2">
               <div className="min-w-0 flex-1">
-                <PlacesSearchInput onSelect={handlePlaceDiscovered} />
+                <PlacesSearchInput region={region} onSelect={handlePlaceDiscovered} />
               </div>
+              <button
+                onClick={toggleMapCollapsed}
+                aria-label={mapCollapsed ? "지도 펼치기" : "지도 접기"}
+                aria-pressed={mapCollapsed}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700"
+              >
+                {mapCollapsed ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
+              </button>
               <button
                 onClick={() => clearDate(activeDate)}
                 aria-label="오늘 일정 비우기"
@@ -631,6 +867,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             </div>
           )}
 
+          {/* Collapsed: keep TrendSheet/PlannerGoogleMap mounted (unmounting
+              would drop mapRef and re-trigger the whole Maps SDK load) but
+              visually hidden, so expanding back just needs a resize nudge
+              instead of a full re-init. */}
+          <div className={mapCollapsed ? "hidden" : "contents"}>
           {/* Available on both tabs — a tap routes to the schedule modal
               or the 딥 다이브 detail overlay depending on `tab` (see onUp
               above); trending spots still merge into the shared `places`
@@ -638,7 +879,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           <TrendSheet
             open={sheetOpen}
             onOpenChange={setSheetOpen}
-            onDown={onDown}
+            onDown={onTrendDown}
             onUp={onUp}
             onMove={onMove}
             onCancel={cancelPress}
@@ -653,11 +894,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             onMapLoad={onMapLoad}
             tab={tab}
             routePoints={routePoints}
-            places={places}
+            places={scheduleMapPlaces}
             orderByPlace={orderByPlace}
             pressingId={pressingId}
             draggingPlaceId={drag?.place.id ?? null}
-            onDown={onDown}
+            onDown={onPinDown}
             onUp={onUp}
             onMove={onMove}
             onCancel={cancelPress}
@@ -669,6 +910,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             onCloseClickedPlace={() => setClickedPlace(null)}
             onSaveClickedPlace={handleSaveClickedPlace}
           />
+          </div>
         </div>
 
         {/* ── LOWER PANEL — 일정 timeline vs 관심 장소 search+list ── */}
@@ -718,6 +960,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
                   <div className="flex items-center gap-1.5">
                     <button
+                      onClick={() => setMonthViewOpen((v) => !v)}
+                      aria-label={monthViewOpen ? "월간 달력 접기" : "월간 달력 보기"}
+                      aria-pressed={monthViewOpen}
+                      className={`flex h-7 w-7 items-center justify-center rounded-full border transition-colors ${
+                        monthViewOpen ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      <CalendarDays size={13} />
+                    </button>
+                    <button
                       onClick={() => shiftWindow(-1)}
                       aria-label="이전 날짜"
                       className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
@@ -763,6 +1015,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     <Save size={11} />
                     계획 저장
                   </button>
+                  <button
+                    onClick={handleCaptureSchedule}
+                    disabled={capturing || schedule.length === 0}
+                    className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <ImageDown size={11} />
+                    {capturing ? "저장 중…" : "이미지로 저장"}
+                  </button>
                   {clearConfirmOpen ? (
                     <div className="flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1">
                       <span className="text-[11px] font-medium text-rose-600">전체 비울까요?</span>
@@ -804,6 +1064,19 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 </div>
               </div>
 
+              {monthViewOpen ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-1">
+                  <MonthCalendar
+                    selected={activeDate}
+                    onSelect={(date) => {
+                      setActiveDate(date);
+                      setMonthViewOpen(false);
+                    }}
+                    markedDates={markedDates}
+                  />
+                </div>
+              ) : (
+                <div ref={scheduleCaptureRef} className="flex min-h-0 flex-1 flex-col bg-white">
               {/* day-column headers */}
               <div className="flex border-b border-slate-100 px-4">
                 <div className="w-[42px] shrink-0" />
@@ -823,7 +1096,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 })}
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+              <div ref={timelineScrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
                 <div className="flex" style={{ height: TIMELINE_HOURS.length * SLOT_HEIGHT }}>
                   {/* hour gutter */}
                   <div className="w-[42px] shrink-0">
@@ -906,6 +1179,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   })}
                 </div>
               </div>
+                </div>
+              )}
             </>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-6 pt-3">
@@ -995,11 +1270,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               }
               return isHourTaken(date, hour);
             }}
+            hasConflict={(date, startMinutes, durationMinutes) =>
+              hasConflictStore(date, startMinutes, durationMinutes, scheduleTarget.mode === "edit" ? scheduleTarget.item.id : undefined)
+            }
             onClose={() => setScheduleTarget(null)}
             onConfirm={(date, hour, minute, budget, duration) => {
               if (scheduleTarget.mode === "create") {
                 addPlaces([scheduleTarget.place]);
                 registerAt(scheduleTarget.place, date, hour, minute, budget, duration);
+                if (scheduleTarget.place.id === pendingSearchPlace?.id) setPendingSearchPlace(null);
               } else {
                 moveItem(scheduleTarget.item.id, date, hour, minute, budget);
                 if (duration != null) resizeItem(scheduleTarget.item.id, duration);
@@ -1042,11 +1321,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         {saveModalOpen && (
           <SavePlanModal
             atCap={savedPlans.length >= MAX_SAVED_PLANS}
+            savedPlans={savedPlans}
             onClose={() => setSaveModalOpen(false)}
-            onSave={(name) => {
-              savePlanAs(name);
+            onSave={(name, overwriteId) => {
+              savePlanAs(name, overwriteId);
               setSaveModalOpen(false);
-              showToast(`"${name}" 저장됨`);
+              showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
             }}
           />
         )}
@@ -1155,10 +1435,12 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
   const height = (Math.max(MIN_DURATION_MINUTES, effectiveDuration) / 60) * SLOT_HEIGHT;
   // Narrow day columns (3+ day view on a phone) leave so little width that
   // icon + name + badge + delete crammed into one row truncates the name to
-  // a single character. 30 minutes is tall enough for two lines, so give the
-  // name its own full-width row and push icon/time/badge/delete to a second,
-  // denser row underneath instead.
-  const stacked = effectiveDuration >= 30;
+  // a single character. 45+ minutes is tall enough for two lines, so give
+  // the name its own full-width row and push icon/time/badge/delete to a
+  // second, denser row underneath. A 15/30-minute stop is too short for two
+  // lines at all (they'd clip/overlap), so those render name+time+duration
+  // together on one truncating line instead — see the `roomy ? … : …` below.
+  const roomy = effectiveDuration >= 45;
 
   return (
     <motion.div
@@ -1178,7 +1460,7 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
       className="pointer-events-auto relative flex cursor-pointer items-center overflow-hidden rounded-lg"
     >
       <span className="self-stretch" style={{ width: 4, background: display.color }} />
-      {stacked ? (
+      {roomy ? (
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-1.5 py-1">
           <p className="truncate text-[11px] font-semibold leading-tight text-slate-900">{display.name}</p>
           <div className="flex min-w-0 items-center gap-1">
@@ -1209,16 +1491,18 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, onOpenEdit, o
           </div>
         </div>
       ) : (
+        // 15/30분짜리 칸은 두 줄을 넣기엔 세로 공간이 부족해 글자가 깨지므로,
+        // 이름·시간·소요시간을 한 줄에 이어 붙이고 그 한 줄만 truncate한다.
         <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md" style={{ background: display.color }}>
-            <PlaceGlyph icon={display.icon} size={10} color="white" />
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-md" style={{ background: display.color }}>
+            <PlaceGlyph icon={display.icon} size={9} color="white" />
           </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[11px] font-semibold leading-tight text-slate-900">{display.name}</p>
-            <p className="truncate text-[9.5px] tabular-nums leading-tight text-slate-500">
+          <p className="min-w-0 flex-1 truncate text-[10px] leading-tight text-slate-900">
+            <span className="font-semibold">{display.name}</span>{" "}
+            <span className="tabular-nums text-slate-500">
               {item.time} · {effectiveDuration}분
-            </p>
-          </div>
+            </span>
+          </p>
           {order != null && (
             <span
               className="shrink-0 rounded-full px-1.5 text-[9px] font-semibold leading-4 text-white"

@@ -104,10 +104,15 @@ function ResumeSection() {
   const currentCity = useItineraryStore((s) => s.currentCity);
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
+  const setActiveDate = useItineraryStore((s) => s.setActiveDate);
 
   if (!mounted) return null;
 
   const hasAnything = items.length > 0 || savedPlans.length > 0 || savedPlaces.length > 0;
+  // "이어서 하기" should land on whichever day the plan actually has stops
+  // on, not always today's real-world date — otherwise resuming an
+  // in-progress trip opens a blank day and looks like the plan vanished.
+  const earliestItemDate = items.length > 0 ? items.slice().sort((a, b) => a.date.localeCompare(b.date))[0].date : null;
 
   return (
     <section>
@@ -123,6 +128,9 @@ function ResumeSection() {
           {/* 진행 중인 계획 — 이어서 하기 */}
           <Link
             href="/planner"
+            onClick={() => {
+              if (earliestItemDate) setActiveDate(earliestItemDate);
+            }}
             className="group rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900"
           >
             <p className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-500">

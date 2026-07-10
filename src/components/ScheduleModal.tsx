@@ -29,6 +29,7 @@ function TimeBox({
   onHourChange,
   onMinuteChange,
   disabledHour,
+  disabledMinute,
   accentColor,
 }: {
   label: string;
@@ -37,6 +38,7 @@ function TimeBox({
   onHourChange: (h: number) => void;
   onMinuteChange: (m: number) => void;
   disabledHour?: (h: number) => boolean;
+  disabledMinute?: (m: number) => boolean;
   accentColor: string;
 }) {
   return (
@@ -49,11 +51,17 @@ function TimeBox({
         style={{ ["--tw-ring-color" as string]: `${accentColor}55` }}
         aria-label={`${label} 시`}
       >
-        {TIMELINE_HOURS.map((h) => (
-          <option key={h} value={h} disabled={disabledHour?.(h)}>
-            {pad2(h)}
-          </option>
-        ))}
+        {TIMELINE_HOURS.map((h) => {
+          const taken = disabledHour?.(h) ?? false;
+          return (
+            <option key={h} value={h} disabled={taken}>
+              {/* 비활성 옵션은 네이티브 <select>가 플랫폼마다 다르게(또는 아예
+                  안) 색을 바꿔주므로, 색에만 기대지 않고 라벨 자체에 "마감"을
+                  붙여 항상 구분되게 한다. */}
+              {taken ? `${pad2(h)} · 마감` : pad2(h)}
+            </option>
+          );
+        })}
       </select>
       <span className="shrink-0 text-slate-400">:</span>
       <select
@@ -63,11 +71,14 @@ function TimeBox({
         style={{ ["--tw-ring-color" as string]: `${accentColor}55` }}
         aria-label={`${label} 분`}
       >
-        {MINUTE_STEPS.map((m) => (
-          <option key={m} value={m}>
-            {pad2(m)}
-          </option>
-        ))}
+        {MINUTE_STEPS.map((m) => {
+          const taken = disabledMinute?.(m) ?? false;
+          return (
+            <option key={m} value={m} disabled={taken}>
+              {taken ? `${pad2(m)} · 마감` : pad2(m)}
+            </option>
+          );
+        })}
       </select>
     </div>
   );
@@ -78,8 +89,10 @@ interface ScheduleModalProps {
   initialDate: string;
   initialHour?: number;
   initialMinute?: number;
-  /** Excludes the item currently being edited from the "taken" check. */
+  /** Excludes the item currently being edited from the "taken" check. Only used to pick a reasonable default hour when creating a stop with no initial time. */
   isHourTaken: (date: string, hour: number) => boolean;
+  /** Minute-precise overlap check (excludes the item being edited) — drives which start hours are actually disabled, so a stop can be booked right after another one ends within the same hour. */
+  hasConflict: (date: string, startMinutes: number, durationMinutes: number) => boolean;
   mode?: "create" | "edit";
   /** Shows an optional estimated-budget input (Planner uses this; Discover doesn't need it). */
   showBudget?: boolean;
@@ -106,6 +119,7 @@ export function ScheduleModal({
   initialHour,
   initialMinute = 0,
   isHourTaken,
+  hasConflict,
   mode = "create",
   showBudget = false,
   initialBudget,
@@ -133,6 +147,22 @@ export function ScheduleModal({
   const endHour = Math.floor(endTotalMinutes / 60) % 24;
   const endMinute = endTotalMinutes % 60;
 
+  // Picking a start hour is independent of the minute select next to it, so
+  // checking a conflict against only the *currently* selected minute (still
+  // whatever it was before, often 0) can make a genuinely free hour look
+  // blocked — e.g. an existing 10:00-10:30 stop makes "10 · minute 0"
+  // conflict, so hour 10 would wrongly disable itself even though 10:30 is
+  // open. If the new hour conflicts at the current minute, snap the minute
+  // to the first free step within that hour instead of leaving a dead end
+  // the user can't click their way out of.
+  const previewDuration = showDuration ? duration : DEFAULT_DURATION_MINUTES;
+  const handleStartHourChange = (h: number) => {
+    if (hasConflict(date, h * 60 + minute, previewDuration)) {
+      const freeMinute = MINUTE_STEPS.find((m) => !hasConflict(date, h * 60 + m, previewDuration));
+      if (freeMinute != null) setMinute(freeMinute);
+    }
+    setHour(h);
+  };
   const handleEndHourChange = (h: number) => {
     const nextDuration = h * 60 + endMinute - startTotalMinutes;
     if (nextDuration >= MIN_DURATION_MINUTES) setDuration(Math.min(nextDuration, maxDuration));
@@ -214,9 +244,10 @@ export function ScheduleModal({
                       label="시작"
                       hour={hour}
                       minute={minute}
-                      onHourChange={setHour}
+                      onHourChange={handleStartHourChange}
                       onMinuteChange={setMinute}
-                      disabledHour={(h) => isHourTaken(date, h)}
+                      disabledHour={(h) => MINUTE_STEPS.every((m) => hasConflict(date, h * 60 + m, previewDuration))}
+                      disabledMinute={(m) => hasConflict(date, hour * 60 + m, previewDuration)}
                       accentColor={place.color}
                     />
                     {showDuration && (
