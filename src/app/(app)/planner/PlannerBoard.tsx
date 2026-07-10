@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -14,6 +15,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -34,9 +36,11 @@ import {
   Save,
   CalendarDays,
   ImageDown,
+  Share2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
+import { LoginModal } from "@/components/LoginModal";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
@@ -67,7 +71,8 @@ import {
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
-import { fetchSharedItinerary, pushSharedItinerary } from "@/lib/api";
+import { fetchSharedItinerary, pushSharedItinerary, saveItinerary } from "@/lib/api";
+import { shareToKakao } from "@/lib/kakaoShare";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import type { ItineraryItem, Place } from "@/lib/types";
 import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
@@ -176,7 +181,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // [MIN_VISIBLE_DAYS, MAX_VISIBLE_DAYS] so the grid can't collapse to 0
   // columns or grow wide enough to become unusable.
   const [visibleDays, setVisibleDays] = useState(VISIBLE_DAYS);
-  const visibleDates = useMemo(() => dateWindow(activeDate, visibleDays), [activeDate, visibleDays]);
+  // The visible day-column window used to be anchored directly at
+  // `activeDate`, so tapping a day header that wasn't already the leftmost
+  // column (e.g. picking 7/12 while viewing 7/11-7/13) reset the whole
+  // window to start there instead of just switching which day's route/pins
+  // show on the map — the window would jump to 7/12-7/14 and 7/11 would
+  // fall out of view. `windowStart` anchors the visible columns instead,
+  // changed only by the prev/next chevrons and the month-view jump; a day
+  // header click only moves `activeDate` (which day's route is shown),
+  // leaving the window itself untouched.
+  const [windowStart, setWindowStart] = useState(activeDate);
+  const visibleDates = useMemo(() => dateWindow(windowStart, visibleDays), [windowStart, visibleDays]);
 
   // Month-grid view toggle — the day-column strip only ever shows a few
   // days at once; this swaps it for a full month at a glance (Notion/Google
@@ -270,6 +285,38 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
+  // 카카오톡 공유 — needs a logged-in owner (the shared link is served from
+  // that user's saved itinerary row, POST /api/itineraries requires auth).
+  const { data: session } = useSession();
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginReason, setLoginReason] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const handleShareToKakao = async () => {
+    if (!session?.user) {
+      setLoginReason("카카오톡으로 공유하려면 로그인해주세요.");
+      setLoginOpen(true);
+      return;
+    }
+    if (items.length === 0) {
+      showToast("공유할 일정이 없어요");
+      return;
+    }
+    setSharing(true);
+    try {
+      const { shareToken: token } = await saveItinerary(region, items, currentCity);
+      const url = `${window.location.origin}/planner/${token}`;
+      await shareToKakao({
+        title: currentCity ? `${currentCity} 여행 계획` : "여행 계획",
+        description: `${items.length}개의 일정이 담긴 여행 계획을 확인해보세요.`,
+        url,
+      });
+    } catch {
+      showToast("카카오톡 공유에 실패했어요");
+    } finally {
+      setSharing(false);
+    }
+  };
+
   const scheduleByDate = useMemo(() => {
     const map: Record<string, ItineraryItem[]> = {};
     for (const date of visibleDates) {
@@ -313,6 +360,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const [toast, setToast] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [gridDragItemId, setGridDragItemId] = useState<string | null>(null);
+  // Live-updated (via onDragMove) 15-minute-snapped target of an in-flight
+  // grid drag — shown in the drag ghost so the user can actually see which
+  // slot they're about to drop into, instead of only finding out after the
+  // fact. The hour-cell highlight alone wasn't precise enough to aim by.
+  const [dragPreviewSlot, setDragPreviewSlot] = useState<{ date: string; hour: number; minute: number } | null>(null);
+  // Whether the current grid drag started with Ctrl/Cmd held — mirrors the
+  // check in handleGridDragEnd exactly (both read the drag's original
+  // activatorEvent, not a live key state), so the "복제" hint shown while
+  // dragging always matches what actually happens on drop.
+  const [dragIsDuplicate, setDragIsDuplicate] = useState(false);
 
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -681,26 +738,27 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // ── dnd-kit: reordering already-scheduled items across the grid ──
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  const handleGridDragEnd = (event: DragEndEvent) => {
-    setGridDragItemId(null);
-    const { active, over } = event;
-    if (!over) return;
-    const itemId = String(active.id).replace(/^sched-/, "");
+  // Shared by the live drag preview (onDragMove, below) and the actual drop
+  // (handleGridDragEnd) so what the user sees while dragging always matches
+  // what happens when they let go.
+  //
+  // Sub-hour precision: derive the drop time from the dragged card's
+  // absolute top edge against a stable per-day reference (that day column's
+  // hour-0 cell), snapped to 15-minute steps — not from an offset against
+  // whichever cell dnd-kit's collision detection resolved as `over`. The
+  // draggable card and each droppable cell are the same height, so for a
+  // sub-cell-height drag the "over" cell can flip to the next hour before
+  // the pointer has even cleared the current one; an offset measured
+  // against THAT cell then goes negative and clamps to :00, which is
+  // exactly why drops used to always snap to the top of an hour regardless
+  // of where the ghost visually hovered.
+  const computeDropSlot = (
+    active: DragEndEvent["active"] | DragMoveEvent["active"],
+    over: DragEndEvent["over"] | DragMoveEvent["over"],
+  ): { date: string; hour: number; minute: number } | null => {
+    if (!over) return null;
     const data = over.data.current as { date: string; hour: number } | undefined;
-    if (!data) return;
-    const item = items.find((i) => i.id === itemId);
-    if (!item) return;
-
-    // Sub-hour precision: derive the drop time from the dragged card's
-    // absolute top edge against a stable per-day reference (that day
-    // column's hour-0 cell), snapped to 15-minute steps — not from an
-    // offset against whichever cell dnd-kit's collision detection resolved
-    // as `over`. The draggable card and each droppable cell are the same
-    // height, so for a sub-cell-height drag the "over" cell can flip to the
-    // next hour before the pointer has even cleared the current one; an
-    // offset measured against THAT cell then goes negative and clamps to
-    // :00, which is exactly why drops used to always snap to the top of an
-    // hour regardless of where the ghost visually hovered.
+    if (!data) return null;
     const dayTop = slotRefs.current[`${data.date}|0`]?.getBoundingClientRect().top;
     const activeTop = active.rect.current.translated?.top ?? over.rect.top;
     const totalMinutesFromDayTop = dayTop != null ? ((activeTop - dayTop) / SLOT_HEIGHT) * 60 : data.hour * 60;
@@ -708,9 +766,21 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       0,
       Math.min(DAY_MINUTES - RESIZE_STEP_MINUTES, Math.round(totalMinutesFromDayTop / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES),
     );
-    const dropHour = Math.floor(snappedTotalMinutes / 60);
-    const dropMinute = snappedTotalMinutes % 60;
-    const dropDate = data.date;
+    return { date: data.date, hour: Math.floor(snappedTotalMinutes / 60), minute: snappedTotalMinutes % 60 };
+  };
+
+  const handleGridDragEnd = (event: DragEndEvent) => {
+    setGridDragItemId(null);
+    setDragPreviewSlot(null);
+    const { active, over } = event;
+    if (!over) return;
+    const itemId = String(active.id).replace(/^sched-/, "");
+    const item = items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    const slot = computeDropSlot(active, over);
+    if (!slot) return;
+    const { date: dropDate, hour: dropHour, minute: dropMinute } = slot;
 
     // Ctrl/Cmd-held drag duplicates the stop at the drop slot instead of
     // moving it — e.g. booking the same hotel again for a second night
@@ -824,14 +894,26 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     fitToPlaces(mapRef.current, visibleMarkerPlaces);
   }, [visibleMarkerPlaces, fitToPlaces]);
 
-  const shiftWindow = (days: number) => setActiveDate(shiftISODate(activeDate, days));
+  const shiftWindow = (days: number) => {
+    const next = shiftISODate(windowStart, days);
+    setWindowStart(next);
+    setActiveDate(next);
+  };
 
   return (
     <DndContext
       sensors={dndSensors}
-      onDragStart={(e) => setGridDragItemId(String(e.active.id).replace(/^sched-/, ""))}
+      onDragStart={(e) => {
+        setGridDragItemId(String(e.active.id).replace(/^sched-/, ""));
+        const activatorEvent = e.activatorEvent as PointerEvent | undefined;
+        setDragIsDuplicate(Boolean(activatorEvent?.ctrlKey || activatorEvent?.metaKey));
+      }}
+      onDragMove={(e) => setDragPreviewSlot(computeDropSlot(e.active, e.over))}
       onDragEnd={handleGridDragEnd}
-      onDragCancel={() => setGridDragItemId(null)}
+      onDragCancel={() => {
+        setGridDragItemId(null);
+        setDragPreviewSlot(null);
+      }}
     >
       <div ref={boardRef} className="relative flex h-full flex-col overflow-hidden bg-white font-sans">
         {/* ── MAP AREA — real Google Maps, auto-fit to every visible place ── */}
@@ -941,6 +1023,23 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             </div>
           </div>
 
+          {/* 공유받은 계획 저장 — /planner/[shareToken]로 들어온 경우, 이 화면에서
+              보고 있는(동기화된) 일정을 내 계획 목록에 스냅샷으로 저장할 수
+              있게 눈에 띄는 배너로 안내한다. 실제 저장 로직은 기존 계획 저장
+              모달(SavePlanModal)을 그대로 재사용 — 지금 스토어에 들어있는
+              items가 바로 공유받아 동기화된 그 일정이기 때문. */}
+          {shareToken && (
+            <div className="mx-4 mt-3 flex items-center justify-between gap-2 rounded-2xl border border-indigo-100 bg-indigo-50 px-3.5 py-2.5">
+              <p className="text-[12px] font-medium text-indigo-700">공유받은 계획을 보고 있어요.</p>
+              <button
+                onClick={() => setSaveModalOpen(true)}
+                className="shrink-0 rounded-full bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-indigo-700"
+              >
+                내 계획으로 저장하기
+              </button>
+            </div>
+          )}
+
           {tab === "schedule" ? (
             <>
               <div className="px-5 pb-2 pt-3">
@@ -1023,6 +1122,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     <ImageDown size={11} />
                     {capturing ? "저장 중…" : "이미지로 저장"}
                   </button>
+                  <button
+                    onClick={handleShareToKakao}
+                    disabled={sharing || items.length === 0}
+                    className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <Share2 size={11} />
+                    {sharing ? "공유 중…" : "카카오톡 공유"}
+                  </button>
                   {clearConfirmOpen ? (
                     <div className="flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1">
                       <span className="text-[11px] font-medium text-rose-600">전체 비울까요?</span>
@@ -1069,6 +1176,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   <MonthCalendar
                     selected={activeDate}
                     onSelect={(date) => {
+                      // Unlike a day-header tap, jumping in from the month
+                      // view can land far outside the current window, so
+                      // the window has to follow here.
+                      setWindowStart(date);
                       setActiveDate(date);
                       setMonthViewOpen(false);
                     }}
@@ -1330,6 +1441,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             }}
           />
         )}
+
+        {loginOpen && <LoginModal reason={loginReason ?? undefined} onClose={() => setLoginOpen(false)} />}
       </div>
 
       <DragOverlay>
@@ -1341,7 +1454,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             <PlaceGlyph icon={dragItemPlace.icon} size={14} color="white" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-[12px] font-semibold text-white">{dragItemPlace.name}</p>
-              <p className="text-[10px] tabular-nums text-white/80">{dragItem.time}</p>
+              {/* Live 15분 단위 스냅 미리보기 — 시간 칸 하이라이트만으로는
+                  정확히 어디에 놓일지 가늠하기 어렵다는 피드백에 따라, 실제
+                  드롭 시 계산과 같은 로직으로 지금 이 위치에 놓으면 몇 시
+                  몇 분이 될지 드래그 중에도 보여준다. */}
+              <p className="text-[10px] tabular-nums text-white/80">
+                {dragPreviewSlot ? `${pad2(dragPreviewSlot.hour)}:${pad2(dragPreviewSlot.minute)}` : dragItem.time}
+                {dragIsDuplicate && <span className="ml-1 font-semibold text-white">· 복제</span>}
+              </p>
             </div>
           </div>
         ) : null}

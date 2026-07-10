@@ -20,7 +20,10 @@ const PlaceMiniMap = dynamic(() => import("./PlaceMiniMap"), { ssr: false });
 const NEARBY_RADIUS_METERS = 5000;
 const MAX_NEARBY_PINS = 6;
 
-const CATEGORY_OPTIONS: { value: string; label: string }[] = [
+// Exported so /saved-places can reuse the same set for its category filter
+// chips and inline category editor — one source of truth for what a saved
+// place's `category` field is allowed to be set to from the UI.
+export const CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: "Cafe", label: "카페" },
   { value: "Restaurant", label: "음식점" },
   { value: "Attraction", label: "관광지" },

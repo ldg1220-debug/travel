@@ -74,6 +74,12 @@ export function AppBar() {
   const isPlanner = pathname?.startsWith("/planner") ?? false;
   // /planner is the base route; /planner/{shareToken} is the only sub-route.
   const isShared = isPlanner && pathname !== "/planner";
+  // `currentCity` is only a best-guess label (set whenever a discover
+  // spot/route gets scheduled) and can look stale/arbitrary once a plan has
+  // actually been named — once the working itinerary matches a saved plan,
+  // show that plan's real name instead.
+  const activePlanName = savedPlans.find((p) => p.id === activePlanId)?.name;
+  const plannerHeaderTitle = activePlanName ?? currentCity;
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -303,7 +309,7 @@ export function AppBar() {
                 {formatDateLabel(activeDate)}
                 {isShared && " · 공유됨"}
               </span>
-              <span className="text-[15px] font-bold leading-tight text-slate-900 dark:text-slate-100">{currentCity}</span>
+              <span className="text-[15px] font-bold leading-tight text-slate-900 dark:text-slate-100">{plannerHeaderTitle}</span>
             </>
           ) : pathname === "/" || pathname === "/discover" ? (
             // 홈/탐색: page-title 대신 워드마크 + 슬로건 (워드마크 굵게, 슬로건 가늘게).
