@@ -144,18 +144,31 @@ export function AppBar() {
                 return (
                   <div key={href}>
                     <div className="flex items-center gap-0.5">
-                      <Link
-                        href={href}
-                        onClick={() => setMenuOpen(false)}
-                        className={`flex flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                          active ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
-                        }`}
-                      >
-                        <Icon size={17} />
-                        {label}
-                      </Link>
-                      {/* 저장된 계획 서랍 토글 — 계획 탭 자체는 그대로 이동(navigate)하고,
-                          이 화살표만 목록을 펼치거나 접는다. */}
+                      {isPlan ? (
+                        // 저장된 계획이 여러 개일 수 있어 "계획" 탭 자체는 곧장
+                        // 아무 계획(마지막 작업분)으로 이동하지 않고, 아래 서랍부터
+                        // 열어 고를 수 있게 한다 — 화살표와 동일한 토글 동작.
+                        <button
+                          onClick={() => setPlansOpen((v) => !v)}
+                          className={`flex flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                            active ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                          }`}
+                        >
+                          <Icon size={17} />
+                          {label}
+                        </button>
+                      ) : (
+                        <Link
+                          href={href}
+                          onClick={() => setMenuOpen(false)}
+                          className={`flex flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                            active ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                          }`}
+                        >
+                          <Icon size={17} />
+                          {label}
+                        </Link>
+                      )}
                       {isPlan && (
                         <button
                           onClick={() => setPlansOpen((v) => !v)}
@@ -171,6 +184,19 @@ export function AppBar() {
                         수 있는 스위처. 서랍처럼 화살표로 펼치고 접는다. */}
                     {isPlan && plansOpen && (
                       <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 dark:border-slate-800 pl-3">
+                        {/* 계획을 하나도 안 골라도 지금 작업 중인 일정으로는 항상
+                            바로 갈 수 있게 — 서랍이 유일한 진입점이 된 뒤에도
+                            막다른 길이 되지 않도록. */}
+                        <button
+                          onClick={() => {
+                            router.push("/planner");
+                            setMenuOpen(false);
+                          }}
+                          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <Calendar size={13} />
+                          지금 작업 중인 일정 보기
+                        </button>
                         {savedPlans.length === 0 ? (
                           <button
                             onClick={() => {
