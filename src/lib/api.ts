@@ -133,6 +133,16 @@ export async function fetchUserItineraries(): Promise<UserItinerary[]> {
   return data.itineraries ?? [];
 }
 
+/**
+ * Deletes a saved plan's server-side row. Without this, deleting a synced
+ * plan only ever removed it from this device's local list — the next
+ * cross-device hydration (e.g. a page refresh) would fetch the still-alive
+ * server row and pull it right back in as a "new" plan.
+ */
+export async function deleteItinerary(id: number): Promise<void> {
+  await fetch(`/api/itineraries?id=${id}`, { method: "DELETE" });
+}
+
 export interface SharedItinerary {
   title: string;
   region: Region;

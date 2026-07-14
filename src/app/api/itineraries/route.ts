@@ -75,3 +75,23 @@ export async function POST(request: NextRequest) {
   );
   return NextResponse.json({ id: inserted.rows[0].id, shareToken });
 }
+
+/**
+ * Deletes one of the current user's itineraries — used when 저장된 계획 is
+ * removed locally, so the server-side row doesn't outlive it and get pulled
+ * back in as a "new" plan by the next cross-device hydration.
+ */
+export async function DELETE(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const id = Number(request.nextUrl.searchParams.get("id"));
+  if (!id) {
+    return NextResponse.json({ error: "missing id" }, { status: 400 });
+  }
+
+  await pool.query(`delete from itineraries where id = $1 and "userId" = $2`, [id, session.user.id]);
+  return NextResponse.json({ ok: true });
+}
