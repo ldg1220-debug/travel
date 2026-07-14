@@ -12,7 +12,12 @@ async function migrate() {
   await pool.end();
 }
 
-migrate().catch((err) => {
+migrate().catch(async (err) => {
   console.error("[db:migrate] failed:", err);
-  process.exitCode = 1;
+  // Without this, a failed query never reaches the success path's
+  // `pool.end()` — the open connection keeps the event loop alive, so the
+  // process hangs instead of exiting non-zero, which would silently stall
+  // (rather than fail) the Vercel build step this now runs as part of.
+  await pool.end().catch(() => {});
+  process.exit(1);
 });

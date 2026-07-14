@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "tsx src/server/db/migrate.ts && next build",
     "start": "next start",
     "lint": "eslint",
     "pipeline": "tsx src/server/pipeline/run.ts",
