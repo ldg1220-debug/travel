@@ -41,6 +41,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/course": "코스 만들기",
   "/scrapbook": "여행 보관함",
   "/saved-places": "관심 장소 보관함",
+  "/feed": "후기 피드",
 };
 
 /**

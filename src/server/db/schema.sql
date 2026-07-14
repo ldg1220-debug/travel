@@ -88,22 +88,40 @@ CREATE INDEX IF NOT EXISTS itineraries_is_public_idx ON itineraries ("isPublic")
 -- external id (Google Place ID etc.) rather than a local FK — this app has
 -- no normalized `places` table, matching how `itineraries."placesData"`
 -- already stores places by that same external id.
+--
+-- `"itineraryId"`/`"placeName"`/`"isPublic"` were added for 여행 보관함's
+-- 후기 작성 feature: a review is written per visited place within a
+-- specific past trip, denormalizes the place's display name (no `places`
+-- table to join against), and defaults private until the author explicitly
+-- publishes it to the in-app feed.
 CREATE TABLE IF NOT EXISTS reviews (
   id SERIAL PRIMARY KEY,
   "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "itineraryId" INTEGER REFERENCES itineraries(id) ON DELETE SET NULL,
   "placeId" VARCHAR(255) NOT NULL,
+  "placeName" VARCHAR(255) NOT NULL DEFAULT '',
   content TEXT NOT NULL,
   rating REAL NOT NULL,
   -- GPS or receipt verification of an actual visit — not yet implemented,
   -- defaults false until that lands.
   "isVerified" BOOLEAN NOT NULL DEFAULT false,
-  -- Uploaded proof-of-visit photo URLs/paths.
+  -- Uploaded proof-of-visit photo URLs (Vercel Blob).
   images JSONB NOT NULL DEFAULT '[]',
+  "isPublic" BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- One review per place per trip — writing again edits it in place rather
+  -- than piling up duplicates.
+  UNIQUE ("userId", "itineraryId", "placeId")
 );
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "itineraryId" INTEGER REFERENCES itineraries(id) ON DELETE SET NULL;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "placeName" VARCHAR(255) NOT NULL DEFAULT '';
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "isPublic" BOOLEAN NOT NULL DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS reviews_place_id_idx ON reviews ("placeId");
 CREATE INDEX IF NOT EXISTS reviews_user_id_idx ON reviews ("userId");
+CREATE INDEX IF NOT EXISTS reviews_itinerary_id_idx ON reviews ("itineraryId");
+CREATE INDEX IF NOT EXISTS reviews_is_public_idx ON reviews ("isPublic");
 
 -- Server-side cache of place-to-place transit estimates (src/lib/transit.ts
 -- computes a Haversine-based fallback today; this table exists so a real

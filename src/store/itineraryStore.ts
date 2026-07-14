@@ -13,6 +13,7 @@ import {
 } from "@/lib/timeline";
 import { haversineDistanceMeters } from "@/lib/geo";
 import { styleForCategory } from "@/lib/placeStyle";
+import { deleteItinerary } from "@/lib/api";
 
 /**
  * Curated/mock place ids all use a fixed prefix (`trend-` from
@@ -372,11 +373,18 @@ export const useItineraryStore = create<ItineraryState>()(
         });
       },
 
-      deletePlan: (id) =>
+      deletePlan: (id) => {
+        // A synced plan's server row has to be deleted too — otherwise it
+        // outlives the local removal, and the next cross-device hydration
+        // (e.g. just refreshing the page) fetches that still-alive row and
+        // pulls the "deleted" plan right back in as if it were new.
+        const remoteId = get().savedPlans.find((p) => p.id === id)?.remoteId;
+        if (remoteId != null) deleteItinerary(remoteId).catch(() => {});
         set((state) => ({
           savedPlans: state.savedPlans.filter((p) => p.id !== id),
           activePlanId: state.activePlanId === id ? null : state.activePlanId,
-        })),
+        }));
+      },
 
       setPlanRemoteInfo: (id, remoteId, shareToken) =>
         set((state) => ({
