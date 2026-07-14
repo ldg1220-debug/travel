@@ -12,6 +12,7 @@ import {
   todayISODate,
 } from "@/lib/timeline";
 import { haversineDistanceMeters } from "@/lib/geo";
+import { styleForCategory } from "@/lib/placeStyle";
 
 /**
  * Curated/mock place ids all use a fixed prefix (`trend-` from
@@ -392,7 +393,27 @@ export const useItineraryStore = create<ItineraryState>()(
             name: r.title,
             savedAt: Date.now(),
             items: r.placesData,
-            places: [],
+            // A hydrated plan has no local `places` catalog of its own —
+            // leaving this empty made every card fall through to
+            // fallbackDisplay's uncolored gray default (it has no place id
+            // to hash a color from), so a synced/shared-then-saved plan
+            // always rendered as a wall of identical gray cards. Synthesize
+            // one minimal marker per item instead, same as the live
+            // shared-link viewer already does, so each place still gets its
+            // own stable hashed color/icon.
+            places: r.placesData.map((item) => {
+              const { color, icon } = styleForCategory("Place", item.placeId);
+              return {
+                id: item.placeId,
+                placeId: item.placeId,
+                name: item.name,
+                category: "Place",
+                color,
+                lat: item.coordinates.lat,
+                lng: item.coordinates.lng,
+                icon,
+              } satisfies Place;
+            }),
             activeDate: r.placesData[0]?.date ?? todayISODate(),
             currentCity: r.title,
             region: r.region,
