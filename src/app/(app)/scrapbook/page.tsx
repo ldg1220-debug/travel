@@ -4,10 +4,13 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plane, MapPin, Calendar, Globe, Lock, Trash2 } from "lucide-react";
+import { Plane, MapPin, Calendar, Globe, Lock, Trash2, PenLine, Rss } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { LoginModal } from "@/components/LoginModal";
+import { ReviewComposer } from "@/components/ReviewComposer";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { todayISODate, formatDateLabel } from "@/lib/timeline";
+import { syncPlanToServer } from "@/lib/planSync";
 import type { SavedPlan } from "@/lib/types";
 
 const TABS = [
@@ -58,9 +61,13 @@ export default function ScrapbookPage() {
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const loadPlan = useItineraryStore((s) => s.loadPlan);
   const deletePlan = useItineraryStore((s) => s.deletePlan);
+  const setPlanRemoteInfo = useItineraryStore((s) => s.setPlanRemoteInfo);
 
   const [tab, setTab] = useState<TabKey>("past");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [syncingPlanId, setSyncingPlanId] = useState<string | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<{ plan: SavedPlan; itineraryId: number } | null>(null);
 
   const today = todayISODate();
   const { pastTrips, upcomingTrips } = useMemo(() => {
@@ -93,16 +100,48 @@ export default function ScrapbookPage() {
     router.push("/planner");
   };
 
+  // 후기는 서버의 itineraries 행을 참조하므로, 아직 한 번도 동기화되지
+  // 않은(remoteId 없는) 로컬 전용 계획이면 후기 작성을 열기 전에 먼저
+  // 조용히 동기화해 실제 서버 id를 확보한다.
+  const openReview = async (plan: SavedPlan) => {
+    if (!session?.user) {
+      setLoginOpen(true);
+      return;
+    }
+    if (plan.remoteId) {
+      setReviewTarget({ plan, itineraryId: plan.remoteId });
+      return;
+    }
+    setSyncingPlanId(plan.id);
+    try {
+      const { id, shareToken } = await syncPlanToServer(plan.id, plan.region, plan.items, plan.name, plan.remoteId);
+      setPlanRemoteInfo(plan.id, id, shareToken);
+      setReviewTarget({ plan: { ...plan, remoteId: id, shareToken }, itineraryId: id });
+    } catch {
+      // sync failed silently — nothing to review against yet, so just don't open the sheet
+    } finally {
+      setSyncingPlanId(null);
+    }
+  };
+
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
         {/* ── OVERVIEW ── */}
         <section className="mb-8">
-          <div className="mb-3">
-            <p className="text-[13px] font-medium text-slate-500">
-              {session?.user?.name ? `안녕하세요, ${session.user.name} 님 👋` : "저장한 계획을 모아볼 수 있어요"}
-            </p>
-            <h2 className="text-2xl font-bold tracking-tight">여행 보관함</h2>
+          <div className="mb-3 flex items-baseline justify-between">
+            <div>
+              <p className="text-[13px] font-medium text-slate-500">
+                {session?.user?.name ? `안녕하세요, ${session.user.name} 님 👋` : "저장한 계획을 모아볼 수 있어요"}
+              </p>
+              <h2 className="text-2xl font-bold tracking-tight">여행 보관함</h2>
+            </div>
+            <button
+              onClick={() => router.push("/feed")}
+              className="flex shrink-0 items-center gap-1 text-[13px] font-semibold text-indigo-500 transition-colors hover:text-indigo-700"
+            >
+              <Rss size={14} /> 후기 피드
+            </button>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
@@ -172,7 +211,10 @@ export default function ScrapbookPage() {
                     key={plan.id}
                     plan={plan}
                     confirming={confirmDeleteId === plan.id}
+                    showReview={tab === "past"}
+                    reviewSyncing={syncingPlanId === plan.id}
                     onOpen={() => openPlan(plan)}
+                    onReview={() => openReview(plan)}
                     onDeleteRequest={() => setConfirmDeleteId(plan.id)}
                     onDeleteCancel={() => setConfirmDeleteId(null)}
                     onDeleteConfirm={() => {
@@ -188,6 +230,11 @@ export default function ScrapbookPage() {
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {loginOpen && <LoginModal reason="후기를 작성하려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
+      {reviewTarget && (
+        <ReviewComposer plan={reviewTarget.plan} itineraryId={reviewTarget.itineraryId} onClose={() => setReviewTarget(null)} />
+      )}
     </div>
   );
 }
@@ -200,14 +247,20 @@ export default function ScrapbookPage() {
 function TripCard({
   plan,
   confirming,
+  showReview,
+  reviewSyncing,
   onOpen,
+  onReview,
   onDeleteRequest,
   onDeleteCancel,
   onDeleteConfirm,
 }: {
   plan: SavedPlan;
   confirming: boolean;
+  showReview: boolean;
+  reviewSyncing: boolean;
   onOpen: () => void;
+  onReview: () => void;
   onDeleteRequest: () => void;
   onDeleteCancel: () => void;
   onDeleteConfirm: () => void;
@@ -245,6 +298,16 @@ function TripCard({
           <MapPin size={14} className="mt-0.5 shrink-0 text-indigo-500" />
           <span className="font-medium leading-snug">{tripRouteLabel(plan)}</span>
         </button>
+
+        {showReview && (
+          <button
+            onClick={onReview}
+            disabled={reviewSyncing}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/60 py-2 text-[12.5px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-60"
+          >
+            <PenLine size={13} /> {reviewSyncing ? "준비 중…" : "후기 작성"}
+          </button>
+        )}
 
         <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
           <span className="text-[12.5px] font-medium text-slate-500">

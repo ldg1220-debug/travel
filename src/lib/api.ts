@@ -157,6 +157,100 @@ export async function fetchSharedItinerary(shareToken: string): Promise<SharedIt
   return res.json();
 }
 
+export interface Review {
+  id: number;
+  itineraryId: number | null;
+  placeId: string;
+  placeName: string;
+  rating: number;
+  content: string;
+  images: string[];
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Uploads one or more 후기 photos to Vercel Blob, returning their public URLs. */
+export async function uploadReviewPhotos(files: File[]): Promise<string[]> {
+  const form = new FormData();
+  for (const file of files) form.append("files", file);
+  const res = await fetch("/api/upload", { method: "POST", body: form });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "Failed to upload photos");
+  }
+  const data = (await res.json()) as { urls: string[] };
+  return data.urls;
+}
+
+/** Every review the current user has written, optionally scoped to one trip — used to prefill 후기 작성 and show per-trip progress. */
+export async function fetchMyReviews(itineraryId?: number): Promise<Review[]> {
+  const url = itineraryId ? `/api/reviews?itineraryId=${itineraryId}` : "/api/reviews";
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { reviews?: Review[] };
+  return data.reviews ?? [];
+}
+
+/** Creates or updates the current user's review for a place within a trip. */
+export async function saveReview(input: {
+  itineraryId: number;
+  placeId: string;
+  placeName: string;
+  rating: number;
+  content: string;
+  images: string[];
+  isPublic: boolean;
+}): Promise<{ id: number }> {
+  const res = await fetch("/api/reviews", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error("Failed to save review");
+  return res.json();
+}
+
+export async function deleteReview(id: number): Promise<void> {
+  await fetch(`/api/reviews?id=${id}`, { method: "DELETE" });
+}
+
+export interface FeedReview {
+  id: number;
+  placeId: string;
+  placeName: string;
+  rating: number;
+  content: string;
+  images: string[];
+  createdAt: string;
+  authorName: string | null;
+  authorImage: string | null;
+  tripTitle: string | null;
+}
+
+export interface FeedResponse {
+  reviews: FeedReview[];
+  pagination: { page: number; limit: number; total: number; hasMore: boolean };
+}
+
+/** The public in-app feed of everyone's published 후기, most recent first. */
+export async function fetchFeed(page = 1, limit = 10): Promise<FeedResponse> {
+  const res = await fetch(`/api/feed?page=${page}&limit=${limit}`);
+  if (!res.ok) return { reviews: [], pagination: { page, limit, total: 0, hasMore: false } };
+  return res.json();
+}
+
+export interface ReviewDetail extends FeedReview {
+  isPublic: boolean;
+}
+
+/** A single review with trip/author context, for the public share page — null if it doesn't exist or isn't visible to the current viewer. */
+export async function fetchReview(id: number): Promise<{ review: ReviewDetail; isOwner: boolean } | null> {
+  const res = await fetch(`/api/reviews/${id}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export interface DiscoverBrowseResponse {
   bundle: DiscoverBundle;
   regionTree: RegionNode[];
