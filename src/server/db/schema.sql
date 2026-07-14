@@ -123,6 +123,30 @@ CREATE INDEX IF NOT EXISTS reviews_user_id_idx ON reviews ("userId");
 CREATE INDEX IF NOT EXISTS reviews_itinerary_id_idx ON reviews ("itineraryId");
 CREATE INDEX IF NOT EXISTS reviews_is_public_idx ON reviews ("isPublic");
 
+-- The overall, blog/Instagram-style write-up of a whole trip — distinct
+-- from `reviews`, which are quick per-place rating+comment. A trip_post is
+-- the shareable "headline" unit: /feed shows these as big cards, and its
+-- own detail page (/trip/[id]) embeds the trip's `reviews` as a read-only
+-- "다녀온 장소" section so the two don't require duplicate writing. One
+-- post per (user, trip) — writing again edits it in place.
+CREATE TABLE IF NOT EXISTS trip_posts (
+  id SERIAL PRIMARY KEY,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "itineraryId" INTEGER REFERENCES itineraries(id) ON DELETE SET NULL,
+  title VARCHAR(255) NOT NULL,
+  content TEXT NOT NULL,
+  -- Uploaded photo URLs (Vercel Blob) — images[0] doubles as the cover
+  -- photo, no separate column needed.
+  images JSONB NOT NULL DEFAULT '[]',
+  "isPublic" BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE ("userId", "itineraryId")
+);
+CREATE INDEX IF NOT EXISTS trip_posts_user_id_idx ON trip_posts ("userId");
+CREATE INDEX IF NOT EXISTS trip_posts_itinerary_id_idx ON trip_posts ("itineraryId");
+CREATE INDEX IF NOT EXISTS trip_posts_is_public_idx ON trip_posts ("isPublic");
+
 -- Server-side cache of place-to-place transit estimates (src/lib/transit.ts
 -- computes a Haversine-based fallback today; this table exists so a real
 -- Google Distance Matrix result, once wired in, doesn't re-pay the API

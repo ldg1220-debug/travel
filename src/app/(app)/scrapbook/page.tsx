@@ -4,10 +4,11 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plane, MapPin, Calendar, Globe, Lock, Trash2, PenLine, Rss } from "lucide-react";
+import { Plane, MapPin, Calendar, Globe, Lock, Trash2, PenLine, NotebookPen, Rss } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { LoginModal } from "@/components/LoginModal";
 import { ReviewComposer } from "@/components/ReviewComposer";
+import { TripPostComposer } from "@/components/TripPostComposer";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { todayISODate, formatDateLabel } from "@/lib/timeline";
 import { syncPlanToServer } from "@/lib/planSync";
@@ -68,6 +69,7 @@ export default function ScrapbookPage() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [syncingPlanId, setSyncingPlanId] = useState<string | null>(null);
   const [reviewTarget, setReviewTarget] = useState<{ plan: SavedPlan; itineraryId: number } | null>(null);
+  const [tripPostTarget, setTripPostTarget] = useState<{ plan: SavedPlan; itineraryId: number } | null>(null);
 
   const today = todayISODate();
   const { pastTrips, upcomingTrips } = useMemo(() => {
@@ -103,25 +105,36 @@ export default function ScrapbookPage() {
   // 후기는 서버의 itineraries 행을 참조하므로, 아직 한 번도 동기화되지
   // 않은(remoteId 없는) 로컬 전용 계획이면 후기 작성을 열기 전에 먼저
   // 조용히 동기화해 실제 서버 id를 확보한다.
+  const ensureSynced = async (plan: SavedPlan): Promise<{ plan: SavedPlan; itineraryId: number } | null> => {
+    if (plan.remoteId) return { plan, itineraryId: plan.remoteId };
+    setSyncingPlanId(plan.id);
+    try {
+      const { id, shareToken } = await syncPlanToServer(plan.id, plan.region, plan.items, plan.name, plan.remoteId);
+      setPlanRemoteInfo(plan.id, id, shareToken);
+      return { plan: { ...plan, remoteId: id, shareToken }, itineraryId: id };
+    } catch {
+      return null;
+    } finally {
+      setSyncingPlanId(null);
+    }
+  };
+
   const openReview = async (plan: SavedPlan) => {
     if (!session?.user) {
       setLoginOpen(true);
       return;
     }
-    if (plan.remoteId) {
-      setReviewTarget({ plan, itineraryId: plan.remoteId });
+    const resolved = await ensureSynced(plan);
+    if (resolved) setReviewTarget(resolved);
+  };
+
+  const openTripPost = async (plan: SavedPlan) => {
+    if (!session?.user) {
+      setLoginOpen(true);
       return;
     }
-    setSyncingPlanId(plan.id);
-    try {
-      const { id, shareToken } = await syncPlanToServer(plan.id, plan.region, plan.items, plan.name, plan.remoteId);
-      setPlanRemoteInfo(plan.id, id, shareToken);
-      setReviewTarget({ plan: { ...plan, remoteId: id, shareToken }, itineraryId: id });
-    } catch {
-      // sync failed silently — nothing to review against yet, so just don't open the sheet
-    } finally {
-      setSyncingPlanId(null);
-    }
+    const resolved = await ensureSynced(plan);
+    if (resolved) setTripPostTarget(resolved);
   };
 
   return (
@@ -215,6 +228,7 @@ export default function ScrapbookPage() {
                     reviewSyncing={syncingPlanId === plan.id}
                     onOpen={() => openPlan(plan)}
                     onReview={() => openReview(plan)}
+                    onTripPost={() => openTripPost(plan)}
                     onDeleteRequest={() => setConfirmDeleteId(plan.id)}
                     onDeleteCancel={() => setConfirmDeleteId(null)}
                     onDeleteConfirm={() => {
@@ -235,6 +249,9 @@ export default function ScrapbookPage() {
       {reviewTarget && (
         <ReviewComposer plan={reviewTarget.plan} itineraryId={reviewTarget.itineraryId} onClose={() => setReviewTarget(null)} />
       )}
+      {tripPostTarget && (
+        <TripPostComposer plan={tripPostTarget.plan} itineraryId={tripPostTarget.itineraryId} onClose={() => setTripPostTarget(null)} />
+      )}
     </div>
   );
 }
@@ -251,6 +268,7 @@ function TripCard({
   reviewSyncing,
   onOpen,
   onReview,
+  onTripPost,
   onDeleteRequest,
   onDeleteCancel,
   onDeleteConfirm,
@@ -261,6 +279,7 @@ function TripCard({
   reviewSyncing: boolean;
   onOpen: () => void;
   onReview: () => void;
+  onTripPost: () => void;
   onDeleteRequest: () => void;
   onDeleteCancel: () => void;
   onDeleteConfirm: () => void;
@@ -300,13 +319,22 @@ function TripCard({
         </button>
 
         {showReview && (
-          <button
-            onClick={onReview}
-            disabled={reviewSyncing}
-            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/60 py-2 text-[12.5px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-60"
-          >
-            <PenLine size={13} /> {reviewSyncing ? "준비 중…" : "후기 작성"}
-          </button>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              onClick={onReview}
+              disabled={reviewSyncing}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 py-2 text-[12.5px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-60"
+            >
+              <PenLine size={13} /> {reviewSyncing ? "준비 중…" : "장소 후기"}
+            </button>
+            <button
+              onClick={onTripPost}
+              disabled={reviewSyncing}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/60 py-2 text-[12.5px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-60"
+            >
+              <NotebookPen size={13} /> {reviewSyncing ? "준비 중…" : "여행 후기"}
+            </button>
+          </div>
         )}
 
         <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
