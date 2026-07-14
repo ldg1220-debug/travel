@@ -215,11 +215,49 @@ export async function deleteReview(id: number): Promise<void> {
   await fetch(`/api/reviews?id=${id}`, { method: "DELETE" });
 }
 
-export interface FeedReview {
+export interface TripPost {
   id: number;
-  placeId: string;
-  placeName: string;
-  rating: number;
+  itineraryId: number | null;
+  title: string;
+  content: string;
+  images: string[];
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The current user's own trip post for a specific trip, if they've written one — used to prefill 여행 후기 쓰기. */
+export async function fetchMyTripPost(itineraryId: number): Promise<TripPost | null> {
+  const res = await fetch(`/api/trip-posts?itineraryId=${itineraryId}`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as { posts?: TripPost[] };
+  return data.posts?.[0] ?? null;
+}
+
+/** Creates or updates the current user's overall blog/Instagram-style write-up for a trip — one post per trip, writing again just edits it. */
+export async function saveTripPost(input: {
+  itineraryId: number;
+  title: string;
+  content: string;
+  images: string[];
+  isPublic: boolean;
+}): Promise<{ id: number }> {
+  const res = await fetch("/api/trip-posts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error("Failed to save trip post");
+  return res.json();
+}
+
+export async function deleteTripPost(id: number): Promise<void> {
+  await fetch(`/api/trip-posts?id=${id}`, { method: "DELETE" });
+}
+
+export interface FeedPost {
+  id: number;
+  title: string;
   content: string;
   images: string[];
   createdAt: string;
@@ -229,24 +267,32 @@ export interface FeedReview {
 }
 
 export interface FeedResponse {
-  reviews: FeedReview[];
+  posts: FeedPost[];
   pagination: { page: number; limit: number; total: number; hasMore: boolean };
 }
 
-/** The public in-app feed of everyone's published 후기, most recent first. */
+/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first. */
 export async function fetchFeed(page = 1, limit = 10): Promise<FeedResponse> {
   const res = await fetch(`/api/feed?page=${page}&limit=${limit}`);
-  if (!res.ok) return { reviews: [], pagination: { page, limit, total: 0, hasMore: false } };
+  if (!res.ok) return { posts: [], pagination: { page, limit, total: 0, hasMore: false } };
   return res.json();
 }
 
-export interface ReviewDetail extends FeedReview {
+export interface TripPostPlaceReview {
+  placeId: string;
+  placeName: string;
+  rating: number;
+  content: string;
+  images: string[];
+}
+
+export interface TripPostDetail extends FeedPost {
   isPublic: boolean;
 }
 
-/** A single review with trip/author context, for the public share page — null if it doesn't exist or isn't visible to the current viewer. */
-export async function fetchReview(id: number): Promise<{ review: ReviewDetail; isOwner: boolean } | null> {
-  const res = await fetch(`/api/reviews/${id}`);
+/** A single trip post with author/trip context and its author's per-place ratings for the same trip (embedded "다녀온 장소" section) — null if it doesn't exist or isn't visible to the current viewer. */
+export async function fetchTripPost(id: number): Promise<{ post: TripPostDetail; placeReviews: TripPostPlaceReview[]; isOwner: boolean } | null> {
+  const res = await fetch(`/api/trip-posts/${id}`);
   if (!res.ok) return null;
   return res.json();
 }

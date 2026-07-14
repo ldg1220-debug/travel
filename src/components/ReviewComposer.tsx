@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { X, Star, Camera, Loader2, Check } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import type { SavedPlan } from "@/lib/types";
 import { fetchMyReviews, saveReview, uploadReviewPhotos, type Review } from "@/lib/api";
 
@@ -58,7 +57,7 @@ export function ReviewComposer({ plan, itineraryId, onClose }: { plan: SavedPlan
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative flex max-h-[85%] w-full max-w-md flex-col rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
         <div className="flex items-center justify-between px-5 pb-1 pt-5">
-          <h3 className="truncate text-lg font-bold">{plan.name} 후기</h3>
+          <h3 className="truncate text-lg font-bold">{plan.name} 장소 후기</h3>
           <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
             <X size={16} />
           </button>
@@ -126,19 +125,19 @@ function ReviewEditSheet({
 }) {
   const [rating, setRating] = useState(existing?.rating ?? 5);
   const [content, setContent] = useState(existing?.content ?? "");
-  const [images, setImages] = useState<string[]>(existing?.images ?? []);
-  const [isPublic, setIsPublic] = useState(existing?.isPublic ?? false);
+  const [image, setImage] = useState<string | null>(existing?.images?.[0] ?? null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+  const handleFile = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
     setUploading(true);
     setError(null);
     try {
-      const urls = await uploadReviewPhotos(Array.from(files).slice(0, 6 - images.length));
-      setImages((prev) => [...prev, ...urls].slice(0, 6));
+      const [url] = await uploadReviewPhotos([file]);
+      setImage(url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "업로드에 실패했어요");
     } finally {
@@ -148,13 +147,17 @@ function ReviewEditSheet({
 
   const handleSave = async () => {
     if (!content.trim()) {
-      setError("후기 내용을 입력해주세요");
+      setError("한 줄 코멘트를 입력해주세요");
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      const { id } = await saveReview({ itineraryId, placeId: place.placeId, placeName: place.name, rating, content: content.trim(), images, isPublic });
+      const images = image ? [image] : [];
+      // 장소별 후기는 여행 전체 후기(후기 작성 → 여행 후기)에 자동으로
+      // 묶여서 노출되므로 여기 자체엔 별도 공개 여부가 없다 — 공개 여부는
+      // 전체 후기 쪽에서만 정한다.
+      const { id } = await saveReview({ itineraryId, placeId: place.placeId, placeName: place.name, rating, content: content.trim(), images, isPublic: false });
       onSaved({
         id,
         itineraryId,
@@ -163,7 +166,7 @@ function ReviewEditSheet({
         rating,
         content: content.trim(),
         images,
-        isPublic,
+        isPublic: false,
         createdAt: existing?.createdAt ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -193,47 +196,34 @@ function ReviewEditSheet({
           ))}
         </div>
 
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="이 곳에서의 경험을 남겨보세요"
-          rows={5}
-          className="mb-3 w-full resize-none rounded-2xl border border-slate-200 p-3 text-[13.5px] outline-none focus:border-indigo-400"
-        />
-
-        <div className="mb-3 flex flex-wrap gap-2">
-          {images.map((url) => (
-            <div key={url} className="relative h-16 w-16 overflow-hidden rounded-xl">
+        <div className="mb-1 flex items-center gap-2">
+          <input
+            value={content}
+            onChange={(e) => setContent(e.target.value.slice(0, 50))}
+            placeholder="한 줄로 남겨보세요 (예: 야경이 정말 예뻤어요)"
+            maxLength={50}
+            className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-3 py-2.5 text-[13.5px] outline-none focus:border-indigo-400"
+          />
+          {image ? (
+            <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl">
               {/* eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL */}
-              <img src={url} alt="" className="h-full w-full object-cover" />
+              <img src={image} alt="" className="h-full w-full object-cover" />
               <button
-                onClick={() => setImages((prev) => prev.filter((u) => u !== url))}
-                className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/50 text-white"
+                onClick={() => setImage(null)}
+                className="absolute right-0 top-0 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-black/50 text-white"
                 aria-label="사진 삭제"
               >
-                <X size={10} />
+                <X size={9} />
               </button>
             </div>
-          ))}
-          {images.length < 6 && (
-            <label className="flex h-16 w-16 cursor-pointer items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-400">
-              {uploading ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={(e) => handleFiles(e.target.files)}
-                disabled={uploading}
-              />
+          ) : (
+            <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-400">
+              {uploading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files)} disabled={uploading} />
             </label>
           )}
         </div>
-
-        <label className="mb-4 flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
-          <span className="text-[13px] font-medium text-slate-700">피드에 공개하기</span>
-          <Switch checked={isPublic} onCheckedChange={setIsPublic} />
-        </label>
+        <p className="mb-4 text-right text-[11px] text-slate-400">{content.length}/50</p>
 
         {error && <p className="mb-3 text-center text-[12px] text-rose-500">{error}</p>}
 
@@ -242,7 +232,7 @@ function ReviewEditSheet({
           disabled={saving || uploading}
           className="h-12 w-full rounded-2xl bg-indigo-600 text-sm font-semibold text-white transition-opacity hover:bg-indigo-700 disabled:opacity-60"
         >
-          {saving ? "저장 중…" : "후기 저장"}
+          {saving ? "저장 중…" : "저장"}
         </button>
       </div>
     </div>
