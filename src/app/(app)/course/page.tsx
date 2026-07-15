@@ -209,7 +209,7 @@ export default function CourseBuilderPage() {
                 (scope === "domestic"
                   ? path.length === 0
                     ? "어느 지역으로 떠나시나요?"
-                    : `${path[path.length - 1]} 안에서 시·군을 골라주세요`
+                    : `${path[path.length - 1]} 안에서 지역을 골라주세요`
                   : path.length === 0
                     ? "어느 대륙으로 떠나시나요?"
                     : path.length === 1
@@ -259,7 +259,7 @@ export default function CourseBuilderPage() {
           </div>
         )}
 
-        {/* ── STEP: drill (국내 광역→시·군 / 해외 대륙→국가→도시 — 탐색의 지역별과 같은 통합 트리) ── */}
+        {/* ── STEP: drill (국내 광역→지역 / 해외 대륙→국가→도시 — 탐색의 지역별과 같은 통합 트리) ── */}
         {step === "drill" &&
           (path.length === 0 ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -290,6 +290,20 @@ export default function CourseBuilderPage() {
                   {c.label}
                 </button>
               ))}
+              {/* 목록에 원하는 동네/도시가 없을 때 — 한 단계 위(이미 고른 지역/국가)
+                  이름 그대로를 검색어로 써서 큐레이션 목록 밖 장소도 찾을 수 있게 한다. */}
+              {path.length === maxDepth - 1 && (
+                <button
+                  onClick={() => {
+                    setPicks({});
+                    setActiveSlot(COURSE_SLOTS[0].key);
+                    setStep("build");
+                  }}
+                  className="rounded-2xl border border-dashed border-slate-300 px-5 py-3 text-[14px] font-semibold text-slate-500 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-600"
+                >
+                  기타 (직접 검색)
+                </button>
+              )}
             </div>
           ))}
 
