@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Search, Calendar, Book, ChevronRight, Heart, FolderOpen, Route } from "lucide-react";
+import { Search, Calendar, Book, ChevronRight, Heart, FolderOpen, Route, Rss } from "lucide-react";
 import { useItineraryStore } from "@/store/itineraryStore";
+import { fetchFeed, type FeedPost } from "@/lib/api";
+import { formatDateLabel } from "@/lib/timeline";
 
 // 카드 이름은 사이드바 메뉴와 1:1로 맞춘다 (여행 계획짜기/계획/여행 보관함).
 // 코스 만들기는 여행 계획짜기의 하위 플로우라 홈 카드에서는 뺐다.
@@ -80,6 +82,7 @@ export default function HomePage() {
         </section>
 
         <ResumeSection />
+        <LatestFeedSection />
       </div>
     </div>
   );
@@ -196,6 +199,72 @@ function ResumeSection() {
           </span>
           <ChevronRight size={18} className="shrink-0 text-slate-300 transition-colors group-hover:text-indigo-500" />
         </Link>
+      )}
+    </section>
+  );
+}
+
+/**
+ * "최신 여행 후기" — 홈 하단 미리보기. 진짜 친구/팔로우 관계는 아직 없어서
+ * (추후 별도 기능으로 예정) 지금은 전체 공개 피드의 최신 글 몇 개를 보여
+ * 주고, "더 보기"는 지역/장소로 검색할 수 있는 /feed로 보낸다.
+ */
+function LatestFeedSection() {
+  const [posts, setPosts] = useState<FeedPost[] | null>(null);
+
+  useEffect(() => {
+    fetchFeed(1, 4).then((data) => setPosts(data.posts));
+  }, []);
+
+  if (posts !== null && posts.length === 0) return null;
+
+  return (
+    <section className="mt-10">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-500 dark:bg-slate-800">
+            <Rss size={17} />
+          </span>
+          <h2 className="text-xl font-bold tracking-tight">🔥 최신 여행 후기</h2>
+        </div>
+        <Link href="/feed" className="flex shrink-0 items-center gap-0.5 text-[12.5px] font-semibold text-indigo-500 hover:text-indigo-700">
+          더 보기 <ChevronRight size={14} />
+        </Link>
+      </div>
+
+      {posts === null ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="h-24 animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {posts.map((post) => (
+            <Link
+              key={post.id}
+              href={`/trip/${post.id}`}
+              className="group flex items-center gap-3 rounded-2xl border border-slate-200/70 bg-white p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900"
+            >
+              {post.images[0] ? (
+                // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
+                <img src={post.images[0]} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />
+              ) : (
+                <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-400 to-violet-400 text-white">
+                  <Rss size={18} />
+                </span>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[11.5px] font-medium text-slate-400">
+                  {post.authorName ?? "여행자"}
+                  {post.tripTitle && ` · ${post.tripTitle}`}
+                </p>
+                <p className="mt-0.5 truncate text-[14px] font-bold text-slate-900 dark:text-slate-100">{post.title}</p>
+                <p className="mt-0.5 truncate text-[12px] text-slate-500 dark:text-slate-400">{formatDateLabel(post.createdAt.slice(0, 10))}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
       )}
     </section>
   );

@@ -279,6 +279,8 @@ export interface FeedPost {
   authorName: string | null;
   authorImage: string | null;
   tripTitle: string | null;
+  /** The linked trip's region, if any — null for a plan-less ("완전 새로 작성") post. */
+  region: Region | null;
 }
 
 export interface FeedResponse {
@@ -286,9 +288,12 @@ export interface FeedResponse {
   pagination: { page: number; limit: number; total: number; hasMore: boolean };
 }
 
-/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first. */
-export async function fetchFeed(page = 1, limit = 10): Promise<FeedResponse> {
-  const res = await fetch(`/api/feed?page=${page}&limit=${limit}`);
+/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first — optionally filtered by region and/or a free-text search across the post's title/content, its trip's title, and its visited place names. */
+export async function fetchFeed(page = 1, limit = 10, options?: { region?: Region; q?: string }): Promise<FeedResponse> {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (options?.region) params.set("region", options.region);
+  if (options?.q?.trim()) params.set("q", options.q.trim());
+  const res = await fetch(`/api/feed?${params.toString()}`);
   if (!res.ok) return { posts: [], pagination: { page, limit, total: 0, hasMore: false } };
   return res.json();
 }

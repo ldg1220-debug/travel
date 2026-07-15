@@ -35,6 +35,14 @@ export interface Place {
   /** Free-text note, editable from the planner's 관심 장소 detail overlay. */
   memo?: string;
   icon: PlaceIcon;
+  /** Which user-defined 관심 장소 보관함 folder (see `SavedPlaceFolder`) this is filed under — undefined means unfiled. Only meaningful for entries in `savedPlaces`; a folder assignment has no effect on the planner's schedulable `places` catalog. */
+  folderId?: string;
+}
+
+/** A user-named folder for organizing 관심 장소 보관함 (saved-places) into custom groups — e.g. "오사카 후보", "다음에 가볼 곳" — distinct from the fixed 6-category classification. */
+export interface SavedPlaceFolder {
+  id: string;
+  name: string;
 }
 
 export interface ItineraryItem {

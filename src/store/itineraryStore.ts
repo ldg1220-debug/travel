@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ItineraryItem, Place, Region, SavedPlan } from "@/lib/types";
+import type { ItineraryItem, Place, Region, SavedPlan, SavedPlaceFolder } from "@/lib/types";
 import {
   DAY_MINUTES,
   DEFAULT_DURATION_MINUTES,
@@ -67,6 +67,15 @@ interface ItineraryState {
   removeSavedPlace: (placeId: string) => void;
   /** Adds or overwrites a `savedPlaces` entry by id — the detail overlay's "저장하기" action. */
   upsertSavedPlace: (place: Place) => void;
+
+  /** User-defined folders for organizing `savedPlaces` — see `SavedPlaceFolder`. */
+  savedPlaceFolders: SavedPlaceFolder[];
+  /** Creates a new folder and returns its id. */
+  addSavedPlaceFolder: (name: string) => string;
+  renameSavedPlaceFolder: (id: string, name: string) => void;
+  /** Deletes a folder and un-files any `savedPlaces` entries that were in it (they fall back to unfiled, not deleted). */
+  deleteSavedPlaceFolder: (id: string) => void;
+
   isHourTaken: (date: string, hour: number) => boolean;
   /**
    * Exact minute-level overlap check — unlike isHourTaken (which treats a
@@ -158,6 +167,7 @@ export const useItineraryStore = create<ItineraryState>()(
       currentCity: "새 여행",
       places: [],
       savedPlaces: [],
+      savedPlaceFolders: [],
       savedPlans: [],
       activePlanId: null,
       setCurrentCity: (city) => set({ currentCity: city }),
@@ -188,6 +198,21 @@ export const useItineraryStore = create<ItineraryState>()(
               : [...state.savedPlaces, place],
           };
         }),
+
+      addSavedPlaceFolder: (name) => {
+        const id = `folder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        set((state) => ({ savedPlaceFolders: [...state.savedPlaceFolders, { id, name }] }));
+        return id;
+      },
+      renameSavedPlaceFolder: (id, name) =>
+        set((state) => ({
+          savedPlaceFolders: state.savedPlaceFolders.map((f) => (f.id === id ? { ...f, name } : f)),
+        })),
+      deleteSavedPlaceFolder: (id) =>
+        set((state) => ({
+          savedPlaceFolders: state.savedPlaceFolders.filter((f) => f.id !== id),
+          savedPlaces: state.savedPlaces.map((p) => (p.folderId === id ? { ...p, folderId: undefined } : p)),
+        })),
 
       // An hour is "taken" if any item's [start, start+duration) range
       // overlaps that hour's full [hour*60, hour*60+60) span — not just an
@@ -450,11 +475,14 @@ export const useItineraryStore = create<ItineraryState>()(
       // persisted. migrate() below does that one-time cleanup.
       //
       // v4: add savedPlans/activePlanId (named multi-plan snapshots).
-      version: 4,
+      //
+      // v5: add savedPlaceFolders (user-defined 관심 장소 보관함 folders).
+      version: 5,
       partialize: (state) => ({
         items: state.items,
         places: state.places,
         savedPlaces: state.savedPlaces,
+        savedPlaceFolders: state.savedPlaceFolders,
         activeDate: state.activeDate,
         currentCity: state.currentCity,
         region: state.region,
@@ -471,6 +499,7 @@ export const useItineraryStore = create<ItineraryState>()(
           items: state.items ?? [],
           places: state.places ?? [],
           savedPlaces: state.savedPlaces ?? [],
+          savedPlaceFolders: state.savedPlaceFolders ?? [],
           activeDate: state.activeDate ?? todayISODate(),
           currentCity: state.currentCity ?? "새 여행",
           region: state.region ?? ("international" as Region),

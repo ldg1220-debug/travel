@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, Share2, X } from "lucide-react";
+import { Heart, Share2, X, FolderPlus, Pencil, Check, Trash2 } from "lucide-react";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { PlaceGlyph } from "@/app/(app)/planner/icons";
 import { CATEGORY_OPTIONS } from "@/app/(app)/planner/PlaceDetailOverlay";
@@ -16,6 +16,12 @@ import type { Place } from "@/lib/types";
 const OTHER_CATEGORY = "__other__";
 const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(CATEGORY_OPTIONS.map((c) => [c.value, c.label]));
 const isKnownCategory = (category: string) => category in CATEGORY_LABEL;
+
+// A second, user-owned organizing axis on top of `category` (which is a
+// fixed 6-value auto-classification) — folders are freely named/created/
+// deleted by the user (e.g. "오사카 후보", "다음에 가볼 곳"). A place can be
+// in at most one folder; unfiled places fall into this catch-all filter.
+const UNFILED_FOLDER = "__unfiled__";
 
 // ─────────────────────────────────────────────────────────────
 // The global App Bar (hamburger + title + Sheet nav) already lives in
@@ -32,9 +38,40 @@ export default function SavedPlacesPage() {
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
   const removeSavedPlace = useItineraryStore((s) => s.removeSavedPlace);
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
+  const savedPlaceFolders = useItineraryStore((s) => s.savedPlaceFolders);
+  const addSavedPlaceFolder = useItineraryStore((s) => s.addSavedPlaceFolder);
+  const renameSavedPlaceFolder = useItineraryStore((s) => s.renameSavedPlaceFolder);
+  const deleteSavedPlaceFolder = useItineraryStore((s) => s.deleteSavedPlaceFolder);
 
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [folderFilter, setFolderFilter] = useState<string>("all");
   const [toast, setToast] = useState<string | null>(null);
+
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState("");
+  const [confirmDeleteFolderId, setConfirmDeleteFolderId] = useState<string | null>(null);
+
+  const handleCreateFolder = () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    addSavedPlaceFolder(name);
+    setNewFolderName("");
+    setCreatingFolder(false);
+  };
+
+  const handleRenameFolder = (id: string) => {
+    const name = editingFolderName.trim();
+    if (name) renameSavedPlaceFolder(id, name);
+    setEditingFolderId(null);
+  };
+
+  const handleDeleteFolder = (id: string) => {
+    deleteSavedPlaceFolder(id);
+    setConfirmDeleteFolderId(null);
+    if (folderFilter === id) setFolderFilter("all");
+  };
 
   // 관심 장소 카카오톡 공유 — 이 앱엔 개별 장소용 공유 링크(shareToken)가
   // 없으므로, 구글 지도 좌표 링크로 공유한다 (계획 공유는 실제 서버에 저장된
@@ -63,11 +100,23 @@ export default function SavedPlacesPage() {
     return map;
   }, [savedPlaces]);
 
+  const folderCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of savedPlaces) {
+      const key = p.folderId ?? UNFILED_FOLDER;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return map;
+  }, [savedPlaces]);
+
   const visiblePlaces = useMemo(() => {
-    if (categoryFilter === "all") return savedPlaces;
-    if (categoryFilter === OTHER_CATEGORY) return savedPlaces.filter((p) => !isKnownCategory(p.category));
-    return savedPlaces.filter((p) => p.category === categoryFilter);
-  }, [savedPlaces, categoryFilter]);
+    let list = savedPlaces;
+    if (categoryFilter === OTHER_CATEGORY) list = list.filter((p) => !isKnownCategory(p.category));
+    else if (categoryFilter !== "all") list = list.filter((p) => p.category === categoryFilter);
+    if (folderFilter === UNFILED_FOLDER) list = list.filter((p) => !p.folderId);
+    else if (folderFilter !== "all") list = list.filter((p) => p.folderId === folderFilter);
+    return list;
+  }, [savedPlaces, categoryFilter, folderFilter]);
 
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
@@ -87,6 +136,133 @@ export default function SavedPlacesPage() {
           </div>
         ) : (
           <>
+            {/* 내 폴더 — 카테고리(자동 분류)와 별개로 내가 직접 이름 붙이고
+                만드는 분류. 선택된 폴더 칩 아래에만 이름 변경/삭제가 나타나
+                평소엔 목록이 복잡해 보이지 않는다. */}
+            <div className="mb-3">
+              <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                <button
+                  onClick={() => setFolderFilter("all")}
+                  className={`rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                    folderFilter === "all" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  }`}
+                >
+                  전체 폴더
+                </button>
+                {savedPlaceFolders.map((folder) => {
+                  const active = folderFilter === folder.id;
+                  return (
+                    <button
+                      key={folder.id}
+                      onClick={() => setFolderFilter(active ? "all" : folder.id)}
+                      className={`rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                        active ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      {folder.name} <span className="opacity-70">{folderCounts.get(folder.id) ?? 0}</span>
+                    </button>
+                  );
+                })}
+                {(folderCounts.get(UNFILED_FOLDER) ?? 0) > 0 && (
+                  <button
+                    onClick={() => setFolderFilter(folderFilter === UNFILED_FOLDER ? "all" : UNFILED_FOLDER)}
+                    className={`rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                      folderFilter === UNFILED_FOLDER ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                    }`}
+                  >
+                    미분류 <span className="opacity-70">{folderCounts.get(UNFILED_FOLDER)}</span>
+                  </button>
+                )}
+                {creatingFolder ? (
+                  <span className="flex items-center gap-1">
+                    <input
+                      autoFocus
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleCreateFolder();
+                        if (e.key === "Escape") setCreatingFolder(false);
+                      }}
+                      placeholder="폴더 이름"
+                      maxLength={20}
+                      className="w-28 rounded-full border border-indigo-300 px-3 py-1.5 text-[12px] outline-none"
+                    />
+                    <button onClick={handleCreateFolder} aria-label="폴더 추가" className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500 text-white hover:bg-indigo-600">
+                      <Check size={13} />
+                    </button>
+                    <button onClick={() => setCreatingFolder(false)} aria-label="취소" className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+                      <X size={13} />
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setCreatingFolder(true)}
+                    className="flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-[12px] font-semibold text-slate-500 hover:border-indigo-300 hover:text-indigo-500"
+                  >
+                    <FolderPlus size={13} /> 새 폴더
+                  </button>
+                )}
+              </div>
+
+              {/* 선택된 폴더가 있을 때만 이름 변경/삭제 도구를 보여준다. */}
+              {folderFilter !== "all" && folderFilter !== UNFILED_FOLDER && (
+                <div className="flex items-center gap-2 rounded-xl bg-indigo-50/60 px-3 py-1.5 text-[12px]">
+                  {editingFolderId === folderFilter ? (
+                    <>
+                      <input
+                        autoFocus
+                        value={editingFolderName}
+                        onChange={(e) => setEditingFolderName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleRenameFolder(folderFilter);
+                          if (e.key === "Escape") setEditingFolderId(null);
+                        }}
+                        maxLength={20}
+                        className="min-w-0 flex-1 rounded-lg border border-indigo-300 px-2 py-1 text-[12px] outline-none"
+                      />
+                      <button onClick={() => handleRenameFolder(folderFilter)} className="font-semibold text-indigo-600">
+                        저장
+                      </button>
+                      <button onClick={() => setEditingFolderId(null)} className="text-slate-400">
+                        취소
+                      </button>
+                    </>
+                  ) : confirmDeleteFolderId === folderFilter ? (
+                    <>
+                      <span className="flex-1 text-slate-500">이 폴더를 삭제할까요? 장소는 미분류로 남아요.</span>
+                      <button onClick={() => handleDeleteFolder(folderFilter)} className="font-semibold text-rose-500">
+                        삭제
+                      </button>
+                      <button onClick={() => setConfirmDeleteFolderId(null)} className="text-slate-400">
+                        취소
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-slate-500">
+                        &ldquo;{savedPlaceFolders.find((f) => f.id === folderFilter)?.name}&rdquo; 폴더
+                      </span>
+                      <button
+                        onClick={() => {
+                          setEditingFolderId(folderFilter);
+                          setEditingFolderName(savedPlaceFolders.find((f) => f.id === folderFilter)?.name ?? "");
+                        }}
+                        className="flex items-center gap-0.5 font-semibold text-indigo-600 hover:text-indigo-700"
+                      >
+                        <Pencil size={11} /> 이름 변경
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteFolderId(folderFilter)}
+                        className="flex items-center gap-0.5 font-semibold text-rose-500 hover:text-rose-600"
+                      >
+                        <Trash2 size={11} /> 삭제
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* 분류 필터 — 저장할 때 붙은 카테고리로 걸러본다. 6개 표준
                 분류에 안 걸리는(구글/카카오 원본 카테고리 그대로인) 곳은
                 기타로 묶는다. */}
@@ -130,7 +306,7 @@ export default function SavedPlacesPage() {
             </div>
 
             {visiblePlaces.length === 0 ? (
-              <p className="py-16 text-center text-[13px] text-slate-400">이 분류에는 저장된 장소가 없어요.</p>
+              <p className="py-16 text-center text-[13px] text-slate-400">이 조건에는 저장된 장소가 없어요.</p>
             ) : (
               <div className="space-y-2.5">
                 {visiblePlaces.map((place) => (
@@ -170,6 +346,26 @@ export default function SavedPlacesPage() {
                         </option>
                       ))}
                     </select>
+                    {/* 폴더 편집 — 내가 만든 폴더로 장소를 바로 옮길 수 있게. */}
+                    {savedPlaceFolders.length > 0 && (
+                      <select
+                        value={place.folderId ?? ""}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          upsertSavedPlace({ ...place, folderId: e.target.value || undefined });
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`${place.name} 폴더 변경`}
+                        className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600 outline-none"
+                      >
+                        <option value="">미분류</option>
+                        {savedPlaceFolders.map((folder) => (
+                          <option key={folder.id} value={folder.id}>
+                            {folder.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

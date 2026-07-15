@@ -2,11 +2,12 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Star, Share2, Link as LinkIcon, ChevronLeft, MapPin } from "lucide-react";
-import { fetchTripPost, type TripPostDetail, type TripPostPlaceReview } from "@/lib/api";
+import { Star, Share2, Link as LinkIcon, ChevronLeft, MapPin, Globe, Lock } from "lucide-react";
+import { fetchTripPost, saveTripPost, type TripPostDetail, type TripPostPlaceReview } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { hashtagSlug } from "@/lib/hashtag";
+import { Switch } from "@/components/ui/switch";
 
 /** Standalone public view of one 여행 후기 (blog/Instagram-style trip post) — what a 카카오톡 공유 link or "링크 복사" opens for anyone, logged in or not, if the post was published to the feed (or you're its author). */
 export default function TripPostDetailPage() {
@@ -14,6 +15,8 @@ export default function TripPostDetailPage() {
   const router = useRouter();
   const [post, setPost] = useState<TripPostDetail | null>(null);
   const [placeReviews, setPlaceReviews] = useState<TripPostPlaceReview[]>([]);
+  const [isOwner, setIsOwner] = useState(false);
+  const [togglingVisibility, setTogglingVisibility] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -31,12 +34,36 @@ export default function TripPostDetailPage() {
       }
       setPost(data.post);
       setPlaceReviews(data.placeReviews);
+      setIsOwner(data.isOwner);
     });
   }, [params.id]);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 1600);
+  };
+
+  // 작성 시점의 "피드에 공개하기" 토글과 별개로, 다 쓴 후에도 전체 편집
+  // 화면을 다시 열지 않고 바로 공개/비공개를 뒤집을 수 있게 한다.
+  const handleToggleVisibility = async () => {
+    if (!post) return;
+    const nextIsPublic = !post.isPublic;
+    setTogglingVisibility(true);
+    try {
+      await saveTripPost({
+        id: post.id,
+        title: post.title,
+        content: post.content,
+        images: post.images,
+        isPublic: nextIsPublic,
+      });
+      setPost((prev) => (prev ? { ...prev, isPublic: nextIsPublic } : prev));
+      showToast(nextIsPublic ? "피드에 공개됐어요" : "비공개로 전환했어요");
+    } catch {
+      showToast("변경에 실패했어요");
+    } finally {
+      setTogglingVisibility(false);
+    }
   };
 
   const handleShare = async () => {
@@ -98,6 +125,17 @@ export default function TripPostDetailPage() {
           {post.tripTitle && ` · ${post.tripTitle}`} · {formatDateLabel(post.createdAt.slice(0, 10))}
         </p>
         <h1 className="text-xl font-bold tracking-tight">{post.title}</h1>
+
+        {isOwner && (
+          <label className="mt-3 flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-2.5">
+            <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+              {post.isPublic ? <Globe size={14} className="text-emerald-500" /> : <Lock size={14} className="text-slate-400" />}
+              {post.isPublic ? "피드에 공개 중" : "비공개 (나만 보기)"}
+            </span>
+            <Switch checked={post.isPublic} disabled={togglingVisibility} onCheckedChange={handleToggleVisibility} />
+          </label>
+        )}
+
         <p className="mt-4 whitespace-pre-wrap text-[14px] leading-relaxed text-slate-700">
           {post.content.split(/(#\S+)/g).map((part, i) => {
             if (part.startsWith("#")) {
