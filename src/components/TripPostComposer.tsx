@@ -196,8 +196,8 @@ export function TripPostComposer({
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="이번 여행은 어땠나요? 자유롭게 남겨보세요. #장소이름 을 붙이면 그 장소 후기와 연결돼요"
-              rows={8}
-              className="mb-2 w-full resize-none rounded-2xl border border-slate-200 p-3 text-[13.5px] leading-relaxed outline-none focus:border-indigo-400"
+              rows={20}
+              className="mb-2 min-h-[50vh] w-full resize-y rounded-2xl border border-slate-200 p-3 text-[13.5px] leading-relaxed outline-none focus:border-indigo-400"
             />
 
             {places.length > 0 && (
@@ -241,7 +241,7 @@ export function TripPostComposer({
                   아직 담긴 장소가 없어요 — 검색해서 추가해보세요
                 </p>
               ) : (
-                <div className="space-y-1.5">
+                <div className="max-h-40 space-y-1.5 overflow-y-auto">
                   {places.map((p) => {
                     const existing = reviews[p.placeId];
                     const isExtra = extraPlaces.some((e) => e.placeId === p.placeId);

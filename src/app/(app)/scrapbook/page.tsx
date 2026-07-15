@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plane, MapPin, Calendar, Globe, Lock, Trash2, PenLine, NotebookPen, Rss, FolderOpen, X } from "lucide-react";
+import { Plane, MapPin, Calendar, Globe, Lock, Trash2, PenLine, NotebookPen, Rss, FolderOpen, X, ChevronLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { LoginModal } from "@/components/LoginModal";
 import { ReviewComposer } from "@/components/ReviewComposer";
@@ -334,9 +334,18 @@ function NewPostChooser({
     <div className="fixed inset-0 z-[85] flex items-end justify-center sm:items-center">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-bold">여행 후기 쓰기</h3>
-          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+        <div className="mb-4 flex items-center gap-2">
+          {picking && (
+            <button
+              onClick={() => setPicking(false)}
+              aria-label="뒤로"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100"
+            >
+              <ChevronLeft size={17} />
+            </button>
+          )}
+          <h3 className="flex-1 text-lg font-bold">{picking ? "어떤 계획인가요?" : "여행 후기 쓰기"}</h3>
+          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
             <X size={16} />
           </button>
         </div>
@@ -371,16 +380,22 @@ function NewPostChooser({
           </div>
         ) : (
           <div className="max-h-80 space-y-1.5 overflow-y-auto">
-            {plans.map((plan) => (
-              <button
-                key={plan.id}
-                onClick={() => onPickPlan(plan)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-indigo-50"
-              >
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-700">{plan.name}</span>
-                <span className="shrink-0 truncate text-[11px] text-slate-400">{tripRouteLabel(plan)}</span>
-              </button>
-            ))}
+            {plans.map((plan) => {
+              const { start, end } = tripDateRange(plan);
+              const dateLabel = start === end ? formatDateLabel(start) : `${formatDateLabel(start)} ~ ${formatDateLabel(end)}`;
+              return (
+                <button
+                  key={plan.id}
+                  onClick={() => onPickPlan(plan)}
+                  className="flex w-full flex-col items-start gap-0.5 rounded-xl border border-slate-100 px-3.5 py-2.5 text-left transition-colors hover:border-indigo-200 hover:bg-indigo-50/60"
+                >
+                  <span className="w-full truncate text-[13.5px] font-semibold text-slate-800">{plan.name}</span>
+                  <span className="w-full truncate text-[11.5px] text-slate-400">
+                    {dateLabel} · {tripRouteLabel(plan)}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
