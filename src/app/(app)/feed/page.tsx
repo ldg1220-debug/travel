@@ -1,12 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Rss, Loader2 } from "lucide-react";
+import { Rss, Loader2, Search } from "lucide-react";
 import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
+import type { Region } from "@/lib/types";
 
-/** Public feed of everyone's published 여행 후기 (blog/Instagram-style trip posts) — browsable without logging in, same as /discover. */
+const SEARCH_DEBOUNCE_MS = 400;
+const REGION_OPTIONS: { value: Region | "all"; label: string }[] = [
+  { value: "all", label: "전체" },
+  { value: "domestic", label: "국내" },
+  { value: "international", label: "해외" },
+];
+
+/** Public feed of everyone's published 여행 후기 (blog/Instagram-style trip posts) — browsable without logging in, same as /discover. Supports filtering by region and free-text search (post title/내용, 여행 제목, 다녀온 장소 이름). */
 export default function FeedPage() {
   const router = useRouter();
   const [posts, setPosts] = useState<FeedPost[]>([]);
@@ -14,20 +22,30 @@ export default function FeedPage() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [query, setQuery] = useState("");
+  const [region, setRegion] = useState<Region | "all">("all");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    fetchFeed(1).then((data) => {
-      setPosts(data.posts);
-      setHasMore(data.pagination.hasMore);
-      setPage(1);
-      setLoading(false);
-    });
-  }, []);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setLoading(true);
+      fetchFeed(1, 10, { region: region === "all" ? undefined : region, q: query }).then((data) => {
+        setPosts(data.posts);
+        setHasMore(data.pagination.hasMore);
+        setPage(1);
+        setLoading(false);
+      });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, region]);
 
   const loadMore = async () => {
     setLoadingMore(true);
     const next = page + 1;
-    const data = await fetchFeed(next);
+    const data = await fetchFeed(next, 10, { region: region === "all" ? undefined : region, q: query });
     setPosts((prev) => [...prev, ...data.posts]);
     setHasMore(data.pagination.hasMore);
     setPage(next);
@@ -42,6 +60,30 @@ export default function FeedPage() {
           <h2 className="text-2xl font-bold tracking-tight">후기 피드</h2>
         </div>
 
+        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5">
+          <Search size={15} className="shrink-0 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="제목, 지역, 장소로 후기 검색"
+            className="min-w-0 flex-1 bg-transparent text-[13.5px] outline-none"
+          />
+        </div>
+
+        <div className="mb-6 flex gap-1.5">
+          {REGION_OPTIONS.map((r) => (
+            <button
+              key={r.value}
+              onClick={() => setRegion(r.value)}
+              className={`rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                region === r.value ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+
         {loading ? (
           <div className="py-24 text-center text-[13px] text-slate-400">불러오는 중…</div>
         ) : posts.length === 0 ? (
@@ -49,8 +91,12 @@ export default function FeedPage() {
             <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
               <Rss size={24} />
             </span>
-            <p className="text-sm font-semibold text-slate-700">아직 공개된 후기가 없어요</p>
-            <p className="mt-1 text-[13px] text-slate-400">여행 보관함에서 첫 여행 후기를 남겨보세요.</p>
+            <p className="text-sm font-semibold text-slate-700">
+              {query || region !== "all" ? "조건에 맞는 후기가 없어요" : "아직 공개된 후기가 없어요"}
+            </p>
+            <p className="mt-1 text-[13px] text-slate-400">
+              {query || region !== "all" ? "다른 검색어나 지역으로 찾아보세요." : "여행 보관함에서 첫 여행 후기를 남겨보세요."}
+            </p>
           </div>
         ) : (
           <div className="space-y-5">

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown, LogIn, LogOut, X } from "lucide-react";
+import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown, LogIn, LogOut, X, Rss } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
 import { ThemedLogo } from "@/components/BrandLogo";
@@ -32,6 +32,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/discover", label: "여행 계획짜기", icon: Search, sub: [{ href: "/course", label: "코스 만들기", icon: Sparkles }] },
   { href: "/planner", label: "계획", icon: Calendar },
   { href: "/scrapbook", label: "여행 보관함", icon: Book },
+  { href: "/feed", label: "후기 피드", icon: Rss },
 ];
 const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", icon: Heart };
 

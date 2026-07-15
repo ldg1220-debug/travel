@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 
 interface ReviewBody {
-  itineraryId: number;
+  itineraryId: number | null;
   placeId: string;
   placeName: string;
   rating: number;
