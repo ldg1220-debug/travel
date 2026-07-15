@@ -192,9 +192,9 @@ export async function fetchMyReviews(itineraryId?: number): Promise<Review[]> {
   return data.reviews ?? [];
 }
 
-/** Creates or updates the current user's review for a place within a trip. */
+/** Creates or updates the current user's review for a place within a trip — `itineraryId` null for a place added ad-hoc to a 여행 후기 with no linked saved plan. */
 export async function saveReview(input: {
-  itineraryId: number;
+  itineraryId: number | null;
   placeId: string;
   placeName: string;
   rating: number;
@@ -234,9 +234,24 @@ export async function fetchMyTripPost(itineraryId: number): Promise<TripPost | n
   return data.posts?.[0] ?? null;
 }
 
-/** Creates or updates the current user's overall blog/Instagram-style write-up for a trip — one post per trip, writing again just edits it. */
+/** Every trip post the current user has ever written, most recently edited first — used to tell 여행 보관함 which saved plans have actually been written about ("다녀온 여행"), and to list/re-open posts that aren't tied to any saved plan. */
+export async function fetchMyTripPosts(): Promise<TripPost[]> {
+  const res = await fetch("/api/trip-posts");
+  if (!res.ok) return [];
+  const data = (await res.json()) as { posts?: TripPost[] };
+  return data.posts ?? [];
+}
+
+/**
+ * Creates or updates the current user's overall blog/Instagram-style
+ * write-up for a trip. Pass `id` to update that specific post directly
+ * (needed once it's not tied to a plan, since there's nothing else to
+ * upsert against); otherwise `itineraryId` upserts the one post for that
+ * plan, or omit both for a wholly fresh, plan-less post.
+ */
 export async function saveTripPost(input: {
-  itineraryId: number;
+  id?: number;
+  itineraryId?: number | null;
   title: string;
   content: string;
   images: string[];

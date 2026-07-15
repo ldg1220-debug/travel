@@ -1,22 +1,26 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plane, MapPin, Calendar, Globe, Lock, Trash2, PenLine, NotebookPen, Rss } from "lucide-react";
+import { Plane, MapPin, Calendar, Globe, Lock, Trash2, PenLine, NotebookPen, Rss, FolderOpen, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { LoginModal } from "@/components/LoginModal";
 import { ReviewComposer } from "@/components/ReviewComposer";
 import { TripPostComposer } from "@/components/TripPostComposer";
 import { useItineraryStore } from "@/store/itineraryStore";
-import { todayISODate, formatDateLabel } from "@/lib/timeline";
+import { formatDateLabel } from "@/lib/timeline";
 import { syncPlanToServer } from "@/lib/planSync";
+import { fetchMyTripPosts } from "@/lib/api";
 import type { SavedPlan } from "@/lib/types";
 
+// "다녀온 여행"인지는 날짜가 지났는지가 아니라 그 계획에 대해 실제로
+// 여행 후기를 남겼는지로 정한다 — A/B/C 세 계획을 세워뒀다고 셋 다
+// 다녀온 게 아니듯, 날짜가 지나는 것만으론 아무 의미가 없다.
 const TABS = [
-  { key: "past", label: "다녀온 여행" },
-  { key: "upcoming", label: "다가오는 여행" },
+  { key: "written", label: "다녀온 여행" },
+  { key: "notWritten", label: "여행 계획" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -64,27 +68,42 @@ export default function ScrapbookPage() {
   const deletePlan = useItineraryStore((s) => s.deletePlan);
   const setPlanRemoteInfo = useItineraryStore((s) => s.setPlanRemoteInfo);
 
-  const [tab, setTab] = useState<TabKey>("past");
+  const [tab, setTab] = useState<TabKey>("written");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [syncingPlanId, setSyncingPlanId] = useState<string | null>(null);
   const [reviewTarget, setReviewTarget] = useState<{ plan: SavedPlan; itineraryId: number } | null>(null);
-  const [tripPostTarget, setTripPostTarget] = useState<{ plan: SavedPlan; itineraryId: number } | null>(null);
+  const [tripPostTarget, setTripPostTarget] = useState<{ plan: SavedPlan | null; itineraryId: number | null } | null>(null);
+  const [newPostChooserOpen, setNewPostChooserOpen] = useState(false);
+  const [postedItineraryIds, setPostedItineraryIds] = useState<Set<number>>(new Set());
 
-  const today = todayISODate();
-  const { pastTrips, upcomingTrips } = useMemo(() => {
-    const past: SavedPlan[] = [];
-    const upcoming: SavedPlan[] = [];
+  const userId = session?.user?.id;
+  useEffect(() => {
+    let cancelled = false;
+    // fetchMyTripPosts() already resolves to [] for a logged-out user (the
+    // API returns an empty list rather than 401), so no separate branch
+    // is needed here — logging out naturally clears the set on the next run.
+    fetchMyTripPosts().then((posts) => {
+      if (cancelled) return;
+      setPostedItineraryIds(new Set(posts.filter((p): p is typeof p & { itineraryId: number } => p.itineraryId != null).map((p) => p.itineraryId)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const { writtenTrips, notWrittenTrips } = useMemo(() => {
+    const written: SavedPlan[] = [];
+    const notWritten: SavedPlan[] = [];
     for (const plan of savedPlans) {
-      const { end } = tripDateRange(plan);
-      (end < today ? past : upcoming).push(plan);
+      (plan.remoteId != null && postedItineraryIds.has(plan.remoteId) ? written : notWritten).push(plan);
     }
-    past.sort((a, b) => tripDateRange(b).end.localeCompare(tripDateRange(a).end));
-    upcoming.sort((a, b) => tripDateRange(a).start.localeCompare(tripDateRange(b).start));
-    return { pastTrips: past, upcomingTrips: upcoming };
-  }, [savedPlans, today]);
+    written.sort((a, b) => tripDateRange(b).end.localeCompare(tripDateRange(a).end));
+    notWritten.sort((a, b) => tripDateRange(b).start.localeCompare(tripDateRange(a).start));
+    return { writtenTrips: written, notWrittenTrips: notWritten };
+  }, [savedPlans, postedItineraryIds]);
 
-  const trips = tab === "past" ? pastTrips : upcomingTrips;
+  const trips = tab === "written" ? writtenTrips : notWrittenTrips;
 
   const totalPlaces = useMemo(
     () => new Set(savedPlans.flatMap((p) => p.items.map((i) => i.placeId))).size,
@@ -93,7 +112,7 @@ export default function ScrapbookPage() {
 
   const STATS = [
     { key: "trips", label: "저장된 여행 계획", value: String(savedPlans.length), icon: Plane, gradient: "from-indigo-500 to-violet-500" },
-    { key: "past", label: "다녀온 여행", value: String(pastTrips.length), icon: Calendar, gradient: "from-emerald-500 to-teal-500" },
+    { key: "written", label: "다녀온 여행", value: String(writtenTrips.length), icon: Calendar, gradient: "from-emerald-500 to-teal-500" },
     { key: "places", label: "담아본 장소", value: String(totalPlaces), icon: MapPin, gradient: "from-rose-500 to-pink-500" },
   ];
 
@@ -137,6 +156,23 @@ export default function ScrapbookPage() {
     if (resolved) setTripPostTarget(resolved);
   };
 
+  // 계획에 매이지 않은 "완전 새로 작성" 후기 — 동기화할 게 없으니 바로 연다.
+  const openFreshTripPost = () => {
+    if (!session?.user) {
+      setLoginOpen(true);
+      return;
+    }
+    setTripPostTarget({ plan: null, itineraryId: null });
+  };
+
+  const openNewPostChooser = () => {
+    if (!session?.user) {
+      setLoginOpen(true);
+      return;
+    }
+    setNewPostChooserOpen(true);
+  };
+
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
@@ -149,12 +185,20 @@ export default function ScrapbookPage() {
               </p>
               <h2 className="text-2xl font-bold tracking-tight">여행 보관함</h2>
             </div>
-            <button
-              onClick={() => router.push("/feed")}
-              className="flex shrink-0 items-center gap-1 text-[13px] font-semibold text-indigo-500 transition-colors hover:text-indigo-700"
-            >
-              <Rss size={14} /> 후기 피드
-            </button>
+            <div className="flex shrink-0 items-center gap-3">
+              <button
+                onClick={() => router.push("/feed")}
+                className="flex items-center gap-1 text-[13px] font-semibold text-indigo-500 transition-colors hover:text-indigo-700"
+              >
+                <Rss size={14} /> 후기 피드
+              </button>
+              <button
+                onClick={openNewPostChooser}
+                className="flex items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700"
+              >
+                <NotebookPen size={13} /> 새 여행 후기
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
@@ -198,9 +242,9 @@ export default function ScrapbookPage() {
                   />
                 )}
                 {t.label}
-                {(t.key === "past" ? pastTrips.length : upcomingTrips.length) > 0 && (
+                {(t.key === "written" ? writtenTrips.length : notWrittenTrips.length) > 0 && (
                   <span className="ml-1.5 text-[11px] font-normal text-slate-400">
-                    {t.key === "past" ? pastTrips.length : upcomingTrips.length}
+                    {t.key === "written" ? writtenTrips.length : notWrittenTrips.length}
                   </span>
                 )}
               </button>
@@ -224,7 +268,6 @@ export default function ScrapbookPage() {
                     key={plan.id}
                     plan={plan}
                     confirming={confirmDeleteId === plan.id}
-                    showReview={tab === "past"}
                     reviewSyncing={syncingPlanId === plan.id}
                     onOpen={() => openPlan(plan)}
                     onReview={() => openReview(plan)}
@@ -239,7 +282,7 @@ export default function ScrapbookPage() {
                 ))}
               </div>
             ) : (
-              <EmptyState tab={tab} onPlan={() => router.push("/discover")} />
+              <EmptyState tab={tab} onPlan={() => router.push("/discover")} onWrite={openNewPostChooser} />
             )}
           </motion.div>
         </AnimatePresence>
@@ -252,6 +295,95 @@ export default function ScrapbookPage() {
       {tripPostTarget && (
         <TripPostComposer plan={tripPostTarget.plan} itineraryId={tripPostTarget.itineraryId} onClose={() => setTripPostTarget(null)} />
       )}
+      {newPostChooserOpen && (
+        <NewPostChooser
+          plans={savedPlans}
+          onPickPlan={(plan) => {
+            setNewPostChooserOpen(false);
+            openTripPost(plan);
+          }}
+          onFresh={() => {
+            setNewPostChooserOpen(false);
+            openFreshTripPost();
+          }}
+          onClose={() => setNewPostChooserOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// "계획 불러오기"(저장된 계획의 장소를 자동으로 가져옴) vs "완전 새로
+// 작성"(계획 없이 자유 작성, 장소는 검색으로 추가) 중 고르는 진입점 —
+// 여행 후기는 반드시 어떤 계획에 매여야 할 이유가 없으므로 둘 다 지원한다.
+function NewPostChooser({
+  plans,
+  onPickPlan,
+  onFresh,
+  onClose,
+}: {
+  plans: SavedPlan[];
+  onPickPlan: (plan: SavedPlan) => void;
+  onFresh: () => void;
+  onClose: () => void;
+}) {
+  const [picking, setPicking] = useState(false);
+
+  return (
+    <div className="fixed inset-0 z-[85] flex items-end justify-center sm:items-center">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-bold">여행 후기 쓰기</h3>
+          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+            <X size={16} />
+          </button>
+        </div>
+
+        {!picking ? (
+          <div className="space-y-2.5">
+            <button
+              onClick={() => setPicking(true)}
+              disabled={plans.length === 0}
+              className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 disabled:opacity-50"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-500">
+                <FolderOpen size={16} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13.5px] font-semibold text-slate-800">계획 불러오기</span>
+                <span className="block text-[12px] text-slate-400">{plans.length > 0 ? "저장된 계획에서 장소를 가져와요" : "저장된 계획이 없어요"}</span>
+              </span>
+            </button>
+            <button
+              onClick={onFresh}
+              className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
+                <PenLine size={16} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13.5px] font-semibold text-slate-800">완전 새로 작성</span>
+                <span className="block text-[12px] text-slate-400">계획 없이 자유롭게 — 장소는 검색해서 추가해요</span>
+              </span>
+            </button>
+          </div>
+        ) : (
+          <div className="max-h-80 space-y-1.5 overflow-y-auto">
+            {plans.map((plan) => (
+              <button
+                key={plan.id}
+                onClick={() => onPickPlan(plan)}
+                className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-indigo-50"
+              >
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-700">{plan.name}</span>
+                <span className="shrink-0 truncate text-[11px] text-slate-400">{tripRouteLabel(plan)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -264,7 +396,6 @@ export default function ScrapbookPage() {
 function TripCard({
   plan,
   confirming,
-  showReview,
   reviewSyncing,
   onOpen,
   onReview,
@@ -275,7 +406,6 @@ function TripCard({
 }: {
   plan: SavedPlan;
   confirming: boolean;
-  showReview: boolean;
   reviewSyncing: boolean;
   onOpen: () => void;
   onReview: () => void;
@@ -318,24 +448,22 @@ function TripCard({
           <span className="font-medium leading-snug">{tripRouteLabel(plan)}</span>
         </button>
 
-        {showReview && (
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button
-              onClick={onReview}
-              disabled={reviewSyncing}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 py-2 text-[12.5px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-60"
-            >
-              <PenLine size={13} /> {reviewSyncing ? "준비 중…" : "장소 후기"}
-            </button>
-            <button
-              onClick={onTripPost}
-              disabled={reviewSyncing}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/60 py-2 text-[12.5px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-60"
-            >
-              <NotebookPen size={13} /> {reviewSyncing ? "준비 중…" : "여행 후기"}
-            </button>
-          </div>
-        )}
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            onClick={onReview}
+            disabled={reviewSyncing}
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 py-2 text-[12.5px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-60"
+          >
+            <PenLine size={13} /> {reviewSyncing ? "준비 중…" : "장소 후기"}
+          </button>
+          <button
+            onClick={onTripPost}
+            disabled={reviewSyncing}
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/60 py-2 text-[12.5px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-60"
+          >
+            <NotebookPen size={13} /> {reviewSyncing ? "준비 중…" : "여행 후기"}
+          </button>
+        </div>
 
         <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
           <span className="text-[12.5px] font-medium text-slate-500">
@@ -367,11 +495,11 @@ function TripCard({
 }
 
 // ─────────────────────────────────────────────────────────────
-function EmptyState({ tab, onPlan }: { tab: TabKey; onPlan: () => void }) {
+function EmptyState({ tab, onPlan, onWrite }: { tab: TabKey; onPlan: () => void; onWrite: () => void }) {
   const copy =
-    tab === "upcoming"
-      ? { title: "다가오는 여행이 없어요", sub: "탐색에서 새로운 여행을 계획해보세요." }
-      : { title: "다녀온 여행이 없어요", sub: "일정을 마친 저장된 계획이 여기에 모여요." };
+    tab === "notWritten"
+      ? { title: "아직 후기를 안 쓴 계획이 없어요", sub: "탐색에서 새로운 여행을 계획해보세요." }
+      : { title: "다녀온 여행이 없어요", sub: "여행 후기를 남긴 계획이 여기에 모여요." };
   return (
     <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center">
       <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
@@ -379,9 +507,13 @@ function EmptyState({ tab, onPlan }: { tab: TabKey; onPlan: () => void }) {
       </span>
       <p className="text-sm font-semibold text-slate-700">{copy.title}</p>
       <p className="mt-1 text-[13px] text-slate-400">{copy.sub}</p>
-      {tab === "upcoming" && (
+      {tab === "notWritten" ? (
         <button onClick={onPlan} className="mt-4 rounded-full bg-indigo-600 px-4 py-2 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700">
           여행 계획짜기
+        </button>
+      ) : (
+        <button onClick={onWrite} className="mt-4 rounded-full bg-indigo-600 px-4 py-2 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700">
+          여행 후기 쓰기
         </button>
       )}
     </div>

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Star, Share2, Link as LinkIcon, ChevronLeft, MapPin } from "lucide-react";
 import { fetchTripPost, type TripPostDetail, type TripPostPlaceReview } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { shareToKakao } from "@/lib/kakaoShare";
+import { hashtagSlug } from "@/lib/hashtag";
 
 /** Standalone public view of one 여행 후기 (blog/Instagram-style trip post) — what a 카카오톡 공유 link or "링크 복사" opens for anyone, logged in or not, if the post was published to the feed (or you're its author). */
 export default function TripPostDetailPage() {
@@ -15,6 +16,11 @@ export default function TripPostDetailPage() {
   const [placeReviews, setPlaceReviews] = useState<TripPostPlaceReview[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const reviewBySlug = useMemo(
+    () => new Map(placeReviews.map((r) => [hashtagSlug(r.placeName).toLowerCase(), r])),
+    [placeReviews],
+  );
 
   useEffect(() => {
     const id = Number(params.id);
@@ -92,7 +98,15 @@ export default function TripPostDetailPage() {
           {post.tripTitle && ` · ${post.tripTitle}`} · {formatDateLabel(post.createdAt.slice(0, 10))}
         </p>
         <h1 className="text-xl font-bold tracking-tight">{post.title}</h1>
-        <p className="mt-4 whitespace-pre-wrap text-[14px] leading-relaxed text-slate-700">{post.content}</p>
+        <p className="mt-4 whitespace-pre-wrap text-[14px] leading-relaxed text-slate-700">
+          {post.content.split(/(#\S+)/g).map((part, i) => {
+            if (part.startsWith("#")) {
+              const review = reviewBySlug.get(part.slice(1).toLowerCase());
+              if (review) return <HashtagMention key={i} review={review} />;
+            }
+            return <Fragment key={i}>{part}</Fragment>;
+          })}
+        </p>
 
         {placeReviews.length > 0 && (
           <div className="mt-6">
@@ -143,5 +157,57 @@ export default function TripPostDetailPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// A "#장소이름" mention inside the free-form body — hovering (desktop) or
+// tapping (mobile) it surfaces the author's short per-place review without
+// leaving the post, instead of making readers scroll down to "다녀온 장소".
+function HashtagMention({ review }: { review: TripPostPlaceReview }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [open]);
+
+  return (
+    <span
+      ref={ref}
+      className="relative inline-block"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="font-semibold text-indigo-500 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-600"
+      >
+        #{hashtagSlug(review.placeName)}
+      </button>
+      {open && (
+        <span className="absolute bottom-full left-1/2 z-20 mb-2 w-60 -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-3 text-left text-[13px] normal-case shadow-xl">
+          <span className="mb-1.5 flex items-center gap-2">
+            {review.images[0] && (
+              // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
+              <img src={review.images[0]} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+            )}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12.5px] font-bold text-slate-800">{review.placeName}</span>
+              <span className="flex items-center gap-0.5 text-[11px] font-semibold text-amber-500">
+                <Star size={10} className="fill-amber-400 text-amber-400" /> {review.rating.toFixed(1)}
+              </span>
+            </span>
+          </span>
+          <span className="block text-[12px] leading-snug text-slate-600">{review.content}</span>
+        </span>
+      )}
+    </span>
   );
 }
