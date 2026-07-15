@@ -115,10 +115,12 @@ export function MonthCalendar({ selected, onSelect, accentColor = "#111827", mar
             <div key={cell.date} className="relative flex items-center justify-center py-0.5">
               <button
                 onClick={() => handleDayClick(cell)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-[12px] font-medium tabular-nums transition-colors"
+                className={`flex h-8 w-8 items-center justify-center rounded-full text-[12px] font-medium tabular-nums transition-colors ${
+                  isSelected ? "" : cell.inMonth ? "text-slate-900" : "text-slate-300"
+                }`}
                 style={{
                   background: isSelected ? accentColor : "transparent",
-                  color: isSelected ? "white" : cell.inMonth ? "#0f172a" : "#cbd5e1",
+                  color: isSelected ? "white" : undefined,
                   boxShadow: isToday && !isSelected ? `inset 0 0 0 1.5px ${accentColor}66` : "none",
                 }}
               >

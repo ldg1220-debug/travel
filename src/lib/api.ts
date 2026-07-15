@@ -125,10 +125,17 @@ export interface UserItinerary {
   shareToken: string;
 }
 
-/** Every itinerary the logged-in user has saved/shared across any device — used to hydrate 저장된 계획 on login. */
+/**
+ * Every itinerary the logged-in user has saved/shared across any device —
+ * used to hydrate 저장된 계획 on login, including reconciling plans deleted
+ * from another device. Throws (rather than resolving to `[]`) on a failed
+ * request, so a transient network/server hiccup can't be mistaken for "this
+ * account genuinely has zero itineraries" and wipe every locally-synced
+ * plan during reconciliation.
+ */
 export async function fetchUserItineraries(): Promise<UserItinerary[]> {
   const res = await fetch("/api/itineraries");
-  if (!res.ok) return [];
+  if (!res.ok) throw new Error("Failed to fetch itineraries");
   const data = (await res.json()) as { itineraries?: UserItinerary[] };
   return data.itineraries ?? [];
 }
