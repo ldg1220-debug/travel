@@ -96,6 +96,20 @@ export default function ScrapbookPage() {
     () => new Set(myPosts.filter((p): p is TripPost & { itineraryId: number } => p.itineraryId != null).map((p) => p.itineraryId)),
     [myPosts],
   );
+  // 대표 사진 소스 — 그 계획으로 쓴 여행 후기에 실제 업로드한 사진이
+  // 있으면 그걸 우선 쓰고(제일 진짜 같은 사진), 없으면 계획의 도시로
+  // 실시간 장소 사진을 하나 찾아온다(코스 만들기 타일과 같은 방식). 실패하면
+  // TripCard가 알아서 기존 그라디언트 커버로 되돌아간다.
+  const coverByItineraryId = useMemo(
+    () => new Map(myPosts.filter((p) => p.itineraryId != null && p.images.length > 0).map((p) => [p.itineraryId as number, p.images[0]])),
+    [myPosts],
+  );
+  const coverSrcForPlan = (plan: SavedPlan): string | null => {
+    const uploaded = plan.remoteId != null ? coverByItineraryId.get(plan.remoteId) : undefined;
+    if (uploaded) return uploaded;
+    if (!plan.currentCity) return null;
+    return `/api/discover/spot-photo?q=${encodeURIComponent(`${plan.currentCity} 여행`)}`;
+  };
   // 계획 없이 "완전 새로 작성"된 후기 — 연결된 계획이 없어 위 계획
   // 카드 목록 어디에도 나타나지 않으므로, 다시 열어보거나 수정하려면
   // 여기서 직접 목록을 보여줘야 한다.
@@ -276,6 +290,7 @@ export default function ScrapbookPage() {
                   <TripCard
                     key={plan.id}
                     plan={plan}
+                    coverSrc={coverSrcForPlan(plan)}
                     confirming={confirmDeleteId === plan.id}
                     reviewSyncing={syncingPlanId === plan.id}
                     onOpen={() => openPlan(plan)}
@@ -453,6 +468,7 @@ function NewPostChooser({
 // ─────────────────────────────────────────────────────────────
 function TripCard({
   plan,
+  coverSrc,
   confirming,
   reviewSyncing,
   onOpen,
@@ -463,6 +479,8 @@ function TripCard({
   onDeleteConfirm,
 }: {
   plan: SavedPlan;
+  /** A real photo to use as the card cover — the linked trip post's own uploaded photo if there is one, else a live representative-place lookup. Null falls back to the plain gradient. */
+  coverSrc: string | null;
   confirming: boolean;
   reviewSyncing: boolean;
   onOpen: () => void;
@@ -472,17 +490,27 @@ function TripCard({
   onDeleteCancel: () => void;
   onDeleteConfirm: () => void;
 }) {
+  const [coverFailed, setCoverFailed] = useState(false);
   const { start, end } = tripDateRange(plan);
   const dateLabel = start === end ? formatDateLabel(start) : `${formatDateLabel(start)} ~ ${formatDateLabel(end)}`;
   const dayCount = new Set(plan.items.map((i) => i.date)).size;
   const isShared = Boolean(plan.shareToken);
+  const hasPhoto = Boolean(coverSrc) && !coverFailed;
 
   return (
     <div className="group overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200">
       {/* cover */}
-      <button onClick={onOpen} className={`relative block h-44 w-full bg-gradient-to-br ${coverGradient(plan.id)} text-left`}>
-        <div className="absolute inset-0 opacity-25 [background-image:radial-gradient(circle_at_25%_20%,white,transparent_45%)]" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent" />
+      <button
+        onClick={onOpen}
+        className={`relative block h-44 w-full text-left ${hasPhoto ? "bg-slate-200" : `bg-gradient-to-br ${coverGradient(plan.id)}`}`}
+      >
+        {hasPhoto ? (
+          // eslint-disable-next-line @next/next/no-img-element -- representative photo (uploaded blob URL or live Places proxy)
+          <img src={coverSrc!} alt="" loading="lazy" onError={() => setCoverFailed(true)} className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 opacity-25 [background-image:radial-gradient(circle_at_25%_20%,white,transparent_45%)]" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
 
         <div className="absolute right-3 top-3">
           <Badge className={`gap-1 border-none text-[11px] font-semibold backdrop-blur ${isShared ? "bg-white/85 text-emerald-700" : "bg-black/35 text-white"}`}>
