@@ -234,7 +234,7 @@ export default function CourseBuilderPage() {
         {/* ── STEP: scope ── */}
         {step === "scope" && (
           <div className="flex flex-1 items-center justify-center">
-            <div className="grid w-full grid-cols-2 gap-4">
+            <div className="grid w-full grid-cols-2 gap-5">
               {([
                 { key: "domestic" as const, label: "국내 여행", flag: "🇰🇷", desc: "카카오맵 기준 실제 장소", photoQuery: "경복궁 야경" },
                 { key: "overseas" as const, label: "해외 여행", flag: "🌐", desc: "구글맵 기준 실제 장소·평점", photoQuery: "파리 에펠탑 야경" },
@@ -244,14 +244,14 @@ export default function CourseBuilderPage() {
                   onClick={() => { setScope(s.key); setPath([]); setStep("drill"); }}
                   className="group relative flex flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
                 >
-                  <div className="relative h-28 w-full sm:h-36">
+                  <div className="relative h-48 w-full sm:h-72">
                     <TilePhoto query={s.photoQuery} className="absolute inset-0 h-full w-full" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
-                    <span className="absolute left-3 top-3 text-3xl drop-shadow-md">{s.flag}</span>
+                    <span className="absolute left-4 top-4 text-4xl drop-shadow-md">{s.flag}</span>
                   </div>
-                  <div className="p-4">
-                    <span className="block text-lg font-bold">{s.label}</span>
-                    <span className="mt-0.5 block text-[12px] text-slate-500">{s.desc}</span>
+                  <div className="p-5">
+                    <span className="block text-xl font-bold">{s.label}</span>
+                    <span className="mt-1 block text-[13.5px] text-slate-500">{s.desc}</span>
                   </div>
                 </button>
               ))}
@@ -262,19 +262,19 @@ export default function CourseBuilderPage() {
         {/* ── STEP: drill (국내 광역→지역 / 해외 대륙→국가→도시 — 탐색의 지역별과 같은 통합 트리) ── */}
         {step === "drill" &&
           (path.length === 0 ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               {options.map((r) => (
                 <button
                   key={r.label}
                   onClick={() => drillInto(r.label)}
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
                 >
-                  <div className="relative h-20 w-full">
+                  <div className="relative h-36 w-full sm:h-44">
                     <TilePhoto query={`${r.label} 여행`} className="absolute inset-0 h-full w-full" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-                    <span className="absolute left-2 top-2 text-xl drop-shadow-md">{r.emoji ?? "📍"}</span>
+                    <span className="absolute left-3 top-3 text-2xl drop-shadow-md">{r.emoji ?? "📍"}</span>
                   </div>
-                  <span className="px-3 py-2.5 text-[13.5px] font-semibold">{r.label}</span>
+                  <span className="px-3.5 py-3 text-[15px] font-semibold">{r.label}</span>
                 </button>
               ))}
             </div>
