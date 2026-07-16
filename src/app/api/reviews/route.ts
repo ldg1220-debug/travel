@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
   const rating = Math.min(5, Math.max(1, body.rating));
-  const images = JSON.stringify((body.images ?? []).slice(0, 6));
+  const images = JSON.stringify((body.images ?? []).slice(0, 5));
 
   const result = await pool.query(
     `insert into reviews ("userId", "itineraryId", "placeId", "placeName", rating, content, images, "isPublic")

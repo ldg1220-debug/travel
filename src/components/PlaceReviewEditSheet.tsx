@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { X, Star, Camera, Loader2 } from "lucide-react";
 import { saveReview, uploadReviewPhotos, type Review } from "@/lib/api";
-import { resizeImageFile } from "@/lib/imageResize";
+import { resizeImageFiles } from "@/lib/imageResize";
+import { PhotoLightbox } from "@/components/PhotoLightbox";
+
+const MAX_IMAGES = 5;
 
 export interface PlaceStub {
   placeId: string;
@@ -31,19 +34,20 @@ export function PlaceReviewEditSheet({
 }) {
   const [rating, setRating] = useState(existing?.rating ?? 5);
   const [content, setContent] = useState(existing?.content ?? "");
-  const [image, setImage] = useState<string | null>(existing?.images?.[0] ?? null);
+  const [images, setImages] = useState<string[]>(existing?.images ?? []);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  const handleFile = async (files: FileList | null) => {
-    const file = files?.[0];
-    if (!file) return;
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
     setUploading(true);
     setError(null);
     try {
-      const [url] = await uploadReviewPhotos([await resizeImageFile(file)]);
-      setImage(url);
+      const resized = await resizeImageFiles(Array.from(files).slice(0, MAX_IMAGES - images.length));
+      const urls = await uploadReviewPhotos(resized);
+      setImages((prev) => [...prev, ...urls].slice(0, MAX_IMAGES));
     } catch (e) {
       setError(e instanceof Error ? e.message : "업로드에 실패했어요");
     } finally {
@@ -59,7 +63,6 @@ export function PlaceReviewEditSheet({
     setSaving(true);
     setError(null);
     try {
-      const images = image ? [image] : [];
       // 장소별 후기는 여행 전체 후기에 자동으로 묶여서 노출되므로 여기
       // 자체엔 별도 공개 여부가 없다 — 공개 여부는 전체 후기 쪽에서만 정한다.
       const { id } = await saveReview({ itineraryId, placeId: place.placeId, placeName: place.name, rating, content: content.trim(), images, isPublic: false });
@@ -101,34 +104,39 @@ export function PlaceReviewEditSheet({
           ))}
         </div>
 
-        <div className="mb-1 flex items-center gap-2">
-          <input
-            value={content}
-            onChange={(e) => setContent(e.target.value.slice(0, 50))}
-            placeholder="한 줄로 남겨보세요 (예: 야경이 정말 예뻤어요)"
-            maxLength={50}
-            className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-3 py-2.5 text-[13.5px] outline-none focus:border-indigo-400"
-          />
-          {image ? (
-            <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl">
-              {/* eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL */}
-              <img src={image} alt="" className="h-full w-full object-cover" />
+        <input
+          value={content}
+          onChange={(e) => setContent(e.target.value.slice(0, 50))}
+          placeholder="한 줄로 남겨보세요 (예: 야경이 정말 예뻤어요)"
+          maxLength={50}
+          className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-[13.5px] outline-none focus:border-indigo-400"
+        />
+        <p className="mb-3 text-right text-[11px] text-slate-400">{content.length}/50</p>
+
+        <div className="mb-4 flex flex-wrap gap-2">
+          {images.map((url, i) => (
+            <div key={url} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl">
+              <button type="button" onClick={() => setLightboxIndex(i)} className="block h-full w-full" aria-label={`${place.name} 사진 크게 보기`}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL */}
+                <img src={url} alt="" className="h-full w-full object-cover" />
+              </button>
               <button
-                onClick={() => setImage(null)}
-                className="absolute right-0 top-0 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-black/50 text-white"
+                onClick={() => setImages((prev) => prev.filter((u) => u !== url))}
+                className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/50 text-white"
                 aria-label="사진 삭제"
               >
-                <X size={9} />
+                <X size={10} />
               </button>
             </div>
-          ) : (
-            <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-400">
+          ))}
+          {images.length < MAX_IMAGES && (
+            <label className="flex h-16 w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-400">
               {uploading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
-              <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files)} disabled={uploading} />
+              <span className="text-[9px]">{images.length}/{MAX_IMAGES}</span>
+              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} disabled={uploading} />
             </label>
           )}
         </div>
-        <p className="mb-4 text-right text-[11px] text-slate-400">{content.length}/50</p>
 
         {error && <p className="mb-3 text-center text-[12px] text-rose-500">{error}</p>}
 
@@ -140,6 +148,10 @@ export function PlaceReviewEditSheet({
           {saving ? "저장 중…" : "저장"}
         </button>
       </div>
+
+      {lightboxIndex != null && (
+        <PhotoLightbox images={images} index={lightboxIndex} alt={place.name} onClose={() => setLightboxIndex(null)} onNavigate={setLightboxIndex} />
+      )}
     </div>
   );
 }

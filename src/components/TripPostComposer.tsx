@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import type { SavedPlan, Region } from "@/lib/types";
 import { fetchMyReviews, fetchMyTripPost, saveTripPost, searchPlaces, uploadReviewPhotos, type Review } from "@/lib/api";
 import { PlaceReviewEditSheet, type PlaceStub } from "@/components/PlaceReviewEditSheet";
+import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { hashtagSlug } from "@/lib/hashtag";
 import { resizeImageFiles } from "@/lib/imageResize";
 
@@ -54,6 +55,7 @@ export function TripPostComposer({
   const [saved, setSaved] = useState(false);
   const [activePlace, setActivePlace] = useState<PlaceStub | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
 
   const planPlaces = useMemo(() => (plan ? uniquePlaces(plan) : []), [plan]);
@@ -170,10 +172,12 @@ export function TripPostComposer({
             <div className="mb-3 flex flex-wrap gap-2">
               {images.map((url, i) => (
                 <div key={url} className="relative h-20 w-20 overflow-hidden rounded-xl">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL */}
-                  <img src={url} alt="" className="h-full w-full object-cover" />
+                  <button type="button" onClick={() => setLightboxIndex(i)} className="block h-full w-full" aria-label="사진 크게 보기">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL */}
+                    <img src={url} alt="" className="h-full w-full object-cover" />
+                  </button>
                   {i === 0 && (
-                    <span className="absolute left-1 top-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[9px] font-semibold text-white">대표</span>
+                    <span className="pointer-events-none absolute left-1 top-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[9px] font-semibold text-white">대표</span>
                   )}
                   <button
                     onClick={() => setImages((prev) => prev.filter((u) => u !== url))}
@@ -304,6 +308,10 @@ export function TripPostComposer({
             setActivePlace(null);
           }}
         />
+      )}
+
+      {lightboxIndex != null && (
+        <PhotoLightbox images={images} index={lightboxIndex} onClose={() => setLightboxIndex(null)} onNavigate={setLightboxIndex} />
       )}
     </div>
   );
