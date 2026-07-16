@@ -109,14 +109,23 @@ CREATE TABLE IF NOT EXISTS reviews (
   images JSONB NOT NULL DEFAULT '[]',
   "isPublic" BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  -- One review per place per trip — writing again edits it in place rather
-  -- than piling up duplicates.
-  UNIQUE ("userId", "itineraryId", "placeId")
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "itineraryId" INTEGER REFERENCES itineraries(id) ON DELETE SET NULL;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "placeName" VARCHAR(255) NOT NULL DEFAULT '';
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "isPublic" BOOLEAN NOT NULL DEFAULT false;
+-- One review per place per trip — writing again edits it in place rather
+-- than piling up duplicates. This used to be an inline UNIQUE(...) on the
+-- CREATE TABLE above, but that only ever takes effect when the table is
+-- first created — on a DB where `reviews` already existed from before
+-- itineraryId was added (i.e. every real deployment), CREATE TABLE IF NOT
+-- EXISTS silently no-ops and the constraint never actually gets applied.
+-- POST /api/reviews's `on conflict ("userId", "itineraryId", "placeId")`
+-- then fails with "no unique or exclusion constraint matching the ON
+-- CONFLICT specification" (42P10) on every single save. A standalone
+-- CREATE UNIQUE INDEX IF NOT EXISTS applies retroactively to an existing
+-- table, unlike a constraint declared inside CREATE TABLE.
+CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_itinerary_place_key ON reviews ("userId", "itineraryId", "placeId");
 
 CREATE INDEX IF NOT EXISTS reviews_place_id_idx ON reviews ("placeId");
 CREATE INDEX IF NOT EXISTS reviews_user_id_idx ON reviews ("userId");
@@ -140,9 +149,15 @@ CREATE TABLE IF NOT EXISTS trip_posts (
   images JSONB NOT NULL DEFAULT '[]',
   "isPublic" BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE ("userId", "itineraryId")
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Standalone index rather than inline UNIQUE(...) above — see the same note
+-- on `reviews`' unique index: a constraint declared inside CREATE TABLE IF
+-- NOT EXISTS only ever applies the first time the table is created, so if
+-- this table ever grows a column via a later ALTER TABLE (the way `reviews`
+-- did), an inline constraint here would silently stop applying on already-
+-- deployed databases. CREATE UNIQUE INDEX IF NOT EXISTS applies either way.
+CREATE UNIQUE INDEX IF NOT EXISTS trip_posts_user_itinerary_key ON trip_posts ("userId", "itineraryId");
 CREATE INDEX IF NOT EXISTS trip_posts_user_id_idx ON trip_posts ("userId");
 CREATE INDEX IF NOT EXISTS trip_posts_itinerary_id_idx ON trip_posts ("itineraryId");
 CREATE INDEX IF NOT EXISTS trip_posts_is_public_idx ON trip_posts ("isPublic");
