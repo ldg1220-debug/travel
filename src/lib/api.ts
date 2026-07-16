@@ -318,6 +318,8 @@ export interface TripPostPlaceReview {
 
 export interface TripPostDetail extends FeedPost {
   isPublic: boolean;
+  /** null for a plan-less ("완전 새로 작성") post. */
+  itineraryId: number | null;
 }
 
 /** A single trip post with author/trip context and its author's per-place ratings for the same trip (embedded "다녀온 장소" section) — null if it doesn't exist or isn't visible to the current viewer. */

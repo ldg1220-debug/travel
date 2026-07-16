@@ -2,13 +2,14 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Star, Share2, Link as LinkIcon, ChevronLeft, MapPin, Globe, Lock } from "lucide-react";
+import { Star, Share2, Link as LinkIcon, ChevronLeft, MapPin, Globe, Lock, Pencil } from "lucide-react";
 import { fetchTripPost, saveTripPost, type TripPostDetail, type TripPostPlaceReview } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { hashtagSlug } from "@/lib/hashtag";
 import { Switch } from "@/components/ui/switch";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
+import { TripPostComposer } from "@/components/TripPostComposer";
 
 /** Standalone public view of one 여행 후기 (blog/Instagram-style trip post) — what a 카카오톡 공유 link or "링크 복사" opens for anyone, logged in or not, if the post was published to the feed (or you're its author). */
 export default function TripPostDetailPage() {
@@ -21,6 +22,17 @@ export default function TripPostDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+
+  const reload = () => {
+    const id = Number(params.id);
+    fetchTripPost(id).then((data) => {
+      if (!data) return;
+      setPost(data.post);
+      setPlaceReviews(data.placeReviews);
+      setIsOwner(data.isOwner);
+    });
+  };
 
   const reviewBySlug = useMemo(
     () => new Map(placeReviews.map((r) => [hashtagSlug(r.placeName).toLowerCase(), r])),
@@ -131,13 +143,21 @@ export default function TripPostDetailPage() {
         <h1 className="text-xl font-bold tracking-tight">{post.title}</h1>
 
         {isOwner && (
-          <label className="mt-3 flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-2.5">
-            <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-              {post.isPublic ? <Globe size={14} className="text-emerald-500" /> : <Lock size={14} className="text-slate-400" />}
-              {post.isPublic ? "피드에 공개 중" : "비공개 (나만 보기)"}
-            </span>
-            <Switch checked={post.isPublic} disabled={togglingVisibility} onCheckedChange={handleToggleVisibility} />
-          </label>
+          <div className="mt-3 space-y-2">
+            <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-2.5">
+              <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
+                {post.isPublic ? <Globe size={14} className="text-emerald-500" /> : <Lock size={14} className="text-slate-400" />}
+                {post.isPublic ? "피드에 공개 중" : "비공개 (나만 보기)"}
+              </span>
+              <Switch checked={post.isPublic} disabled={togglingVisibility} onCheckedChange={handleToggleVisibility} />
+            </label>
+            <button
+              onClick={() => setEditOpen(true)}
+              className="flex w-full items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white py-2.5 text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+            >
+              <Pencil size={14} /> 수정하기
+            </button>
+          </div>
         )}
 
         <p className="mt-4 whitespace-pre-wrap text-[14px] leading-relaxed text-slate-700">
@@ -207,6 +227,18 @@ export default function TripPostDetailPage() {
           index={lightbox.index}
           onClose={() => setLightbox(null)}
           onNavigate={(index) => setLightbox((prev) => (prev ? { ...prev, index } : prev))}
+        />
+      )}
+
+      {editOpen && (
+        <TripPostComposer
+          plan={null}
+          itineraryId={null}
+          postId={post.id}
+          onClose={() => {
+            setEditOpen(false);
+            reload();
+          }}
         />
       )}
     </div>

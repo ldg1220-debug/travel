@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { X, Star, Camera, Loader2, Search, Plus, Hash } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { SavedPlan, Region } from "@/lib/types";
-import { fetchMyReviews, fetchMyTripPost, saveTripPost, searchPlaces, uploadReviewPhotos, type Review } from "@/lib/api";
+import { fetchMyReviews, fetchMyTripPost, fetchTripPost, saveTripPost, searchPlaces, uploadReviewPhotos, type Review } from "@/lib/api";
 import { PlaceReviewEditSheet, type PlaceStub } from "@/components/PlaceReviewEditSheet";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { hashtagSlug } from "@/lib/hashtag";
@@ -35,16 +35,25 @@ function uniquePlaces(plan: SavedPlan): PlaceStub[] {
 export function TripPostComposer({
   plan,
   itineraryId,
+  postId: initialPostId,
   onClose,
 }: {
   plan: SavedPlan | null;
   itineraryId: number | null;
+  /**
+   * Opens directly editing this specific post (e.g. from its own
+   * /trip/[id] page's "수정하기") instead of looking one up by
+   * itineraryId — the only way to reach a plan-less post, which has no
+   * itineraryId to search by.
+   */
+  postId?: number;
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState<Record<string, Review>>({});
   const [extraPlaces, setExtraPlaces] = useState<PlaceStub[]>([]);
-  const [postId, setPostId] = useState<number | null>(null);
+  const [postId, setPostId] = useState<number | null>(initialPostId ?? null);
+  const [resolvedItineraryId, setResolvedItineraryId] = useState<number | null>(itineraryId);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [images, setImages] = useState<string[]>([]);
@@ -66,12 +75,56 @@ export function TripPostComposer({
 
   useEffect(() => {
     let cancelled = false;
+
+    // Adds any reviewed places that aren't already part of the linked
+    // plan's own schedule as chips, so ad-hoc places tagged in an earlier
+    // save reappear on reopen instead of silently vanishing from the list.
+    const applyExtraPlacesFromReviews = (reviewList: { placeId: string; placeName: string }[]) => {
+      const known = new Set(planPlaces.map((p) => p.placeId));
+      setExtraPlaces(
+        reviewList.filter((r) => !known.has(r.placeId)).map((r) => ({ placeId: r.placeId, name: r.placeName })),
+      );
+    };
+
+    if (initialPostId) {
+      // The only entry point that can reach a plan-less post: itineraryId
+      // is null for it, so fetchMyTripPost(itineraryId) is a permanent
+      // no-op — we must look the post up directly by its own id instead.
+      fetchTripPost(initialPostId).then((data) => {
+        if (cancelled || !data) {
+          setLoading(false);
+          return;
+        }
+        const { post, placeReviews } = data;
+        setResolvedItineraryId(post.itineraryId);
+        setPostId(post.id);
+        setTitle(post.title);
+        setContent(post.content);
+        setImages(post.images);
+        setIsPublic(post.isPublic);
+        setReviews(
+          Object.fromEntries(
+            placeReviews.map((r) => [
+              r.placeId,
+              { ...r, id: 0, itineraryId: post.itineraryId, isPublic: false, createdAt: "", updatedAt: "" },
+            ]),
+          ),
+        );
+        applyExtraPlacesFromReviews(placeReviews);
+        setLoading(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     Promise.all([
       fetchMyReviews(itineraryId ?? undefined),
       itineraryId ? fetchMyTripPost(itineraryId) : Promise.resolve(null),
     ]).then(([reviewList, post]) => {
       if (cancelled) return;
       setReviews(Object.fromEntries(reviewList.map((r) => [r.placeId, r])));
+      applyExtraPlacesFromReviews(reviewList);
       if (post) {
         setPostId(post.id);
         setTitle(post.title);
@@ -86,8 +139,8 @@ export function TripPostComposer({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only load once per open, not on every plan/itineraryId identity change
-  }, [itineraryId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only load once per open, not on every plan/itineraryId/planPlaces identity change
+  }, [itineraryId, initialPostId]);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -131,7 +184,7 @@ export function TripPostComposer({
     try {
       const { id } = await saveTripPost({
         id: postId ?? undefined,
-        itineraryId: itineraryId ?? undefined,
+        itineraryId: resolvedItineraryId ?? undefined,
         title: title.trim(),
         content: content.trim(),
         images,
@@ -299,7 +352,7 @@ export function TripPostComposer({
 
       {activePlace && (
         <PlaceReviewEditSheet
-          itineraryId={itineraryId}
+          itineraryId={resolvedItineraryId}
           place={activePlace}
           existing={reviews[activePlace.placeId]}
           onClose={() => setActivePlace(null)}
