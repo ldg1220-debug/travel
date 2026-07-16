@@ -2,8 +2,8 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Star, Share2, Link as LinkIcon, ChevronLeft, MapPin, Globe, Lock, Pencil } from "lucide-react";
-import { fetchTripPost, saveTripPost, type TripPostDetail, type TripPostPlaceReview } from "@/lib/api";
+import { Star, Share2, Link as LinkIcon, ChevronLeft, MapPin, Globe, Lock, Pencil, Trash2 } from "lucide-react";
+import { deleteTripPost, fetchTripPost, saveTripPost, type TripPostDetail, type TripPostPlaceReview } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { hashtagSlug } from "@/lib/hashtag";
@@ -23,6 +23,8 @@ export default function TripPostDetailPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const reload = () => {
     const id = Number(params.id);
@@ -85,6 +87,18 @@ export default function TripPostDetailPage() {
       showToast("변경에 실패했어요");
     } finally {
       setTogglingVisibility(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!post) return;
+    setDeleting(true);
+    try {
+      await deleteTripPost(post.id);
+      router.push("/scrapbook");
+    } catch {
+      showToast("삭제에 실패했어요");
+      setDeleting(false);
     }
   };
 
@@ -156,12 +170,40 @@ export default function TripPostDetailPage() {
               </span>
               <Switch checked={post.isPublic} disabled={togglingVisibility} onCheckedChange={handleToggleVisibility} />
             </label>
-            <button
-              onClick={() => setEditOpen(true)}
-              className="flex w-full items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white py-2.5 text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-            >
-              <Pencil size={14} /> 수정하기
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEditOpen(true)}
+                className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                <Pencil size={14} /> 수정하기
+              </button>
+              {confirmingDelete ? (
+                <>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="flex h-10 items-center justify-center rounded-2xl bg-rose-500 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-rose-600 disabled:opacity-60"
+                  >
+                    {deleting ? "삭제 중…" : "삭제 확인"}
+                  </button>
+                  <button
+                    onClick={() => setConfirmingDelete(false)}
+                    disabled={deleting}
+                    className="flex h-10 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-500 transition-colors hover:bg-slate-50"
+                  >
+                    취소
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setConfirmingDelete(true)}
+                  aria-label="후기 삭제"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-rose-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
+            </div>
           </div>
         )}
 
