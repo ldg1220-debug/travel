@@ -183,8 +183,11 @@ export async function uploadReviewPhotos(files: File[]): Promise<string[]> {
   for (const file of files) form.append("files", file);
   const res = await fetch("/api/upload", { method: "POST", body: form });
   if (!res.ok) {
+    // A non-JSON response here (data stays null) means the request never
+    // reached our route handler at all — e.g. rejected upstream for being
+    // too large — rather than one of our own JSON error replies.
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(data?.error ?? "Failed to upload photos");
+    throw new Error(data?.error ?? "사진 업로드에 실패했어요. 잠시 후 다시 시도해주세요");
   }
   const data = (await res.json()) as { urls: string[] };
   return data.urls;
