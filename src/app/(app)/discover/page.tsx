@@ -34,6 +34,8 @@ import {
   ExternalLink,
   X,
   BedDouble,
+  Leaf,
+  Check,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -616,7 +618,12 @@ export default function DiscoverPage() {
                   seasonCheck ? "border-amber-500 bg-amber-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                 }`}
               >
-                {seasonCheck ? "✓ " : ""}🍂 계절별{browseData?.season ? ` · ${SEASON_LABEL[browseData.season]}` : ""}
+                {seasonCheck ? (
+                  <Check size={12} className="mr-1 inline -mt-0.5" />
+                ) : (
+                  <Leaf size={12} className="mr-1 inline -mt-0.5" />
+                )}
+                계절별{browseData?.season ? ` · ${SEASON_LABEL[browseData.season]}` : ""}
               </button>
               <button
                 onClick={() => setHotCheck((v) => !v)}
@@ -625,7 +632,12 @@ export default function DiscoverPage() {
                   hotCheck ? "border-rose-500 bg-rose-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                 }`}
               >
-                {hotCheck ? "✓ " : ""}🔥 최근 핫한
+                {hotCheck ? (
+                  <Check size={12} className="mr-1 inline -mt-0.5" />
+                ) : (
+                  <Flame size={12} className="mr-1 inline -mt-0.5" />
+                )}
+                최근 핫한
               </button>
               {/* 지역별: 드릴다운 열기/닫기 (경로는 유지) */}
               <button
@@ -637,7 +649,8 @@ export default function DiscoverPage() {
                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                 }`}
               >
-                📍 지역별{regionPath.length > 0 ? ` · ${regionPath[regionPath.length - 1]}` : ""}
+                <MapPin size={12} className="mr-1 inline -mt-0.5" />
+                지역별{regionPath.length > 0 ? ` · ${regionPath[regionPath.length - 1]}` : ""}
               </button>
             </div>
           )}
@@ -758,7 +771,6 @@ export default function DiscoverPage() {
                   <SectionHeader
                     icon={hotCheck ? Flame : seasonCheck ? Sparkles : Flame}
                     iconClass="text-rose-500"
-                    emoji={seasonCheck && !hotCheck ? "🍂" : "🔥"}
                     title={hotCheck ? "지금 가장 핫한 장소" : seasonCheck ? "이 계절 추천" : "지금 뜨는 장소"}
                     caption="지금 가장 많이 담긴 실시간 핫플"
                     onSeeAll={bundle.trending.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("trending") : undefined}
@@ -782,7 +794,6 @@ export default function DiscoverPage() {
                   <SectionHeader
                     icon={Crown}
                     iconClass="text-amber-500"
-                    emoji="👑"
                     title="꾸준히 사랑받는 명소"
                     caption="언제 가도 좋은 스테디셀러 명소"
                     onSeeAll={bundle.favorites.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("favorites") : undefined}
@@ -812,7 +823,6 @@ export default function DiscoverPage() {
                   <SectionHeader
                     icon={MapIcon}
                     iconClass="text-indigo-500"
-                    emoji="🗺️"
                     title="추천 코스"
                     caption="장소를 묶어둔 추천 코스 템플릿"
                     onSeeAll={bundle.routes.length > COMPACT_ROUTE_COUNT ? () => setExpandedSection("routes") : undefined}
@@ -929,14 +939,12 @@ export default function DiscoverPage() {
 function SectionHeader({
   icon: Icon,
   iconClass,
-  emoji,
   title,
   caption,
   onSeeAll,
 }: {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   iconClass: string;
-  emoji: string;
   title: string;
   caption: string;
   onSeeAll?: () => void;
@@ -948,10 +956,7 @@ function SectionHeader({
           <span className={`flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 ${iconClass}`}>
             <Icon size={17} />
           </span>
-          <h2 className="text-xl font-bold tracking-tight">
-            <span className="mr-1">{emoji}</span>
-            {title}
-          </h2>
+          <h2 className="text-xl font-bold tracking-tight">{title}</h2>
         </div>
         <p className="mt-1 pl-10 text-[13px] text-slate-500">{caption}</p>
       </div>
@@ -968,10 +973,10 @@ function SectionHeader({
 }
 
 // ── 전체보기: a single section's full (unsliced) list with a back button ──
-const SECTION_META: Record<SectionKind, { icon: React.ComponentType<{ size?: number; className?: string }>; iconClass: string; emoji: string; title: string }> = {
-  trending: { icon: Flame, iconClass: "text-rose-500", emoji: "🔥", title: "지금 뜨는 장소" },
-  favorites: { icon: Crown, iconClass: "text-amber-500", emoji: "👑", title: "꾸준히 사랑받는 명소" },
-  routes: { icon: MapIcon, iconClass: "text-indigo-500", emoji: "🗺️", title: "추천 코스" },
+const SECTION_META: Record<SectionKind, { icon: React.ComponentType<{ size?: number; className?: string }>; iconClass: string; title: string }> = {
+  trending: { icon: Flame, iconClass: "text-rose-500", title: "지금 뜨는 장소" },
+  favorites: { icon: Crown, iconClass: "text-amber-500", title: "꾸준히 사랑받는 명소" },
+  routes: { icon: MapIcon, iconClass: "text-indigo-500", title: "추천 코스" },
 };
 
 function ExpandedSection({
@@ -999,10 +1004,7 @@ function ExpandedSection({
         <span className={`flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 ${meta.iconClass}`}>
           <meta.icon size={17} />
         </span>
-        <h2 className="text-xl font-bold tracking-tight">
-          <span className="mr-1">{meta.emoji}</span>
-          {meta.title}
-        </h2>
+        <h2 className="text-xl font-bold tracking-tight">{meta.title}</h2>
       </div>
       {kind === "routes" ? (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -1193,7 +1195,7 @@ function SearchResults({
       {/* ── ① 관련 지역 인기 루트 ── */}
       {routes.length > 0 && page === 1 && (
         <section>
-          <SectionHeader icon={Crown} iconClass="text-amber-500" emoji="🏆" title={`"${query}" 인기 루트`} caption="좋아요 · 조회수가 높은 여행자들의 루트" />
+          <SectionHeader icon={Crown} iconClass="text-amber-500" title={`"${query}" 인기 루트`} caption="좋아요 · 조회수가 높은 여행자들의 루트" />
           <div className="-mt-6 mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
             {routes.map((route) => (
               <RouteTemplateCard key={route.id} route={route} onAdd={() => onPreviewRoute(route)} onPreview={() => onPreviewRoute(route)} />
@@ -1207,7 +1209,6 @@ function SearchResults({
           <SectionHeader
             icon={MapIcon}
             iconClass="text-indigo-500"
-            emoji="📍"
             title={`"${query}" 카테고리별 장소`}
             caption="원하는 카테고리를 골라 맛집·숙소까지 찾아보세요"
           />
@@ -1327,7 +1328,6 @@ function SearchResults({
           <SectionHeader
             icon={Search}
             iconClass="text-emerald-500"
-            emoji="🔎"
             title={`"${query}" 그 외 종합 결과`}
             caption={scope === "overseas" ? "Google 지도 기준 실제 장소 · 평점" : "카카오맵 기준 실제 장소"}
           />

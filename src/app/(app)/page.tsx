@@ -49,7 +49,7 @@ export default function HomePage() {
         {/* ── GREETING ── (the brand wordmark + slogan live in the top bar) */}
         <section className="mb-8">
           <h1 className="text-2xl font-bold tracking-tight">
-            {firstName ? `안녕하세요, ${firstName}님 👋` : "안녕하세요 👋"}
+            {firstName ? `안녕하세요, ${firstName}님` : "안녕하세요"}
           </h1>
           <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">오늘은 어디로 떠나볼까요?</p>
         </section>
@@ -123,7 +123,7 @@ function ResumeSection() {
         <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-500 dark:bg-slate-800">
           <Route size={17} />
         </span>
-        <h2 className="text-xl font-bold tracking-tight">🧳 내 여행 현황</h2>
+        <h2 className="text-xl font-bold tracking-tight">내 여행 현황</h2>
       </div>
 
       {hasAnything ? (
@@ -188,8 +188,8 @@ function ResumeSection() {
           href="/discover"
           className="group flex items-center gap-4 rounded-3xl border border-dashed border-slate-300 bg-white/60 p-6 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-lg dark:border-slate-700 dark:bg-slate-900/60"
         >
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-2xl text-white shadow-sm">
-            ✈️
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm">
+            <Route size={22} />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-[15px] font-bold">아직 계획 중인 여행이 없어요</span>
@@ -225,7 +225,7 @@ function LatestFeedSection() {
           <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-500 dark:bg-slate-800">
             <Rss size={17} />
           </span>
-          <h2 className="text-xl font-bold tracking-tight">🔥 최신 여행 후기</h2>
+          <h2 className="text-xl font-bold tracking-tight">최신 여행 후기</h2>
         </div>
         <Link href="/feed" className="flex shrink-0 items-center gap-0.5 text-[12.5px] font-semibold text-indigo-500 hover:text-indigo-700">
           더 보기 <ChevronRight size={14} />
