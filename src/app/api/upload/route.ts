@@ -6,14 +6,23 @@ const MAX_FILES = 6;
 const MAX_BYTES = 8 * 1024 * 1024; // 8MB per photo
 
 /**
- * Uploads one or more review photos to Vercel Blob and returns their public
- * URLs. Needs either `BLOB_READ_WRITE_TOKEN` (the classic manual token) or
+ * Uploads one or more review photos to Vercel Blob and returns URLs for
+ * them. Needs either `BLOB_READ_WRITE_TOKEN` (the classic manual token) or
  * `BLOB_STORE_ID` (auto-added when a Blob store is connected via Vercel's
  * newer integration flow — `put()` then authenticates automatically via
  * Vercel's own OIDC token at runtime, no manual token required). Without
  * either, this degrades to a clear "업로드를 사용할 수 없어요" error instead
  * of a bare 500, matching how other optional API keys in this app fail
  * gracefully.
+ *
+ * This project's Blob store is configured for **private** access (Vercel's
+ * current default for newly-created stores — there was no public/private
+ * choice at creation time), so uploads use `access: "private"` and the
+ * returned "urls" actually point at our own `/api/blob/[...path]` proxy
+ * rather than the raw `*.blob.vercel-storage.com` URL — a private blob's
+ * real URL 401s for a browser with no Vercel auth header, so every reader
+ * (including anonymous visitors of a public review/trip post) has to go
+ * through a route that fetches it server-side instead.
  */
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -42,10 +51,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const uploaded = await Promise.all(
-      files.map((file) => put(`reviews/${session.user.id}/${Date.now()}-${file.name}`, file, { access: "public" })),
+    const urls = await Promise.all(
+      files.map(async (file) => {
+        const pathname = `reviews/${session.user.id}/${Date.now()}-${file.name}`;
+        await put(pathname, file, { access: "private" });
+        return `/api/blob/${pathname.split("/").map(encodeURIComponent).join("/")}`;
+      }),
     );
-    return NextResponse.json({ urls: uploaded.map((r) => r.url) });
+    return NextResponse.json({ urls });
   } catch (err) {
     console.error("Blob upload failed", err);
     return NextResponse.json({ error: "사진 업로드에 실패했어요. 잠시 후 다시 시도해주세요" }, { status: 502 });
