@@ -401,13 +401,21 @@ export function AppBar() {
           ) : pathname === "/" || pathname === "/discover" ? (
             // 홈/탐색: page-title 대신 워드마크 + 슬로건 (워드마크 굵게, 슬로건 가늘게).
             <Link href="/" className="flex items-baseline gap-2 transition-opacity hover:opacity-80">
-              <ThemedLogo form="wordmark" imgClassName="h-7 w-auto" glow={false} textClassName="text-[19px]" />
-              <span className="hidden text-[11px] font-light tracking-wide text-slate-500 min-[400px]:inline dark:text-slate-400">
+              <ThemedLogo form="wordmark" imgClassName="h-11 w-auto" glow={false} textClassName="text-[30px]" />
+              <span className="hidden text-[13px] font-light tracking-wide text-slate-500 min-[400px]:inline dark:text-slate-400">
                 당신의 여행 파트너
               </span>
             </Link>
+          ) : PAGE_TITLES[pathname ?? ""] ? (
+            <span className="text-[15px] font-bold text-slate-900 dark:text-slate-100">{PAGE_TITLES[pathname ?? ""]}</span>
           ) : (
-            <span className="text-[15px] font-bold text-slate-900 dark:text-slate-100">{PAGE_TITLES[pathname ?? ""] ?? "트레쥴"}</span>
+            // /trip/[id], /share/[id] 같은 링크로 바로 들어오는 페이지 —
+            // 고정 페이지 타이틀이 없어 예전엔 "트레쥴" 글자만 덩그러니
+            // 떴는데, 카카오톡 공유로 처음 들어오는 진입점이기도 하니
+            // 브랜드 로고를 그대로 보여준다.
+            <Link href="/" className="flex items-baseline gap-2 transition-opacity hover:opacity-80">
+              <ThemedLogo form="wordmark" imgClassName="h-10 w-auto" glow={false} textClassName="text-[26px]" />
+            </Link>
           )}
         </div>
 
