@@ -7,17 +7,20 @@ const MAX_BYTES = 8 * 1024 * 1024; // 8MB per photo
 
 /**
  * Uploads one or more review photos to Vercel Blob and returns their public
- * URLs. Requires `BLOB_READ_WRITE_TOKEN` (auto-provisioned once a Blob
- * store is created and linked to the Vercel project) — without it, this
- * degrades to a clear "업로드를 사용할 수 없어요" error instead of a bare
- * 500, matching how other optional API keys in this app fail gracefully.
+ * URLs. Needs either `BLOB_READ_WRITE_TOKEN` (the classic manual token) or
+ * `BLOB_STORE_ID` (auto-added when a Blob store is connected via Vercel's
+ * newer integration flow — `put()` then authenticates automatically via
+ * Vercel's own OIDC token at runtime, no manual token required). Without
+ * either, this degrades to a clear "업로드를 사용할 수 없어요" error instead
+ * of a bare 500, matching how other optional API keys in this app fail
+ * gracefully.
  */
 export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) {
     return NextResponse.json({ error: "사진 업로드가 아직 설정되지 않았어요" }, { status: 503 });
   }
 
@@ -38,8 +41,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const uploaded = await Promise.all(
-    files.map((file) => put(`reviews/${session.user.id}/${Date.now()}-${file.name}`, file, { access: "public" })),
-  );
-  return NextResponse.json({ urls: uploaded.map((r) => r.url) });
+  try {
+    const uploaded = await Promise.all(
+      files.map((file) => put(`reviews/${session.user.id}/${Date.now()}-${file.name}`, file, { access: "public" })),
+    );
+    return NextResponse.json({ urls: uploaded.map((r) => r.url) });
+  } catch (err) {
+    console.error("Blob upload failed", err);
+    return NextResponse.json({ error: "사진 업로드에 실패했어요. 잠시 후 다시 시도해주세요" }, { status: 502 });
+  }
 }

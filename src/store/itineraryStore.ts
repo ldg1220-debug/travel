@@ -147,11 +147,17 @@ interface ItineraryState {
   /** Attaches a plan's server-side identity after a successful sync, so re-saving/re-sharing it later reuses that same row/link instead of creating a new one. */
   setPlanRemoteInfo: (id: string, remoteId: number, shareToken: string) => void;
   /**
-   * Merges itineraries fetched from the server (see fetchUserItineraries)
-   * into the local saved-plans list — only adds plans this device doesn't
-   * already have (matched by remoteId), so a plan saved on another device
-   * while logged into the same account shows up here too, without
-   * clobbering anything already saved locally on this one.
+   * Reconciles the local saved-plans list against the server (see
+   * fetchUserItineraries), called once per login/refresh:
+   *  - adds plans this device doesn't already have (matched by remoteId),
+   *    so a plan saved on another device while logged into the same
+   *    account shows up here too;
+   *  - removes local plans whose remoteId no longer appears in `remote`,
+   *    so a plan deleted from another device (or from this one, on a
+   *    later refresh) doesn't keep haunting devices that had already
+   *    cached a copy of it.
+   * A plan with no remoteId was never synced, so it's left untouched
+   * either way — only synced plans are ever added or removed here.
    */
   hydrateSavedPlansFromServer: (
     remote: { id: number; title: string; region: Region; placesData: ItineraryItem[]; shareToken: string }[],
@@ -418,6 +424,7 @@ export const useItineraryStore = create<ItineraryState>()(
 
       hydrateSavedPlansFromServer: (remote) => {
         const state = get();
+        const remoteIds = new Set(remote.map((r) => r.id));
         const knownRemoteIds = new Set(state.savedPlans.map((p) => p.remoteId).filter((id): id is number => id != null));
         const newPlans: SavedPlan[] = remote
           .filter((r) => !knownRemoteIds.has(r.id))
@@ -453,8 +460,16 @@ export const useItineraryStore = create<ItineraryState>()(
             remoteId: r.id,
             shareToken: r.shareToken,
           }));
-        if (newPlans.length === 0) return;
-        set((s) => ({ savedPlans: [...newPlans, ...s.savedPlans] }));
+        // A synced plan (has a remoteId) that's no longer in the server's
+        // list was deleted elsewhere — drop the stale local copy instead of
+        // letting it live on forever. Unsynced plans (no remoteId) are never
+        // touched here.
+        const survivors = state.savedPlans.filter((p) => p.remoteId == null || remoteIds.has(p.remoteId));
+        if (newPlans.length === 0 && survivors.length === state.savedPlans.length) return;
+        set({
+          savedPlans: [...newPlans, ...survivors],
+          activePlanId: state.activePlanId && !survivors.some((p) => p.id === state.activePlanId) ? null : state.activePlanId,
+        });
       },
     }),
     {
