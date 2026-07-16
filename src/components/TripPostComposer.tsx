@@ -7,6 +7,7 @@ import type { SavedPlan, Region } from "@/lib/types";
 import { fetchMyReviews, fetchMyTripPost, saveTripPost, searchPlaces, uploadReviewPhotos, type Review } from "@/lib/api";
 import { PlaceReviewEditSheet, type PlaceStub } from "@/components/PlaceReviewEditSheet";
 import { hashtagSlug } from "@/lib/hashtag";
+import { resizeImageFiles } from "@/lib/imageResize";
 
 const MAX_IMAGES = 10;
 const SEARCH_DEBOUNCE_MS = 400;
@@ -91,7 +92,8 @@ export function TripPostComposer({
     setUploading(true);
     setError(null);
     try {
-      const urls = await uploadReviewPhotos(Array.from(files).slice(0, MAX_IMAGES - images.length));
+      const resized = await resizeImageFiles(Array.from(files).slice(0, MAX_IMAGES - images.length));
+      const urls = await uploadReviewPhotos(resized);
       setImages((prev) => [...prev, ...urls].slice(0, MAX_IMAGES));
     } catch (e) {
       setError(e instanceof Error ? e.message : "업로드에 실패했어요");

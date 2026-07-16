@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, Star, Camera, Loader2 } from "lucide-react";
 import { saveReview, uploadReviewPhotos, type Review } from "@/lib/api";
+import { resizeImageFile } from "@/lib/imageResize";
 
 export interface PlaceStub {
   placeId: string;
@@ -41,7 +42,7 @@ export function PlaceReviewEditSheet({
     setUploading(true);
     setError(null);
     try {
-      const [url] = await uploadReviewPhotos([file]);
+      const [url] = await uploadReviewPhotos([await resizeImageFile(file)]);
       setImage(url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "업로드에 실패했어요");
