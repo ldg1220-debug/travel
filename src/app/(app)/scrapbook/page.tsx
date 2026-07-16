@@ -12,7 +12,7 @@ import { TripPostComposer } from "@/components/TripPostComposer";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { formatDateLabel } from "@/lib/timeline";
 import { syncPlanToServer } from "@/lib/planSync";
-import { fetchMyTripPosts } from "@/lib/api";
+import { fetchMyTripPosts, type TripPost } from "@/lib/api";
 import type { SavedPlan } from "@/lib/types";
 
 // "다녀온 여행"인지는 날짜가 지났는지가 아니라 그 계획에 대해 실제로
@@ -75,7 +75,7 @@ export default function ScrapbookPage() {
   const [reviewTarget, setReviewTarget] = useState<{ plan: SavedPlan; itineraryId: number } | null>(null);
   const [tripPostTarget, setTripPostTarget] = useState<{ plan: SavedPlan | null; itineraryId: number | null } | null>(null);
   const [newPostChooserOpen, setNewPostChooserOpen] = useState(false);
-  const [postedItineraryIds, setPostedItineraryIds] = useState<Set<number>>(new Set());
+  const [myPosts, setMyPosts] = useState<TripPost[]>([]);
 
   const userId = session?.user?.id;
   useEffect(() => {
@@ -85,12 +85,21 @@ export default function ScrapbookPage() {
     // is needed here — logging out naturally clears the set on the next run.
     fetchMyTripPosts().then((posts) => {
       if (cancelled) return;
-      setPostedItineraryIds(new Set(posts.filter((p): p is typeof p & { itineraryId: number } => p.itineraryId != null).map((p) => p.itineraryId)));
+      setMyPosts(posts);
     });
     return () => {
       cancelled = true;
     };
   }, [userId]);
+
+  const postedItineraryIds = useMemo(
+    () => new Set(myPosts.filter((p): p is TripPost & { itineraryId: number } => p.itineraryId != null).map((p) => p.itineraryId)),
+    [myPosts],
+  );
+  // 계획 없이 "완전 새로 작성"된 후기 — 연결된 계획이 없어 위 계획
+  // 카드 목록 어디에도 나타나지 않으므로, 다시 열어보거나 수정하려면
+  // 여기서 직접 목록을 보여줘야 한다.
+  const planlessPosts = useMemo(() => myPosts.filter((p) => p.itineraryId == null), [myPosts]);
 
   const { writtenTrips, notWrittenTrips } = useMemo(() => {
     const written: SavedPlan[] = [];
@@ -286,6 +295,33 @@ export default function ScrapbookPage() {
             )}
           </motion.div>
         </AnimatePresence>
+
+        {planlessPosts.length > 0 && (
+          <section className="mt-8">
+            <p className="mb-3 text-[13px] font-bold text-slate-700">계획 없이 쓴 여행 후기</p>
+            <div className="space-y-2">
+              {planlessPosts.map((post) => (
+                <button
+                  key={post.id}
+                  onClick={() => router.push(`/trip/${post.id}`)}
+                  className="flex w-full items-center gap-3 rounded-2xl border border-slate-200/70 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50/40"
+                >
+                  {post.images[0] && (
+                    // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
+                    <img src={post.images[0]} alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13.5px] font-semibold text-slate-800">{post.title}</span>
+                    <span className="flex items-center gap-1 text-[11.5px] text-slate-400">
+                      {post.isPublic ? <Globe size={11} /> : <Lock size={11} />}
+                      {post.isPublic ? "공개" : "비공개"} · {formatDateLabel(post.createdAt.slice(0, 10))}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
 
       {loginOpen && <LoginModal reason="후기를 작성하려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
@@ -293,7 +329,14 @@ export default function ScrapbookPage() {
         <ReviewComposer plan={reviewTarget.plan} itineraryId={reviewTarget.itineraryId} onClose={() => setReviewTarget(null)} />
       )}
       {tripPostTarget && (
-        <TripPostComposer plan={tripPostTarget.plan} itineraryId={tripPostTarget.itineraryId} onClose={() => setTripPostTarget(null)} />
+        <TripPostComposer
+          plan={tripPostTarget.plan}
+          itineraryId={tripPostTarget.itineraryId}
+          onClose={() => {
+            setTripPostTarget(null);
+            fetchMyTripPosts().then(setMyPosts);
+          }}
+        />
       )}
       {newPostChooserOpen && (
         <NewPostChooser

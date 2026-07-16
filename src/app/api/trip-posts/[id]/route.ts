@@ -35,16 +35,26 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const placeReviews = row.itineraryId
-    ? (
-        await pool.query(
-          `select "placeId", "placeName", rating, content, images
+  // A plan-linked post's "다녀온 장소" is every review left for that same
+  // trip. A plan-less ("완전 새로 작성") post has no itineraryId to scope
+  // by — its ad-hoc place reviews were saved with itineraryId null too, so
+  // this falls back to all of the author's plan-less reviews. Imprecise if
+  // someone's written more than one plan-less post (reviews aren't tied to
+  // a specific trip_posts row), but still the best available signal, and
+  // consistent with how TripPostComposer itself already reads plan-less
+  // reviews back (fetchMyReviews with no itineraryId = "all of them").
+  const placeReviews = (
+    await pool.query(
+      row.itineraryId
+        ? `select "placeId", "placeName", rating, content, images
            from reviews where "userId" = $1 and "itineraryId" = $2
+           order by created_at asc`
+        : `select "placeId", "placeName", rating, content, images
+           from reviews where "userId" = $1 and "itineraryId" is null
            order by created_at asc`,
-          [row.userId, row.itineraryId],
-        )
-      ).rows
-    : [];
+      row.itineraryId ? [row.userId, row.itineraryId] : [row.userId],
+    )
+  ).rows;
 
   return NextResponse.json({ post: row, placeReviews, isOwner });
 }
