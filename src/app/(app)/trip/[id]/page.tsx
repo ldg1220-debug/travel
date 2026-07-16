@@ -39,6 +39,14 @@ export default function TripPostDetailPage() {
     [placeReviews],
   );
 
+  // "누가 · 어떤 여행 · 언제" 요약 한 줄 — 본문 아래 표기와 카카오톡 공유
+  // 미리보기(description) 양쪽에 그대로 쓴다. 예전엔 공유 카드에 본문을
+  // 60자에서 그냥 잘라 넣었더니 문장이 어색하게 끊겼는데, 이 요약은
+  // 후기마다 항상 같은 형태로 깔끔하게 끝난다.
+  const metaLine = post
+    ? [post.authorName ?? "여행자", post.tripTitle, formatDateLabel(post.createdAt.slice(0, 10))].filter(Boolean).join(" · ")
+    : "";
+
   useEffect(() => {
     const id = Number(params.id);
     fetchTripPost(id).then((data) => {
@@ -84,7 +92,7 @@ export default function TripPostDetailPage() {
     if (!post) return;
     const url = `${window.location.origin}/trip/${post.id}`;
     try {
-      await shareToKakao({ title: post.title, description: post.content.slice(0, 60), url, imageUrl: post.images[0] });
+      await shareToKakao({ title: post.title, description: metaLine, url, imageUrl: post.images[0] });
     } catch {
       showToast("카카오톡 공유에 실패했어요");
     }
@@ -136,10 +144,7 @@ export default function TripPostDetailPage() {
           </div>
         )}
 
-        <p className="mb-1 text-[12.5px] text-slate-400">
-          {post.authorName ?? "여행자"}
-          {post.tripTitle && ` · ${post.tripTitle}`} · {formatDateLabel(post.createdAt.slice(0, 10))}
-        </p>
+        <p className="mb-1 text-[12.5px] text-slate-400">{metaLine}</p>
         <h1 className="text-xl font-bold tracking-tight">{post.title}</h1>
 
         {isOwner && (

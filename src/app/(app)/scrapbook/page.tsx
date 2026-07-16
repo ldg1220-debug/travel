@@ -190,7 +190,7 @@ export default function ScrapbookPage() {
           <div className="mb-3 flex items-baseline justify-between">
             <div>
               <p className="text-[13px] font-medium text-slate-500">
-                {session?.user?.name ? `안녕하세요, ${session.user.name} 님 👋` : "저장한 계획을 모아볼 수 있어요"}
+                {session?.user?.name ? `안녕하세요, ${session.user.name} 님` : "저장한 계획을 모아볼 수 있어요"}
               </p>
               <h2 className="text-2xl font-bold tracking-tight">여행 보관함</h2>
             </div>

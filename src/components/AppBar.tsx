@@ -26,15 +26,24 @@ interface NavItem {
   href: string;
   label: string;
   icon: typeof Search;
-  sub?: { href: string; label: string; icon: typeof Search }[];
+  iconClass: string;
+  sub?: { href: string; label: string; icon: typeof Search; iconClass: string }[];
 }
+// 홈 화면의 컬러 배지 아이콘(QUICK_ACCESS)과 톤을 맞춘 색상 — 사이드바만
+// 무채색 선 아이콘이라 나머지 화면들에 비해 예전 스타일로 튀어 보였다.
 const NAV_ITEMS: NavItem[] = [
-  { href: "/discover", label: "여행 계획짜기", icon: Search, sub: [{ href: "/course", label: "코스 만들기", icon: Sparkles }] },
-  { href: "/planner", label: "계획", icon: Calendar },
-  { href: "/scrapbook", label: "여행 보관함", icon: Book },
-  { href: "/feed", label: "후기 피드", icon: Rss },
+  {
+    href: "/discover",
+    label: "여행 계획짜기",
+    icon: Search,
+    iconClass: "bg-sky-50 text-sky-500 dark:bg-sky-500/10",
+    sub: [{ href: "/course", label: "코스 만들기", icon: Sparkles, iconClass: "bg-violet-50 text-violet-500 dark:bg-violet-500/10" }],
+  },
+  { href: "/planner", label: "계획", icon: Calendar, iconClass: "bg-orange-50 text-orange-500 dark:bg-orange-500/10" },
+  { href: "/scrapbook", label: "여행 보관함", icon: Book, iconClass: "bg-emerald-50 text-emerald-500 dark:bg-emerald-500/10" },
+  { href: "/feed", label: "후기 피드", icon: Rss, iconClass: "bg-fuchsia-50 text-fuchsia-500 dark:bg-fuchsia-500/10" },
 ];
-const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", icon: Heart };
+const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", icon: Heart, iconClass: "bg-rose-50 text-rose-500 dark:bg-rose-500/10" };
 
 const PAGE_TITLES: Record<string, string> = {
   "/": "홈",
@@ -168,9 +177,14 @@ export function AppBar() {
               </div>
             </SheetHeader>
             <nav className="flex flex-col gap-1 px-2">
-              {NAV_ITEMS.map(({ href, label, icon: Icon, sub }) => {
+              {NAV_ITEMS.map(({ href, label, icon: Icon, iconClass, sub }) => {
                 const active = pathname?.startsWith(href) ?? false;
                 const isPlan = href === "/planner";
+                const iconBadge = (
+                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${iconClass}`}>
+                    <Icon size={15} />
+                  </span>
+                );
                 return (
                   <div key={href}>
                     <div className="flex items-center gap-0.5">
@@ -184,7 +198,7 @@ export function AppBar() {
                             active ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                           }`}
                         >
-                          <Icon size={17} />
+                          {iconBadge}
                           {label}
                         </button>
                       ) : (
@@ -195,7 +209,7 @@ export function AppBar() {
                             active ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                           }`}
                         >
-                          <Icon size={17} />
+                          {iconBadge}
                           {label}
                         </Link>
                       )}
@@ -292,7 +306,7 @@ export function AppBar() {
                     {/* 하위 플로우 링크 (예: 여행 계획짜기 → 코스 만들기) — 항상 펼쳐진 서랍 */}
                     {sub && (
                       <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 dark:border-slate-800 pl-3">
-                        {sub.map(({ href: subHref, label: subLabel, icon: SubIcon }) => {
+                        {sub.map(({ href: subHref, label: subLabel, icon: SubIcon, iconClass: subIconClass }) => {
                           const subActive = pathname?.startsWith(subHref) ?? false;
                           return (
                             <Link
@@ -305,7 +319,9 @@ export function AppBar() {
                                   : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                               }`}
                             >
-                              <SubIcon size={14} />
+                              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${subIconClass}`}>
+                                <SubIcon size={13} />
+                              </span>
                               {subLabel}
                             </Link>
                           );
@@ -329,7 +345,9 @@ export function AppBar() {
                     : "text-slate-700 hover:bg-slate-100"
                 }`}
               >
-                <SAVED_PLACES_NAV_ITEM.icon size={17} />
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${SAVED_PLACES_NAV_ITEM.iconClass}`}>
+                  <SAVED_PLACES_NAV_ITEM.icon size={15} />
+                </span>
                 {SAVED_PLACES_NAV_ITEM.label}
               </Link>
             </div>
@@ -383,13 +401,21 @@ export function AppBar() {
           ) : pathname === "/" || pathname === "/discover" ? (
             // 홈/탐색: page-title 대신 워드마크 + 슬로건 (워드마크 굵게, 슬로건 가늘게).
             <Link href="/" className="flex items-baseline gap-2 transition-opacity hover:opacity-80">
-              <ThemedLogo form="wordmark" imgClassName="h-7 w-auto" glow={false} textClassName="text-[19px]" />
-              <span className="hidden text-[11px] font-light tracking-wide text-slate-500 min-[400px]:inline dark:text-slate-400">
+              <ThemedLogo form="wordmark" imgClassName="h-11 w-auto" glow={false} textClassName="text-[30px]" />
+              <span className="hidden text-[13px] font-light tracking-wide text-slate-500 min-[400px]:inline dark:text-slate-400">
                 당신의 여행 파트너
               </span>
             </Link>
+          ) : PAGE_TITLES[pathname ?? ""] ? (
+            <span className="text-[15px] font-bold text-slate-900 dark:text-slate-100">{PAGE_TITLES[pathname ?? ""]}</span>
           ) : (
-            <span className="text-[15px] font-bold text-slate-900 dark:text-slate-100">{PAGE_TITLES[pathname ?? ""] ?? "트레쥴"}</span>
+            // /trip/[id], /share/[id] 같은 링크로 바로 들어오는 페이지 —
+            // 고정 페이지 타이틀이 없어 예전엔 "트레쥴" 글자만 덩그러니
+            // 떴는데, 카카오톡 공유로 처음 들어오는 진입점이기도 하니
+            // 브랜드 로고를 그대로 보여준다.
+            <Link href="/" className="flex items-baseline gap-2 transition-opacity hover:opacity-80">
+              <ThemedLogo form="wordmark" imgClassName="h-10 w-auto" glow={false} textClassName="text-[26px]" />
+            </Link>
           )}
         </div>
 
