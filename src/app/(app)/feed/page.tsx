@@ -99,26 +99,9 @@ export default function FeedPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-4">
             {posts.map((post) => (
-              <button
-                key={post.id}
-                onClick={() => router.push(`/trip/${post.id}`)}
-                className="group block w-full overflow-hidden rounded-3xl border border-slate-200/70 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
-              >
-                {post.images[0] && (
-                  // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
-                  <img src={post.images[0]} alt="" className="h-52 w-full object-cover" />
-                )}
-                <div className="px-4 py-4">
-                  <p className="text-[11.5px] font-medium text-slate-400">
-                    {post.authorName ?? "여행자"}
-                    {post.tripTitle && ` · ${post.tripTitle}`} · {formatDateLabel(post.createdAt.slice(0, 10))}
-                  </p>
-                  <h3 className="mt-1 text-lg font-bold tracking-tight text-slate-900">{post.title}</h3>
-                  <p className="mt-1.5 line-clamp-2 text-[13px] leading-relaxed text-slate-500">{post.content}</p>
-                </div>
-              </button>
+              <FeedCard key={post.id} post={post} onOpen={() => router.push(`/trip/${post.id}`)} />
             ))}
           </div>
         )}
@@ -136,5 +119,51 @@ export default function FeedPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// 리스트형 후기 카드 — 지역 태그·날짜 줄, 작성자 아바타·닉네임 줄, 제목,
+// 본문 2줄 미리보기 + 우측 정사각 썸네일. 전엔 상단 와이드 사진 아래 글자만
+// 있어 작성자/지역이 눈에 안 들어왔는데, 메타 정보를 위계대로 앞세운다.
+function FeedCard({ post, onOpen }: { post: FeedPost; onOpen: () => void }) {
+  // 본문의 "#장소이름" 해시태그는 상세에서만 의미가 있으니(호버 팝오버),
+  // 미리보기에선 # 없이 장소 이름 텍스트만 남긴다.
+  const preview = post.content.replace(/#(\S+)/g, "$1");
+  return (
+    <button
+      onClick={onOpen}
+      className="group block w-full rounded-3xl border border-slate-200/70 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[12px] font-bold text-indigo-500">
+          {post.region === "domestic" ? "국내" : post.region === "international" ? "해외" : "여행"}
+          {post.tripTitle && <span className="font-medium text-slate-400"> · {post.tripTitle}</span>}
+        </span>
+        <span className="shrink-0 text-[11.5px] text-slate-400">{formatDateLabel(post.createdAt.slice(0, 10))}</span>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            {post.authorImage ? (
+              // eslint-disable-next-line @next/next/no-img-element -- OAuth profile image URL
+              <img src={post.authorImage} alt="" className="h-5 w-5 shrink-0 rounded-full object-cover" />
+            ) : (
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-[10px] font-bold text-white">
+                {(post.authorName ?? "여").trim().charAt(0)}
+              </span>
+            )}
+            <span className="truncate text-[12px] font-medium text-slate-500">{post.authorName ?? "여행자"}</span>
+          </div>
+          <h3 className="truncate text-[15.5px] font-bold tracking-tight text-slate-900">{post.title}</h3>
+          <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-slate-500">{preview}</p>
+        </div>
+        {post.images[0] && (
+          // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
+          <img src={post.images[0]} alt="" className="h-[76px] w-[76px] shrink-0 rounded-2xl object-cover" />
+        )}
+      </div>
+    </button>
   );
 }

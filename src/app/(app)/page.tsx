@@ -255,9 +255,19 @@ function LatestFeedSection() {
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[11.5px] font-medium text-slate-400">
-                  {post.authorName ?? "여행자"}
-                  {post.tripTitle && ` · ${post.tripTitle}`}
+                <p className="flex items-center gap-1.5 text-[11.5px] font-medium text-slate-400">
+                  {post.authorImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- OAuth profile image URL
+                    <img src={post.authorImage} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-[9px] font-bold text-white">
+                      {(post.authorName ?? "여").trim().charAt(0)}
+                    </span>
+                  )}
+                  <span className="truncate">
+                    {post.authorName ?? "여행자"}
+                    {post.tripTitle && ` · ${post.tripTitle}`}
+                  </span>
                 </p>
                 <p className="mt-0.5 truncate text-[14px] font-bold text-slate-900 dark:text-slate-100">{post.title}</p>
                 <p className="mt-0.5 truncate text-[12px] text-slate-500 dark:text-slate-400">{formatDateLabel(post.createdAt.slice(0, 10))}</p>
