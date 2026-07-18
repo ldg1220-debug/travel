@@ -1,20 +1,24 @@
-import { Coffee, Landmark, Trees, Ship, Utensils, Camera, MapPin, type LucideIcon } from "lucide-react";
+import { Trees, Ship } from "lucide-react";
+import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import type { PlaceIcon } from "@/lib/types";
 
 // Design-system icons for each place category (Place.icon is the shared
-// string enum used by the whole app; the shadcn/lucide prototype UI wants
-// real components, so this is the only translation layer needed).
-export const ICONS: Record<PlaceIcon, LucideIcon> = {
-  coffee: Coffee,
-  museum: Landmark,
-  tree: Trees,
-  boat: Ship,
-  utensils: Utensils,
-  camera: Camera,
-  pin: MapPin,
+// string enum used by the whole app). Most categories map onto the Cordix
+// icon set; `tree`/`boat` have no Cordix equivalent yet, so they stay on
+// lucide-react until the design team adds park/harbor glyphs.
+const CORDIX_ICONS: Partial<Record<PlaceIcon, CordixIconName>> = {
+  coffee: "cafe",
+  museum: "landmark",
+  utensils: "restaurant",
+  camera: "camera",
+  pin: "pin",
 };
 
 export function PlaceGlyph({ icon, size, color }: { icon: PlaceIcon; size?: number; color?: string }) {
-  const Icon = ICONS[icon];
-  return <Icon size={size} color={color} />;
+  const cordixName = CORDIX_ICONS[icon];
+  if (cordixName) {
+    return <CordixIcon name={cordixName} size={size} stroke={color} accent={color} />;
+  }
+  if (icon === "tree") return <Trees size={size} color={color} />;
+  return <Ship size={size} color={color} />;
 }

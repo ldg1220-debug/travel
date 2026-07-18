@@ -2,7 +2,8 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Star, Share2, Link as LinkIcon, ChevronLeft, MapPin, Globe, Lock, Pencil, Trash2 } from "lucide-react";
+import { Link as LinkIcon, ChevronLeft } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { deleteTripPost, fetchTripPost, saveTripPost, type TripPostDetail, type TripPostPlaceReview } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { shareToKakao } from "@/lib/kakaoShare";
@@ -165,7 +166,7 @@ export default function TripPostDetailPage() {
           <div className="mt-3 space-y-2">
             <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-2.5">
               <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                {post.isPublic ? <Globe size={14} className="text-emerald-500" /> : <Lock size={14} className="text-slate-400" />}
+                {post.isPublic ? <CordixIcon name="globe" size={14} className="text-emerald-500" /> : <CordixIcon name="lock" size={14} className="text-slate-400" />}
                 {post.isPublic ? "피드에 공개 중" : "비공개 (나만 보기)"}
               </span>
               <Switch checked={post.isPublic} disabled={togglingVisibility} onCheckedChange={handleToggleVisibility} />
@@ -175,7 +176,7 @@ export default function TripPostDetailPage() {
                 onClick={() => setEditOpen(true)}
                 className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50"
               >
-                <Pencil size={14} /> 수정하기
+                <CordixIcon name="pencil" size={14} /> 수정하기
               </button>
               {confirmingDelete ? (
                 <>
@@ -200,7 +201,7 @@ export default function TripPostDetailPage() {
                   aria-label="후기 삭제"
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-rose-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
                 >
-                  <Trash2 size={15} />
+                  <CordixIcon name="trash" size={15} accent="currentColor" />
                 </button>
               )}
             </div>
@@ -220,7 +221,7 @@ export default function TripPostDetailPage() {
         {placeReviews.length > 0 && (
           <div className="mt-6">
             <p className="mb-2 flex items-center gap-1.5 text-[13px] font-bold text-slate-700">
-              <MapPin size={14} className="text-indigo-500" /> 다녀온 장소
+              <CordixIcon name="pin" size={14} className="text-indigo-500" /> 다녀온 장소
             </p>
             <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3">
               {placeReviews.map((r) => (
@@ -235,7 +236,7 @@ export default function TripPostDetailPage() {
                     <p className="flex items-center gap-1.5">
                       <span className="font-semibold text-slate-800">{r.placeName}</span>
                       <span className="flex items-center gap-0.5 text-[11.5px] font-semibold text-amber-500">
-                        <Star size={10} className="fill-amber-400 text-amber-400" /> {r.rating.toFixed(1)}
+                        <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" /> {r.rating.toFixed(1)}
                       </span>
                     </p>
                     <p className="truncate text-[12px] text-slate-500">{r.content}</p>
@@ -251,7 +252,7 @@ export default function TripPostDetailPage() {
             onClick={handleShare}
             className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-2xl bg-[#FEE500] text-[13px] font-semibold text-black/85 transition-opacity hover:opacity-90"
           >
-            <Share2 size={15} /> 카카오톡 공유
+            <CordixIcon name="share" size={15} /> 카카오톡 공유
           </button>
           <button
             onClick={handleCopyLink}
@@ -333,7 +334,7 @@ function HashtagMention({ review }: { review: TripPostPlaceReview }) {
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[12.5px] font-bold text-slate-800">{review.placeName}</span>
               <span className="flex items-center gap-0.5 text-[11px] font-semibold text-amber-500">
-                <Star size={10} className="fill-amber-400 text-amber-400" /> {review.rating.toFixed(1)}
+                <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" /> {review.rating.toFixed(1)}
               </span>
             </span>
           </span>

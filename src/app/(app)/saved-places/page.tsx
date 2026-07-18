@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, Share2, X, FolderPlus, Pencil, Check, Trash2 } from "lucide-react";
+import { X, FolderPlus, Check } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { PlaceGlyph } from "@/app/(app)/planner/icons";
 import { CATEGORY_OPTIONS } from "@/app/(app)/planner/PlaceDetailOverlay";
@@ -129,7 +130,7 @@ export default function SavedPlacesPage() {
         {savedPlaces.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center">
             <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-              <Heart size={24} />
+              <CordixIcon name="heart" size={24} />
             </span>
             <p className="text-sm font-semibold text-slate-700">아직 저장한 장소가 없어요</p>
             <p className="mt-1 text-[13px] text-slate-400">탐색이나 계획 화면에서 마음에 드는 장소를 찜해보세요.</p>
@@ -249,13 +250,13 @@ export default function SavedPlacesPage() {
                         }}
                         className="flex items-center gap-0.5 font-semibold text-indigo-600 hover:text-indigo-700"
                       >
-                        <Pencil size={11} /> 이름 변경
+                        <CordixIcon name="pencil" size={11} /> 이름 변경
                       </button>
                       <button
                         onClick={() => setConfirmDeleteFolderId(folderFilter)}
                         className="flex items-center gap-0.5 font-semibold text-rose-500 hover:text-rose-600"
                       >
-                        <Trash2 size={11} /> 삭제
+                        <CordixIcon name="trash" size={11} /> 삭제
                       </button>
                     </>
                   )}
@@ -374,7 +375,7 @@ export default function SavedPlacesPage() {
                       aria-label={`${place.name} 카카오톡 공유`}
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                     >
-                      <Share2 size={14} />
+                      <CordixIcon name="share" size={14} />
                     </button>
                     <button
                       onClick={(e) => {

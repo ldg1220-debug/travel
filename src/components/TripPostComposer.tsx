@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X, Star, Camera, Loader2, Search, Plus, Hash } from "lucide-react";
+import { X, Loader2, Plus, Hash } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Switch } from "@/components/ui/switch";
 import type { SavedPlan, Region } from "@/lib/types";
 import { fetchMyReviews, fetchMyTripPost, fetchTripPost, saveTripPost, searchPlaces, uploadReviewPhotos, type Review } from "@/lib/api";
@@ -249,7 +250,7 @@ export function TripPostComposer({
               ))}
               {images.length < MAX_IMAGES && (
                 <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-400">
-                  {uploading ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+                  {uploading ? <Loader2 size={18} className="animate-spin" /> : <CordixIcon name="camera" size={18} />}
                   <span className="text-[10px]">{images.length}/{MAX_IMAGES}</span>
                   <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} disabled={uploading} />
                 </label>
@@ -316,7 +317,7 @@ export function TripPostComposer({
                           <span className="min-w-0 flex-1 truncate font-semibold text-slate-700">{p.name}</span>
                           {existing ? (
                             <span className="flex shrink-0 items-center gap-0.5 font-semibold text-amber-500">
-                              <Star size={11} className="fill-amber-400 text-amber-400" /> {existing.rating.toFixed(1)}
+                              <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" /> {existing.rating.toFixed(1)}
                             </span>
                           ) : (
                             <span className="shrink-0 text-slate-400">작성하기</span>
@@ -431,7 +432,7 @@ function PlaceSearchBox({
         ))}
       </div>
       <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
-        <Search size={14} className="shrink-0 text-slate-400" />
+        <CordixIcon name="search" size={14} className="shrink-0 text-slate-400" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
