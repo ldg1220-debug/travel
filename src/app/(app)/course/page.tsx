@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, MapPin, Star, Check, Plus, Sparkles, X, CalendarDays, Compass } from "lucide-react";
+import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
@@ -423,7 +424,7 @@ export default function CourseBuilderPage() {
               onClick={buildRouteOnly}
               className="flex w-full items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50"
             >
-              <Compass size={18} className="shrink-0 text-emerald-500" />
+              <CordixIcon name="compass" size={18} className="shrink-0 text-emerald-500" />
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-semibold text-slate-800">날짜 없이 동선만 짜기</span>
                 <span className="block text-[11.5px] text-slate-500">관심 장소로 저장 — 지도에서 동선만 먼저 잡아보기</span>
@@ -606,7 +607,7 @@ function CourseSpotCard({
           ) : (
             <>
               <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
-              <MapPin size={22} className="text-white/90" />
+              <CordixIcon name="pin" size={22} className="text-white/90" />
             </>
           )}
           <span className="absolute right-1.5 top-1.5 rounded-full bg-white/85 px-1.5 py-0.5 text-[9.5px] font-semibold text-slate-700 backdrop-blur">
@@ -618,7 +619,7 @@ function CourseSpotCard({
         <p className="truncate text-[13px] font-bold text-slate-900">{place.name}</p>
         {place.rating != null ? (
           <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
-            <Star size={10} className="fill-amber-400 text-amber-400" />
+            <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />
             {place.rating.toFixed(1)}
             {place.reviewCount != null && <span className="font-normal text-slate-400">· {place.reviewCount.toLocaleString()}</span>}
           </p>

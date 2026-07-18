@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GoogleMap, InfoWindow, OverlayView } from "@react-google-maps/api";
-import { ExternalLink, Star } from "lucide-react";
+import { ExternalLink } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { useGoogleMapsStatus } from "@/app/(app)/planner/MapProvider";
 import { Pin } from "@/app/(app)/planner/MapMarkers";
@@ -139,7 +140,7 @@ export default function LiveResultsMap({ places, selectedId, onSelect, onOpenDet
             <p className="text-[12.5px] font-semibold leading-snug text-slate-900">{hovered.name}</p>
             {hovered.rating != null && (
               <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
-                <Star size={10} className="fill-amber-400 text-amber-400" />
+                <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />
                 {hovered.rating.toFixed(1)}
                 {hovered.reviewCount != null && <span className="font-normal text-slate-400">· 리뷰 {hovered.reviewCount.toLocaleString()}</span>}
               </p>
@@ -160,7 +161,7 @@ export default function LiveResultsMap({ places, selectedId, onSelect, onOpenDet
             {selected.address && <p className="mt-0.5 line-clamp-1 text-[10.5px] text-slate-400">{selected.address}</p>}
             {selected.rating != null && (
               <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
-                <Star size={11} className="fill-amber-400 text-amber-400" />
+                <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" />
                 {selected.rating.toFixed(1)}
                 {selected.reviewCount != null && (
                   <span className="font-normal text-slate-400">· 리뷰 {selected.reviewCount.toLocaleString()}</span>

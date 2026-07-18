@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Menu, UserPlus, Plus, Trash2, ChevronDown, LogIn, LogOut, X, Calendar } from "lucide-react";
+import { Menu, UserPlus, Plus, ChevronDown, LogIn, LogOut, X, Calendar } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
 import { ThemedLogo } from "@/components/BrandLogo";
@@ -298,7 +299,7 @@ export function AppBar() {
                                   aria-label={`${plan.name} 삭제`}
                                   className="shrink-0 p-1.5 text-slate-300 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100"
                                 >
-                                  <Trash2 size={12} />
+                                  <CordixIcon name="trash" size={12} />
                                 </button>
                               )}
                             </div>

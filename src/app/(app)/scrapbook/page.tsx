@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plane, MapPin, Calendar, Globe, Lock, Trash2, PenLine, NotebookPen, Rss, FolderOpen, X, ChevronLeft } from "lucide-react";
+import { Calendar, Rss, X, ChevronLeft } from "lucide-react";
+import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { Badge } from "@/components/ui/badge";
 import { LoginModal } from "@/components/LoginModal";
 import { ReviewComposer } from "@/components/ReviewComposer";
@@ -133,10 +134,16 @@ export default function ScrapbookPage() {
     [savedPlans],
   );
 
-  const STATS = [
-    { key: "trips", label: "저장된 여행 계획", value: String(savedPlans.length), icon: Plane, gradient: "from-indigo-500 to-violet-500" },
-    { key: "written", label: "다녀온 여행", value: String(writtenTrips.length), icon: Calendar, gradient: "from-emerald-500 to-teal-500" },
-    { key: "places", label: "담아본 장소", value: String(totalPlaces), icon: MapPin, gradient: "from-rose-500 to-pink-500" },
+  const STATS: {
+    key: string;
+    label: string;
+    value: string;
+    gradient: string;
+    iconName: CordixIconName | null;
+  }[] = [
+    { key: "trips", label: "저장된 여행 계획", value: String(savedPlans.length), iconName: "plane", gradient: "from-indigo-500 to-violet-500" },
+    { key: "written", label: "다녀온 여행", value: String(writtenTrips.length), iconName: null, gradient: "from-emerald-500 to-teal-500" },
+    { key: "places", label: "담아본 장소", value: String(totalPlaces), iconName: "pin", gradient: "from-rose-500 to-pink-500" },
   ];
 
   const openPlan = (plan: SavedPlan) => {
@@ -219,14 +226,13 @@ export default function ScrapbookPage() {
                 onClick={openNewPostChooser}
                 className="flex items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700"
               >
-                <NotebookPen size={13} /> 새 여행 후기
+                <CordixIcon name="pencil" size={13} /> 새 여행 후기
               </button>
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
             {STATS.map((s) => {
-              const Icon = s.icon;
               return (
                 <div
                   key={s.key}
@@ -235,7 +241,7 @@ export default function ScrapbookPage() {
                   <span
                     className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br ${s.gradient} text-white shadow-sm`}
                   >
-                    <Icon size={17} />
+                    {s.iconName ? <CordixIcon name={s.iconName} size={17} stroke="#fff" accent="#fff" /> : <Calendar size={17} />}
                   </span>
                   <p className="text-[11px] font-medium text-slate-500">{s.label}</p>
                   <p className="mt-0.5 text-2xl font-bold tabular-nums tracking-tight">{s.value}</p>
@@ -328,7 +334,7 @@ export default function ScrapbookPage() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13.5px] font-semibold text-slate-800">{post.title}</span>
                     <span className="flex items-center gap-1 text-[11.5px] text-slate-400">
-                      {post.isPublic ? <Globe size={11} /> : <Lock size={11} />}
+                      {post.isPublic ? <CordixIcon name="globe" size={11} /> : <CordixIcon name="lock" size={11} />}
                       {post.isPublic ? "공개" : "비공개"} · {formatDateLabel(post.createdAt.slice(0, 10))}
                     </span>
                   </span>
@@ -416,7 +422,7 @@ function NewPostChooser({
               className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 disabled:opacity-50"
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-500">
-                <FolderOpen size={16} />
+                <CordixIcon name="folder" size={16} />
               </span>
               <span className="min-w-0">
                 <span className="block text-[13.5px] font-semibold text-slate-800">계획 불러오기</span>
@@ -428,7 +434,7 @@ function NewPostChooser({
               className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
-                <PenLine size={16} />
+                <CordixIcon name="pencil" size={16} />
               </span>
               <span className="min-w-0">
                 <span className="block text-[13.5px] font-semibold text-slate-800">완전 새로 작성</span>
@@ -514,7 +520,7 @@ function TripCard({
 
         <div className="absolute right-3 top-3">
           <Badge className={`gap-1 border-none text-[11px] font-semibold backdrop-blur ${isShared ? "bg-white/85 text-emerald-700" : "bg-black/35 text-white"}`}>
-            {isShared ? <Globe size={11} /> : <Lock size={11} />}
+            {isShared ? <CordixIcon name="globe" size={11} /> : <CordixIcon name="lock" size={11} />}
             {isShared ? "공유됨" : "나만 보기"}
           </Badge>
         </div>
@@ -530,7 +536,7 @@ function TripCard({
       {/* body */}
       <div className="px-4 py-4">
         <button onClick={onOpen} className="flex w-full items-start gap-1.5 text-left text-[12.5px] text-slate-600">
-          <MapPin size={14} className="mt-0.5 shrink-0 text-indigo-500" />
+          <CordixIcon name="pin" size={14} className="mt-0.5 shrink-0 text-indigo-500" />
           <span className="font-medium leading-snug">{tripRouteLabel(plan)}</span>
         </button>
 
@@ -540,14 +546,14 @@ function TripCard({
             disabled={reviewSyncing}
             className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 py-2 text-[12.5px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-60"
           >
-            <PenLine size={13} /> {reviewSyncing ? "준비 중…" : "장소 후기"}
+            <CordixIcon name="pencil" size={13} /> {reviewSyncing ? "준비 중…" : "장소 후기"}
           </button>
           <button
             onClick={onTripPost}
             disabled={reviewSyncing}
             className="flex items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/60 py-2 text-[12.5px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-60"
           >
-            <NotebookPen size={13} /> {reviewSyncing ? "준비 중…" : "여행 후기"}
+            <CordixIcon name="pencil" size={13} /> {reviewSyncing ? "준비 중…" : "여행 후기"}
           </button>
         </div>
 
@@ -571,7 +577,7 @@ function TripCard({
               aria-label={`${plan.name} 삭제`}
               className="flex h-7 w-7 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-rose-50 hover:text-rose-500"
             >
-              <Trash2 size={14} />
+              <CordixIcon name="trash" size={14} />
             </button>
           )}
         </div>
@@ -589,7 +595,7 @@ function EmptyState({ tab, onPlan, onWrite }: { tab: TabKey; onPlan: () => void;
   return (
     <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center">
       <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-        <Plane size={24} />
+        <CordixIcon name="plane" size={24} />
       </span>
       <p className="text-sm font-semibold text-slate-700">{copy.title}</p>
       <p className="mt-1 text-[13px] text-slate-400">{copy.sub}</p>

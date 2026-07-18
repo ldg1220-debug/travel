@@ -14,7 +14,6 @@ import {
   MapPin,
   Clock,
   TrendingUp,
-  Star,
   Coffee,
   Landmark,
   UtensilsCrossed,
@@ -33,13 +32,13 @@ import {
   Eye,
   ExternalLink,
   X,
-  BedDouble,
   Leaf,
   Check,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { ScheduleModal } from "@/components/ScheduleModal";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { MonthCalendar } from "@/components/MonthCalendar";
@@ -508,7 +507,7 @@ export default function DiscoverPage() {
         {/* ── SEARCH + SEGMENTED TOGGLE ── */}
         <section className="mb-8">
           <div className="relative">
-            <Search size={20} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <CordixIcon name="search" size={20} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
             <Input
               value={queryInput}
               onChange={(e) => setQueryInput(e.target.value)}
@@ -538,7 +537,7 @@ export default function DiscoverPage() {
                 aria-label="검색"
                 className="h-10 rounded-xl bg-indigo-600 px-3 text-[13px] font-semibold hover:bg-indigo-700 sm:px-4"
               >
-                <Search size={15} className="sm:hidden" />
+                <CordixIcon name="search" size={15} className="sm:hidden" />
                 <span className="hidden sm:inline">검색</span>
               </Button>
             </div>
@@ -649,7 +648,7 @@ export default function DiscoverPage() {
                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                 }`}
               >
-                <MapPin size={12} className="mr-1 inline -mt-0.5" />
+                <CordixIcon name="pin" size={12} className="mr-1 inline -mt-0.5" />
                 지역별{regionPath.length > 0 ? ` · ${regionPath[regionPath.length - 1]}` : ""}
               </button>
             </div>
@@ -1476,12 +1475,12 @@ function SpotCard({
       <div className="px-3 pb-3 pt-6">
         <p className="truncate text-sm font-bold text-slate-900">{spot.name}</p>
         <p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
-          <MapPin size={11} /> {spot.region}
+          <CordixIcon name="pin" size={11} /> {spot.region}
         </p>
         <div className="mt-2 flex items-center justify-between">
           <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500">
             {favorite ? (
-              <Star size={12} className="text-amber-400" />
+              <CordixIcon name="star" size={12} stroke="#fbbf24" accent="#fbbf24" />
             ) : (
               <TrendingUp size={12} className="text-rose-500" />
             )}
@@ -1536,7 +1535,7 @@ function LivePlaceCard({
         ) : (
           <>
             <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
-            <MapPin size={26} className="text-white/90" />
+            <CordixIcon name="pin" size={26} className="text-white/90" />
           </>
         )}
         <div className="absolute right-2 top-2">
@@ -1552,13 +1551,13 @@ function LivePlaceCard({
         </p>
         {place.address && (
           <p className="mt-0.5 line-clamp-1 flex items-center gap-1 text-[11px] text-slate-500">
-            <MapPin size={11} /> {place.address}
+            <CordixIcon name="pin" size={11} /> {place.address}
           </p>
         )}
         <div className="mt-2 flex items-center justify-between gap-1">
           {place.rating != null ? (
             <span className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-slate-600">
-              <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />
+              <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" className="shrink-0" />
               {place.rating.toFixed(1)}
               {place.reviewCount != null && (
                 <span className="truncate font-normal text-slate-400">· 리뷰 {fmt(place.reviewCount)}</span>
@@ -1597,7 +1596,7 @@ function LivePlaceCard({
         {lodging && providers.length > 0 && (
           <div className="mt-2 border-t border-slate-100 pt-2">
             <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-slate-400">
-              <BedDouble size={11} className="text-indigo-400" /> 최저가 예약
+              <CordixIcon name="bed" size={11} className="text-indigo-400" /> 최저가 예약
               {showAffiliate && <span className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-400">제휴</span>}
             </div>
             <div className="flex flex-wrap gap-1">

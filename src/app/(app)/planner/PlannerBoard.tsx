@@ -23,10 +23,8 @@ import {
   X,
   Wallet,
   Sparkles,
-  Trash2,
   Footprints,
   TrainFront,
-  MapPin,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
@@ -38,8 +36,8 @@ import {
   Maximize2,
   Minimize2,
   ImageDown,
-  Share2,
 } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { LoginModal } from "@/components/LoginModal";
@@ -1043,7 +1041,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 aria-label="오늘 일정 비우기"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <Trash2 size={15} />
+                <CordixIcon name="trash" size={15} />
               </button>
             </div>
           )}
@@ -1222,7 +1220,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     disabled={sharing || items.length === 0}
                     className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
                   >
-                    <Share2 size={11} />
+                    <CordixIcon name="share" size={11} />
                     {sharing ? "공유 중…" : "카카오톡 공유"}
                   </button>
                   {clearConfirmOpen ? (
@@ -1249,7 +1247,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       disabled={items.length === 0}
                       className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
                     >
-                      <Trash2 size={11} />
+                      <CordixIcon name="trash" size={11} />
                       비우기
                     </button>
                   )}
@@ -1424,7 +1422,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         aria-label={`${p.name} 지도에서 보기`}
                         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
                       >
-                        <MapPin size={13} color="#94a3b8" />
+                        <CordixIcon name="pin" size={13} stroke="#94a3b8" />
                       </button>
                       <button
                         onClick={(e) => {

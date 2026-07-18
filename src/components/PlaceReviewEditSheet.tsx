@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { X, Star, Camera, Loader2 } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { saveReview, uploadReviewPhotos, type Review } from "@/lib/api";
 import { resizeImageFiles } from "@/lib/imageResize";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
@@ -99,7 +100,7 @@ export function PlaceReviewEditSheet({
         <div className="mb-4 flex items-center justify-center gap-1.5">
           {[1, 2, 3, 4, 5].map((n) => (
             <button key={n} onClick={() => setRating(n)} aria-label={`${n}점`}>
-              <Star size={28} className={n <= rating ? "fill-amber-400 text-amber-400" : "text-slate-200"} />
+              <CordixIcon name="star" size={28} stroke={n <= rating ? "#fbbf24" : "#e2e8f0"} accent={n <= rating ? "#fbbf24" : "#e2e8f0"} />
             </button>
           ))}
         </div>
@@ -131,7 +132,7 @@ export function PlaceReviewEditSheet({
           ))}
           {images.length < MAX_IMAGES && (
             <label className="flex h-16 w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-400">
-              {uploading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+              {uploading ? <Loader2 size={16} className="animate-spin" /> : <CordixIcon name="camera" size={16} />}
               <span className="text-[9px]">{images.length}/{MAX_IMAGES}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} disabled={uploading} />
             </label>

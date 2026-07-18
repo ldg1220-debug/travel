@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { X, Clock, CalendarDays, Trash2, Wallet, Hourglass } from "lucide-react";
+import { X, Clock, CalendarDays, Wallet, Hourglass } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { PlaceGlyph } from "@/app/(app)/planner/icons";
 import { Input } from "@/components/ui/input";
 import { MonthCalendar } from "@/components/MonthCalendar";
@@ -333,7 +334,7 @@ export function ScheduleModal({
                   aria-label="일정에서 삭제"
                   className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 text-rose-500 transition-colors hover:bg-rose-100"
                 >
-                  <Trash2 size={16} />
+                  <CordixIcon name="trash" size={16} />
                 </button>
               )}
               <button

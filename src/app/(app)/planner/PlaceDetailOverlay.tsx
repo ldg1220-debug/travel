@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, ExternalLink, Star, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Button } from "@/components/ui/button";
 import { useGoogleMapsStatus } from "./MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
@@ -181,7 +182,7 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
           {place.rating != null && (
             <span className="flex items-center gap-1 font-semibold text-slate-700">
-              <Star size={12} className="fill-amber-400 text-amber-400" />
+              <CordixIcon name="star" size={12} stroke="#fbbf24" accent="#fbbf24" />
               {place.rating.toFixed(1)}
               {place.reviewCount != null && <span className="font-normal text-slate-400">· 리뷰 {place.reviewCount.toLocaleString()}</span>}
             </span>
@@ -243,7 +244,7 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
                 <div className="flex items-center justify-between">
                   <span className="text-[12px] font-semibold text-slate-700">{r.author}</span>
                   <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                    {r.rating != null && <Star size={10} className="fill-amber-400 text-amber-400" />}
+                    {r.rating != null && <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />}
                     {r.rating != null && r.rating}
                     {r.when && <span className="text-slate-400">· {r.when}</span>}
                   </span>
