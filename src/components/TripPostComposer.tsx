@@ -121,8 +121,14 @@ export function TripPostComposer({
     Promise.all([
       fetchMyReviews(itineraryId ?? undefined),
       itineraryId ? fetchMyTripPost(itineraryId) : Promise.resolve(null),
-    ]).then(([reviewList, post]) => {
+    ]).then(([allReviews, post]) => {
       if (cancelled) return;
+      // fetchMyReviews() with no itineraryId returns every review the user
+      // has ever written, across every plan — for a plan-less compose
+      // (itineraryId null) that must be narrowed to this user's own
+      // plan-less reviews, or a fresh "완전 새로 작성" post would come in
+      // pre-filled with unrelated places from a completely different trip.
+      const reviewList = itineraryId == null ? allReviews.filter((r) => r.itineraryId == null) : allReviews;
       setReviews(Object.fromEntries(reviewList.map((r) => [r.placeId, r])));
       applyExtraPlacesFromReviews(reviewList);
       if (post) {

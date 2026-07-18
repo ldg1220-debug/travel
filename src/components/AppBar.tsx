@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Menu, Search, Calendar, Book, Heart, UserPlus, Sparkles, Plus, Trash2, ChevronDown, LogIn, LogOut, X, Rss } from "lucide-react";
+import { Menu, UserPlus, Plus, Trash2, ChevronDown, LogIn, LogOut, X, Calendar } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
 import { ThemedLogo } from "@/components/BrandLogo";
@@ -25,25 +25,33 @@ import type { SavedPlan } from "@/lib/types";
 interface NavItem {
   href: string;
   label: string;
-  icon: typeof Search;
-  iconClass: string;
-  sub?: { href: string; label: string; icon: typeof Search; iconClass: string }[];
+  iconSrc: string;
+  sub?: { href: string; label: string; iconSrc: string }[];
 }
-// 홈 화면의 컬러 배지 아이콘(QUICK_ACCESS)과 톤을 맞춘 색상 — 사이드바만
-// 무채색 선 아이콘이라 나머지 화면들에 비해 예전 스타일로 튀어 보였다.
+// 3D 아이콘(public/icons/3d/, MIT 라이선스 Fluent Emoji) — 예전엔 사이드바만
+// 무채색 선 아이콘이라 나머지 화면들에 비해 밋밋하고 올드해 보였다.
 const NAV_ITEMS: NavItem[] = [
   {
     href: "/discover",
     label: "여행 계획짜기",
-    icon: Search,
-    iconClass: "bg-sky-50 text-sky-500 dark:bg-sky-500/10",
-    sub: [{ href: "/course", label: "코스 만들기", icon: Sparkles, iconClass: "bg-violet-50 text-violet-500 dark:bg-violet-500/10" }],
+    iconSrc: "/icons/3d/world-map.png",
+    sub: [{ href: "/course", label: "코스 만들기", iconSrc: "/icons/3d/sparkles.png" }],
   },
-  { href: "/planner", label: "계획", icon: Calendar, iconClass: "bg-orange-50 text-orange-500 dark:bg-orange-500/10" },
-  { href: "/scrapbook", label: "여행 보관함", icon: Book, iconClass: "bg-emerald-50 text-emerald-500 dark:bg-emerald-500/10" },
-  { href: "/feed", label: "후기 피드", icon: Rss, iconClass: "bg-fuchsia-50 text-fuchsia-500 dark:bg-fuchsia-500/10" },
+  { href: "/planner", label: "계획", iconSrc: "/icons/3d/calendar.png" },
+  { href: "/scrapbook", label: "여행 보관함", iconSrc: "/icons/3d/open-book.png" },
+  { href: "/feed", label: "후기 피드", iconSrc: "/icons/3d/newspaper.png" },
 ];
-const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", icon: Heart, iconClass: "bg-rose-50 text-rose-500 dark:bg-rose-500/10" };
+const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", iconSrc: "/icons/3d/red-heart.png" };
+
+/** A 3D emoji icon on a neutral square backdrop — the icon itself already carries color, so the badge stays plain instead of tinted per-item. */
+function NavIcon({ src, size = "h-8 w-8", padding = "p-1.5" }: { src: string; size?: string; padding?: string }) {
+  return (
+    <span className={`flex ${size} shrink-0 items-center justify-center rounded-xl bg-slate-100 ${padding} dark:bg-slate-800`}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- static local asset, not worth next/image's overhead for a 32px icon */}
+      <img src={src} alt="" className="h-full w-full object-contain" />
+    </span>
+  );
+}
 
 const PAGE_TITLES: Record<string, string> = {
   "/": "홈",
@@ -177,14 +185,10 @@ export function AppBar() {
               </div>
             </SheetHeader>
             <nav className="flex flex-col gap-1 px-2">
-              {NAV_ITEMS.map(({ href, label, icon: Icon, iconClass, sub }) => {
+              {NAV_ITEMS.map(({ href, label, iconSrc, sub }) => {
                 const active = pathname?.startsWith(href) ?? false;
                 const isPlan = href === "/planner";
-                const iconBadge = (
-                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${iconClass}`}>
-                    <Icon size={15} />
-                  </span>
-                );
+                const iconBadge = <NavIcon src={iconSrc} size="h-8 w-8" />;
                 return (
                   <div key={href}>
                     <div className="flex items-center gap-0.5">
@@ -306,7 +310,7 @@ export function AppBar() {
                     {/* 하위 플로우 링크 (예: 여행 계획짜기 → 코스 만들기) — 항상 펼쳐진 서랍 */}
                     {sub && (
                       <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 dark:border-slate-800 pl-3">
-                        {sub.map(({ href: subHref, label: subLabel, icon: SubIcon, iconClass: subIconClass }) => {
+                        {sub.map(({ href: subHref, label: subLabel, iconSrc: subIconSrc }) => {
                           const subActive = pathname?.startsWith(subHref) ?? false;
                           return (
                             <Link
@@ -319,9 +323,7 @@ export function AppBar() {
                                   : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                               }`}
                             >
-                              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${subIconClass}`}>
-                                <SubIcon size={13} />
-                              </span>
+                              <NavIcon src={subIconSrc} size="h-6 w-6" padding="p-1" />
                               {subLabel}
                             </Link>
                           );
@@ -345,9 +347,7 @@ export function AppBar() {
                     : "text-slate-700 hover:bg-slate-100"
                 }`}
               >
-                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${SAVED_PLACES_NAV_ITEM.iconClass}`}>
-                  <SAVED_PLACES_NAV_ITEM.icon size={15} />
-                </span>
+                <NavIcon src={SAVED_PLACES_NAV_ITEM.iconSrc} size="h-8 w-8" />
                 {SAVED_PLACES_NAV_ITEM.label}
               </Link>
             </div>

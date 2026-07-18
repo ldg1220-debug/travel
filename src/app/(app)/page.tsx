@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Search, Calendar, Book, ChevronRight, Heart, FolderOpen, Route, Rss } from "lucide-react";
+import { Calendar, ChevronRight, Heart, FolderOpen, Route, Rss } from "lucide-react";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
@@ -15,22 +15,19 @@ const QUICK_ACCESS = [
     href: "/discover",
     title: "여행 계획짜기",
     description: "인기 스팟과 실시간 맛집을 검색하고 코스를 만들어보세요",
-    icon: Search,
-    gradient: "from-sky-500 to-cyan-400",
+    iconSrc: "/icons/3d/world-map.png",
   },
   {
     href: "/planner",
     title: "계획",
     description: "지도와 타임라인으로 여행을 짜보세요",
-    icon: Calendar,
-    gradient: "from-rose-500 to-orange-400",
+    iconSrc: "/icons/3d/calendar.png",
   },
   {
     href: "/scrapbook",
     title: "여행 보관함",
     description: "다녀온 여행과 저장한 코스를 확인하세요",
-    icon: Book,
-    gradient: "from-emerald-500 to-teal-500",
+    iconSrc: "/icons/3d/open-book.png",
   },
 ] as const;
 
@@ -56,16 +53,15 @@ export default function HomePage() {
 
         {/* ── QUICK ACCESS ── */}
         <section className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {QUICK_ACCESS.map(({ href, title, description, icon: Icon, gradient }) => (
+          {QUICK_ACCESS.map(({ href, title, description, iconSrc }) => (
             <Link
               key={href}
               href={href}
               className="group flex items-center gap-3 rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200 sm:flex-col sm:items-start sm:p-5 dark:border-slate-800 dark:bg-slate-900 dark:hover:shadow-none"
             >
-              <span
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${gradient} text-white shadow-sm sm:mb-4 sm:h-12 sm:w-12`}
-              >
-                <Icon size={20} />
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 p-2 shadow-sm sm:mb-4 sm:h-12 sm:w-12 dark:bg-slate-800">
+                {/* eslint-disable-next-line @next/next/no-img-element -- static local asset */}
+                <img src={iconSrc} alt="" className="h-full w-full object-contain" />
               </span>
               <div className="min-w-0 flex-1 sm:w-full sm:flex-none">
                 <h2 className="truncate text-[15px] font-bold tracking-tight text-slate-900 sm:text-base dark:text-slate-100">{title}</h2>
