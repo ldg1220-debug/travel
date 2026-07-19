@@ -3,15 +3,17 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Link as LinkIcon, ChevronLeft } from "lucide-react";
+import { Link as LinkIcon, ChevronLeft, Heart } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import {
   deleteTripPost,
   fetchFollowStatus,
   fetchTripPost,
   followUser,
+  likeTripPost,
   saveTripPost,
   unfollowUser,
+  unlikeTripPost,
   type FollowStatus,
   type TripPostDetail,
   type TripPostPlaceReview,
@@ -45,7 +47,9 @@ export default function TripPostDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [followStatus, setFollowStatus] = useState<FollowStatus | null>(null);
   const [followBusy, setFollowBusy] = useState(false);
+  const [likeBusy, setLikeBusy] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [loginReason, setLoginReason] = useState("팔로우하려면 로그인해주세요.");
 
   const reload = () => {
     const id = Number(params.id);
@@ -109,6 +113,7 @@ export default function TripPostDetailPage() {
   const handleToggleFollow = async () => {
     if (!post) return;
     if (!session?.user) {
+      setLoginReason("팔로우하려면 로그인해주세요.");
       setLoginOpen(true);
       return;
     }
@@ -123,6 +128,28 @@ export default function TripPostDetailPage() {
       setFollowStatus(next);
     } finally {
       setFollowBusy(false);
+    }
+  };
+
+  const handleToggleLike = async () => {
+    if (!post) return;
+    if (!session?.user) {
+      setLoginReason("좋아요를 누르려면 로그인해주세요.");
+      setLoginOpen(true);
+      return;
+    }
+    const wasLiked = post.isLiked;
+    setLikeBusy(true);
+    // 낙관적 업데이트 — 좋아요는 빈번한 저강도 액션이라 응답을 기다리지 않고 바로 반영한다.
+    setPost((prev) => (prev ? { ...prev, isLiked: !wasLiked, likesCount: prev.likesCount + (wasLiked ? -1 : 1) } : prev));
+    try {
+      if (wasLiked) {
+        await unlikeTripPost(post.id);
+      } else {
+        await likeTripPost(post.id);
+      }
+    } finally {
+      setLikeBusy(false);
     }
   };
 
@@ -349,6 +376,16 @@ export default function TripPostDetailPage() {
 
         <div className="mt-6 flex gap-2">
           <button
+            onClick={handleToggleLike}
+            disabled={likeBusy}
+            aria-label="좋아요"
+            className={`flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-2xl border px-4 text-[13px] font-semibold transition-colors disabled:opacity-60 ${
+              post.isLiked ? "border-rose-200 bg-rose-50 text-rose-500" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+            }`}
+          >
+            <Heart size={15} fill={post.isLiked ? "currentColor" : "none"} /> {post.likesCount}
+          </button>
+          <button
             onClick={handleShare}
             className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-2xl bg-[#FEE500] text-[13px] font-semibold text-black/85 transition-opacity hover:opacity-90"
           >
@@ -390,7 +427,7 @@ export default function TripPostDetailPage() {
         />
       )}
 
-      {loginOpen && <LoginModal reason="팔로우하려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
+      {loginOpen && <LoginModal reason={loginReason} onClose={() => setLoginOpen(false)} />}
     </div>
   );
 }

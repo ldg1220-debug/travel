@@ -23,7 +23,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   const result = await pool.query(
     `select p.id, p.title, p.content, p.images, p.visibility, p.created_at as "createdAt",
-            p."userId" as "authorId", p."itineraryId", u.name as "authorName", u.image as "authorImage",
+            p."userId" as "authorId", p."itineraryId", coalesce(u.nickname, '여행자') as "authorName", u.image as "authorImage",
             i.title as "tripTitle"
      from trip_posts p
      join users u on u.id = p."userId"
@@ -60,6 +60,15 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   } else {
     row.visibleToUserIds = [];
   }
+
+  const [likesCountRow, likedRow] = await Promise.all([
+    pool.query(`select count(*)::int as count from trip_post_likes where "postId" = $1`, [postId]),
+    viewerId != null
+      ? pool.query(`select 1 from trip_post_likes where "postId" = $1 and "userId" = $2`, [postId, viewerId])
+      : Promise.resolve({ rowCount: 0 }),
+  ]);
+  row.likesCount = likesCountRow.rows[0]?.count ?? 0;
+  row.isLiked = (likedRow.rowCount ?? 0) > 0;
 
   // A plan-linked post's "다녀온 장소" is every review left for that same
   // trip. A plan-less ("완전 새로 작성") post has no itineraryId to scope

@@ -235,7 +235,7 @@ export default function ScrapbookPage() {
           <div className="mb-3 flex items-baseline justify-between">
             <div>
               <p className="text-[13px] font-medium text-slate-500">
-                {session?.user?.name ? `안녕하세요, ${session.user.name} 님` : "저장한 계획을 모아볼 수 있어요"}
+                {session?.user?.nickname ? `안녕하세요, ${session.user.nickname} 님` : "저장한 계획을 모아볼 수 있어요"}
               </p>
               <h2 className="text-2xl font-bold tracking-tight">여행 보관함</h2>
             </div>
@@ -614,35 +614,51 @@ function TripCard({
 
 // ─────────────────────────────────────────────────────────────
 // 계획 없이 "완전 새로 작성"된 후기용 카드 — TripCard와 같은 목록에 섞여
-// 나오므로 시각적 무게는 비슷하게 맞추되, 계획이 없으니 일정 통계·삭제
-// 버튼 없이 사진·제목·공개범위·"계획 없음" 표시만 보여준다.
+// 나오니 같은 커버 배너 레이아웃(h-44 사진 + 그라디언트 오버레이)을 그대로
+// 써서 시각적 무게를 맞춘다. 계획이 없어 일정 통계·장소후기 버튼·삭제는
+// 없고, 대신 배지 자리에 "계획 없음"을 표시하고 본문 하단에 후기 내용
+// 미리보기를 붙였다.
 function PostOnlyCard({ post, onOpen }: { post: TripPost; onOpen: () => void }) {
+  const [coverFailed, setCoverFailed] = useState(false);
+  const hasPhoto = Boolean(post.images[0]) && !coverFailed;
+
   return (
-    <button
-      onClick={onOpen}
-      className="group flex w-full items-stretch gap-3 overflow-hidden rounded-3xl border border-slate-200/70 bg-white p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200"
-    >
-      <div className={`h-24 w-24 shrink-0 overflow-hidden rounded-2xl ${post.images[0] ? "" : `bg-gradient-to-br ${coverGradient(String(post.id))}`}`}>
-        {post.images[0] ? (
+    <div className="group overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200">
+      <button
+        onClick={onOpen}
+        className={`relative block h-44 w-full text-left ${hasPhoto ? "bg-slate-200" : `bg-gradient-to-br ${coverGradient(String(post.id))}`}`}
+      >
+        {hasPhoto ? (
           // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
-          <img src={post.images[0]} alt="" className="h-full w-full object-cover" />
+          <img src={post.images[0]} alt="" loading="lazy" onError={() => setCoverFailed(true)} className="absolute inset-0 h-full w-full object-cover" />
         ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <CordixIcon name="pencil" size={20} stroke="#fff" accent="#fff" />
+          <div className="absolute inset-0 flex items-center justify-center opacity-70">
+            <CordixIcon name="pencil" size={40} stroke="#fff" accent="#fff" />
           </div>
         )}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col justify-center py-1">
-        <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-400">
-          <CordixIcon name="folder" size={11} /> 계획 없음 · {formatDateLabel(post.createdAt.slice(0, 10))}
-        </span>
-        <h3 className="mt-1 truncate text-[15px] font-bold tracking-tight text-slate-900">{post.title}</h3>
-        <span className="mt-1 flex items-center gap-1 text-[11.5px] text-slate-400">
-          <CordixIcon name={VISIBILITY_ICON[post.visibility]} size={11} />
-          {VISIBILITY_LABEL[post.visibility]}
-        </span>
-      </div>
-    </button>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
+
+        <div className="absolute right-3 top-3">
+          <Badge className="gap-1 border-none bg-black/35 text-[11px] font-semibold text-white backdrop-blur">
+            <CordixIcon name="folder" size={11} /> 계획 없음
+          </Badge>
+        </div>
+
+        <div className="absolute bottom-3 left-4 right-4">
+          <p className="flex items-center gap-1 text-[11px] font-medium text-white/85">
+            <CordixIcon name={VISIBILITY_ICON[post.visibility]} size={11} /> {VISIBILITY_LABEL[post.visibility]} ·{" "}
+            {formatDateLabel(post.createdAt.slice(0, 10))}
+          </p>
+          <h3 className="mt-1 truncate text-xl font-bold tracking-tight text-white drop-shadow-sm">{post.title}</h3>
+        </div>
+      </button>
+
+      {post.content && (
+        <button onClick={onOpen} className="block w-full px-4 py-4 text-left">
+          <p className="line-clamp-2 text-[12.5px] leading-relaxed text-slate-500">{post.content}</p>
+        </button>
+      )}
+    </div>
   );
 }
 

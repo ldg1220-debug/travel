@@ -39,11 +39,11 @@ export async function GET(request: NextRequest) {
     const result =
       list === "followers"
         ? await pool.query(
-            `select u.id, u.name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 order by f.created_at desc`,
+            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 order by f.created_at desc`,
             [session.user.id],
           )
         : await pool.query(
-            `select u.id, u.name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 order by f.created_at desc`,
+            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 order by f.created_at desc`,
             [session.user.id],
           );
     return NextResponse.json({ users: result.rows as FollowUser[] });
@@ -92,10 +92,13 @@ export async function POST(request: NextRequest) {
   if (targetId === Number(session.user.id)) {
     return NextResponse.json({ error: "cannot follow yourself" }, { status: 400 });
   }
-  await pool.query(
-    `insert into follows ("followerId", "followingId") values ($1, $2) on conflict ("followerId", "followingId") do nothing`,
+  const inserted = await pool.query(
+    `insert into follows ("followerId", "followingId") values ($1, $2) on conflict ("followerId", "followingId") do nothing returning id`,
     [session.user.id, targetId],
   );
+  if ((inserted.rowCount ?? 0) > 0) {
+    await pool.query(`insert into notifications ("recipientId", "actorId", type) values ($1, $2, 'follow')`, [targetId, session.user.id]);
+  }
   return NextResponse.json({ ok: true });
 }
 

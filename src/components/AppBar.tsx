@@ -8,6 +8,8 @@ import { Menu, UserPlus, Plus, ChevronDown, LogIn, LogOut, X, Calendar } from "l
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
+import { ProfileSheet } from "@/components/ProfileSheet";
+import { NotificationBell } from "@/components/NotificationBell";
 import { ThemedLogo } from "@/components/BrandLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
@@ -82,6 +84,7 @@ export function AppBar() {
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [plansOpen, setPlansOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   // 저장된 계획 미리보기 — 목록에서 계획을 누르면 바로 열지 않고, 그 계획에
   // 일정이 들어있는 날짜만 표시(다른 색 점)한 월간 달력을 먼저 보여준 뒤
   // "세부일정 보기"를 눌러야 실제로 플래너로 이동하게 한다.
@@ -357,14 +360,24 @@ export function AppBar() {
                 프로필 + 로그아웃. mt-auto 로 서랍 맨 아래에 고정. */}
             <div className="mt-auto border-t border-slate-100 dark:border-slate-800 px-2 pb-2 pt-3">
               {session?.user ? (
-                <div className="flex items-center gap-3 rounded-xl px-2 py-1.5">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-bold text-white">
-                    {(session.user.name ?? session.user.email ?? "?").trim().charAt(0).toUpperCase()}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{session.user.name ?? "여행자"}</p>
-                    {session.user.email && <p className="truncate text-[11px] text-slate-400">{session.user.email}</p>}
-                  </div>
+                <div className="flex items-center gap-1 rounded-xl px-1 py-1.5">
+                  <button
+                    onClick={() => setProfileOpen(true)}
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1 py-1 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-bold text-white">
+                      {session.user.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
+                        <img src={session.user.image} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        (session.user.nickname ?? session.user.email ?? "?").trim().charAt(0).toUpperCase()
+                      )}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{session.user.nickname ?? "여행자"}</p>
+                      {session.user.email && <p className="truncate text-[11px] text-slate-400">{session.user.email}</p>}
+                    </div>
+                  </button>
                   <button
                     onClick={() => signOut()}
                     aria-label="로그아웃"
@@ -420,20 +433,27 @@ export function AppBar() {
           )}
         </div>
 
-        {isPlanner ? (
-          <button
-            onClick={handleInvite}
-            aria-label="초대하기"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            <UserPlus size={18} />
-          </button>
-        ) : (
-          <div className="h-9 w-9" aria-hidden />
-        )}
+        <div className="flex items-center gap-0.5">
+          {isPlanner && (
+            <button
+              onClick={handleInvite}
+              aria-label="초대하기"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              <UserPlus size={18} />
+            </button>
+          )}
+          {session?.user ? <NotificationBell /> : !isPlanner && <div className="h-9 w-9" aria-hidden />}
+        </div>
       </header>
 
       {loginOpen && <LoginModal reason={loginReason ?? undefined} onClose={() => setLoginOpen(false)} />}
+
+      {/* 가입 직후 닉네임이 아직 없으면(session.user.nickname === null) 앱을 쓰기 전
+          강제로 닉네임부터 정하게 한다 — 닫기/배경클릭으로 건너뛸 수 없는 mandatory 모드. */}
+      {(profileOpen || (session?.user && session.user.nickname == null)) && (
+        <ProfileSheet onClose={() => setProfileOpen(false)} mandatory={!profileOpen && session?.user?.nickname == null} />
+      )}
 
       {saveModalOpen && (
         <SavePlanModal

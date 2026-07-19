@@ -217,6 +217,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS follows_pair_key ON follows ("followerId", "fo
 CREATE INDEX IF NOT EXISTS follows_follower_idx ON follows ("followerId");
 CREATE INDEX IF NOT EXISTS follows_following_idx ON follows ("followingId");
 
+-- Public-facing display identity, chosen by the user at profile setup —
+-- decoupled from the OAuth-provided `name`/`email` (never rendered to other
+-- users) for privacy. NULL until the user completes the mandatory first-run
+-- profile setup gate. Case-insensitive uniqueness via a partial index so
+-- multiple NULLs (pre-onboarding users) don't conflict with each other.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname VARCHAR(20);
+CREATE UNIQUE INDEX IF NOT EXISTS users_nickname_key ON users (lower(nickname)) WHERE nickname IS NOT NULL;
+
 -- Server-side cache of place-to-place transit estimates (src/lib/transit.ts
 -- computes a Haversine-based fallback today; this table exists so a real
 -- Google Distance Matrix result, once wired in, doesn't re-pay the API
@@ -234,3 +242,29 @@ CREATE TABLE IF NOT EXISTS transit_routes (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE ("fromPlaceId", "toPlaceId", "transitMode")
 );
+
+-- 여행 후기(trip_posts) 좋아요. 팔로우와 마찬가지로 승인 없는 즉시 토글이라
+-- 단순 조인 테이블로 충분 — ON DELETE CASCADE로 게시글/유저 삭제 시 자동 정리.
+CREATE TABLE IF NOT EXISTS trip_post_likes (
+  id SERIAL PRIMARY KEY,
+  "postId" INTEGER NOT NULL REFERENCES trip_posts(id) ON DELETE CASCADE,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS trip_post_likes_pair_key ON trip_post_likes ("postId", "userId");
+CREATE INDEX IF NOT EXISTS trip_post_likes_post_idx ON trip_post_likes ("postId");
+
+-- 우측 상단 알림 벨의 데이터 소스 — 팔로우/좋아요처럼 "다른 사람이 나에게
+-- 한 행동"이 생길 때마다 한 행을 남긴다. 액터 본인에게는 절대 쌓이지
+-- 않도록(자기 글에 좋아요 등) 애플리케이션 레이어에서 걸러서 insert한다.
+CREATE TABLE IF NOT EXISTS notifications (
+  id SERIAL PRIMARY KEY,
+  "recipientId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "actorId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- 'follow' | 'like'
+  type VARCHAR(10) NOT NULL,
+  "postId" INTEGER REFERENCES trip_posts(id) ON DELETE CASCADE,
+  read BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS notifications_recipient_idx ON notifications ("recipientId", created_at DESC);

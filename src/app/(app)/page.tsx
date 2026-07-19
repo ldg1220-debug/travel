@@ -38,15 +38,15 @@ const QUICK_ACCESS = [
 // below it, not another header.
 export default function HomePage() {
   const { data: session } = useSession();
-  // 로그인한 사용자면 이름으로 인사, 아니면 일반 인사.
-  const firstName = session?.user?.name?.trim().split(/\s+/)[0];
+  // 로그인한 사용자면 닉네임으로 인사, 아니면 일반 인사.
+  const nickname = session?.user?.nickname;
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
         {/* ── GREETING ── (the brand wordmark + slogan live in the top bar) */}
         <section className="mb-8">
           <h1 className="text-2xl font-bold tracking-tight">
-            {firstName ? `안녕하세요, ${firstName}님` : "안녕하세요"}
+            {nickname ? `안녕하세요, ${nickname}님` : "안녕하세요"}
           </h1>
           <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">오늘은 어디로 떠나볼까요?</p>
         </section>

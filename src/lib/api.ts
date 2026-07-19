@@ -193,6 +193,19 @@ export async function uploadReviewPhotos(files: File[]): Promise<string[]> {
   return data.urls;
 }
 
+/** Updates the current user's nickname and/or avatar. `image: null` clears it back to the initial-letter fallback. */
+export async function updateProfile(input: { nickname?: string; image?: string | null }): Promise<void> {
+  const res = await fetch("/api/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "저장에 실패했어요");
+  }
+}
+
 /** Every review the current user has written, optionally scoped to one trip — used to prefill 후기 작성 and show per-trip progress. */
 export async function fetchMyReviews(itineraryId?: number): Promise<Review[]> {
   const url = itineraryId ? `/api/reviews?itineraryId=${itineraryId}` : "/api/reviews";
@@ -306,11 +319,16 @@ export interface FeedResponse {
   pagination: { page: number; limit: number; total: number; hasMore: boolean };
 }
 
-/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first — optionally filtered by region and/or a free-text search across the post's title/content, its trip's title, and its visited place names. */
-export async function fetchFeed(page = 1, limit = 10, options?: { region?: Region; q?: string }): Promise<FeedResponse> {
+/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first — optionally filtered by region, a free-text search across the post's title/content/trip title/visited place names, and/or scoped to only people the viewer follows ("팔로잉" tab). */
+export async function fetchFeed(
+  page = 1,
+  limit = 10,
+  options?: { region?: Region; q?: string; scope?: "all" | "following" },
+): Promise<FeedResponse> {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (options?.region) params.set("region", options.region);
   if (options?.q?.trim()) params.set("q", options.q.trim());
+  if (options?.scope === "following") params.set("scope", "following");
   const res = await fetch(`/api/feed?${params.toString()}`);
   if (!res.ok) return { posts: [], pagination: { page, limit, total: 0, hasMore: false } };
   return res.json();
@@ -330,6 +348,9 @@ export interface TripPostDetail extends FeedPost {
   visibleToUserIds: number[];
   /** null for a plan-less ("완전 새로 작성") post. */
   itineraryId: number | null;
+  likesCount: number;
+  /** Whether the current viewer has liked this post — always false when signed out. */
+  isLiked: boolean;
 }
 
 /** A single trip post with author/trip context and its author's per-place ratings for the same trip (embedded "다녀온 장소" section) — null if it doesn't exist or isn't visible to the current viewer. */
@@ -337,6 +358,14 @@ export async function fetchTripPost(id: number): Promise<{ post: TripPostDetail;
   const res = await fetch(`/api/trip-posts/${id}`);
   if (!res.ok) return null;
   return res.json();
+}
+
+export async function likeTripPost(id: number): Promise<void> {
+  await fetch(`/api/trip-posts/${id}/like`, { method: "POST" });
+}
+
+export async function unlikeTripPost(id: number): Promise<void> {
+  await fetch(`/api/trip-posts/${id}/like`, { method: "DELETE" });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -386,6 +415,34 @@ export async function fetchFollowList(list: "followers" | "following"): Promise<
   if (!res.ok) return [];
   const data = (await res.json()) as { users?: FollowUser[] };
   return data.users ?? [];
+}
+
+// ─────────────────────────────────────────────────────────────
+// 알림 — 앱 우측 상단 벨 아이콘. 누가 나를 팔로우하거나 내 후기에 좋아요를
+// 누르면 한 건씩 쌓인다.
+
+export interface AppNotification {
+  id: number;
+  type: "follow" | "like";
+  actorId: number;
+  actorName: string | null;
+  actorImage: string | null;
+  /** "like" 알림에만 있음 — 눌러서 바로 그 후기로 이동할 때 쓴다. */
+  postId: number | null;
+  postTitle: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
+export async function fetchNotifications(): Promise<{ notifications: AppNotification[]; unreadCount: number }> {
+  const res = await fetch("/api/notifications");
+  if (!res.ok) return { notifications: [], unreadCount: 0 };
+  return res.json();
+}
+
+/** Marks every notification the current user has as read — called when the bell panel opens. */
+export async function markNotificationsRead(): Promise<void> {
+  await fetch("/api/notifications", { method: "PATCH" });
 }
 
 export interface DiscoverBrowseResponse {
