@@ -194,18 +194,31 @@ export default function TripPostDetailPage() {
         </button>
 
         {post.images.length > 0 && (
-          <div className="mb-4 grid grid-cols-2 gap-1.5 overflow-hidden rounded-2xl">
-            {post.images.slice(0, 4).map((url, i) => (
-              <button
-                key={url}
-                onClick={() => setLightbox({ images: post.images, index: i })}
-                aria-label="사진 크게 보기"
-                className={post.images.length === 1 ? "col-span-2" : i === 0 && post.images.length === 3 ? "col-span-2" : ""}
-              >
+          <div className="mb-4 overflow-hidden rounded-2xl">
+            {post.images.length === 1 ? (
+              // 대표사진 한 장뿐일 땐 고정 높이로 잘라내지 않는다 — 세로로 긴
+              // 사진이 h-40 박스에 object-cover로 눌리면 위아래가 거의 다
+              // 잘려나가던 문제. object-contain + 넉넉한 max-height로 원본
+              // 비율 그대로 보여준다.
+              <button onClick={() => setLightbox({ images: post.images, index: 0 })} aria-label="사진 크게 보기" className="block w-full bg-slate-100">
                 {/* eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL */}
-                <img src={url} alt="" className="h-40 w-full object-cover" />
+                <img src={post.images[0]} alt="" className="max-h-[70vh] w-full object-contain" />
               </button>
-            ))}
+            ) : (
+              <div className="grid grid-cols-2 gap-1.5">
+                {post.images.slice(0, 4).map((url, i) => (
+                  <button
+                    key={url}
+                    onClick={() => setLightbox({ images: post.images, index: i })}
+                    aria-label="사진 크게 보기"
+                    className={i === 0 && post.images.length === 3 ? "col-span-2" : ""}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL */}
+                    <img src={url} alt="" className="h-40 w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
