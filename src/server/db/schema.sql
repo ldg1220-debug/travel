@@ -230,6 +230,11 @@ ALTER TABLE follows ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT
 ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname VARCHAR(20);
 CREATE UNIQUE INDEX IF NOT EXISTS users_nickname_key ON users (lower(nickname)) WHERE nickname IS NOT NULL;
 
+-- 이용약관·개인정보처리방침 동의 시각 — 최초 가입 게이트(닉네임 설정
+-- 화면)에서 필수 동의를 받고 기록한다. NULL이면 아직 동의 전이므로 게이트가
+-- 다시 뜬다(약관 도입 전 기존 가입자도 다음 접속 때 동의를 거치게 됨).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "termsAgreedAt" TIMESTAMPTZ;
+
 -- Server-side cache of place-to-place transit estimates (src/lib/transit.ts
 -- computes a Haversine-based fallback today; this table exists so a real
 -- Google Distance Matrix result, once wired in, doesn't re-pay the API

@@ -85,8 +85,15 @@ export function LoginModal({ onClose, reason }: LoginModalProps) {
           </div>
 
           <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-400">
-            계속하면 <span className="underline underline-offset-2">이용약관</span> 및{" "}
-            <span className="underline underline-offset-2">개인정보처리방침</span>에 동의하게 됩니다.
+            로그인 후 첫 화면에서{" "}
+            <a href="/terms" target="_blank" rel="noreferrer" className="underline underline-offset-2">
+              이용약관
+            </a>{" "}
+            및{" "}
+            <a href="/privacy" target="_blank" rel="noreferrer" className="underline underline-offset-2">
+              개인정보처리방침
+            </a>
+            에 동의를 받아요.
           </p>
         </div>
       </div>

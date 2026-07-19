@@ -63,6 +63,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/scrapbook": "여행 보관함",
   "/saved-places": "관심 장소 보관함",
   "/feed": "후기 피드",
+  "/terms": "이용약관",
+  "/privacy": "개인정보처리방침",
 };
 
 /**
@@ -356,9 +358,19 @@ export function AppBar() {
               </Link>
             </div>
 
+            {/* 약관/방침 — 서랍 맨 아래 계정 영역 위에 작게. */}
+            <div className="mt-auto flex gap-3 px-3 pb-1 text-[11px] text-slate-400">
+              <Link href="/terms" onClick={() => setMenuOpen(false)} className="hover:underline">
+                이용약관
+              </Link>
+              <Link href="/privacy" onClick={() => setMenuOpen(false)} className="hover:underline">
+                개인정보처리방침
+              </Link>
+            </div>
+
             {/* 계정 — 로그아웃 상태면 로그인/회원가입 진입, 로그인 상태면
-                프로필 + 로그아웃. mt-auto 로 서랍 맨 아래에 고정. */}
-            <div className="mt-auto border-t border-slate-100 dark:border-slate-800 px-2 pb-2 pt-3">
+                프로필 + 로그아웃. */}
+            <div className="border-t border-slate-100 dark:border-slate-800 px-2 pb-2 pt-3">
               {session?.user ? (
                 <div className="flex items-center gap-1 rounded-xl px-1 py-1.5">
                   <button
@@ -449,10 +461,14 @@ export function AppBar() {
 
       {loginOpen && <LoginModal reason={loginReason ?? undefined} onClose={() => setLoginOpen(false)} />}
 
-      {/* 가입 직후 닉네임이 아직 없으면(session.user.nickname === null) 앱을 쓰기 전
-          강제로 닉네임부터 정하게 한다 — 닫기/배경클릭으로 건너뛸 수 없는 mandatory 모드. */}
-      {(profileOpen || (session?.user && session.user.nickname == null)) && (
-        <ProfileSheet onClose={() => setProfileOpen(false)} mandatory={!profileOpen && session?.user?.nickname == null} />
+      {/* 가입 직후 닉네임이 없거나 이용약관·개인정보처리방침 동의 기록이 없으면
+          앱을 쓰기 전 강제로 설정/동의부터 하게 한다 — 닫기/배경클릭으로 건너뛸
+          수 없는 mandatory 모드. (약관 도입 전 기존 가입자도 다음 접속 때 통과) */}
+      {(profileOpen || (session?.user && (session.user.nickname == null || !session.user.termsAgreed))) && (
+        <ProfileSheet
+          onClose={() => setProfileOpen(false)}
+          mandatory={!profileOpen && (session?.user?.nickname == null || !session?.user?.termsAgreed)}
+        />
       )}
 
       {saveModalOpen && (

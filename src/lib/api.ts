@@ -194,7 +194,7 @@ export async function uploadReviewPhotos(files: File[]): Promise<string[]> {
 }
 
 /** Updates the current user's nickname and/or avatar. `image: null` clears it back to the initial-letter fallback. */
-export async function updateProfile(input: { nickname?: string; image?: string | null }): Promise<void> {
+export async function updateProfile(input: { nickname?: string; image?: string | null; agreeTerms?: boolean }): Promise<void> {
   const res = await fetch("/api/profile", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

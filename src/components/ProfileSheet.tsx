@@ -43,6 +43,12 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
 
+  // 이용약관·개인정보처리방침 필수 동의 — 아직 동의 기록이 없는 계정이
+  // mandatory 게이트를 만나면 체크해야 저장(=앱 진입)할 수 있다.
+  const needsConsent = mandatory && !session?.user?.termsAgreed;
+  const [agreeTerms, setAgreeTerms] = useState(false);
+  const [agreePrivacy, setAgreePrivacy] = useState(false);
+
   const followingIds = new Set((following ?? []).map((u) => u.id));
 
   // 팔로워/팔로잉 카운트 + 목록을 새로 불러온다 — mandatory 모드(가입
@@ -93,10 +99,14 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
       setError("닉네임은 한글·영문·숫자·_ 2~20자로 입력해주세요");
       return;
     }
+    if (needsConsent && (!agreeTerms || !agreePrivacy)) {
+      setError("이용약관과 개인정보처리방침에 모두 동의해주세요");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      await updateProfile({ nickname: trimmed, image: image ?? null });
+      await updateProfile({ nickname: trimmed, image: image ?? null, ...(needsConsent ? { agreeTerms: true } : {}) });
       await update();
       onClose();
     } catch (e) {
@@ -132,7 +142,9 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={mandatory ? undefined : onClose} />
       <div className="relative flex max-h-[85vh] w-full max-w-md flex-col rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl dark:bg-slate-900">
         <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-bold dark:text-slate-100">{mandatory ? "닉네임을 설정해주세요" : "프로필"}</h3>
+          <h3 className="text-lg font-bold dark:text-slate-100">
+            {mandatory ? (session?.user?.nickname ? "서비스 이용 동의가 필요해요" : "닉네임을 설정해주세요") : "프로필"}
+          </h3>
           {!mandatory && (
             <button
               onClick={onClose}
@@ -209,6 +221,41 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                 <div className="mb-5 flex items-center justify-between rounded-2xl bg-slate-50 px-3.5 py-3 dark:bg-slate-800/60">
                   <span className="text-[12.5px] text-slate-500 dark:text-slate-400">이메일</span>
                   <span className="truncate text-[12.5px] font-medium text-slate-700 dark:text-slate-200">{session.user.email}</span>
+                </div>
+              )}
+
+              {needsConsent && (
+                <div className="mb-5 space-y-2.5 rounded-2xl border border-slate-200 p-3.5 dark:border-slate-700">
+                  <label className="flex items-center gap-2.5 text-[12.5px] text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={agreeTerms}
+                      onChange={(e) => setAgreeTerms(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
+                    />
+                    <span className="min-w-0 flex-1">
+                      (필수){" "}
+                      <a href="/terms" target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">
+                        이용약관
+                      </a>
+                      에 동의합니다
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2.5 text-[12.5px] text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={agreePrivacy}
+                      onChange={(e) => setAgreePrivacy(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
+                    />
+                    <span className="min-w-0 flex-1">
+                      (필수){" "}
+                      <a href="/privacy" target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">
+                        개인정보처리방침
+                      </a>
+                      에 동의합니다
+                    </span>
+                  </label>
                 </div>
               )}
 
