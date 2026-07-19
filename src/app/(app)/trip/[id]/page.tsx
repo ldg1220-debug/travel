@@ -24,12 +24,15 @@ import { VisibilitySelector } from "@/components/VisibilitySelector";
 import { LoginModal } from "@/components/LoginModal";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { TripPostComposer } from "@/components/TripPostComposer";
+import { useItineraryStore } from "@/store/itineraryStore";
 
 /** Standalone public view of one 여행 후기 (blog/Instagram-style trip post) — what a 카카오톡 공유 link or "링크 복사" opens for anyone, logged in or not, if the post was published to the feed (or you're its author). */
 export default function TripPostDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { data: session } = useSession();
+  const savedPlans = useItineraryStore((s) => s.savedPlans);
+  const loadPlan = useItineraryStore((s) => s.loadPlan);
   const [post, setPost] = useState<TripPostDetail | null>(null);
   const [placeReviews, setPlaceReviews] = useState<TripPostPlaceReview[]>([]);
   const [isOwner, setIsOwner] = useState(false);
@@ -66,6 +69,16 @@ export default function TripPostDetailPage() {
   const metaLine = post
     ? [post.authorName ?? "여행자", post.tripTitle, formatDateLabel(post.createdAt.slice(0, 10))].filter(Boolean).join(" · ")
     : "";
+
+  // 이 후기와 연결된 계획이 이 기기에 저장돼 있으면 "일정 보기"로 바로
+  // 플래너로 넘어갈 수 있게 한다 — 없으면(다른 기기·서버 전용 계획) 조용히
+  // 숨긴다, 계획을 가져오는 건 별개의 기능이라 여기서 시도하지 않는다.
+  const linkedPlan = post?.itineraryId != null ? savedPlans.find((p) => p.remoteId === post.itineraryId) : undefined;
+  const openLinkedPlan = () => {
+    if (!linkedPlan) return;
+    loadPlan(linkedPlan.id);
+    router.push("/planner");
+  };
 
   useEffect(() => {
     const id = Number(params.id);
@@ -250,6 +263,14 @@ export default function TripPostDetailPage() {
               />
               {togglingVisibility && <p className="mt-1 text-[11px] text-slate-400">변경 중…</p>}
             </div>
+            {linkedPlan && (
+              <button
+                onClick={openLinkedPlan}
+                className="flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl border border-indigo-200 bg-indigo-50/60 text-[13px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50"
+              >
+                <CordixIcon name="compass" size={14} /> 일정 보기
+              </button>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={() => setEditOpen(true)}
