@@ -159,14 +159,12 @@ function toLocalityBase(q: string): string {
   return out.replace(/\s+/g, " ").trim();
 }
 
-// Stop firing extra fan-out queries once we have this many merged hits.
-// Was 12 — but the augLabels loop below tries labels in a fixed order
-// (관광명소 first) and bails the instant the running total crosses the
-// target, so a landmark whose first 1-2 labels alone cleared 12 never got
-// to try 카페/술집/숙소 at all, leaving those theme buckets empty even
-// though the total count looked reasonable. Raised to match the final
-// response cap so every label gets a real chance to contribute.
-const FANOUT_TARGET = 20;
+// Stop firing extra fan-out queries once we have this many merged hits, and
+// the final cap on the response itself. Raised from 20 to 60 so the client
+// (course builder, /discover live results) has enough real results to
+// paginate through client-side (page 2, 3, … ) instead of a single flat
+// list capped at whatever the first handful of queries returned.
+const FANOUT_TARGET = 60;
 
 async function searchInternational(
   query: string,
@@ -205,7 +203,7 @@ async function searchInternational(
       }
       const filtered = merged.filter((p) => p.id !== anchor.id);
       if (filtered.length > 0) {
-        return { places: filtered.slice(0, 20), source: "google" };
+        return { places: filtered.slice(0, FANOUT_TARGET), source: "google" };
       }
     }
   }
@@ -281,7 +279,7 @@ async function searchInternational(
     if (firstFailed || !anyOk) return { places: filterByName(await getTrendingPlaces(), query), source: "mock" };
     return { places: [], source: "google" };
   }
-  return { places: merged.slice(0, 20), source: "google" };
+  return { places: merged.slice(0, FANOUT_TARGET), source: "google" };
 }
 
 /**
@@ -432,8 +430,9 @@ async function kakaoKeyword(
   query: string,
   apiKey: string,
   at?: { x: string; y: string },
+  page = 1,
 ): Promise<KakaoLocalDocument[] | null> {
-  const params = new URLSearchParams({ query, size: "15" });
+  const params = new URLSearchParams({ query, size: "15", page: String(page) });
   if (at) {
     params.set("x", at.x);
     params.set("y", at.y);
@@ -451,6 +450,27 @@ async function kakaoKeyword(
   }
   const data = (await res.json()) as { documents?: KakaoLocalDocument[] };
   return data.documents ?? [];
+}
+
+// Kakao's per-call size cap (15) is too thin for a paginated list — fetch
+// this many pages in parallel (up to KAKAO_PAGES * 15 results) so the
+// client has enough to page through, matching the ~60-result cap used on
+// the Google/international side.
+const KAKAO_PAGES = 4;
+async function kakaoKeywordAll(query: string, apiKey: string): Promise<KakaoLocalDocument[] | null> {
+  const pages = await Promise.all(Array.from({ length: KAKAO_PAGES }, (_, i) => kakaoKeyword(query, apiKey, undefined, i + 1)));
+  if (pages[0] === null) return null;
+  const merged: KakaoLocalDocument[] = [];
+  const seen = new Set<string>();
+  for (const p of pages) {
+    if (!p) continue;
+    for (const d of p) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      merged.push(d);
+    }
+  }
+  return merged;
 }
 
 async function searchDomestic(
@@ -472,7 +492,7 @@ async function searchDomestic(
         if (filtered.length > 0) return { places: filtered.map(kakaoDocToPlace), source: "kakao" };
       }
     }
-    const docs = await kakaoKeyword(query, apiKey);
+    const docs = await kakaoKeywordAll(query, apiKey);
     if (docs !== null) return { places: docs.map(kakaoDocToPlace), source: "kakao" };
   }
   return { places: filterByName(DOMESTIC_PLACES, query), source: "mock" };
