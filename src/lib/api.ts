@@ -193,6 +193,19 @@ export async function uploadReviewPhotos(files: File[]): Promise<string[]> {
   return data.urls;
 }
 
+/** Updates the current user's display name and/or avatar. `image: null` clears it back to the initial-letter fallback. */
+export async function updateProfile(input: { name?: string; image?: string | null }): Promise<void> {
+  const res = await fetch("/api/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "저장에 실패했어요");
+  }
+}
+
 /** Every review the current user has written, optionally scoped to one trip — used to prefill 후기 작성 and show per-trip progress. */
 export async function fetchMyReviews(itineraryId?: number): Promise<Review[]> {
   const url = itineraryId ? `/api/reviews?itineraryId=${itineraryId}` : "/api/reviews";
