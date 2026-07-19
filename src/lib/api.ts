@@ -238,7 +238,7 @@ export async function deleteReview(id: number): Promise<void> {
   await fetch(`/api/reviews?id=${id}`, { method: "DELETE" });
 }
 
-/** 전체공개 / 친구공개(맞팔로우만) / 특정인공개(선택한 팔로워만) / 비공개(나만). */
+/** 전체공개 / 트메공개(맞팔로우만) / 특정인공개(선택한 팔로워만) / 비공개(나만). */
 export type Visibility = "public" | "friends" | "custom" | "private";
 
 export interface TripPost {
@@ -319,7 +319,7 @@ export interface FeedResponse {
   pagination: { page: number; limit: number; total: number; hasMore: boolean };
 }
 
-/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first — optionally filtered by region, a free-text search across the post's title/content/trip title/visited place names, and/or scoped to only people the viewer follows ("팔로잉" tab). */
+/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first — optionally filtered by region, a free-text search across the post's title/content/trip title/visited place names, and/or scoped to only people the viewer follows ("트메" tab). */
 export async function fetchFeed(
   page = 1,
   limit = 10,
@@ -369,9 +369,11 @@ export async function unlikeTripPost(id: number): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 팔로우 — "친구공개"(맞팔로우)와 "특정인공개"(내 팔로워 중 선택)의 기반이
-// 되는 단방향 팔로우 관계. 팔로우 자체는 승인 없이 즉시 이뤄지고, "친구"
-// 판정만 양방향(맞팔로우)을 요구한다.
+// 팔로우 — "트메공개"(맞팔로우)와 "특정인공개"(내 팔로워 중 선택)의 기반이
+// 되는 단방향 팔로우 관계. 팔로우 자체는 승인 없이 즉시 이뤄지고, "트메"
+// 판정만 양방향(맞팔로우)을 요구한다. "팔로잉"과 "친구"(맞팔로우)는 이
+// 앱에서 통틀어 "트래블메이트(트메)"라고 부른다 — UI 문구만 그렇고, 내부
+// 필드명(isFriend 등)은 의미를 그대로 유지한다.
 
 export interface FollowUser {
   id: number;
@@ -384,7 +386,7 @@ export interface FollowStatus {
   isFollowing: boolean;
   /** They follow me. */
   isFollowedBy: boolean;
-  /** Both directions — what "친구공개" gates on. */
+  /** Both directions — what "트메공개" gates on. */
   isFriend: boolean;
   followerCount: number;
   followingCount: number;
@@ -415,6 +417,24 @@ export async function fetchFollowList(list: "followers" | "following"): Promise<
   if (!res.ok) return [];
   const data = (await res.json()) as { users?: FollowUser[] };
   return data.users ?? [];
+}
+
+export interface UserProfile {
+  id: number;
+  nickname: string | null;
+  image: string | null;
+  followerCount: number;
+  followingCount: number;
+  isFollowing: boolean;
+  isFollowedBy: boolean;
+  isFriend: boolean;
+}
+
+/** Public profile snapshot for any user (nickname/avatar + follower/트메 수 + 뷰어의 팔로우 상태) — powers the profile popup opened by tapping a nickname anywhere in the app. */
+export async function fetchUserProfile(userId: number): Promise<UserProfile | null> {
+  const res = await fetch(`/api/users/${userId}`);
+  if (!res.ok) return null;
+  return res.json();
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Bell } from "lucide-react";
 import { fetchNotifications, markNotificationsRead, type AppNotification } from "@/lib/api";
+import { UserProfileSheet } from "@/components/UserProfileSheet";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -27,6 +28,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [profileUserId, setProfileUserId] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
   const loggedIn = !!session?.user;
@@ -72,6 +74,7 @@ export function NotificationBell() {
   const handleItemClick = (n: AppNotification) => {
     setOpen(false);
     if (n.postId != null) router.push(`/trip/${n.postId}`);
+    else setProfileUserId(n.actorId);
   };
 
   if (!loggedIn) return null;
@@ -114,7 +117,7 @@ export function NotificationBell() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-[12.5px] leading-snug text-slate-700 dark:text-slate-200">
                     <span className="font-semibold">{n.actorName ?? "여행자"}</span>
-                    {n.type === "follow" ? "님이 회원님을 팔로우하기 시작했어요" : "님이 회원님의 후기에 좋아요를 눌렀어요"}
+                    {n.type === "follow" ? "님이 회원님에게 트메를 신청했어요" : "님이 회원님의 후기에 좋아요를 눌렀어요"}
                   </span>
                   <span className="mt-0.5 block text-[11px] text-slate-400">{relativeTime(n.createdAt)}</span>
                 </span>
@@ -123,6 +126,8 @@ export function NotificationBell() {
           )}
         </div>
       )}
+
+      {profileUserId != null && <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} />}
     </div>
   );
 }

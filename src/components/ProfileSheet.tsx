@@ -14,6 +14,7 @@ import {
   type FollowUser,
 } from "@/lib/api";
 import { resizeImageFiles } from "@/lib/imageResize";
+import { UserProfileSheet } from "@/components/UserProfileSheet";
 
 type Tab = "settings" | "followers" | "following";
 
@@ -40,6 +41,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   const [followers, setFollowers] = useState<FollowUser[] | null>(null);
   const [following, setFollowing] = useState<FollowUser[] | null>(null);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
+  const [profileUserId, setProfileUserId] = useState<number | null>(null);
 
   const followingIds = new Set((following ?? []).map((u) => u.id));
 
@@ -144,7 +146,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
               [
                 { value: "settings", label: "설정" },
                 { value: "followers", label: `팔로워 ${followerCount}` },
-                { value: "following", label: `팔로잉 ${followingCount}` },
+                { value: "following", label: `트메 ${followingCount}` },
               ] as const
             ).map((t) => (
               <button
@@ -217,11 +219,14 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
               followingIds={followingIds}
               busyIds={busyIds}
               onToggleFollow={handleToggleFollow}
-              emptyText={tab === "followers" ? "아직 나를 팔로우하는 사람이 없어요" : "아직 팔로우한 사람이 없어요"}
+              onOpenProfile={setProfileUserId}
+              emptyText={tab === "followers" ? "아직 나를 팔로우하는 사람이 없어요" : "아직 트메가 없어요"}
             />
           )}
         </div>
       </div>
+
+      {profileUserId != null && <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} />}
     </div>
   );
 }
@@ -231,12 +236,14 @@ function FollowUserList({
   followingIds,
   busyIds,
   onToggleFollow,
+  onOpenProfile,
   emptyText,
 }: {
   users: FollowUser[] | null;
   followingIds: Set<number>;
   busyIds: Set<number>;
   onToggleFollow: (user: FollowUser) => void;
+  onOpenProfile: (userId: number) => void;
   emptyText: string;
 }) {
   if (users == null) {
@@ -251,15 +258,17 @@ function FollowUserList({
         const isFollowing = followingIds.has(u.id);
         return (
           <div key={u.id} className="flex items-center gap-2.5 rounded-xl px-1 py-2">
-            {u.image ? (
-              // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
-              <img src={u.image} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
-            ) : (
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-xs font-bold text-white">
-                {(u.name ?? "여").trim().charAt(0)}
-              </span>
-            )}
-            <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-slate-700 dark:text-slate-200">{u.name ?? "여행자"}</span>
+            <button onClick={() => onOpenProfile(u.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+              {u.image ? (
+                // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
+                <img src={u.image} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+              ) : (
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-xs font-bold text-white">
+                  {(u.name ?? "여").trim().charAt(0)}
+                </span>
+              )}
+              <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-slate-700 dark:text-slate-200">{u.name ?? "여행자"}</span>
+            </button>
             <button
               onClick={() => onToggleFollow(u)}
               disabled={busyIds.has(u.id)}
@@ -269,7 +278,7 @@ function FollowUserList({
                   : "bg-indigo-600 text-white hover:bg-indigo-700"
               }`}
             >
-              {isFollowing ? "팔로잉" : "팔로우"}
+              {isFollowing ? "트메" : "트메 신청"}
             </button>
           </div>
         );
