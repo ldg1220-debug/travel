@@ -6,8 +6,8 @@ import { fetchFollowList, type FollowUser, type Visibility } from "@/lib/api";
 
 const OPTIONS: { value: Visibility; label: string; icon: "globe" | "group" | "user" | "lock"; hint: string }[] = [
   { value: "public", label: "전체공개", icon: "globe", hint: "누구나 볼 수 있어요" },
-  { value: "friends", label: "트메공개", icon: "group", hint: "서로 트메인 사람만" },
-  { value: "custom", label: "특정인공개", icon: "user", hint: "선택한 팔로워만" },
+  { value: "friends", label: "메이트공개", icon: "group", hint: "서로 트래블 메이트만" },
+  { value: "custom", label: "특정인공개", icon: "user", hint: "선택한 메이트만" },
   { value: "private", label: "비공개", icon: "lock", hint: "나만 볼 수 있어요" },
 ];
 

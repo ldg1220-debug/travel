@@ -18,10 +18,10 @@ const REGION_OPTIONS: { value: Region | "all"; label: string }[] = [
 ];
 const SCOPE_OPTIONS: { value: "all" | "following"; label: string }[] = [
   { value: "all", label: "전체" },
-  { value: "following", label: "트메" },
+  { value: "following", label: "트래블 메이트" },
 ];
 
-/** Public feed of everyone's published 여행 후기 (blog/Instagram-style trip posts) — browsable without logging in, same as /discover. Supports filtering by region, scope(전체/트메), and free-text search (post title/내용, 여행 제목, 다녀온 장소 이름). */
+/** Public feed of everyone's published 여행 후기 (blog/Instagram-style trip posts) — browsable without logging in, same as /discover. Supports filtering by region, scope(전체/트래블 메이트), and free-text search (post title/내용, 여행 제목, 다녀온 장소 이름). */
 export default function FeedPage() {
   const router = useRouter();
   const { data: session } = useSession();
@@ -126,14 +126,14 @@ export default function FeedPage() {
             </span>
             <p className="text-sm font-semibold text-slate-700">
               {scope === "following"
-                ? "트메가 공개한 후기가 없어요"
+                ? "트래블 메이트가 공개한 후기가 없어요"
                 : query || region !== "all"
                   ? "조건에 맞는 후기가 없어요"
                   : "아직 공개된 후기가 없어요"}
             </p>
             <p className="mt-1 text-[13px] text-slate-400">
               {scope === "following"
-                ? "관심 있는 사람과 트메를 맺으면 여기서 후기를 모아볼 수 있어요."
+                ? "관심 있는 사람과 트래블 메이트를 맺으면 여기서 후기를 모아볼 수 있어요."
                 : query || region !== "all"
                   ? "다른 검색어나 지역으로 찾아보세요."
                   : "여행 보관함에서 첫 여행 후기를 남겨보세요."}
@@ -165,7 +165,7 @@ export default function FeedPage() {
         )}
       </div>
 
-      {loginOpen && <LoginModal reason="트메 피드를 보려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
+      {loginOpen && <LoginModal reason="트래블 메이트 피드를 보려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
 
       {profileUserId != null && <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} />}
     </div>

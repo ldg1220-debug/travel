@@ -51,7 +51,7 @@ export default function TripPostDetailPage() {
   const [followBusy, setFollowBusy] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
-  const [loginReason, setLoginReason] = useState("트메를 맺으려면 로그인해주세요.");
+  const [loginReason, setLoginReason] = useState("트래블 메이트를 맺으려면 로그인해주세요.");
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
 
   const reload = () => {
@@ -124,7 +124,7 @@ export default function TripPostDetailPage() {
   const handleToggleFollow = async () => {
     if (!post) return;
     if (!session?.user) {
-      setLoginReason("트메를 맺으려면 로그인해주세요.");
+      setLoginReason("트래블 메이트를 맺으려면 로그인해주세요.");
       setLoginOpen(true);
       return;
     }
@@ -293,12 +293,12 @@ export default function TripPostDetailPage() {
               }`}
             >
               {followStatus?.isFollowing
-                ? "트메"
+                ? "메이트 ✓"
                 : followStatus?.isPendingOutgoing
                   ? "요청됨"
                   : followStatus?.isPendingIncoming
                     ? "수락하기"
-                    : "트메 신청"}
+                    : "메이트 신청"}
             </button>
           )}
         </div>

@@ -17,7 +17,7 @@ import { fetchMyTripPosts, type TripPost, type Visibility } from "@/lib/api";
 import type { SavedPlan } from "@/lib/types";
 
 const VISIBILITY_ICON: Record<Visibility, CordixIconName> = { public: "globe", friends: "group", custom: "user", private: "lock" };
-const VISIBILITY_LABEL: Record<Visibility, string> = { public: "전체공개", friends: "트메공개", custom: "특정공개", private: "비공개" };
+const VISIBILITY_LABEL: Record<Visibility, string> = { public: "전체공개", friends: "메이트공개", custom: "특정공개", private: "비공개" };
 
 // "다녀온 여행"인지는 날짜가 지났는지가 아니라 그 계획에 대해 실제로
 // 여행 후기를 남겼는지로 정한다 — A/B/C 세 계획을 세워뒀다고 셋 다

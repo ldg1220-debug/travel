@@ -125,6 +125,13 @@ export async function PATCH(request: NextRequest) {
     [requesterId, session.user.id],
   );
   if ((accepted.rowCount ?? 0) > 0) {
+    // 트래블 메이트는 상호 관계 — 수락하는 순간 반대 방향 엣지도 함께
+    // 수락 상태로 만든다(내가 상대에게 보낸 pending이 있었다면 그것도 승급).
+    await pool.query(
+      `insert into follows ("followerId", "followingId", status) values ($1, $2, 'accepted')
+       on conflict ("followerId", "followingId") do update set status = 'accepted'`,
+      [session.user.id, requesterId],
+    );
     await pool.query(`insert into notifications ("recipientId", "actorId", type) values ($1, $2, 'follow_accept')`, [requesterId, session.user.id]);
   }
   return NextResponse.json({ ok: true });
@@ -161,6 +168,12 @@ export async function DELETE(request: NextRequest) {
   if (!targetId) {
     return NextResponse.json({ error: "missing targetUserId" }, { status: 400 });
   }
-  await pool.query(`delete from follows where "followerId" = $1 and "followingId" = $2`, [session.user.id, targetId]);
+  // 트래블 메이트 끊기는 상호 해제 — 내 엣지와, 이미 수락된 상대 엣지를 함께
+  // 지운다. (상대가 나에게 보낸 '대기 중' 신청은 별개이므로 남겨둔다)
+  await pool.query(
+    `delete from follows where ("followerId" = $1 and "followingId" = $2)
+     or ("followerId" = $2 and "followingId" = $1 and status = 'accepted')`,
+    [session.user.id, targetId],
+  );
   return NextResponse.json({ ok: true });
 }

@@ -97,15 +97,10 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
             </div>
             <p className="mb-4 text-[16px] font-bold text-slate-900 dark:text-slate-100">{profile.nickname ?? "여행자"}</p>
 
-            <div className="mb-5 flex items-center gap-8">
-              <span className="text-center">
-                <span className="block text-[15px] font-bold text-slate-800 dark:text-slate-100">{profile.followerCount}</span>
-                <span className="block text-[11.5px] text-slate-400">팔로워</span>
-              </span>
-              <span className="text-center">
-                <span className="block text-[15px] font-bold text-slate-800 dark:text-slate-100">{profile.followingCount}</span>
-                <span className="block text-[11.5px] text-slate-400">트메</span>
-              </span>
+            {/* 트래블 메이트는 상호 관계라 카운트는 하나 — 팔로워/팔로잉 구분이 없다. */}
+            <div className="mb-5 text-center">
+              <span className="block text-[15px] font-bold text-slate-800 dark:text-slate-100">{profile.followingCount}</span>
+              <span className="block text-[11.5px] text-slate-400">트래블 메이트</span>
             </div>
 
             {!isSelf &&
@@ -115,7 +110,7 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
                   disabled={busy}
                   className="h-11 w-full rounded-2xl border border-slate-200 bg-white text-[13.5px] font-semibold text-slate-500 transition-colors disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
                 >
-                  트메
+                  트래블 메이트 ✓
                 </button>
               ) : profile.isPendingIncoming ? (
                 <div className="flex w-full gap-2">
@@ -148,14 +143,14 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
                   disabled={busy}
                   className="h-11 w-full rounded-2xl bg-indigo-600 text-[13.5px] font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
                 >
-                  트메 신청
+                  트래블 메이트 신청
                 </button>
               ))}
           </div>
         )}
       </div>
 
-      {loginOpen && <LoginModal reason="트메를 맺으려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
+      {loginOpen && <LoginModal reason="트래블 메이트를 맺으려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
     </div>
   );
 }

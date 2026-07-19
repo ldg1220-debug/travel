@@ -19,10 +19,10 @@ import { resizeImageFiles } from "@/lib/imageResize";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
 
-type Tab = "settings" | "followers" | "following" | "requests";
+type Tab = "settings" | "mates" | "requests";
 
 /**
- * 닉네임·프로필 사진 편집 + 팔로워/팔로잉 목록 — 사이드 서랍 맨 아래 계정 행을
+ * 닉네임·프로필 사진 편집 + 트래블 메이트 목록/신청 관리 — 사이드 서랍 맨 아래 계정 행을
  * 눌러 연다. 이름/이메일은 OAuth 제공자가 준 실명·개인정보라 여기서 바꿀 수
  * 없고, 다른 사용자에게는 절대 노출되지 않는다 — 공개 표시 이름은 오직 닉네임뿐.
  *
@@ -39,11 +39,10 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   const [error, setError] = useState<string | null>(null);
 
   const [tab, setTab] = useState<Tab>("settings");
-  const [followerCount, setFollowerCount] = useState(0);
-  const [followingCount, setFollowingCount] = useState(0);
-  const [followers, setFollowers] = useState<FollowUser[] | null>(null);
-  const [following, setFollowing] = useState<FollowUser[] | null>(null);
-  // 대기 중인 트메 신청 — received: 나에게 온 것(수락/거절), sent: 내가 보낸 것(취소).
+  // 트래블 메이트는 상호 관계 — 카운트도 목록도 하나뿐이다(팔로워/팔로잉 구분 없음).
+  const [mateCount, setMateCount] = useState(0);
+  const [mates, setMates] = useState<FollowUser[] | null>(null);
+  // 대기 중인 트래블 메이트 신청 — received: 나에게 온 것(수락/거절), sent: 내가 보낸 것(취소).
   const [received, setReceived] = useState<FollowUser[] | null>(null);
   const [sent, setSent] = useState<FollowUser[] | null>(null);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
@@ -56,36 +55,27 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [agreePrivacy, setAgreePrivacy] = useState(false);
 
-  const followingIds = new Set((following ?? []).map((u) => u.id));
+  const mateIds = new Set((mates ?? []).map((u) => u.id));
   const sentIds = new Set((sent ?? []).map((u) => u.id));
 
-  // 팔로워/팔로잉 카운트 + 목록을 새로 불러온다 — mandatory 모드(가입
-  // 직후)엔 아직 팔로우 관계가 있을 리 없어 건너뛴다. 중첩된
-  // UserProfileSheet(팔로워/팔로잉 목록에서 이름을 눌러 연 프로필 팝업)에서
-  // 트메 상태가 바뀌면 이 화면의 카운트·목록은 스스로 갱신되지 않으므로,
-  // 그 팝업의 onChange로 이 함수를 다시 호출해준다.
+  // 트래블 메이트 카운트 + 목록을 새로 불러온다 — mandatory 모드(가입
+  // 직후)엔 아직 관계가 있을 리 없어 건너뛴다. 중첩된 UserProfileSheet
+  // (목록에서 이름을 눌러 연 프로필 팝업)에서 관계가 바뀌면 이 화면의
+  // 카운트·목록은 스스로 갱신되지 않으므로, 그 팝업의 onChange로 이 함수를
+  // 다시 호출해준다.
   const refreshFollowData = () => {
     if (mandatory || !session?.user?.id) return;
     const userId = Number(session.user.id);
-    fetchFollowStatus(userId).then((status) => {
-      setFollowerCount(status.followerCount);
-      setFollowingCount(status.followingCount);
-    });
-    fetchFollowList("following").then(setFollowing);
+    fetchFollowStatus(userId).then((status) => setMateCount(status.followingCount));
+    fetchFollowList("following").then(setMates);
     fetchFollowList("sent").then(setSent);
     fetchFollowList("received").then(setReceived);
-    if (followers != null) fetchFollowList("followers").then(setFollowers);
   };
 
   useEffect(() => {
     refreshFollowData();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 시점 1회 로드용, refreshFollowData는 매 렌더 재생성되지만 의도적으로 deps에서 뺐다.
   }, [mandatory, session?.user?.id]);
-
-  useEffect(() => {
-    if (tab !== "followers" || followers != null) return;
-    fetchFollowList("followers").then(setFollowers);
-  }, [tab, followers]);
 
   const handleFile = async (files: FileList | null) => {
     const file = files?.[0];
@@ -141,17 +131,17 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
 
   const handleToggleFollow = (target: FollowUser) =>
     withBusy(target.id, async () => {
-      if (followingIds.has(target.id)) {
-        // 트메 끊기
+      if (mateIds.has(target.id)) {
+        // 메이트 해제 — 상호 관계라 서버에서 양방향이 함께 끊긴다
         await unfollowUser(target.id);
-        setFollowing((prev) => (prev ?? []).filter((u) => u.id !== target.id));
-        setFollowingCount((c) => c - 1);
+        setMates((prev) => (prev ?? []).filter((u) => u.id !== target.id));
+        setMateCount((c) => c - 1);
       } else if (sentIds.has(target.id)) {
         // 내가 보낸 신청 취소
         await unfollowUser(target.id);
         setSent((prev) => (prev ?? []).filter((u) => u.id !== target.id));
       } else {
-        // 트메 신청 — 상대가 수락해야 목록/카운트에 반영되므로 '보낸 신청'에만 추가
+        // 트래블 메이트 신청 — 상대가 수락해야 목록/카운트에 반영되므로 '보낸 신청'에만 추가
         await followUser(target.id);
         setSent((prev) => [...(prev ?? []), target]);
       }
@@ -161,8 +151,9 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
     withBusy(target.id, async () => {
       await acceptFollowRequest(target.id);
       setReceived((prev) => (prev ?? []).filter((u) => u.id !== target.id));
-      setFollowers((prev) => (prev == null ? prev : [target, ...prev]));
-      setFollowerCount((c) => c + 1);
+      // 수락 = 상호 관계 성립 — 바로 내 트래블 메이트 목록/카운트에 반영
+      setMates((prev) => (prev == null ? prev : [target, ...prev]));
+      setMateCount((c) => c + 1);
     });
 
   const handleRejectRequest = (target: FollowUser) =>
@@ -171,18 +162,18 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
       setReceived((prev) => (prev ?? []).filter((u) => u.id !== target.id));
     });
 
-  // 카카오톡으로 내 트메 초대 링크 공유 — 받은 친구는 /tme/[내 id] 랜딩에서
-  // 로그인만 하면 바로 트메 신청을 보낼 수 있다. (카카오 친구 목록 API는 비즈
+  // 카카오톡으로 내 트래블 메이트 초대 링크 공유 — 받은 친구는 /tme/[내 id]
+  // 랜딩에서 로그인만 하면 바로 신청을 보낼 수 있다. (카카오 친구 목록 API는 비즈
   // 앱 심사가 필요해, 공유 메시지 기반 초대로 제공)
   const handleKakaoInvite = async () => {
     if (!session?.user?.id) return;
     setInviteError(null);
     try {
       await shareToKakao({
-        title: `${session.user.nickname ?? "여행자"}님의 트메 초대`,
-        description: "트레쥴에서 트래블메이트(트메)를 맺고 여행 후기·계획을 함께 봐요!",
+        title: `${session.user.nickname ?? "여행자"}님의 트래블 메이트 초대`,
+        description: "트레쥴에서 트래블 메이트(여행 친구)를 맺고 여행 후기·계획을 함께 봐요!",
         url: `${window.location.origin}/tme/${session.user.id}`,
-        buttonTitle: "트메 맺으러 가기",
+        buttonTitle: "트래블 메이트 맺으러 가기",
       });
     } catch (e) {
       setInviteError(e instanceof Error ? e.message : "카카오톡 공유에 실패했어요");
@@ -218,8 +209,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
             {(
               [
                 { value: "settings", label: "설정" },
-                { value: "followers", label: `팔로워 ${followerCount}` },
-                { value: "following", label: `트메 ${followingCount}` },
+                { value: "mates", label: `트래블 메이트 ${mateCount}` },
                 { value: "requests", label: `신청${received && received.length > 0 ? ` ${received.length}` : ""}` },
               ] as const
             ).map((t) => (
@@ -329,7 +319,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                 {received == null ? (
                   <p className="py-4 text-center text-[12.5px] text-slate-400">불러오는 중…</p>
                 ) : received.length === 0 ? (
-                  <p className="py-4 text-center text-[12.5px] text-slate-400">받은 트메 신청이 없어요</p>
+                  <p className="py-4 text-center text-[12.5px] text-slate-400">받은 트래블 메이트 신청이 없어요</p>
                 ) : (
                   <div className="space-y-1">
                     {received.map((u) => (
@@ -372,7 +362,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                 {sent == null ? (
                   <p className="py-4 text-center text-[12.5px] text-slate-400">불러오는 중…</p>
                 ) : sent.length === 0 ? (
-                  <p className="py-4 text-center text-[12.5px] text-slate-400">보낸 트메 신청이 없어요</p>
+                  <p className="py-4 text-center text-[12.5px] text-slate-400">보낸 트래블 메이트 신청이 없어요</p>
                 ) : (
                   <div className="space-y-1">
                     {sent.map((u) => (
@@ -405,13 +395,13 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
             </div>
           ) : (
             <FollowUserList
-              users={tab === "followers" ? followers : following}
-              followingIds={followingIds}
+              users={mates}
+              mateIds={mateIds}
               sentIds={sentIds}
               busyIds={busyIds}
               onToggleFollow={handleToggleFollow}
               onOpenProfile={setProfileUserId}
-              emptyText={tab === "followers" ? "아직 나를 팔로우하는 사람이 없어요" : "아직 트메가 없어요"}
+              emptyText="아직 트래블 메이트가 없어요"
             />
           )}
 
@@ -422,7 +412,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                 onClick={handleKakaoInvite}
                 className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-[#FEE500] text-[13px] font-semibold text-black/85 transition-opacity hover:opacity-90"
               >
-                <CordixIcon name="share" size={14} /> 카카오톡으로 트메 초대하기
+                <CordixIcon name="share" size={14} /> 카카오톡으로 트래블 메이트 초대하기
               </button>
               {inviteError && <p className="mt-2 text-center text-[11.5px] text-rose-500">{inviteError}</p>}
             </div>
@@ -439,7 +429,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
 
 function FollowUserList({
   users,
-  followingIds,
+  mateIds,
   sentIds,
   busyIds,
   onToggleFollow,
@@ -447,8 +437,8 @@ function FollowUserList({
   emptyText,
 }: {
   users: FollowUser[] | null;
-  followingIds: Set<number>;
-  /** 내가 보낸 트메 신청이 대기 중인 상대 — 버튼을 "요청됨"으로 보여준다. */
+  mateIds: Set<number>;
+  /** 내가 보낸 트래블 메이트 신청이 대기 중인 상대 — 버튼을 "요청됨"으로 보여준다. */
   sentIds: Set<number>;
   busyIds: Set<number>;
   onToggleFollow: (user: FollowUser) => void;
@@ -464,8 +454,8 @@ function FollowUserList({
   return (
     <div className="space-y-1">
       {users.map((u) => {
-        const isFollowing = followingIds.has(u.id);
-        const isPending = !isFollowing && sentIds.has(u.id);
+        const isMate = mateIds.has(u.id);
+        const isPending = !isMate && sentIds.has(u.id);
         return (
           <div key={u.id} className="flex items-center gap-2.5 rounded-xl px-1 py-2">
             <button onClick={() => onOpenProfile(u.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
@@ -483,12 +473,12 @@ function FollowUserList({
               onClick={() => onToggleFollow(u)}
               disabled={busyIds.has(u.id)}
               className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-60 ${
-                isFollowing || isPending
+                isMate || isPending
                   ? "border border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
                   : "bg-indigo-600 text-white hover:bg-indigo-700"
               }`}
             >
-              {isFollowing ? "트메" : isPending ? "요청됨" : "트메 신청"}
+              {isMate ? "메이트 해제" : isPending ? "요청됨" : "메이트 신청"}
             </button>
           </div>
         );

@@ -86,31 +86,27 @@ export default function TmeInvitePage() {
         <p className="mt-1 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400">
           님이 트레쥴에서
           <br />
-          트래블메이트(트메)를 맺고 싶어해요
+          트래블 메이트(여행 친구)를 맺고 싶어해요
         </p>
 
         <div className="mb-6 mt-5 flex items-center justify-center gap-8">
           <span className="text-center">
-            <span className="block text-[15px] font-bold text-slate-800 dark:text-slate-100">{profile.followerCount}</span>
-            <span className="block text-[11.5px] text-slate-400">팔로워</span>
-          </span>
-          <span className="text-center">
             <span className="block text-[15px] font-bold text-slate-800 dark:text-slate-100">{profile.followingCount}</span>
-            <span className="block text-[11.5px] text-slate-400">트메</span>
+            <span className="block text-[11.5px] text-slate-400">트래블 메이트</span>
           </span>
         </div>
 
         {isSelf ? (
           <p className="text-[13px] text-slate-400">내 초대 링크예요 — 카카오톡으로 친구에게 공유해보세요.</p>
         ) : profile.isFriend ? (
-          <p className="text-[13.5px] font-semibold text-indigo-500">이미 서로 트메예요 🎉</p>
+          <p className="text-[13.5px] font-semibold text-indigo-500">이미 서로 트래블 메이트예요 🎉</p>
         ) : profile.isFollowing ? (
           <button
             onClick={() => runAction(() => unfollowUser(userId))}
             disabled={busy}
             className="h-12 w-full rounded-2xl border border-slate-200 bg-white text-[14px] font-semibold text-slate-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
           >
-            트메
+            트래블 메이트 ✓
           </button>
         ) : profile.isPendingIncoming ? (
           <div className="flex w-full gap-2">
@@ -143,7 +139,7 @@ export default function TmeInvitePage() {
             disabled={busy}
             className="h-12 w-full rounded-2xl bg-indigo-600 text-[14px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
-            트메 신청 보내기
+            트래블 메이트 신청 보내기
           </button>
         )}
 
@@ -152,7 +148,7 @@ export default function TmeInvitePage() {
         </button>
       </div>
 
-      {loginOpen && <LoginModal reason="트메를 맺으려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
+      {loginOpen && <LoginModal reason="트래블 메이트를 맺으려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
     </div>
   );
 }
