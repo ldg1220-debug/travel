@@ -3,12 +3,14 @@ import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 
 interface ProfileBody {
-  name?: string;
+  nickname?: string;
   /** null clears the avatar back to the initial-letter fallback. */
   image?: string | null;
 }
 
-/** Updates the current user's display name and/or avatar (OAuth-provided email is never editable here). */
+const NICKNAME_PATTERN = /^[가-힣a-zA-Z0-9_]{2,20}$/;
+
+/** Updates the current user's nickname and/or avatar (OAuth-provided name/email are never editable here — nickname is the sole public display identity). */
 export async function PATCH(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -19,16 +21,13 @@ export async function PATCH(request: NextRequest) {
   const sets: string[] = [];
   const params: (string | null)[] = [];
 
-  if (body.name !== undefined) {
-    const name = body.name.trim();
-    if (!name) {
-      return NextResponse.json({ error: "이름을 입력해주세요" }, { status: 400 });
+  if (body.nickname !== undefined) {
+    const nickname = body.nickname.trim();
+    if (!NICKNAME_PATTERN.test(nickname)) {
+      return NextResponse.json({ error: "닉네임은 한글·영문·숫자·_ 2~20자로 입력해주세요" }, { status: 400 });
     }
-    if (name.length > 50) {
-      return NextResponse.json({ error: "이름은 50자 이내로 입력해주세요" }, { status: 400 });
-    }
-    params.push(name);
-    sets.push(`name = $${params.length}`);
+    params.push(nickname);
+    sets.push(`nickname = $${params.length}`);
   }
   if (body.image !== undefined) {
     params.push(body.image);
@@ -39,6 +38,13 @@ export async function PATCH(request: NextRequest) {
   }
 
   params.push(String(session.user.id));
-  await pool.query(`update users set ${sets.join(", ")} where id = $${params.length}`, params);
+  try {
+    await pool.query(`update users set ${sets.join(", ")} where id = $${params.length}`, params);
+  } catch (e) {
+    if (e && typeof e === "object" && "code" in e && e.code === "23505") {
+      return NextResponse.json({ error: "이미 사용 중인 닉네임이에요" }, { status: 409 });
+    }
+    throw e;
+  }
   return NextResponse.json({ ok: true });
 }

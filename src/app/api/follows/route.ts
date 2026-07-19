@@ -39,11 +39,11 @@ export async function GET(request: NextRequest) {
     const result =
       list === "followers"
         ? await pool.query(
-            `select u.id, u.name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 order by f.created_at desc`,
+            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 order by f.created_at desc`,
             [session.user.id],
           )
         : await pool.query(
-            `select u.id, u.name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 order by f.created_at desc`,
+            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 order by f.created_at desc`,
             [session.user.id],
           );
     return NextResponse.json({ users: result.rows as FollowUser[] });

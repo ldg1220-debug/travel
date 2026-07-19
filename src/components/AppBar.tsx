@@ -369,11 +369,11 @@ export function AppBar() {
                         // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
                         <img src={session.user.image} alt="" className="h-full w-full object-cover" />
                       ) : (
-                        (session.user.name ?? session.user.email ?? "?").trim().charAt(0).toUpperCase()
+                        (session.user.nickname ?? session.user.email ?? "?").trim().charAt(0).toUpperCase()
                       )}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{session.user.name ?? "여행자"}</p>
+                      <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{session.user.nickname ?? "여행자"}</p>
                       {session.user.email && <p className="truncate text-[11px] text-slate-400">{session.user.email}</p>}
                     </div>
                   </button>
@@ -447,7 +447,11 @@ export function AppBar() {
 
       {loginOpen && <LoginModal reason={loginReason ?? undefined} onClose={() => setLoginOpen(false)} />}
 
-      {profileOpen && <ProfileSheet onClose={() => setProfileOpen(false)} />}
+      {/* 가입 직후 닉네임이 아직 없으면(session.user.nickname === null) 앱을 쓰기 전
+          강제로 닉네임부터 정하게 한다 — 닫기/배경클릭으로 건너뛸 수 없는 mandatory 모드. */}
+      {(profileOpen || (session?.user && session.user.nickname == null)) && (
+        <ProfileSheet onClose={() => setProfileOpen(false)} mandatory={!profileOpen && session?.user?.nickname == null} />
+      )}
 
       {saveModalOpen && (
         <SavePlanModal

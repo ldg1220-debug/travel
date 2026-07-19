@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
 
   const result = await pool.query(
     `select p.id, p.title, p.content, p.images, p.created_at as "createdAt",
-            p."userId" as "authorId", u.name as "authorName", u.image as "authorImage",
+            p."userId" as "authorId", coalesce(u.nickname, '여행자') as "authorName", u.image as "authorImage",
             i.title as "tripTitle", i.region as "region"
      from trip_posts p
      join users u on u.id = p."userId"

@@ -7,10 +7,17 @@ import { CordixIcon } from "@/components/icons/CordixIcon";
 import { updateProfile, uploadReviewPhotos } from "@/lib/api";
 import { resizeImageFiles } from "@/lib/imageResize";
 
-/** 표시 이름·프로필 사진 편집 — 사이드 서랍 맨 아래 계정 행을 눌러 연다. 이메일은 OAuth 제공자가 검증해준 값이라 여기서 바꿀 수 없다. */
-export function ProfileSheet({ onClose }: { onClose: () => void }) {
+/**
+ * 닉네임·프로필 사진 편집 — 사이드 서랍 맨 아래 계정 행을 눌러 연다. 이름/이메일은
+ * OAuth 제공자가 준 실명·개인정보라 여기서 바꿀 수 없고, 다른 사용자에게는 절대
+ * 노출되지 않는다 — 공개 표시 이름은 오직 닉네임뿐.
+ *
+ * `mandatory`: 가입 직후 닉네임이 아직 없을 때 AppBar가 강제로 띄우는 첫 설정
+ * 모드 — 닫기 버튼/배경 클릭 닫기를 모두 막아, 닉네임을 정하기 전엔 앱을 쓸 수 없다.
+ */
+export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => void; mandatory?: boolean }) {
   const { data: session, update } = useSession();
-  const [name, setName] = useState(session?.user?.name ?? "");
+  const [nickname, setNickname] = useState(session?.user?.nickname ?? "");
   const [image, setImage] = useState<string | null | undefined>(session?.user?.image);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -33,14 +40,15 @@ export function ProfileSheet({ onClose }: { onClose: () => void }) {
   };
 
   const handleSave = async () => {
-    if (!name.trim()) {
-      setError("이름을 입력해주세요");
+    const trimmed = nickname.trim();
+    if (trimmed.length < 2 || trimmed.length > 20 || !/^[가-힣a-zA-Z0-9_]+$/.test(trimmed)) {
+      setError("닉네임은 한글·영문·숫자·_ 2~20자로 입력해주세요");
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      await updateProfile({ name: name.trim(), image: image ?? null });
+      await updateProfile({ nickname: trimmed, image: image ?? null });
       await update();
       onClose();
     } catch (e) {
@@ -52,18 +60,25 @@ export function ProfileSheet({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[95] flex items-end justify-center sm:items-center">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={mandatory ? undefined : onClose} />
       <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl dark:bg-slate-900">
         <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-bold dark:text-slate-100">프로필 설정</h3>
-          <button
-            onClick={onClose}
-            aria-label="닫기"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            <X size={16} />
-          </button>
+          <h3 className="text-lg font-bold dark:text-slate-100">{mandatory ? "닉네임을 설정해주세요" : "프로필 설정"}</h3>
+          {!mandatory && (
+            <button
+              onClick={onClose}
+              aria-label="닫기"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
+        {mandatory && (
+          <p className="mb-5 -mt-3 text-[12.5px] text-slate-400">
+            다른 사람에게는 실명 대신 닉네임이 표시돼요. 한 번 정하면 언제든 다시 바꿀 수 있어요.
+          </p>
+        )}
 
         <div className="mb-6 flex flex-col items-center gap-2.5">
           <label className="relative cursor-pointer">
@@ -72,7 +87,7 @@ export function ProfileSheet({ onClose }: { onClose: () => void }) {
                 // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL / OAuth avatar URL
                 <img src={image} alt="" className="h-full w-full object-cover" />
               ) : (
-                (name || session?.user?.email || "?").trim().charAt(0).toUpperCase()
+                (nickname || "?").trim().charAt(0).toUpperCase()
               )}
             </div>
             <span className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-slate-900 text-white dark:border-slate-900">
@@ -87,14 +102,14 @@ export function ProfileSheet({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
-        <label className="mb-1.5 block text-[12.5px] font-semibold text-slate-600 dark:text-slate-300">표시 이름</label>
+        <label className="mb-1.5 block text-[12.5px] font-semibold text-slate-600 dark:text-slate-300">닉네임</label>
         <input
-          value={name}
-          onChange={(e) => setName(e.target.value.slice(0, 50))}
-          placeholder="이름"
+          value={nickname}
+          onChange={(e) => setNickname(e.target.value.slice(0, 20))}
+          placeholder="닉네임"
           className="mb-1 w-full rounded-2xl border border-slate-200 px-3.5 py-3 text-[14px] outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
         />
-        <p className="mb-4 text-right text-[11px] text-slate-400">{name.length}/50</p>
+        <p className="mb-4 text-right text-[11px] text-slate-400">{nickname.length}/20</p>
 
         {session?.user?.email && (
           <div className="mb-5 flex items-center justify-between rounded-2xl bg-slate-50 px-3.5 py-3 dark:bg-slate-800/60">

@@ -217,6 +217,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS follows_pair_key ON follows ("followerId", "fo
 CREATE INDEX IF NOT EXISTS follows_follower_idx ON follows ("followerId");
 CREATE INDEX IF NOT EXISTS follows_following_idx ON follows ("followingId");
 
+-- Public-facing display identity, chosen by the user at profile setup —
+-- decoupled from the OAuth-provided `name`/`email` (never rendered to other
+-- users) for privacy. NULL until the user completes the mandatory first-run
+-- profile setup gate. Case-insensitive uniqueness via a partial index so
+-- multiple NULLs (pre-onboarding users) don't conflict with each other.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname VARCHAR(20);
+CREATE UNIQUE INDEX IF NOT EXISTS users_nickname_key ON users (lower(nickname)) WHERE nickname IS NOT NULL;
+
 -- Server-side cache of place-to-place transit estimates (src/lib/transit.ts
 -- computes a Haversine-based fallback today; this table exists so a real
 -- Google Distance Matrix result, once wired in, doesn't re-pay the API
