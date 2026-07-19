@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Bell } from "lucide-react";
-import { fetchNotifications, markNotificationsRead, type AppNotification } from "@/lib/api";
+import { acceptFollowRequest, fetchNotifications, markNotificationsRead, rejectFollowRequest, type AppNotification } from "@/lib/api";
+import { UserProfileSheet } from "@/components/UserProfileSheet";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -20,13 +21,15 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
 }
 
-/** 우측 상단 알림 벨 — 다른 사람이 나를 팔로우하거나 내 후기에 좋아요를 누르면 여기 쌓인다. 로그아웃 상태면 아예 렌더링하지 않는다. */
+/** 우측 상단 알림 벨 — 다른 사람이 나에게 트메를 신청하거나(수락/거절 필요), 신청을 수락하거나, 내 후기에 좋아요를 누르면 여기 쌓인다. 로그아웃 상태면 아예 렌더링하지 않는다. */
 export function NotificationBell() {
   const { data: session } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [profileUserId, setProfileUserId] = useState<number | null>(null);
+  const [requestBusyId, setRequestBusyId] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
   const loggedIn = !!session?.user;
@@ -72,6 +75,29 @@ export function NotificationBell() {
   const handleItemClick = (n: AppNotification) => {
     setOpen(false);
     if (n.postId != null) router.push(`/trip/${n.postId}`);
+    else setProfileUserId(n.actorId);
+  };
+
+  const handleAccept = async (e: React.MouseEvent, n: AppNotification) => {
+    e.stopPropagation();
+    setRequestBusyId(n.id);
+    try {
+      await acceptFollowRequest(n.actorId);
+      setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, requestStatus: "accepted" } : x)));
+    } finally {
+      setRequestBusyId(null);
+    }
+  };
+
+  const handleReject = async (e: React.MouseEvent, n: AppNotification) => {
+    e.stopPropagation();
+    setRequestBusyId(n.id);
+    try {
+      await rejectFollowRequest(n.actorId);
+      setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, requestStatus: "none" } : x)));
+    } finally {
+      setRequestBusyId(null);
+    }
   };
 
   if (!loggedIn) return null;
@@ -99,7 +125,7 @@ export function NotificationBell() {
               <button
                 key={n.id}
                 onClick={() => handleItemClick(n)}
-                className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                className={`flex w-full items-start gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 ${
                   n.read ? "" : "bg-indigo-50/60 dark:bg-indigo-500/10"
                 }`}
               >
@@ -114,15 +140,46 @@ export function NotificationBell() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-[12.5px] leading-snug text-slate-700 dark:text-slate-200">
                     <span className="font-semibold">{n.actorName ?? "여행자"}</span>
-                    {n.type === "follow" ? "님이 회원님을 팔로우하기 시작했어요" : "님이 회원님의 후기에 좋아요를 눌렀어요"}
+                    {n.type === "follow_request"
+                      ? "님이 트메를 신청했어요"
+                      : n.type === "follow_accept"
+                        ? "님이 트메 신청을 수락했어요"
+                        : "님이 회원님의 후기에 좋아요를 눌렀어요"}
                   </span>
                   <span className="mt-0.5 block text-[11px] text-slate-400">{relativeTime(n.createdAt)}</span>
+                  {n.type === "follow_request" && n.requestStatus === "pending" && (
+                    <span className="mt-1.5 flex gap-1.5">
+                      <span
+                        role="button"
+                        onClick={(e) => handleAccept(e, n)}
+                        className={`rounded-full bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white transition-opacity hover:bg-indigo-700 ${
+                          requestBusyId === n.id ? "pointer-events-none opacity-60" : ""
+                        }`}
+                      >
+                        수락
+                      </span>
+                      <span
+                        role="button"
+                        onClick={(e) => handleReject(e, n)}
+                        className={`rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-500 transition-opacity hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 ${
+                          requestBusyId === n.id ? "pointer-events-none opacity-60" : ""
+                        }`}
+                      >
+                        거절
+                      </span>
+                    </span>
+                  )}
+                  {n.type === "follow_request" && n.requestStatus === "accepted" && (
+                    <span className="mt-1 block text-[11px] font-semibold text-indigo-500">수락함</span>
+                  )}
                 </span>
               </button>
             ))
           )}
         </div>
       )}
+
+      {profileUserId != null && <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} />}
     </div>
   );
 }

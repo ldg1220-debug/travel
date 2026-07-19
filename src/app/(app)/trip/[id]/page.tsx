@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { Link as LinkIcon, ChevronLeft, Heart } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import {
+  acceptFollowRequest,
   deleteTripPost,
   fetchFollowStatus,
   fetchTripPost,
@@ -26,6 +27,7 @@ import { VisibilitySelector } from "@/components/VisibilitySelector";
 import { LoginModal } from "@/components/LoginModal";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { TripPostComposer } from "@/components/TripPostComposer";
+import { UserProfileSheet } from "@/components/UserProfileSheet";
 import { useItineraryStore } from "@/store/itineraryStore";
 
 /** Standalone public view of one 여행 후기 (blog/Instagram-style trip post) — what a 카카오톡 공유 link or "링크 복사" opens for anyone, logged in or not, if the post was published to the feed (or you're its author). */
@@ -49,7 +51,8 @@ export default function TripPostDetailPage() {
   const [followBusy, setFollowBusy] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
-  const [loginReason, setLoginReason] = useState("팔로우하려면 로그인해주세요.");
+  const [loginReason, setLoginReason] = useState("트메를 맺으려면 로그인해주세요.");
+  const [profileUserId, setProfileUserId] = useState<number | null>(null);
 
   const reload = () => {
     const id = Number(params.id);
@@ -73,6 +76,10 @@ export default function TripPostDetailPage() {
   const metaLine = post
     ? [post.authorName ?? "여행자", post.tripTitle, formatDateLabel(post.createdAt.slice(0, 10))].filter(Boolean).join(" · ")
     : "";
+  // metaLine 그대로는 카카오톡 공유 설명에 쓰고, 화면에 보이는 줄은 작성자
+  // 닉네임만 따로 떼서 탭하면 프로필이 뜨게 한다 — 나머지(여행 제목·날짜)는
+  // 그 뒤에 일반 텍스트로 붙인다.
+  const metaLineRest = post ? [post.tripTitle, formatDateLabel(post.createdAt.slice(0, 10))].filter(Boolean).join(" · ") : "";
 
   // 이 후기와 연결된 계획이 이 기기에 저장돼 있으면 "일정 보기"로 바로
   // 플래너로 넘어갈 수 있게 한다 — 없으면(다른 기기·서버 전용 계획) 조용히
@@ -97,8 +104,12 @@ export default function TripPostDetailPage() {
     });
   }, [params.id]);
 
-  // 남의 후기를 볼 때만 팔로우 상태를 조회 — 팔로우 버튼과 "친구공개" 접근
+  // 남의 후기를 볼 때만 팔로우 상태를 조회 — 팔로우 버튼과 "트메공개" 접근
   // 가능 여부 표시에 쓴다.
+  const refreshFollowStatus = () => {
+    if (!post || isOwner || !session?.user) return;
+    fetchFollowStatus(post.authorId).then(setFollowStatus);
+  };
   useEffect(() => {
     if (!post || isOwner || !session?.user) return;
     let cancelled = false;
@@ -113,16 +124,18 @@ export default function TripPostDetailPage() {
   const handleToggleFollow = async () => {
     if (!post) return;
     if (!session?.user) {
-      setLoginReason("팔로우하려면 로그인해주세요.");
+      setLoginReason("트메를 맺으려면 로그인해주세요.");
       setLoginOpen(true);
       return;
     }
     setFollowBusy(true);
     try {
-      if (followStatus?.isFollowing) {
-        await unfollowUser(post.authorId);
+      if (followStatus?.isFollowing || followStatus?.isPendingOutgoing) {
+        await unfollowUser(post.authorId); // 트메 끊기 또는 내가 보낸 신청 취소
+      } else if (followStatus?.isPendingIncoming) {
+        await acceptFollowRequest(post.authorId); // 상대가 보낸 신청 수락
       } else {
-        await followUser(post.authorId);
+        await followUser(post.authorId); // 트메 신청
       }
       const next = await fetchFollowStatus(post.authorId);
       setFollowStatus(next);
@@ -263,16 +276,29 @@ export default function TripPostDetailPage() {
         )}
 
         <div className="mb-1 flex items-center justify-between gap-2">
-          <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">{metaLine}</p>
+          <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">
+            <button onClick={() => setProfileUserId(post.authorId)} className="font-semibold text-slate-600 hover:underline dark:text-slate-300">
+              {post.authorName ?? "여행자"}
+            </button>
+            {metaLineRest && ` · ${metaLineRest}`}
+          </p>
           {!isOwner && (
             <button
               onClick={handleToggleFollow}
               disabled={followBusy}
               className={`shrink-0 rounded-full px-3 py-1 text-[11.5px] font-semibold transition-colors disabled:opacity-60 ${
-                followStatus?.isFollowing ? "border border-slate-200 bg-white text-slate-500" : "bg-indigo-600 text-white hover:bg-indigo-700"
+                followStatus?.isFollowing || followStatus?.isPendingOutgoing
+                  ? "border border-slate-200 bg-white text-slate-500"
+                  : "bg-indigo-600 text-white hover:bg-indigo-700"
               }`}
             >
-              {followStatus?.isFollowing ? (followStatus.isFriend ? "친구" : "팔로잉") : "팔로우"}
+              {followStatus?.isFollowing
+                ? "트메"
+                : followStatus?.isPendingOutgoing
+                  ? "요청됨"
+                  : followStatus?.isPendingIncoming
+                    ? "수락하기"
+                    : "트메 신청"}
             </button>
           )}
         </div>
@@ -428,6 +454,10 @@ export default function TripPostDetailPage() {
       )}
 
       {loginOpen && <LoginModal reason={loginReason} onClose={() => setLoginOpen(false)} />}
+
+      {profileUserId != null && (
+        <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} onChange={refreshFollowStatus} />
+      )}
     </div>
   );
 }

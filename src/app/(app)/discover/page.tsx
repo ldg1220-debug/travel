@@ -43,8 +43,10 @@ import { ScheduleModal } from "@/components/ScheduleModal";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
+import { PlacePager } from "@/components/PlacePager";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch } from "@/lib/api";
+import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
 import { SEASON_LABEL } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
@@ -110,21 +112,8 @@ const CUISINE_FILTERS: { key: CuisineFilter; label: string }[] = [
 ];
 
 const SEARCH_PAGE_LIMIT = 10;
-
-/** Client-side sort for the 실시간 검색 결과 section (≤20 results, so sorting in the browser is fine). "relevance" keeps Google's own ranking. */
-type LiveSortKey = "relevance" | "popularity" | "rating" | "reviews" | "price";
-const LIVE_SORTS: { key: LiveSortKey; label: string }[] = [
-  { key: "relevance", label: "관련도순" },
-  { key: "popularity", label: "인기순" },
-  { key: "rating", label: "별점순" },
-  { key: "reviews", label: "리뷰많은순" },
-  { key: "price", label: "가격대순" },
-];
-
-/** Popularity = rating weighted by how many reviews back it (a 4.9 with 3 reviews shouldn't outrank a 4.6 with 8,000). */
-function popularityScore(p: Place): number {
-  return (p.rating ?? 0) * Math.log10((p.reviewCount ?? 0) + 10);
-}
+/** 실시간 검색 결과(그 외 종합 결과) 섹션의 클라이언트 페이지당 개수 — 서버가 최대 ~60개까지 한 번에 가져와두고 여기서 정렬 후 잘라 보여준다. */
+const LIVE_RESULT_PAGE_SIZE = 12;
 
 /** Google `primaryType` -> Korean badge label for live result cards; unmapped types fall back to the raw type with underscores spaced. */
 const LIVE_TYPE_LABELS: Record<string, string> = {
@@ -1111,28 +1100,35 @@ function SearchResults({
   // the flag itself or a card in the list below, so both always point at
   // the same place.
   const [selectedLiveId, setSelectedLiveId] = useState<string | null>(null);
-  const sortedLiveResults = useMemo(() => {
-    if (!liveResults) return [];
-    if (liveSort === "popularity") return [...liveResults].sort((a, b) => popularityScore(b) - popularityScore(a));
-    if (liveSort === "rating") return [...liveResults].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    if (liveSort === "reviews") return [...liveResults].sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0));
-    // 가격대순: 저렴한 순(오름차순). Google이 가격대를 안 준 곳은 맨 뒤로.
-    if (liveSort === "price") return [...liveResults].sort((a, b) => (a.priceLevel ?? Infinity) - (b.priceLevel ?? Infinity));
-    return liveResults;
-  }, [liveResults, liveSort]);
+  const sortedLiveResults = useMemo(() => sortPlaces(liveResults ?? [], liveSort), [liveResults, liveSort]);
+
+  // 서버가 최대 ~60개까지 한 번에 가져와두므로(재요청 없음), 여기서
+  // 페이지 단위로 잘라 보여준다 — 정렬이나 검색어가 바뀌면 1페이지로. 렌더
+  // 중에 바로 조정한다(useEffect로 setState하면 리렌더가 한 프레임 밀린다) —
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [livePage, setLivePage] = useState(1);
+  const livePageResetKeyValue = `${scope}|${query}|${categoryFilter}|${liveSort}`;
+  const [livePageResetKey, setLivePageResetKey] = useState(livePageResetKeyValue);
+  if (livePageResetKey !== livePageResetKeyValue) {
+    setLivePageResetKey(livePageResetKeyValue);
+    setLivePage(1);
+  }
+  const liveTotalPages = Math.max(1, Math.ceil(sortedLiveResults.length / LIVE_RESULT_PAGE_SIZE));
+  const pagedLiveResults = sortedLiveResults.slice((livePage - 1) * LIVE_RESULT_PAGE_SIZE, livePage * LIVE_RESULT_PAGE_SIZE);
 
   // 정렬된 결과를 테마 버킷으로 묶는다 — 비어있는 버킷은 만들지 않는다
-  // (예: 이 검색에 술집이 하나도 없으면 술집 섹션/칩 자체가 안 나온다).
+  // (예: 이 검색에 술집이 하나도 없으면 술집 섹션/칩 자체가 안 나온다). 현재
+  // 페이지에 있는 결과만 묶어서, 테마 칩 개수도 이 페이지 기준으로 맞는다.
   const liveBuckets = useMemo(() => {
     const groups = new Map<LiveBucketKey, Place[]>();
-    for (const place of sortedLiveResults) {
+    for (const place of pagedLiveResults) {
       const key = liveCategoryBucket(place.category ?? "");
       const list = groups.get(key) ?? [];
       list.push(place);
       groups.set(key, list);
     }
     return LIVE_BUCKET_GROUPS.map((g) => ({ ...g, places: groups.get(g.key) ?? [] })).filter((g) => g.places.length > 0);
-  }, [sortedLiveResults]);
+  }, [pagedLiveResults]);
 
   const scrollToLiveBucket = (key: LiveBucketKey) => {
     document.getElementById(`live-bucket-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1337,7 +1333,7 @@ function SearchResults({
           <MapProvider>
             <div className="mt-3 h-72 overflow-hidden rounded-2xl border border-slate-200 shadow-sm sm:h-80">
               <LiveResultsMap
-                places={sortedLiveResults}
+                places={pagedLiveResults}
                 selectedId={selectedLiveId}
                 onSelect={setSelectedLiveId}
                 onOpenDetail={onOpenLiveDetail}
@@ -1403,6 +1399,8 @@ function SearchResults({
               </div>
             ))}
           </div>
+
+          <PlacePager page={livePage} totalPages={liveTotalPages} onChange={setLivePage} />
         </section>
       )}
     </div>

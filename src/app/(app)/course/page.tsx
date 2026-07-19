@@ -7,12 +7,14 @@ import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays } from "lucide-reac
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
+import { PlacePager } from "@/components/PlacePager";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchLivePlaceSearch, fetchRecommendedCourse, type RecommendedStop } from "@/lib/api";
 import { COURSE_SLOTS, courseNodesAtPath, courseRegionTree, searchableDepth, type CourseSlot } from "@/lib/courseRegions";
 import { todayISODate, pad2, formatDateLabel } from "@/lib/timeline";
+import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import type { DiscoverScope } from "@/lib/discoverData";
 import type { Place } from "@/lib/types";
 
@@ -280,15 +282,21 @@ export default function CourseBuilderPage() {
               ))}
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2.5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {options.map((c) => (
                 <button
                   key={c.label}
                   onClick={() => drillInto(c.label)}
-                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-[14px] font-semibold shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
                 >
-                  {c.emoji ? `${c.emoji} ` : ""}
-                  {c.label}
+                  <div className="relative h-20 w-full sm:h-24">
+                    <TilePhoto query={`${path[path.length - 1]} ${c.label}`} className="absolute inset-0 h-full w-full" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/45 to-transparent" />
+                  </div>
+                  <span className="px-3 py-2.5 text-[13.5px] font-semibold">
+                    {c.emoji ? `${c.emoji} ` : ""}
+                    {c.label}
+                  </span>
                 </button>
               ))}
               {/* 목록에 원하는 동네/도시가 없을 때 — 한 단계 위(이미 고른 지역/국가)
@@ -300,9 +308,11 @@ export default function CourseBuilderPage() {
                     setActiveSlot(COURSE_SLOTS[0].key);
                     setStep("build");
                   }}
-                  className="rounded-2xl border border-dashed border-slate-300 px-5 py-3 text-[14px] font-semibold text-slate-500 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-600"
+                  className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-slate-300 px-3 py-3 text-center text-[13.5px] font-semibold text-slate-500 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-600"
                 >
-                  기타 (직접 검색)
+                  기타
+                  <br />
+                  (직접 검색)
                 </button>
               )}
             </div>
@@ -351,6 +361,9 @@ export default function CourseBuilderPage() {
             </div>
 
             <SlotResults
+              // 도시/탭이 바뀌면 통째로 새로 마운트해서 정렬·페이지 상태를
+              // 리셋한다 — useEffect로 setState하는 것보다 이쪽이 깔끔하다.
+              key={`${city}-${activeSlot}`}
               scope={scope}
               city={city}
               slot={COURSE_SLOTS.find((s) => s.key === activeSlot)!}
@@ -509,7 +522,12 @@ export default function CourseBuilderPage() {
   );
 }
 
+const SLOT_PAGE_SIZE = 12;
+
 // ── one slot's live search results (grid of cards, tap to add to course) ──
+// 처음 뜨는 목록만으로 만족 못 할 수 있어 서버가 한 번에 더 많이(최대
+// ~60개) 가져오고, 여기서 정렬 기준 선택 + 페이지 단위로 잘라 보여준다 —
+// 이미 다 받아온 목록을 자르는 것뿐이라 페이지를 넘겨도 재요청은 없다.
 function SlotResults({
   scope,
   city,
@@ -531,6 +549,8 @@ function SlotResults({
     queryFn: () => fetchLivePlaceSearch(scope, query, slot.tag),
     staleTime: 5 * 60 * 1000,
   });
+  const [sort, setSort] = useState<LiveSortKey>("relevance");
+  const [page, setPage] = useState(1);
 
   if (isFetching && !data) {
     return <p className="py-16 text-center text-[13px] text-slate-400">{slot.label} 찾는 중…</p>;
@@ -544,19 +564,41 @@ function SlotResults({
     );
   }
 
+  const sorted = sortPlaces(results, sort);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / SLOT_PAGE_SIZE));
+  const pageItems = sorted.slice((page - 1) * SLOT_PAGE_SIZE, page * SLOT_PAGE_SIZE);
+
   return (
-    <div className="mt-5 grid grid-cols-2 gap-4 md:grid-cols-3">
-      {results.map((place) => (
-        <CourseSpotCard
-          key={place.id}
-          place={place}
-          slot={slot}
-          city={city}
-          picked={pickedIds.includes(place.id)}
-          onToggle={() => onToggle(place)}
-          onOpenDetail={() => onOpenDetail(place)}
-        />
-      ))}
+    <div>
+      <div className="mt-4 flex flex-wrap gap-1.5">
+        {LIVE_SORTS.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => setSort(s.key)}
+            className={`rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
+              sort === s.key ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-indigo-300"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-3">
+        {pageItems.map((place) => (
+          <CourseSpotCard
+            key={place.id}
+            place={place}
+            slot={slot}
+            city={city}
+            picked={pickedIds.includes(place.id)}
+            onToggle={() => onToggle(place)}
+            onOpenDetail={() => onOpenDetail(place)}
+          />
+        ))}
+      </div>
+
+      <PlacePager page={page} totalPages={totalPages} onChange={setPage} />
     </div>
   );
 }

@@ -9,12 +9,16 @@ export interface FollowUser {
 }
 
 export interface FollowStatus {
-  /** I follow them. */
+  /** I follow them (accepted). */
   isFollowing: boolean;
-  /** They follow me. */
+  /** They follow me (accepted). */
   isFollowedBy: boolean;
-  /** Both directions — what "친구공개" gates on. */
+  /** Both directions — what "트메공개" gates on. */
   isFriend: boolean;
+  /** I've sent them a 트메 신청 that they haven't responded to yet. */
+  isPendingOutgoing: boolean;
+  /** They've sent me a 트메 신청 I haven't responded to yet. */
+  isPendingIncoming: boolean;
   followerCount: number;
   followingCount: number;
 }
@@ -25,7 +29,7 @@ export interface FollowStatus {
  *    follow button, e.g. on /trip/[id] when viewing someone else's post).
  *  - `?list=followers|following` — the current user's own follower/following
  *    list (used by TripPostComposer's "특정인 선택" picker for a "custom"
- *    visibility post).
+ *    visibility post). Only accepted (수락된) relationships count.
  */
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -39,11 +43,11 @@ export async function GET(request: NextRequest) {
     const result =
       list === "followers"
         ? await pool.query(
-            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 order by f.created_at desc`,
+            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 and f.status = 'accepted' order by f.created_at desc`,
             [session.user.id],
           )
         : await pool.query(
-            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 order by f.created_at desc`,
+            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 and f.status = 'accepted' order by f.created_at desc`,
             [session.user.id],
           );
     return NextResponse.json({ users: result.rows as FollowUser[] });
@@ -57,28 +61,32 @@ export async function GET(request: NextRequest) {
   const viewerId = session?.user?.id ? Number(session.user.id) : null;
   const [followingRow, followedByRow, followerCountRow, followingCountRow] = await Promise.all([
     viewerId
-      ? pool.query(`select 1 from follows where "followerId" = $1 and "followingId" = $2`, [viewerId, targetId])
-      : Promise.resolve({ rowCount: 0 }),
+      ? pool.query(`select status from follows where "followerId" = $1 and "followingId" = $2`, [viewerId, targetId])
+      : Promise.resolve({ rows: [] as { status: string }[] }),
     viewerId
-      ? pool.query(`select 1 from follows where "followerId" = $1 and "followingId" = $2`, [targetId, viewerId])
-      : Promise.resolve({ rowCount: 0 }),
-    pool.query(`select count(*)::int as count from follows where "followingId" = $1`, [targetId]),
-    pool.query(`select count(*)::int as count from follows where "followerId" = $1`, [targetId]),
+      ? pool.query(`select status from follows where "followerId" = $1 and "followingId" = $2`, [targetId, viewerId])
+      : Promise.resolve({ rows: [] as { status: string }[] }),
+    pool.query(`select count(*)::int as count from follows where "followingId" = $1 and status = 'accepted'`, [targetId]),
+    pool.query(`select count(*)::int as count from follows where "followerId" = $1 and status = 'accepted'`, [targetId]),
   ]);
 
-  const isFollowing = (followingRow.rowCount ?? 0) > 0;
-  const isFollowedBy = (followedByRow.rowCount ?? 0) > 0;
+  const outgoingStatus = followingRow.rows[0]?.status as string | undefined;
+  const incomingStatus = followedByRow.rows[0]?.status as string | undefined;
+  const isFollowing = outgoingStatus === "accepted";
+  const isFollowedBy = incomingStatus === "accepted";
   const status: FollowStatus = {
     isFollowing,
     isFollowedBy,
     isFriend: isFollowing && isFollowedBy,
+    isPendingOutgoing: outgoingStatus === "pending",
+    isPendingIncoming: incomingStatus === "pending",
     followerCount: followerCountRow.rows[0]?.count ?? 0,
     followingCount: followingCountRow.rows[0]?.count ?? 0,
   };
   return NextResponse.json(status);
 }
 
-/** Follows a user — idempotent (following again is a no-op, not an error). */
+/** Sends a 트메 신청 — idempotent (requesting again while pending/accepted is a no-op). Requires the recipient's acceptance before it counts as a real connection. */
 export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -93,22 +101,64 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "cannot follow yourself" }, { status: 400 });
   }
   const inserted = await pool.query(
-    `insert into follows ("followerId", "followingId") values ($1, $2) on conflict ("followerId", "followingId") do nothing returning id`,
+    `insert into follows ("followerId", "followingId", status) values ($1, $2, 'pending') on conflict ("followerId", "followingId") do nothing returning id`,
     [session.user.id, targetId],
   );
   if ((inserted.rowCount ?? 0) > 0) {
-    await pool.query(`insert into notifications ("recipientId", "actorId", type) values ($1, $2, 'follow')`, [targetId, session.user.id]);
+    await pool.query(`insert into notifications ("recipientId", "actorId", type) values ($1, $2, 'follow_request')`, [targetId, session.user.id]);
   }
   return NextResponse.json({ ok: true });
 }
 
-/** Unfollows a user. */
+/** Accepts a pending 트메 신청 sent TO the current user. Body: { requesterId }. */
+export async function PATCH(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const body = (await request.json()) as { requesterId?: number };
+  const requesterId = Number(body.requesterId);
+  if (!requesterId) {
+    return NextResponse.json({ error: "missing requesterId" }, { status: 400 });
+  }
+  const accepted = await pool.query(
+    `update follows set status = 'accepted' where "followerId" = $1 and "followingId" = $2 and status = 'pending' returning id`,
+    [requesterId, session.user.id],
+  );
+  if ((accepted.rowCount ?? 0) > 0) {
+    await pool.query(`insert into notifications ("recipientId", "actorId", type) values ($1, $2, 'follow_accept')`, [requesterId, session.user.id]);
+  }
+  return NextResponse.json({ ok: true });
+}
+
+/**
+ * Two modes, both scoped to the current session:
+ *  - `?targetUserId=` — removes MY OWN outgoing edge toward that user,
+ *    whatever its status: cancels my pending request, or unfollows an
+ *    already-accepted connection.
+ *  - `?requesterId=` — rejects a pending 트메 신청 sent TO me by that user.
+ */
 export async function DELETE(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const targetId = Number(request.nextUrl.searchParams.get("targetUserId"));
+  const targetUserId = request.nextUrl.searchParams.get("targetUserId");
+  const requesterUserId = request.nextUrl.searchParams.get("requesterId");
+
+  if (requesterUserId) {
+    const requesterId = Number(requesterUserId);
+    if (!requesterId) {
+      return NextResponse.json({ error: "missing requesterId" }, { status: 400 });
+    }
+    await pool.query(`delete from follows where "followerId" = $1 and "followingId" = $2 and status = 'pending'`, [
+      requesterId,
+      session.user.id,
+    ]);
+    return NextResponse.json({ ok: true });
+  }
+
+  const targetId = Number(targetUserId);
   if (!targetId) {
     return NextResponse.json({ error: "missing targetUserId" }, { status: 400 });
   }

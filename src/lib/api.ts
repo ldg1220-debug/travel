@@ -238,7 +238,7 @@ export async function deleteReview(id: number): Promise<void> {
   await fetch(`/api/reviews?id=${id}`, { method: "DELETE" });
 }
 
-/** 전체공개 / 친구공개(맞팔로우만) / 특정인공개(선택한 팔로워만) / 비공개(나만). */
+/** 전체공개 / 트메공개(맞팔로우만) / 특정인공개(선택한 팔로워만) / 비공개(나만). */
 export type Visibility = "public" | "friends" | "custom" | "private";
 
 export interface TripPost {
@@ -319,7 +319,7 @@ export interface FeedResponse {
   pagination: { page: number; limit: number; total: number; hasMore: boolean };
 }
 
-/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first — optionally filtered by region, a free-text search across the post's title/content/trip title/visited place names, and/or scoped to only people the viewer follows ("팔로잉" tab). */
+/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first — optionally filtered by region, a free-text search across the post's title/content/trip title/visited place names, and/or scoped to only people the viewer follows ("트메" tab). */
 export async function fetchFeed(
   page = 1,
   limit = 10,
@@ -369,9 +369,11 @@ export async function unlikeTripPost(id: number): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 팔로우 — "친구공개"(맞팔로우)와 "특정인공개"(내 팔로워 중 선택)의 기반이
-// 되는 단방향 팔로우 관계. 팔로우 자체는 승인 없이 즉시 이뤄지고, "친구"
-// 판정만 양방향(맞팔로우)을 요구한다.
+// 팔로우 — "트메공개"(맞팔로우)와 "특정인공개"(내 팔로워 중 선택)의 기반이
+// 되는 단방향 팔로우 관계. "트메 신청"은 상대가 수락해야 실제 관계로
+// 카운트되고, "트메" 판정은 양방향(맞팔로우)이 모두 수락 상태여야 한다.
+// "팔로잉"과 "친구"(맞팔로우)는 이 앱에서 통틀어 "트래블메이트(트메)"라고
+// 부른다 — UI 문구만 그렇고, 내부 필드명(isFriend 등)은 의미를 그대로 유지한다.
 
 export interface FollowUser {
   id: number;
@@ -380,23 +382,38 @@ export interface FollowUser {
 }
 
 export interface FollowStatus {
-  /** I follow them. */
+  /** I follow them (수락됨). */
   isFollowing: boolean;
-  /** They follow me. */
+  /** They follow me (수락됨). */
   isFollowedBy: boolean;
-  /** Both directions — what "친구공개" gates on. */
+  /** Both directions — what "트메공개" gates on. */
   isFriend: boolean;
+  /** I've sent them a 트메 신청 that they haven't responded to yet. */
+  isPendingOutgoing: boolean;
+  /** They've sent me a 트메 신청 I haven't responded to yet. */
+  isPendingIncoming: boolean;
   followerCount: number;
   followingCount: number;
 }
 
+const EMPTY_FOLLOW_STATUS: FollowStatus = {
+  isFollowing: false,
+  isFollowedBy: false,
+  isFriend: false,
+  isPendingOutgoing: false,
+  isPendingIncoming: false,
+  followerCount: 0,
+  followingCount: 0,
+};
+
 /** Follow status + counts for one target user, relative to the current session. */
 export async function fetchFollowStatus(targetUserId: number): Promise<FollowStatus> {
   const res = await fetch(`/api/follows?targetUserId=${targetUserId}`);
-  if (!res.ok) return { isFollowing: false, isFollowedBy: false, isFriend: false, followerCount: 0, followingCount: 0 };
+  if (!res.ok) return EMPTY_FOLLOW_STATUS;
   return res.json();
 }
 
+/** Sends a 트메 신청 — needs the recipient's acceptance before it counts as a real connection. */
 export async function followUser(targetUserId: number): Promise<void> {
   await fetch("/api/follows", {
     method: "POST",
@@ -405,11 +422,26 @@ export async function followUser(targetUserId: number): Promise<void> {
   });
 }
 
+/** Cancels my own pending 트메 신청 to `targetUserId`, or ends an already-accepted connection. */
 export async function unfollowUser(targetUserId: number): Promise<void> {
   await fetch(`/api/follows?targetUserId=${targetUserId}`, { method: "DELETE" });
 }
 
-/** The current user's own followers or following list — used by "특정인공개"'s picker. */
+/** Accepts a pending 트메 신청 sent to me by `requesterId`. */
+export async function acceptFollowRequest(requesterId: number): Promise<void> {
+  await fetch("/api/follows", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requesterId }),
+  });
+}
+
+/** Rejects a pending 트메 신청 sent to me by `requesterId`. */
+export async function rejectFollowRequest(requesterId: number): Promise<void> {
+  await fetch(`/api/follows?requesterId=${requesterId}`, { method: "DELETE" });
+}
+
+/** The current user's own followers or following list (수락된 관계만) — used by "특정인공개"'s picker. */
 export async function fetchFollowList(list: "followers" | "following"): Promise<FollowUser[]> {
   const res = await fetch(`/api/follows?list=${list}`);
   if (!res.ok) return [];
@@ -417,19 +449,41 @@ export async function fetchFollowList(list: "followers" | "following"): Promise<
   return data.users ?? [];
 }
 
+export interface UserProfile {
+  id: number;
+  nickname: string | null;
+  image: string | null;
+  followerCount: number;
+  followingCount: number;
+  isFollowing: boolean;
+  isFollowedBy: boolean;
+  isFriend: boolean;
+  isPendingOutgoing: boolean;
+  isPendingIncoming: boolean;
+}
+
+/** Public profile snapshot for any user (nickname/avatar + follower/트메 수 + 뷰어의 팔로우 상태) — powers the profile popup opened by tapping a nickname anywhere in the app. */
+export async function fetchUserProfile(userId: number): Promise<UserProfile | null> {
+  const res = await fetch(`/api/users/${userId}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
 // ─────────────────────────────────────────────────────────────
-// 알림 — 앱 우측 상단 벨 아이콘. 누가 나를 팔로우하거나 내 후기에 좋아요를
-// 누르면 한 건씩 쌓인다.
+// 알림 — 앱 우측 상단 벨 아이콘. 누가 나에게 트메를 신청하거나(수락/거절
+// 필요), 신청을 수락하거나, 내 후기에 좋아요를 누르면 한 건씩 쌓인다.
 
 export interface AppNotification {
   id: number;
-  type: "follow" | "like";
+  type: "follow_request" | "follow_accept" | "like";
   actorId: number;
   actorName: string | null;
   actorImage: string | null;
   /** "like" 알림에만 있음 — 눌러서 바로 그 후기로 이동할 때 쓴다. */
   postId: number | null;
   postTitle: string | null;
+  /** "follow_request" 알림에만 있음 — 'pending'이면 수락/거절 버튼을 보여준다, 이미 처리됐거나(수락/취소/거절) 지난 신청이면 'accepted'|'none'. */
+  requestStatus: "pending" | "accepted" | "none" | null;
   read: boolean;
   createdAt: string;
 }

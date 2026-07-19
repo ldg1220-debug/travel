@@ -40,8 +40,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   let canView = isOwner || row.visibility === "public";
   if (!canView && viewerId != null && row.visibility === "friends") {
     const mutual = await pool.query(
-      `select 1 from follows where "followerId" = $1 and "followingId" = $2
-       and exists (select 1 from follows where "followerId" = $2 and "followingId" = $1)`,
+      `select 1 from follows where "followerId" = $1 and "followingId" = $2 and status = 'accepted'
+       and exists (select 1 from follows where "followerId" = $2 and "followingId" = $1 and status = 'accepted')`,
       [viewerId, row.authorId],
     );
     canView = (mutual.rowCount ?? 0) > 0;

@@ -7,6 +7,7 @@ import { Rss, Loader2, Search } from "lucide-react";
 import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { LoginModal } from "@/components/LoginModal";
+import { UserProfileSheet } from "@/components/UserProfileSheet";
 import type { Region } from "@/lib/types";
 
 const SEARCH_DEBOUNCE_MS = 400;
@@ -17,10 +18,10 @@ const REGION_OPTIONS: { value: Region | "all"; label: string }[] = [
 ];
 const SCOPE_OPTIONS: { value: "all" | "following"; label: string }[] = [
   { value: "all", label: "전체" },
-  { value: "following", label: "팔로잉" },
+  { value: "following", label: "트메" },
 ];
 
-/** Public feed of everyone's published 여행 후기 (blog/Instagram-style trip posts) — browsable without logging in, same as /discover. Supports filtering by region, scope(전체/팔로잉), and free-text search (post title/내용, 여행 제목, 다녀온 장소 이름). */
+/** Public feed of everyone's published 여행 후기 (blog/Instagram-style trip posts) — browsable without logging in, same as /discover. Supports filtering by region, scope(전체/트메), and free-text search (post title/내용, 여행 제목, 다녀온 장소 이름). */
 export default function FeedPage() {
   const router = useRouter();
   const { data: session } = useSession();
@@ -33,6 +34,7 @@ export default function FeedPage() {
   const [region, setRegion] = useState<Region | "all">("all");
   const [scope, setScope] = useState<"all" | "following">("all");
   const [loginOpen, setLoginOpen] = useState(false);
+  const [profileUserId, setProfileUserId] = useState<number | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -124,14 +126,14 @@ export default function FeedPage() {
             </span>
             <p className="text-sm font-semibold text-slate-700">
               {scope === "following"
-                ? "팔로잉한 사람이 공개한 후기가 없어요"
+                ? "트메가 공개한 후기가 없어요"
                 : query || region !== "all"
                   ? "조건에 맞는 후기가 없어요"
                   : "아직 공개된 후기가 없어요"}
             </p>
             <p className="mt-1 text-[13px] text-slate-400">
               {scope === "following"
-                ? "관심 있는 사람을 팔로우하면 여기서 후기를 모아볼 수 있어요."
+                ? "관심 있는 사람과 트메를 맺으면 여기서 후기를 모아볼 수 있어요."
                 : query || region !== "all"
                   ? "다른 검색어나 지역으로 찾아보세요."
                   : "여행 보관함에서 첫 여행 후기를 남겨보세요."}
@@ -140,7 +142,12 @@ export default function FeedPage() {
         ) : (
           <div className="space-y-4">
             {posts.map((post) => (
-              <FeedCard key={post.id} post={post} onOpen={() => router.push(`/trip/${post.id}`)} />
+              <FeedCard
+                key={post.id}
+                post={post}
+                onOpen={() => router.push(`/trip/${post.id}`)}
+                onOpenProfile={() => setProfileUserId(post.authorId)}
+              />
             ))}
           </div>
         )}
@@ -158,7 +165,9 @@ export default function FeedPage() {
         )}
       </div>
 
-      {loginOpen && <LoginModal reason="팔로잉 피드를 보려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
+      {loginOpen && <LoginModal reason="트메 피드를 보려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
+
+      {profileUserId != null && <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} />}
     </div>
   );
 }
@@ -167,14 +176,22 @@ export default function FeedPage() {
 // 리스트형 후기 카드 — 지역 태그·날짜 줄, 작성자 아바타·닉네임 줄, 제목,
 // 본문 2줄 미리보기 + 우측 정사각 썸네일. 전엔 상단 와이드 사진 아래 글자만
 // 있어 작성자/지역이 눈에 안 들어왔는데, 메타 정보를 위계대로 앞세운다.
-function FeedCard({ post, onOpen }: { post: FeedPost; onOpen: () => void }) {
+function FeedCard({ post, onOpen, onOpenProfile }: { post: FeedPost; onOpen: () => void; onOpenProfile: () => void }) {
   // 본문의 "#장소이름" 해시태그는 상세에서만 의미가 있으니(호버 팝오버),
   // 미리보기에선 # 없이 장소 이름 텍스트만 남긴다.
   const preview = post.content.replace(/#(\S+)/g, "$1");
   return (
-    <button
+    // 카드 전체는 클릭 시 후기 상세로 이동하지만, 작성자 닉네임만은 별도
+    // 버튼으로 떼어내 프로필 팝업을 띄운다 — 버튼 안에 버튼을 중첩할 수
+    // 없어 카드 자체는 div+role="button"으로 바꿨다.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className="group block w-full rounded-3xl border border-slate-200/70 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onOpen();
+      }}
+      className="group block w-full cursor-pointer rounded-3xl border border-slate-200/70 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[12px] font-bold text-indigo-500">
@@ -186,7 +203,13 @@ function FeedCard({ post, onOpen }: { post: FeedPost; onOpen: () => void }) {
 
       <div className="flex gap-3">
         <div className="min-w-0 flex-1">
-          <div className="mb-1.5 flex items-center gap-1.5">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenProfile();
+            }}
+            className="mb-1.5 flex items-center gap-1.5"
+          >
             {post.authorImage ? (
               // eslint-disable-next-line @next/next/no-img-element -- OAuth profile image URL
               <img src={post.authorImage} alt="" className="h-5 w-5 shrink-0 rounded-full object-cover" />
@@ -195,8 +218,8 @@ function FeedCard({ post, onOpen }: { post: FeedPost; onOpen: () => void }) {
                 {(post.authorName ?? "여").trim().charAt(0)}
               </span>
             )}
-            <span className="truncate text-[12px] font-medium text-slate-500">{post.authorName ?? "여행자"}</span>
-          </div>
+            <span className="truncate text-[12px] font-medium text-slate-500 hover:underline">{post.authorName ?? "여행자"}</span>
+          </button>
           <h3 className="truncate text-[15.5px] font-bold tracking-tight text-slate-900">{post.title}</h3>
           <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-slate-500">{preview}</p>
         </div>
@@ -205,6 +228,6 @@ function FeedCard({ post, onOpen }: { post: FeedPost; onOpen: () => void }) {
           <img src={post.images[0]} alt="" className="h-[76px] w-[76px] shrink-0 rounded-2xl object-cover" />
         )}
       </div>
-    </button>
+    </div>
   );
 }
