@@ -36,20 +36,19 @@ export async function GET(request: NextRequest) {
   const targetUserId = request.nextUrl.searchParams.get("targetUserId");
   const list = request.nextUrl.searchParams.get("list");
 
-  if (list === "followers" || list === "following") {
+  if (list === "followers" || list === "following" || list === "received" || list === "sent") {
     if (!session?.user?.id) {
       return NextResponse.json({ users: [] });
     }
-    const result =
-      list === "followers"
-        ? await pool.query(
-            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 and f.status = 'accepted' order by f.created_at desc`,
-            [session.user.id],
-          )
-        : await pool.query(
-            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 and f.status = 'accepted' order by f.created_at desc`,
-            [session.user.id],
-          );
+    // followers/following = 수락된 관계, received/sent = 아직 대기 중인 신청
+    // (받은 것 = 나에게 온 pending, 보낸 것 = 내가 보낸 pending).
+    const queries: Record<string, string> = {
+      followers: `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 and f.status = 'accepted' order by f.created_at desc`,
+      following: `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 and f.status = 'accepted' order by f.created_at desc`,
+      received: `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 and f.status = 'pending' order by f.created_at desc`,
+      sent: `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 and f.status = 'pending' order by f.created_at desc`,
+    };
+    const result = await pool.query(queries[list], [session.user.id]);
     return NextResponse.json({ users: result.rows as FollowUser[] });
   }
 
@@ -126,6 +125,13 @@ export async function PATCH(request: NextRequest) {
     [requesterId, session.user.id],
   );
   if ((accepted.rowCount ?? 0) > 0) {
+    // 트래블 메이트는 상호 관계 — 수락하는 순간 반대 방향 엣지도 함께
+    // 수락 상태로 만든다(내가 상대에게 보낸 pending이 있었다면 그것도 승급).
+    await pool.query(
+      `insert into follows ("followerId", "followingId", status) values ($1, $2, 'accepted')
+       on conflict ("followerId", "followingId") do update set status = 'accepted'`,
+      [session.user.id, requesterId],
+    );
     await pool.query(`insert into notifications ("recipientId", "actorId", type) values ($1, $2, 'follow_accept')`, [requesterId, session.user.id]);
   }
   return NextResponse.json({ ok: true });
@@ -162,6 +168,12 @@ export async function DELETE(request: NextRequest) {
   if (!targetId) {
     return NextResponse.json({ error: "missing targetUserId" }, { status: 400 });
   }
-  await pool.query(`delete from follows where "followerId" = $1 and "followingId" = $2`, [session.user.id, targetId]);
+  // 트래블 메이트 끊기는 상호 해제 — 내 엣지와, 이미 수락된 상대 엣지를 함께
+  // 지운다. (상대가 나에게 보낸 '대기 중' 신청은 별개이므로 남겨둔다)
+  await pool.query(
+    `delete from follows where ("followerId" = $1 and "followingId" = $2)
+     or ("followerId" = $2 and "followingId" = $1 and status = 'accepted')`,
+    [session.user.id, targetId],
+  );
   return NextResponse.json({ ok: true });
 }

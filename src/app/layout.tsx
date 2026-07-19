@@ -40,11 +40,18 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        {/* No-flash theme init: apply the saved (or OS-preferred) theme before paint. */}
+        {/* "only light"가 기본 — 폰 OS가 다크 모드여도 삼성 인터넷/크롬의
+            "웹사이트 어둡게"(강제 다크) 재채색이 라이트 화면을 뒤집지 않게
+            옵트아웃한다. 앱 자체 다크 모드일 땐 아래 스크립트가 'dark'로
+            바꿔 단다. */}
+        <meta name="color-scheme" content="only light" />
+        {/* No-flash theme init: apply the saved theme before paint. 사용자가
+            토글로 직접 다크를 켠 적이 있을 때만 다크 — OS 다크 모드를 자동
+            추종하지 않는다(폰이 다크라는 이유로 낮에 앱이 밤처럼 떴던 문제). */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})()",
+              "(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.classList.add('dark');var m=document.querySelector('meta[name=color-scheme]');if(m)m.setAttribute('content','dark')}}catch(e){}})()",
           }}
         />
       </head>

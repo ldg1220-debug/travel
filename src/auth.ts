@@ -32,11 +32,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (session.user) {
         session.user.id = user.id;
         // The adapter's AdapterUser shape only covers the standard Auth.js
-        // columns (id/name/email/image/emailVerified) — nickname is our own
-        // addition, so it's fetched separately rather than relying on the
-        // adapter to surface it.
-        const result = await pool.query("select nickname from users where id = $1", [user.id]);
+        // columns (id/name/email/image/emailVerified) — nickname/termsAgreedAt
+        // are our own additions, so they're fetched separately rather than
+        // relying on the adapter to surface them.
+        const result = await pool.query(`select nickname, "termsAgreedAt" from users where id = $1`, [user.id]);
         session.user.nickname = result.rows[0]?.nickname ?? null;
+        session.user.termsAgreed = result.rows[0]?.termsAgreedAt != null;
       }
       return session;
     },

@@ -141,9 +141,9 @@ export function NotificationBell() {
                   <span className="block text-[12.5px] leading-snug text-slate-700 dark:text-slate-200">
                     <span className="font-semibold">{n.actorName ?? "여행자"}</span>
                     {n.type === "follow_request"
-                      ? "님이 트메를 신청했어요"
+                      ? "님이 트래블 메이트를 신청했어요"
                       : n.type === "follow_accept"
-                        ? "님이 트메 신청을 수락했어요"
+                        ? "님이 트래블 메이트 신청을 수락했어요"
                         : "님이 회원님의 후기에 좋아요를 눌렀어요"}
                   </span>
                   <span className="mt-0.5 block text-[11px] text-slate-400">{relativeTime(n.createdAt)}</span>

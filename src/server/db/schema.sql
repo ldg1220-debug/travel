@@ -217,10 +217,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS follows_pair_key ON follows ("followerId", "fo
 CREATE INDEX IF NOT EXISTS follows_follower_idx ON follows ("followerId");
 CREATE INDEX IF NOT EXISTS follows_following_idx ON follows ("followingId");
 
--- 'pending' | 'accepted' — 트메 신청은 상대가 수락하기 전까진 실제 관계로
--- 카운트되거나 트메공개 등을 게이트하지 않는다. 이 컬럼이 생기기 전 행은
--- 전부 승인 없는 즉시 팔로우로 만들어졌으므로 기본값 'accepted'로 하위호환.
+-- 'pending' | 'accepted' — 트래블 메이트 신청은 상대가 수락하기 전까진 실제
+-- 관계로 카운트되거나 메이트공개 등을 게이트하지 않는다. 이 컬럼이 생기기 전
+-- 행은 전부 승인 없는 즉시 팔로우로 만들어졌으므로 기본값 'accepted'로 하위호환.
 ALTER TABLE follows ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'accepted';
+
+-- 트래블 메이트는 상호 관계 — 수락 시 양방향 엣지가 함께 만들어지고, 끊을
+-- 때도 양쪽이 함께 지워진다. 즉시 팔로우 시절의 한 방향짜리 수락 엣지를
+-- 반대 방향으로도 미러링해 과거 데이터도 대칭으로 맞춘다. (메이트 해제는
+-- 양방향을 모두 지우므로 이 미러링이 끊은 관계를 되살리는 일은 없다 —
+-- 재실행해도 안전한 멱등 백필)
+INSERT INTO follows ("followerId", "followingId", status)
+SELECT f."followingId", f."followerId", 'accepted' FROM follows f WHERE f.status = 'accepted'
+ON CONFLICT ("followerId", "followingId") DO NOTHING;
 
 -- Public-facing display identity, chosen by the user at profile setup —
 -- decoupled from the OAuth-provided `name`/`email` (never rendered to other
@@ -229,6 +238,11 @@ ALTER TABLE follows ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT
 -- multiple NULLs (pre-onboarding users) don't conflict with each other.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname VARCHAR(20);
 CREATE UNIQUE INDEX IF NOT EXISTS users_nickname_key ON users (lower(nickname)) WHERE nickname IS NOT NULL;
+
+-- 이용약관·개인정보처리방침 동의 시각 — 최초 가입 게이트(닉네임 설정
+-- 화면)에서 필수 동의를 받고 기록한다. NULL이면 아직 동의 전이므로 게이트가
+-- 다시 뜬다(약관 도입 전 기존 가입자도 다음 접속 때 동의를 거치게 됨).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "termsAgreedAt" TIMESTAMPTZ;
 
 -- Server-side cache of place-to-place transit estimates (src/lib/transit.ts
 -- computes a Haversine-based fallback today; this table exists so a real

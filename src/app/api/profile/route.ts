@@ -6,6 +6,8 @@ interface ProfileBody {
   nickname?: string;
   /** null clears the avatar back to the initial-letter fallback. */
   image?: string | null;
+  /** true = 이용약관·개인정보처리방침 동의 기록 (최초 가입 게이트에서 전송). */
+  agreeTerms?: boolean;
 }
 
 const NICKNAME_PATTERN = /^[가-힣a-zA-Z0-9_]{2,20}$/;
@@ -32,6 +34,10 @@ export async function PATCH(request: NextRequest) {
   if (body.image !== undefined) {
     params.push(body.image);
     sets.push(`image = $${params.length}`);
+  }
+  if (body.agreeTerms === true) {
+    // 최초 동의 시각만 기록 — 재저장으로 동의일이 덮이지 않게 coalesce.
+    sets.push(`"termsAgreedAt" = coalesce("termsAgreedAt", now())`);
   }
   if (sets.length === 0) {
     return NextResponse.json({ ok: true });
