@@ -5,6 +5,10 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  /* 페이지가 라이트임을 브라우저에 선언 — OS가 다크여도 삼성 인터넷/크롬의
+     강제 다크(웹사이트 어둡게) 재채색이 이 페이지를 뒤집지 않게 한다.
+     (다크 토글 시엔 .dark에서 dark로 덮인다) */
+  color-scheme: only light;
   --background: #ffffff;
   --foreground: #171717;
 
@@ -44,6 +48,7 @@
 /* Dark theme — driven by the `.dark` class (ThemeToggle), so the toggle fully
    controls it regardless of OS setting. */
 .dark {
+  color-scheme: dark;
   --background: #0b1120;
   --foreground: #e2e8f0;
 

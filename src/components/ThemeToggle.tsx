@@ -22,6 +22,9 @@ export function ThemeToggle() {
   const toggle = () => {
     const next = !document.documentElement.classList.contains("dark");
     document.documentElement.classList.toggle("dark", next);
+    // 브라우저 강제 다크(웹사이트 어둡게)용 신호도 함께 갱신 — 라이트일 땐
+    // "only light"로 옵트아웃, 다크일 땐 페이지가 직접 다크임을 알린다.
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", next ? "dark" : "only light");
     try {
       localStorage.setItem("theme", next ? "dark" : "light");
     } catch {}
