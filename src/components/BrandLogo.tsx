@@ -88,31 +88,24 @@ export function WordmarkText({ neon = false, className = "" }: { neon?: boolean;
 }
 
 /**
- * Theme-aware brand mark: black in light mode, **cyan neon** in dark mode
- * (soft glow). Both variants are in the DOM and toggled purely by the `.dark`
- * class, so it flips instantly with the theme.
+ * Brand mark wrapper. The current logo is a full-color gradient mark (not a
+ * monochrome line-art), so it reads cleanly on both light and dark
+ * backgrounds without swapping images or adding a glow filter — this used to
+ * toggle between a black/cyan-neon pair for the old graffiti line-art logo,
+ * but applying that neon drop-shadow to today's colorful PNG just smeared a
+ * visible halo around the letters, especially in dark mode. Kept as its own
+ * component (rather than inlining BrandLogo everywhere) so a future themed
+ * variant can slot back in without touching every call site.
  */
 export function ThemedLogo({
   imgClassName = "",
-  glow = true,
   form = "full",
   textClassName = "",
 }: {
   imgClassName?: string;
-  glow?: boolean;
   form?: "full" | "wordmark";
   /** Sizing for the text-wordmark fallback (e.g. "text-xl") — only relevant while the wordmark images are absent. */
   textClassName?: string;
 }) {
-  const neonGlow = glow ? " [filter:drop-shadow(0_0_6px_rgba(34,211,238,0.55))]" : "";
-  return (
-    <>
-      <span className="dark:hidden">
-        <BrandLogo form={form} imgClassName={imgClassName} fallback={<WordmarkText className={textClassName} />} />
-      </span>
-      <span className="hidden dark:inline">
-        <BrandLogo form={form} variant="neon" imgClassName={imgClassName + neonGlow} fallback={<WordmarkText neon className={textClassName} />} />
-      </span>
-    </>
-  );
+  return <BrandLogo form={form} imgClassName={imgClassName} fallback={<WordmarkText className={textClassName} />} />;
 }

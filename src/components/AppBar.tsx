@@ -402,7 +402,7 @@ export function AppBar() {
           ) : pathname === "/" || pathname === "/discover" ? (
             // 홈/탐색: page-title 대신 워드마크 + 슬로건 (워드마크 굵게, 슬로건 가늘게).
             <Link href="/" className="flex items-baseline gap-2 transition-opacity hover:opacity-80">
-              <ThemedLogo form="wordmark" imgClassName="h-11 w-auto" glow={false} textClassName="text-[30px]" />
+              <ThemedLogo form="wordmark" imgClassName="h-11 w-auto" textClassName="text-[30px]" />
               <span className="hidden text-[13px] font-light tracking-wide text-slate-500 min-[400px]:inline dark:text-slate-400">
                 당신의 여행 파트너
               </span>
@@ -415,7 +415,7 @@ export function AppBar() {
             // 떴는데, 카카오톡 공유로 처음 들어오는 진입점이기도 하니
             // 브랜드 로고를 그대로 보여준다.
             <Link href="/" className="flex items-baseline gap-2 transition-opacity hover:opacity-80">
-              <ThemedLogo form="wordmark" imgClassName="h-10 w-auto" glow={false} textClassName="text-[26px]" />
+              <ThemedLogo form="wordmark" imgClassName="h-10 w-auto" textClassName="text-[26px]" />
             </Link>
           )}
         </div>
