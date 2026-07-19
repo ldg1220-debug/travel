@@ -61,14 +61,22 @@ export async function POST(request: NextRequest) {
   }
   const rating = Math.min(5, Math.max(1, body.rating));
   const images = JSON.stringify((body.images ?? []).slice(0, 5));
+  const itineraryId = body.itineraryId ?? null;
+
+  // Postgres never matches NULL = NULL for conflict detection, so a
+  // plan-less review (itineraryId null) has to target the partial unique
+  // index scoped to those rows instead of the (userId, itineraryId,
+  // placeId) index — targeting the wrong one for a NULL itineraryId would
+  // silently fall through to a plain INSERT and duplicate the row.
+  const conflictTarget = itineraryId == null ? `("userId", "placeId") where "itineraryId" is null` : `("userId", "itineraryId", "placeId")`;
 
   const result = await pool.query(
     `insert into reviews ("userId", "itineraryId", "placeId", "placeName", rating, content, images, "isPublic")
      values ($1, $2, $3, $4, $5, $6, $7, $8)
-     on conflict ("userId", "itineraryId", "placeId")
+     on conflict ${conflictTarget}
      do update set rating = $5, content = $6, images = $7, "isPublic" = $8, updated_at = now()
      returning id`,
-    [session.user.id, body.itineraryId ?? null, body.placeId, body.placeName ?? "", rating, body.content.trim(), images, Boolean(body.isPublic)],
+    [session.user.id, itineraryId, body.placeId, body.placeName ?? "", rating, body.content.trim(), images, Boolean(body.isPublic)],
   );
   return NextResponse.json({ id: result.rows[0].id });
 }

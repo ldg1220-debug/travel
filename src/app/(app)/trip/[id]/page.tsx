@@ -297,8 +297,12 @@ export default function TripPostDetailPage() {
 // A "#장소이름" mention inside the free-form body — hovering (desktop) or
 // tapping (mobile) it surfaces the author's short per-place review without
 // leaving the post, instead of making readers scroll down to "다녀온 장소".
+const POPOVER_WIDTH = 240; // w-60
+const POPOVER_MARGIN = 8;
+
 function HashtagMention({ review }: { review: TripPostPlaceReview }) {
   const [open, setOpen] = useState(false);
+  const [shift, setShift] = useState(0);
   const ref = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
@@ -308,6 +312,23 @@ function HashtagMention({ review }: { review: TripPostPlaceReview }) {
     };
     document.addEventListener("mousedown", handleOutside);
     return () => document.removeEventListener("mousedown", handleOutside);
+  }, [open]);
+
+  useEffect(() => {
+    // The popover is centered on the tag by default (translateX(-50%)), but
+    // near a screen edge that pushes half of it off-screen — clamp with a
+    // pixel shift so it stays fully visible instead of getting clipped.
+    if (!open || !ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const anchorCenter = rect.left + rect.width / 2;
+    const halfWidth = POPOVER_WIDTH / 2;
+    let next = 0;
+    if (anchorCenter - halfWidth < POPOVER_MARGIN) {
+      next = POPOVER_MARGIN - (anchorCenter - halfWidth);
+    } else if (anchorCenter + halfWidth > window.innerWidth - POPOVER_MARGIN) {
+      next = window.innerWidth - POPOVER_MARGIN - (anchorCenter + halfWidth);
+    }
+    setShift(next);
   }, [open]);
 
   return (
@@ -325,7 +346,10 @@ function HashtagMention({ review }: { review: TripPostPlaceReview }) {
         #{hashtagSlug(review.placeName)}
       </button>
       {open && (
-        <span className="absolute bottom-full left-1/2 z-20 mb-2 w-60 -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-3 text-left text-[13px] normal-case shadow-xl">
+        <span
+          className="absolute bottom-full left-1/2 z-20 mb-2 w-60 rounded-2xl border border-slate-200 bg-white p-3 text-left text-[13px] normal-case shadow-xl"
+          style={{ transform: `translateX(calc(-50% + ${shift}px))` }}
+        >
           <span className="mb-1.5 flex items-center gap-2">
             {review.images[0] && (
               // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL

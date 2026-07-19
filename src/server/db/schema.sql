@@ -127,6 +127,30 @@ ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "isPublic" BOOLEAN NOT NULL DEFAULT
 -- table, unlike a constraint declared inside CREATE TABLE.
 CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_itinerary_place_key ON reviews ("userId", "itineraryId", "placeId");
 
+-- The index above never dedupes plan-less reviews ("itineraryId" IS NULL,
+-- from "완전 새로 작성"): Postgres treats every NULL as distinct from every
+-- other NULL, so it never matches as a conflict target and POST
+-- /api/reviews's `on conflict` silently falls through to a plain INSERT —
+-- every edit of a plan-less place review just piled up a new row instead of
+-- updating the existing one (그 장소가 후기 목록에 사진 있는/없는 버전으로
+-- 중복 표시되던 원인). A partial unique index scoped to the NULL rows closes
+-- that gap; the API route targets whichever index actually applies.
+--
+-- The one-time cleanup below MUST run before that index is created — any
+-- pre-existing duplicate rows would make CREATE UNIQUE INDEX itself fail
+-- (duplicate key value violates unique constraint). It keeps the most
+-- recently updated row per (user, place) and drops the rest; a no-op once
+-- the dupes are gone, so it's safe to leave in place on every future
+-- migrate run.
+DELETE FROM reviews r USING reviews newer
+WHERE r."itineraryId" IS NULL
+  AND newer."itineraryId" IS NULL
+  AND r."userId" = newer."userId"
+  AND r."placeId" = newer."placeId"
+  AND (newer.updated_at, newer.id) > (r.updated_at, r.id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_place_no_itinerary_key ON reviews ("userId", "placeId") WHERE "itineraryId" IS NULL;
+
 CREATE INDEX IF NOT EXISTS reviews_place_id_idx ON reviews ("placeId");
 CREATE INDEX IF NOT EXISTS reviews_user_id_idx ON reviews ("userId");
 CREATE INDEX IF NOT EXISTS reviews_itinerary_id_idx ON reviews ("itineraryId");
