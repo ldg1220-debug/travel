@@ -43,15 +43,23 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   // a specific trip_posts row), but still the best available signal, and
   // consistent with how TripPostComposer itself already reads plan-less
   // reviews back (fetchMyReviews with no itineraryId = "all of them").
+  // distinct on "placeId" defensively collapses any pre-existing duplicate
+  // rows (from before the reviews table's plan-less unique index was added)
+  // down to each place's most recently updated review, so an old duplicate
+  // can't still show a place twice here even before that cleanup runs.
   const placeReviews = (
     await pool.query(
       row.itineraryId
-        ? `select "placeId", "placeName", rating, content, images
-           from reviews where "userId" = $1 and "itineraryId" = $2
-           order by created_at asc`
-        : `select "placeId", "placeName", rating, content, images
-           from reviews where "userId" = $1 and "itineraryId" is null
-           order by created_at asc`,
+        ? `select "placeId", "placeName", rating, content, images from (
+             select distinct on ("placeId") "placeId", "placeName", rating, content, images, created_at
+             from reviews where "userId" = $1 and "itineraryId" = $2
+             order by "placeId", updated_at desc
+           ) t order by created_at asc`
+        : `select "placeId", "placeName", rating, content, images from (
+             select distinct on ("placeId") "placeId", "placeName", rating, content, images, created_at
+             from reviews where "userId" = $1 and "itineraryId" is null
+             order by "placeId", updated_at desc
+           ) t order by created_at asc`,
       row.itineraryId ? [row.userId, row.itineraryId] : [row.userId],
     )
   ).rows;
