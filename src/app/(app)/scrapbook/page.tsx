@@ -13,8 +13,11 @@ import { TripPostComposer } from "@/components/TripPostComposer";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { formatDateLabel } from "@/lib/timeline";
 import { syncPlanToServer } from "@/lib/planSync";
-import { fetchMyTripPosts, type TripPost } from "@/lib/api";
+import { fetchMyTripPosts, type TripPost, type Visibility } from "@/lib/api";
 import type { SavedPlan } from "@/lib/types";
+
+const VISIBILITY_ICON: Record<Visibility, CordixIconName> = { public: "globe", friends: "group", custom: "user", private: "lock" };
+const VISIBILITY_LABEL: Record<Visibility, string> = { public: "전체공개", friends: "친구공개", custom: "특정공개", private: "비공개" };
 
 // "다녀온 여행"인지는 날짜가 지났는지가 아니라 그 계획에 대해 실제로
 // 여행 후기를 남겼는지로 정한다 — A/B/C 세 계획을 세워뒀다고 셋 다
@@ -24,6 +27,12 @@ const TABS = [
   { key: "notWritten", label: "여행 계획" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
+
+// "다녀온 여행" 탭 목록의 한 항목 — 계획에 매인 후기(plan)와 계획 없이 쓴
+// 후기(postOnly)를 한 목록에 섞어 보여주기 위한 판별 유니언.
+type WrittenItem =
+  | { kind: "plan"; date: string; plan: SavedPlan; post: TripPost }
+  | { kind: "postOnly"; date: string; post: TripPost };
 
 /** A trip's actual scheduled date span — derived from its items, not a stored field, since a plan's `activeDate` is just wherever the user last had the timeline scrolled to. */
 function tripDateRange(plan: SavedPlan): { start: string; end: string } {
@@ -111,23 +120,38 @@ export default function ScrapbookPage() {
     if (!plan.currentCity) return null;
     return `/api/discover/spot-photo?q=${encodeURIComponent(`${plan.currentCity} 여행`)}`;
   };
-  // 계획 없이 "완전 새로 작성"된 후기 — 연결된 계획이 없어 위 계획
-  // 카드 목록 어디에도 나타나지 않으므로, 다시 열어보거나 수정하려면
-  // 여기서 직접 목록을 보여줘야 한다.
+  // 계획 하나엔 후기가 최대 하나뿐이라(trip_posts_user_itinerary_key), 계획의
+  // remoteId로 그 계획의 후기를 바로 찾을 수 있다 — "다녀온 여행" 카드를
+  // 눌렀을 때 계획 편집 화면이 아니라 실제로 쓴 후기(/trip/[id])로 보내는 데 쓴다.
+  const postByItineraryId = useMemo(
+    () => new Map(myPosts.filter((p): p is TripPost & { itineraryId: number } => p.itineraryId != null).map((p) => [p.itineraryId, p])),
+    [myPosts],
+  );
+  // 계획 없이 "완전 새로 작성"된 후기 — 연결된 계획이 없다.
   const planlessPosts = useMemo(() => myPosts.filter((p) => p.itineraryId == null), [myPosts]);
 
-  const { writtenTrips, notWrittenTrips } = useMemo(() => {
-    const written: SavedPlan[] = [];
+  const { notWrittenTrips } = useMemo(() => {
     const notWritten: SavedPlan[] = [];
     for (const plan of savedPlans) {
-      (plan.remoteId != null && postedItineraryIds.has(plan.remoteId) ? written : notWritten).push(plan);
+      if (!(plan.remoteId != null && postedItineraryIds.has(plan.remoteId))) notWritten.push(plan);
     }
-    written.sort((a, b) => tripDateRange(b).end.localeCompare(tripDateRange(a).end));
     notWritten.sort((a, b) => tripDateRange(b).start.localeCompare(tripDateRange(a).start));
-    return { writtenTrips: written, notWrittenTrips: notWritten };
+    return { notWrittenTrips: notWritten };
   }, [savedPlans, postedItineraryIds]);
 
-  const trips = tab === "written" ? writtenTrips : notWrittenTrips;
+  // "다녀온 여행" 탭 = 실제로 쓴 여행 후기 전부(계획에 매인 것 + 계획 없이
+  // 쓴 것), 최신 순으로 한 목록에 섞는다 — 계획 유무는 카드에 표시만 하고
+  // 별도 섹션으로 쪼개지 않는다. 눌렀을 때 항상 그 후기(/trip/[id])로
+  // 가므로, 완결된 여행을 "한눈에" 훑어보는 화면이 하나로 통일된다.
+  const writtenItems = useMemo(() => {
+    const withPlan: WrittenItem[] = [];
+    for (const plan of savedPlans) {
+      const post = plan.remoteId != null ? postByItineraryId.get(plan.remoteId) : undefined;
+      if (post) withPlan.push({ kind: "plan", date: tripDateRange(plan).end, plan, post });
+    }
+    const withoutPlan: WrittenItem[] = planlessPosts.map((post) => ({ kind: "postOnly", date: post.createdAt.slice(0, 10), post }));
+    return [...withPlan, ...withoutPlan].sort((a, b) => b.date.localeCompare(a.date));
+  }, [savedPlans, postByItineraryId, planlessPosts]);
 
   const totalPlaces = useMemo(
     () => new Set(savedPlans.flatMap((p) => p.items.map((i) => i.placeId))).size,
@@ -142,7 +166,7 @@ export default function ScrapbookPage() {
     iconName: CordixIconName | null;
   }[] = [
     { key: "trips", label: "저장된 여행 계획", value: String(savedPlans.length), iconName: "plane", gradient: "from-indigo-500 to-violet-500" },
-    { key: "written", label: "다녀온 여행", value: String(writtenTrips.length), iconName: null, gradient: "from-emerald-500 to-teal-500" },
+    { key: "written", label: "다녀온 여행", value: String(writtenItems.length), iconName: null, gradient: "from-emerald-500 to-teal-500" },
     { key: "places", label: "담아본 장소", value: String(totalPlaces), iconName: "pin", gradient: "from-rose-500 to-pink-500" },
   ];
 
@@ -271,9 +295,9 @@ export default function ScrapbookPage() {
                   />
                 )}
                 {t.label}
-                {(t.key === "written" ? writtenTrips.length : notWrittenTrips.length) > 0 && (
+                {(t.key === "written" ? writtenItems.length : notWrittenTrips.length) > 0 && (
                   <span className="ml-1.5 text-[11px] font-normal text-slate-400">
-                    {t.key === "written" ? writtenTrips.length : notWrittenTrips.length}
+                    {t.key === "written" ? writtenItems.length : notWrittenTrips.length}
                   </span>
                 )}
               </button>
@@ -290,9 +314,38 @@ export default function ScrapbookPage() {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.22 }}
           >
-            {trips.length > 0 ? (
+            {tab === "written" ? (
+              writtenItems.length > 0 ? (
+                <div className="space-y-5">
+                  {writtenItems.map((item) =>
+                    item.kind === "plan" ? (
+                      <TripCard
+                        key={`plan-${item.plan.id}`}
+                        plan={item.plan}
+                        coverSrc={coverSrcForPlan(item.plan)}
+                        confirming={confirmDeleteId === item.plan.id}
+                        reviewSyncing={syncingPlanId === item.plan.id}
+                        onOpen={() => router.push(`/trip/${item.post.id}`)}
+                        onReview={() => openReview(item.plan)}
+                        onTripPost={() => openTripPost(item.plan)}
+                        onDeleteRequest={() => setConfirmDeleteId(item.plan.id)}
+                        onDeleteCancel={() => setConfirmDeleteId(null)}
+                        onDeleteConfirm={() => {
+                          deletePlan(item.plan.id);
+                          setConfirmDeleteId(null);
+                        }}
+                      />
+                    ) : (
+                      <PostOnlyCard key={`post-${item.post.id}`} post={item.post} onOpen={() => router.push(`/trip/${item.post.id}`)} />
+                    ),
+                  )}
+                </div>
+              ) : (
+                <EmptyState tab={tab} onPlan={() => router.push("/discover")} onWrite={openNewPostChooser} />
+              )
+            ) : notWrittenTrips.length > 0 ? (
               <div className="space-y-5">
-                {trips.map((plan) => (
+                {notWrittenTrips.map((plan) => (
                   <TripCard
                     key={plan.id}
                     plan={plan}
@@ -316,33 +369,6 @@ export default function ScrapbookPage() {
             )}
           </motion.div>
         </AnimatePresence>
-
-        {planlessPosts.length > 0 && (
-          <section className="mt-8">
-            <p className="mb-3 text-[13px] font-bold text-slate-700">계획 없이 쓴 여행 후기</p>
-            <div className="space-y-2">
-              {planlessPosts.map((post) => (
-                <button
-                  key={post.id}
-                  onClick={() => router.push(`/trip/${post.id}`)}
-                  className="flex w-full items-center gap-3 rounded-2xl border border-slate-200/70 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50/40"
-                >
-                  {post.images[0] && (
-                    // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
-                    <img src={post.images[0]} alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" />
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] font-semibold text-slate-800">{post.title}</span>
-                    <span className="flex items-center gap-1 text-[11.5px] text-slate-400">
-                      {post.isPublic ? <CordixIcon name="globe" size={11} /> : <CordixIcon name="lock" size={11} />}
-                      {post.isPublic ? "공개" : "비공개"} · {formatDateLabel(post.createdAt.slice(0, 10))}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
       </div>
 
       {loginOpen && <LoginModal reason="후기를 작성하려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
@@ -583,6 +609,40 @@ function TripCard({
         </div>
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// 계획 없이 "완전 새로 작성"된 후기용 카드 — TripCard와 같은 목록에 섞여
+// 나오므로 시각적 무게는 비슷하게 맞추되, 계획이 없으니 일정 통계·삭제
+// 버튼 없이 사진·제목·공개범위·"계획 없음" 표시만 보여준다.
+function PostOnlyCard({ post, onOpen }: { post: TripPost; onOpen: () => void }) {
+  return (
+    <button
+      onClick={onOpen}
+      className="group flex w-full items-stretch gap-3 overflow-hidden rounded-3xl border border-slate-200/70 bg-white p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200"
+    >
+      <div className={`h-24 w-24 shrink-0 overflow-hidden rounded-2xl ${post.images[0] ? "" : `bg-gradient-to-br ${coverGradient(String(post.id))}`}`}>
+        {post.images[0] ? (
+          // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
+          <img src={post.images[0]} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <CordixIcon name="pencil" size={20} stroke="#fff" accent="#fff" />
+          </div>
+        )}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col justify-center py-1">
+        <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-400">
+          <CordixIcon name="folder" size={11} /> 계획 없음 · {formatDateLabel(post.createdAt.slice(0, 10))}
+        </span>
+        <h3 className="mt-1 truncate text-[15px] font-bold tracking-tight text-slate-900">{post.title}</h3>
+        <span className="mt-1 flex items-center gap-1 text-[11.5px] text-slate-400">
+          <CordixIcon name={VISIBILITY_ICON[post.visibility]} size={11} />
+          {VISIBILITY_LABEL[post.visibility]}
+        </span>
+      </div>
+    </button>
   );
 }
 

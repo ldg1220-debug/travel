@@ -2,20 +2,37 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Link as LinkIcon, ChevronLeft } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
-import { deleteTripPost, fetchTripPost, saveTripPost, type TripPostDetail, type TripPostPlaceReview } from "@/lib/api";
+import {
+  deleteTripPost,
+  fetchFollowStatus,
+  fetchTripPost,
+  followUser,
+  saveTripPost,
+  unfollowUser,
+  type FollowStatus,
+  type TripPostDetail,
+  type TripPostPlaceReview,
+  type Visibility,
+} from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { hashtagSlug } from "@/lib/hashtag";
-import { Switch } from "@/components/ui/switch";
+import { VisibilitySelector } from "@/components/VisibilitySelector";
+import { LoginModal } from "@/components/LoginModal";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { TripPostComposer } from "@/components/TripPostComposer";
+import { useItineraryStore } from "@/store/itineraryStore";
 
 /** Standalone public view of one 여행 후기 (blog/Instagram-style trip post) — what a 카카오톡 공유 link or "링크 복사" opens for anyone, logged in or not, if the post was published to the feed (or you're its author). */
 export default function TripPostDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { data: session } = useSession();
+  const savedPlans = useItineraryStore((s) => s.savedPlans);
+  const loadPlan = useItineraryStore((s) => s.loadPlan);
   const [post, setPost] = useState<TripPostDetail | null>(null);
   const [placeReviews, setPlaceReviews] = useState<TripPostPlaceReview[]>([]);
   const [isOwner, setIsOwner] = useState(false);
@@ -26,6 +43,9 @@ export default function TripPostDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [followStatus, setFollowStatus] = useState<FollowStatus | null>(null);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
 
   const reload = () => {
     const id = Number(params.id);
@@ -50,6 +70,16 @@ export default function TripPostDetailPage() {
     ? [post.authorName ?? "여행자", post.tripTitle, formatDateLabel(post.createdAt.slice(0, 10))].filter(Boolean).join(" · ")
     : "";
 
+  // 이 후기와 연결된 계획이 이 기기에 저장돼 있으면 "일정 보기"로 바로
+  // 플래너로 넘어갈 수 있게 한다 — 없으면(다른 기기·서버 전용 계획) 조용히
+  // 숨긴다, 계획을 가져오는 건 별개의 기능이라 여기서 시도하지 않는다.
+  const linkedPlan = post?.itineraryId != null ? savedPlans.find((p) => p.remoteId === post.itineraryId) : undefined;
+  const openLinkedPlan = () => {
+    if (!linkedPlan) return;
+    loadPlan(linkedPlan.id);
+    router.push("/planner");
+  };
+
   useEffect(() => {
     const id = Number(params.id);
     fetchTripPost(id).then((data) => {
@@ -63,16 +93,48 @@ export default function TripPostDetailPage() {
     });
   }, [params.id]);
 
+  // 남의 후기를 볼 때만 팔로우 상태를 조회 — 팔로우 버튼과 "친구공개" 접근
+  // 가능 여부 표시에 쓴다.
+  useEffect(() => {
+    if (!post || isOwner || !session?.user) return;
+    let cancelled = false;
+    fetchFollowStatus(post.authorId).then((next) => {
+      if (!cancelled) setFollowStatus(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [post, isOwner, session?.user]);
+
+  const handleToggleFollow = async () => {
+    if (!post) return;
+    if (!session?.user) {
+      setLoginOpen(true);
+      return;
+    }
+    setFollowBusy(true);
+    try {
+      if (followStatus?.isFollowing) {
+        await unfollowUser(post.authorId);
+      } else {
+        await followUser(post.authorId);
+      }
+      const next = await fetchFollowStatus(post.authorId);
+      setFollowStatus(next);
+    } finally {
+      setFollowBusy(false);
+    }
+  };
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 1600);
   };
 
-  // 작성 시점의 "피드에 공개하기" 토글과 별개로, 다 쓴 후에도 전체 편집
-  // 화면을 다시 열지 않고 바로 공개/비공개를 뒤집을 수 있게 한다.
-  const handleToggleVisibility = async () => {
+  // 작성 시점의 공개 범위 선택과 별개로, 다 쓴 후에도 전체 편집 화면을
+  // 다시 열지 않고 바로 공개 범위를 바꿀 수 있게 한다.
+  const handleChangeVisibility = async (visibility: Visibility, visibleToUserIds: number[]) => {
     if (!post) return;
-    const nextIsPublic = !post.isPublic;
     setTogglingVisibility(true);
     try {
       await saveTripPost({
@@ -80,10 +142,11 @@ export default function TripPostDetailPage() {
         title: post.title,
         content: post.content,
         images: post.images,
-        isPublic: nextIsPublic,
+        visibility,
+        visibleToUserIds,
       });
-      setPost((prev) => (prev ? { ...prev, isPublic: nextIsPublic } : prev));
-      showToast(nextIsPublic ? "피드에 공개됐어요" : "비공개로 전환했어요");
+      setPost((prev) => (prev ? { ...prev, visibility, visibleToUserIds } : prev));
+      showToast("공개 범위가 변경됐어요");
     } catch {
       showToast("변경에 실패했어요");
     } finally {
@@ -144,33 +207,70 @@ export default function TripPostDetailPage() {
         </button>
 
         {post.images.length > 0 && (
-          <div className="mb-4 grid grid-cols-2 gap-1.5 overflow-hidden rounded-2xl">
-            {post.images.slice(0, 4).map((url, i) => (
-              <button
-                key={url}
-                onClick={() => setLightbox({ images: post.images, index: i })}
-                aria-label="사진 크게 보기"
-                className={post.images.length === 1 ? "col-span-2" : i === 0 && post.images.length === 3 ? "col-span-2" : ""}
-              >
+          <div className="mb-4 overflow-hidden rounded-2xl">
+            {post.images.length === 1 ? (
+              // 대표사진 한 장뿐일 땐 고정 높이로 잘라내지 않는다 — 세로로 긴
+              // 사진이 h-40 박스에 object-cover로 눌리면 위아래가 거의 다
+              // 잘려나가던 문제. object-contain + 넉넉한 max-height로 원본
+              // 비율 그대로 보여준다.
+              <button onClick={() => setLightbox({ images: post.images, index: 0 })} aria-label="사진 크게 보기" className="block w-full bg-slate-100">
                 {/* eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL */}
-                <img src={url} alt="" className="h-40 w-full object-cover" />
+                <img src={post.images[0]} alt="" className="max-h-[70vh] w-full object-contain" />
               </button>
-            ))}
+            ) : (
+              <div className="grid grid-cols-2 gap-1.5">
+                {post.images.slice(0, 4).map((url, i) => (
+                  <button
+                    key={url}
+                    onClick={() => setLightbox({ images: post.images, index: i })}
+                    aria-label="사진 크게 보기"
+                    className={i === 0 && post.images.length === 3 ? "col-span-2" : ""}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL */}
+                    <img src={url} alt="" className="h-40 w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        <p className="mb-1 text-[12.5px] text-slate-400">{metaLine}</p>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">{metaLine}</p>
+          {!isOwner && (
+            <button
+              onClick={handleToggleFollow}
+              disabled={followBusy}
+              className={`shrink-0 rounded-full px-3 py-1 text-[11.5px] font-semibold transition-colors disabled:opacity-60 ${
+                followStatus?.isFollowing ? "border border-slate-200 bg-white text-slate-500" : "bg-indigo-600 text-white hover:bg-indigo-700"
+              }`}
+            >
+              {followStatus?.isFollowing ? (followStatus.isFriend ? "친구" : "팔로잉") : "팔로우"}
+            </button>
+          )}
+        </div>
         <h1 className="text-xl font-bold tracking-tight">{post.title}</h1>
 
         {isOwner && (
           <div className="mt-3 space-y-2">
-            <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-2.5">
-              <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                {post.isPublic ? <CordixIcon name="globe" size={14} className="text-emerald-500" /> : <CordixIcon name="lock" size={14} className="text-slate-400" />}
-                {post.isPublic ? "피드에 공개 중" : "비공개 (나만 보기)"}
-              </span>
-              <Switch checked={post.isPublic} disabled={togglingVisibility} onCheckedChange={handleToggleVisibility} />
-            </label>
+            <div>
+              <p className="mb-1.5 text-[12px] font-semibold text-slate-500">공개 범위</p>
+              <VisibilitySelector
+                value={post.visibility}
+                onChange={(v) => handleChangeVisibility(v, post.visibleToUserIds)}
+                visibleToUserIds={post.visibleToUserIds}
+                onVisibleToUserIdsChange={(ids) => handleChangeVisibility(post.visibility, ids)}
+              />
+              {togglingVisibility && <p className="mt-1 text-[11px] text-slate-400">변경 중…</p>}
+            </div>
+            {linkedPlan && (
+              <button
+                onClick={openLinkedPlan}
+                className="flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl border border-indigo-200 bg-indigo-50/60 text-[13px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50"
+              >
+                <CordixIcon name="compass" size={14} /> 일정 보기
+              </button>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={() => setEditOpen(true)}
@@ -289,6 +389,8 @@ export default function TripPostDetailPage() {
           }}
         />
       )}
+
+      {loginOpen && <LoginModal reason="팔로우하려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
     </div>
   );
 }

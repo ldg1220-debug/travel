@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 
 const DEFAULT_LIMIT = 10;
 
 /**
- * Public feed of published (`isPublic`) trip posts across every user — the
- * blog/Instagram-style overall write-ups, not individual place ratings.
- * Most recently written/edited first, paginated. No auth required to browse.
+ * Public feed of visible trip posts across every user — the blog/Instagram-
+ * style overall write-ups, not individual place ratings. Most recently
+ * written/edited first, paginated. Browsable without logging in, but only
+ * "public" posts show up for an anonymous viewer — "friends" (맞팔로우) and
+ * "custom" (선택된 팔로워) posts only appear for a signed-in viewer who
+ * actually qualifies.
  *
  * Optional `region` (`domestic`|`international`) filters to posts linked to
  * a plan in that region — a plan-less post has no region and is excluded
@@ -17,6 +21,9 @@ const DEFAULT_LIMIT = 10;
  * index.
  */
 export async function GET(request: NextRequest) {
+  const session = await auth();
+  const viewerId = session?.user?.id != null ? Number(session.user.id) : null;
+
   const page = Math.max(1, Number(request.nextUrl.searchParams.get("page")) || 1);
   const limit = Math.max(1, Math.min(30, Number(request.nextUrl.searchParams.get("limit")) || DEFAULT_LIMIT));
   const offset = (page - 1) * limit;
@@ -24,7 +31,22 @@ export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get("q")?.trim() || null;
 
   const params: (string | number)[] = [];
-  const conditions = [`p."isPublic" = true`];
+  const visibilityChecks = [`p.visibility = 'public'`];
+  if (viewerId != null) {
+    params.push(viewerId);
+    const viewerParam = `$${params.length}`;
+    visibilityChecks.push(
+      `(p.visibility = 'friends' and exists (
+         select 1 from follows f1 where f1."followerId" = ${viewerParam} and f1."followingId" = p."userId"
+       ) and exists (
+         select 1 from follows f2 where f2."followerId" = p."userId" and f2."followingId" = ${viewerParam}
+       ))`,
+      `(p.visibility = 'custom' and exists (
+         select 1 from trip_post_visible_to v where v."postId" = p.id and v."userId" = ${viewerParam}
+       ))`,
+    );
+  }
+  const conditions = [`(${visibilityChecks.join(" or ")})`];
 
   if (region === "domestic" || region === "international") {
     params.push(region);
@@ -45,7 +67,7 @@ export async function GET(request: NextRequest) {
 
   const result = await pool.query(
     `select p.id, p.title, p.content, p.images, p.created_at as "createdAt",
-            u.name as "authorName", u.image as "authorImage",
+            p."userId" as "authorId", u.name as "authorName", u.image as "authorImage",
             i.title as "tripTitle", i.region as "region"
      from trip_posts p
      join users u on u.id = p."userId"
