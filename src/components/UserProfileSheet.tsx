@@ -3,15 +3,20 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { X } from "lucide-react";
-import { fetchUserProfile, followUser, unfollowUser, type UserProfile } from "@/lib/api";
+import { acceptFollowRequest, fetchUserProfile, followUser, rejectFollowRequest, unfollowUser, type UserProfile } from "@/lib/api";
 import { LoginModal } from "@/components/LoginModal";
 
 /**
  * 닉네임을 탭하면 뜨는 공개 프로필 팝업 — 아바타·닉네임·팔로워/트메 수를 보여주고,
- * 본인이 아니면 트메 신청 버튼을 제공한다. "팔로잉"과 "친구"(맞팔로우)는 이 앱에서
- * 통틀어 "트래블메이트(트메)"라고 부른다.
+ * 본인이 아니면 관계 상태에 따라 트메 신청/요청됨(취소)/수락하기 버튼을 제공한다.
+ * "팔로잉"과 "친구"(맞팔로우)는 이 앱에서 통틀어 "트래블메이트(트메)"라고 부른다.
+ *
+ * `onChange`: 여기서 관계가 바뀔 때마다 호출된다 — 이 팝업은 자기 프로필만
+ * 들고 있어서, 이걸 연 부모(팔로워/팔로잉 목록·팔로우 버튼 등)가 들고 있는
+ * 카운트·목록은 스스로 갱신하지 않는다. 부모가 이 콜백으로 자기 상태를
+ * 다시 불러오게 한다.
  */
-export function UserProfileSheet({ userId, onClose }: { userId: number; onClose: () => void }) {
+export function UserProfileSheet({ userId, onClose, onChange }: { userId: number; onClose: () => void; onChange?: () => void }) {
   const { data: session } = useSession();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,24 +34,41 @@ export function UserProfileSheet({ userId, onClose }: { userId: number; onClose:
 
   const isSelf = session?.user?.id != null && Number(session.user.id) === userId;
 
-  const handleToggleFollow = async () => {
-    if (!session?.user) {
-      setLoginOpen(true);
-      return;
-    }
-    if (!profile) return;
+  const runAction = async (action: () => Promise<void>) => {
     setBusy(true);
     try {
-      if (profile.isFollowing) {
-        await unfollowUser(userId);
-      } else {
-        await followUser(userId);
-      }
+      await action();
       const next = await fetchUserProfile(userId);
       setProfile(next);
+      onChange?.();
     } finally {
       setBusy(false);
     }
+  };
+
+  const requireLogin = () => {
+    if (!session?.user) {
+      setLoginOpen(true);
+      return true;
+    }
+    return false;
+  };
+
+  const handleRequest = () => {
+    if (requireLogin()) return;
+    runAction(() => followUser(userId));
+  };
+  const handleCancelOrUnfollow = () => {
+    if (requireLogin()) return;
+    runAction(() => unfollowUser(userId));
+  };
+  const handleAccept = () => {
+    if (requireLogin()) return;
+    runAction(() => acceptFollowRequest(userId));
+  };
+  const handleReject = () => {
+    if (requireLogin()) return;
+    runAction(() => rejectFollowRequest(userId));
   };
 
   return (
@@ -86,19 +108,49 @@ export function UserProfileSheet({ userId, onClose }: { userId: number; onClose:
               </span>
             </div>
 
-            {!isSelf && (
-              <button
-                onClick={handleToggleFollow}
-                disabled={busy}
-                className={`h-11 w-full rounded-2xl text-[13.5px] font-semibold transition-colors disabled:opacity-60 ${
-                  profile.isFollowing
-                    ? "border border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                    : "bg-indigo-600 text-white hover:bg-indigo-700"
-                }`}
-              >
-                {profile.isFollowing ? "트메" : "트메 신청"}
-              </button>
-            )}
+            {!isSelf &&
+              (profile.isFollowing ? (
+                <button
+                  onClick={handleCancelOrUnfollow}
+                  disabled={busy}
+                  className="h-11 w-full rounded-2xl border border-slate-200 bg-white text-[13.5px] font-semibold text-slate-500 transition-colors disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                >
+                  트메
+                </button>
+              ) : profile.isPendingIncoming ? (
+                <div className="flex w-full gap-2">
+                  <button
+                    onClick={handleAccept}
+                    disabled={busy}
+                    className="h-11 flex-1 rounded-2xl bg-indigo-600 text-[13.5px] font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
+                  >
+                    수락하기
+                  </button>
+                  <button
+                    onClick={handleReject}
+                    disabled={busy}
+                    className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-[13.5px] font-semibold text-slate-500 transition-colors disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                  >
+                    거절
+                  </button>
+                </div>
+              ) : profile.isPendingOutgoing ? (
+                <button
+                  onClick={handleCancelOrUnfollow}
+                  disabled={busy}
+                  className="h-11 w-full rounded-2xl border border-slate-200 bg-white text-[13.5px] font-semibold text-slate-500 transition-colors disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                >
+                  요청됨
+                </button>
+              ) : (
+                <button
+                  onClick={handleRequest}
+                  disabled={busy}
+                  className="h-11 w-full rounded-2xl bg-indigo-600 text-[13.5px] font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
+                >
+                  트메 신청
+                </button>
+              ))}
           </div>
         )}
       </div>

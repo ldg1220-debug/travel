@@ -47,9 +47,9 @@ export async function GET(request: NextRequest) {
     const viewerParam = `$${params.length}`;
     visibilityChecks.push(
       `(p.visibility = 'friends' and exists (
-         select 1 from follows f1 where f1."followerId" = ${viewerParam} and f1."followingId" = p."userId"
+         select 1 from follows f1 where f1."followerId" = ${viewerParam} and f1."followingId" = p."userId" and f1.status = 'accepted'
        ) and exists (
-         select 1 from follows f2 where f2."followerId" = p."userId" and f2."followingId" = ${viewerParam}
+         select 1 from follows f2 where f2."followerId" = p."userId" and f2."followingId" = ${viewerParam} and f2.status = 'accepted'
        ))`,
       `(p.visibility = 'custom' and exists (
          select 1 from trip_post_visible_to v where v."postId" = p.id and v."userId" = ${viewerParam}
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
 
   if (scope === "following" && viewerId != null) {
     params.push(viewerId);
-    conditions.push(`exists (select 1 from follows f where f."followerId" = $${params.length} and f."followingId" = p."userId")`);
+    conditions.push(`exists (select 1 from follows f where f."followerId" = $${params.length} and f."followingId" = p."userId" and f.status = 'accepted')`);
   }
 
   if (region === "domestic" || region === "international") {

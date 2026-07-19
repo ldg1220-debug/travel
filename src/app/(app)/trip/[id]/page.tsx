@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { Link as LinkIcon, ChevronLeft, Heart } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import {
+  acceptFollowRequest,
   deleteTripPost,
   fetchFollowStatus,
   fetchTripPost,
@@ -103,8 +104,12 @@ export default function TripPostDetailPage() {
     });
   }, [params.id]);
 
-  // 남의 후기를 볼 때만 팔로우 상태를 조회 — 팔로우 버튼과 "친구공개" 접근
+  // 남의 후기를 볼 때만 팔로우 상태를 조회 — 팔로우 버튼과 "트메공개" 접근
   // 가능 여부 표시에 쓴다.
+  const refreshFollowStatus = () => {
+    if (!post || isOwner || !session?.user) return;
+    fetchFollowStatus(post.authorId).then(setFollowStatus);
+  };
   useEffect(() => {
     if (!post || isOwner || !session?.user) return;
     let cancelled = false;
@@ -125,10 +130,12 @@ export default function TripPostDetailPage() {
     }
     setFollowBusy(true);
     try {
-      if (followStatus?.isFollowing) {
-        await unfollowUser(post.authorId);
+      if (followStatus?.isFollowing || followStatus?.isPendingOutgoing) {
+        await unfollowUser(post.authorId); // 트메 끊기 또는 내가 보낸 신청 취소
+      } else if (followStatus?.isPendingIncoming) {
+        await acceptFollowRequest(post.authorId); // 상대가 보낸 신청 수락
       } else {
-        await followUser(post.authorId);
+        await followUser(post.authorId); // 트메 신청
       }
       const next = await fetchFollowStatus(post.authorId);
       setFollowStatus(next);
@@ -280,10 +287,18 @@ export default function TripPostDetailPage() {
               onClick={handleToggleFollow}
               disabled={followBusy}
               className={`shrink-0 rounded-full px-3 py-1 text-[11.5px] font-semibold transition-colors disabled:opacity-60 ${
-                followStatus?.isFollowing ? "border border-slate-200 bg-white text-slate-500" : "bg-indigo-600 text-white hover:bg-indigo-700"
+                followStatus?.isFollowing || followStatus?.isPendingOutgoing
+                  ? "border border-slate-200 bg-white text-slate-500"
+                  : "bg-indigo-600 text-white hover:bg-indigo-700"
               }`}
             >
-              {followStatus?.isFollowing ? "트메" : "트메 신청"}
+              {followStatus?.isFollowing
+                ? "트메"
+                : followStatus?.isPendingOutgoing
+                  ? "요청됨"
+                  : followStatus?.isPendingIncoming
+                    ? "수락하기"
+                    : "트메 신청"}
             </button>
           )}
         </div>
@@ -440,7 +455,9 @@ export default function TripPostDetailPage() {
 
       {loginOpen && <LoginModal reason={loginReason} onClose={() => setLoginOpen(false)} />}
 
-      {profileUserId != null && <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} />}
+      {profileUserId != null && (
+        <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} onChange={refreshFollowStatus} />
+      )}
     </div>
   );
 }

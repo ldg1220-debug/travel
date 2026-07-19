@@ -280,15 +280,21 @@ export default function CourseBuilderPage() {
               ))}
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2.5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {options.map((c) => (
                 <button
                   key={c.label}
                   onClick={() => drillInto(c.label)}
-                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-[14px] font-semibold shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
                 >
-                  {c.emoji ? `${c.emoji} ` : ""}
-                  {c.label}
+                  <div className="relative h-20 w-full sm:h-24">
+                    <TilePhoto query={`${path[path.length - 1]} ${c.label}`} className="absolute inset-0 h-full w-full" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/45 to-transparent" />
+                  </div>
+                  <span className="px-3 py-2.5 text-[13.5px] font-semibold">
+                    {c.emoji ? `${c.emoji} ` : ""}
+                    {c.label}
+                  </span>
                 </button>
               ))}
               {/* 목록에 원하는 동네/도시가 없을 때 — 한 단계 위(이미 고른 지역/국가)
@@ -300,9 +306,11 @@ export default function CourseBuilderPage() {
                     setActiveSlot(COURSE_SLOTS[0].key);
                     setStep("build");
                   }}
-                  className="rounded-2xl border border-dashed border-slate-300 px-5 py-3 text-[14px] font-semibold text-slate-500 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-600"
+                  className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-slate-300 px-3 py-3 text-center text-[13.5px] font-semibold text-slate-500 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-600"
                 >
-                  기타 (직접 검색)
+                  기타
+                  <br />
+                  (직접 검색)
                 </button>
               )}
             </div>

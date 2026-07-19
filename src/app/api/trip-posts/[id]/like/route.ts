@@ -7,8 +7,8 @@ async function canView(postId: number, viewerId: number, row: { authorId: number
   if (viewerId === row.authorId || row.visibility === "public") return true;
   if (row.visibility === "friends") {
     const mutual = await pool.query(
-      `select 1 from follows where "followerId" = $1 and "followingId" = $2
-       and exists (select 1 from follows where "followerId" = $2 and "followingId" = $1)`,
+      `select 1 from follows where "followerId" = $1 and "followingId" = $2 and status = 'accepted'
+       and exists (select 1 from follows where "followerId" = $2 and "followingId" = $1 and status = 'accepted')`,
       [viewerId, row.authorId],
     );
     return (mutual.rowCount ?? 0) > 0;

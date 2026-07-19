@@ -217,6 +217,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS follows_pair_key ON follows ("followerId", "fo
 CREATE INDEX IF NOT EXISTS follows_follower_idx ON follows ("followerId");
 CREATE INDEX IF NOT EXISTS follows_following_idx ON follows ("followingId");
 
+-- 'pending' | 'accepted' — 트메 신청은 상대가 수락하기 전까진 실제 관계로
+-- 카운트되거나 트메공개 등을 게이트하지 않는다. 이 컬럼이 생기기 전 행은
+-- 전부 승인 없는 즉시 팔로우로 만들어졌으므로 기본값 'accepted'로 하위호환.
+ALTER TABLE follows ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'accepted';
+
 -- Public-facing display identity, chosen by the user at profile setup —
 -- decoupled from the OAuth-provided `name`/`email` (never rendered to other
 -- users) for privacy. NULL until the user completes the mandatory first-run
@@ -261,10 +266,14 @@ CREATE TABLE IF NOT EXISTS notifications (
   id SERIAL PRIMARY KEY,
   "recipientId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   "actorId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  -- 'follow' | 'like'
-  type VARCHAR(10) NOT NULL,
+  -- 'follow_request' | 'follow_accept' | 'like'
+  type VARCHAR(20) NOT NULL,
   "postId" INTEGER REFERENCES trip_posts(id) ON DELETE CASCADE,
   read BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS notifications_recipient_idx ON notifications ("recipientId", created_at DESC);
+-- 'follow_request'가 원래 정의(VARCHAR(10))로는 잘려 이미 배포된 DB의
+-- 컬럼도 넓힌다 — VARCHAR 길이 확장은 Postgres에서 메타데이터만 바뀌는
+-- 즉시 처리라 큰 테이블에서도 안전하다.
+ALTER TABLE notifications ALTER COLUMN type TYPE VARCHAR(20);

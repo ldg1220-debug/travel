@@ -45,9 +45,12 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
 
   const followingIds = new Set((following ?? []).map((u) => u.id));
 
-  // 팔로워/팔로잉 카운트 + 목록은 설정 모드에서만 의미가 있다 — mandatory
-  // 모드(가입 직후)엔 아직 팔로우 관계가 있을 리 없어 조회할 필요가 없다.
-  useEffect(() => {
+  // 팔로워/팔로잉 카운트 + 목록을 새로 불러온다 — mandatory 모드(가입
+  // 직후)엔 아직 팔로우 관계가 있을 리 없어 건너뛴다. 중첩된
+  // UserProfileSheet(팔로워/팔로잉 목록에서 이름을 눌러 연 프로필 팝업)에서
+  // 트메 상태가 바뀌면 이 화면의 카운트·목록은 스스로 갱신되지 않으므로,
+  // 그 팝업의 onChange로 이 함수를 다시 호출해준다.
+  const refreshFollowData = () => {
     if (mandatory || !session?.user?.id) return;
     const userId = Number(session.user.id);
     fetchFollowStatus(userId).then((status) => {
@@ -55,6 +58,12 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
       setFollowingCount(status.followingCount);
     });
     fetchFollowList("following").then(setFollowing);
+    if (followers != null) fetchFollowList("followers").then(setFollowers);
+  };
+
+  useEffect(() => {
+    refreshFollowData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 시점 1회 로드용, refreshFollowData는 매 렌더 재생성되지만 의도적으로 deps에서 뺐다.
   }, [mandatory, session?.user?.id]);
 
   useEffect(() => {
@@ -226,7 +235,9 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
         </div>
       </div>
 
-      {profileUserId != null && <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} />}
+      {profileUserId != null && (
+        <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} onChange={refreshFollowData} />
+      )}
     </div>
   );
 }
