@@ -5,18 +5,21 @@ import { useSession } from "next-auth/react";
 import { X, Loader2 } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import {
+  acceptFollowRequest,
   fetchFollowList,
   fetchFollowStatus,
   followUser,
+  rejectFollowRequest,
   unfollowUser,
   updateProfile,
   uploadReviewPhotos,
   type FollowUser,
 } from "@/lib/api";
 import { resizeImageFiles } from "@/lib/imageResize";
+import { shareToKakao } from "@/lib/kakaoShare";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
 
-type Tab = "settings" | "followers" | "following";
+type Tab = "settings" | "followers" | "following" | "requests";
 
 /**
  * 닉네임·프로필 사진 편집 + 팔로워/팔로잉 목록 — 사이드 서랍 맨 아래 계정 행을
@@ -40,8 +43,12 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   const [followingCount, setFollowingCount] = useState(0);
   const [followers, setFollowers] = useState<FollowUser[] | null>(null);
   const [following, setFollowing] = useState<FollowUser[] | null>(null);
+  // 대기 중인 트메 신청 — received: 나에게 온 것(수락/거절), sent: 내가 보낸 것(취소).
+  const [received, setReceived] = useState<FollowUser[] | null>(null);
+  const [sent, setSent] = useState<FollowUser[] | null>(null);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   // 이용약관·개인정보처리방침 필수 동의 — 아직 동의 기록이 없는 계정이
   // mandatory 게이트를 만나면 체크해야 저장(=앱 진입)할 수 있다.
@@ -50,6 +57,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   const [agreePrivacy, setAgreePrivacy] = useState(false);
 
   const followingIds = new Set((following ?? []).map((u) => u.id));
+  const sentIds = new Set((sent ?? []).map((u) => u.id));
 
   // 팔로워/팔로잉 카운트 + 목록을 새로 불러온다 — mandatory 모드(가입
   // 직후)엔 아직 팔로우 관계가 있을 리 없어 건너뛴다. 중첩된
@@ -64,6 +72,8 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
       setFollowingCount(status.followingCount);
     });
     fetchFollowList("following").then(setFollowing);
+    fetchFollowList("sent").then(setSent);
+    fetchFollowList("received").then(setReceived);
     if (followers != null) fetchFollowList("followers").then(setFollowers);
   };
 
@@ -116,24 +126,66 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
     }
   };
 
-  const handleToggleFollow = async (target: FollowUser) => {
-    setBusyIds((prev) => new Set(prev).add(target.id));
+  const withBusy = async (id: number, action: () => Promise<void>) => {
+    setBusyIds((prev) => new Set(prev).add(id));
     try {
-      if (followingIds.has(target.id)) {
-        await unfollowUser(target.id);
-        setFollowing((prev) => (prev ?? []).filter((u) => u.id !== target.id));
-        setFollowingCount((c) => c - 1);
-      } else {
-        await followUser(target.id);
-        setFollowing((prev) => [...(prev ?? []), target]);
-        setFollowingCount((c) => c + 1);
-      }
+      await action();
     } finally {
       setBusyIds((prev) => {
         const next = new Set(prev);
-        next.delete(target.id);
+        next.delete(id);
         return next;
       });
+    }
+  };
+
+  const handleToggleFollow = (target: FollowUser) =>
+    withBusy(target.id, async () => {
+      if (followingIds.has(target.id)) {
+        // 트메 끊기
+        await unfollowUser(target.id);
+        setFollowing((prev) => (prev ?? []).filter((u) => u.id !== target.id));
+        setFollowingCount((c) => c - 1);
+      } else if (sentIds.has(target.id)) {
+        // 내가 보낸 신청 취소
+        await unfollowUser(target.id);
+        setSent((prev) => (prev ?? []).filter((u) => u.id !== target.id));
+      } else {
+        // 트메 신청 — 상대가 수락해야 목록/카운트에 반영되므로 '보낸 신청'에만 추가
+        await followUser(target.id);
+        setSent((prev) => [...(prev ?? []), target]);
+      }
+    });
+
+  const handleAcceptRequest = (target: FollowUser) =>
+    withBusy(target.id, async () => {
+      await acceptFollowRequest(target.id);
+      setReceived((prev) => (prev ?? []).filter((u) => u.id !== target.id));
+      setFollowers((prev) => (prev == null ? prev : [target, ...prev]));
+      setFollowerCount((c) => c + 1);
+    });
+
+  const handleRejectRequest = (target: FollowUser) =>
+    withBusy(target.id, async () => {
+      await rejectFollowRequest(target.id);
+      setReceived((prev) => (prev ?? []).filter((u) => u.id !== target.id));
+    });
+
+  // 카카오톡으로 내 트메 초대 링크 공유 — 받은 친구는 /tme/[내 id] 랜딩에서
+  // 로그인만 하면 바로 트메 신청을 보낼 수 있다. (카카오 친구 목록 API는 비즈
+  // 앱 심사가 필요해, 공유 메시지 기반 초대로 제공)
+  const handleKakaoInvite = async () => {
+    if (!session?.user?.id) return;
+    setInviteError(null);
+    try {
+      await shareToKakao({
+        title: `${session.user.nickname ?? "여행자"}님의 트메 초대`,
+        description: "트레쥴에서 트래블메이트(트메)를 맺고 여행 후기·계획을 함께 봐요!",
+        url: `${window.location.origin}/tme/${session.user.id}`,
+        buttonTitle: "트메 맺으러 가기",
+      });
+    } catch (e) {
+      setInviteError(e instanceof Error ? e.message : "카카오톡 공유에 실패했어요");
     }
   };
 
@@ -162,12 +214,13 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
         )}
 
         {!mandatory && (
-          <div className="mb-4 flex gap-1.5">
+          <div className="mb-4 flex flex-wrap gap-1.5">
             {(
               [
                 { value: "settings", label: "설정" },
                 { value: "followers", label: `팔로워 ${followerCount}` },
                 { value: "following", label: `트메 ${followingCount}` },
+                { value: "requests", label: `신청${received && received.length > 0 ? ` ${received.length}` : ""}` },
               ] as const
             ).map((t) => (
               <button
@@ -269,15 +322,110 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                 {saving ? "저장 중…" : "저장"}
               </button>
             </>
+          ) : tab === "requests" ? (
+            <div className="space-y-6">
+              <div>
+                <p className="mb-1.5 text-[12.5px] font-bold text-slate-600 dark:text-slate-300">받은 신청</p>
+                {received == null ? (
+                  <p className="py-4 text-center text-[12.5px] text-slate-400">불러오는 중…</p>
+                ) : received.length === 0 ? (
+                  <p className="py-4 text-center text-[12.5px] text-slate-400">받은 트메 신청이 없어요</p>
+                ) : (
+                  <div className="space-y-1">
+                    {received.map((u) => (
+                      <div key={u.id} className="flex items-center gap-2.5 rounded-xl px-1 py-2">
+                        <button onClick={() => setProfileUserId(u.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+                          {u.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
+                            <img src={u.image} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                          ) : (
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-xs font-bold text-white">
+                              {(u.name ?? "여").trim().charAt(0)}
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-slate-700 dark:text-slate-200">
+                            {u.name ?? "여행자"}
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => handleAcceptRequest(u)}
+                          disabled={busyIds.has(u.id)}
+                          className="shrink-0 rounded-full bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                        >
+                          수락
+                        </button>
+                        <button
+                          onClick={() => handleRejectRequest(u)}
+                          disabled={busyIds.has(u.id)}
+                          className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        >
+                          거절
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-1.5 text-[12.5px] font-bold text-slate-600 dark:text-slate-300">보낸 신청</p>
+                {sent == null ? (
+                  <p className="py-4 text-center text-[12.5px] text-slate-400">불러오는 중…</p>
+                ) : sent.length === 0 ? (
+                  <p className="py-4 text-center text-[12.5px] text-slate-400">보낸 트메 신청이 없어요</p>
+                ) : (
+                  <div className="space-y-1">
+                    {sent.map((u) => (
+                      <div key={u.id} className="flex items-center gap-2.5 rounded-xl px-1 py-2">
+                        <button onClick={() => setProfileUserId(u.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+                          {u.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
+                            <img src={u.image} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                          ) : (
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-xs font-bold text-white">
+                              {(u.name ?? "여").trim().charAt(0)}
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-slate-700 dark:text-slate-200">
+                            {u.name ?? "여행자"}
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => handleToggleFollow(u)}
+                          disabled={busyIds.has(u.id)}
+                          className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        >
+                          요청됨 (취소)
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           ) : (
             <FollowUserList
               users={tab === "followers" ? followers : following}
               followingIds={followingIds}
+              sentIds={sentIds}
               busyIds={busyIds}
               onToggleFollow={handleToggleFollow}
               onOpenProfile={setProfileUserId}
               emptyText={tab === "followers" ? "아직 나를 팔로우하는 사람이 없어요" : "아직 트메가 없어요"}
             />
+          )}
+
+          {/* 카카오톡 초대 — 설정 탭을 제외한 모든 목록 탭 하단에 노출 */}
+          {tab !== "settings" && (
+            <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+              <button
+                onClick={handleKakaoInvite}
+                className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-[#FEE500] text-[13px] font-semibold text-black/85 transition-opacity hover:opacity-90"
+              >
+                <CordixIcon name="share" size={14} /> 카카오톡으로 트메 초대하기
+              </button>
+              {inviteError && <p className="mt-2 text-center text-[11.5px] text-rose-500">{inviteError}</p>}
+            </div>
           )}
         </div>
       </div>
@@ -292,6 +440,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
 function FollowUserList({
   users,
   followingIds,
+  sentIds,
   busyIds,
   onToggleFollow,
   onOpenProfile,
@@ -299,6 +448,8 @@ function FollowUserList({
 }: {
   users: FollowUser[] | null;
   followingIds: Set<number>;
+  /** 내가 보낸 트메 신청이 대기 중인 상대 — 버튼을 "요청됨"으로 보여준다. */
+  sentIds: Set<number>;
   busyIds: Set<number>;
   onToggleFollow: (user: FollowUser) => void;
   onOpenProfile: (userId: number) => void;
@@ -314,6 +465,7 @@ function FollowUserList({
     <div className="space-y-1">
       {users.map((u) => {
         const isFollowing = followingIds.has(u.id);
+        const isPending = !isFollowing && sentIds.has(u.id);
         return (
           <div key={u.id} className="flex items-center gap-2.5 rounded-xl px-1 py-2">
             <button onClick={() => onOpenProfile(u.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
@@ -331,12 +483,12 @@ function FollowUserList({
               onClick={() => onToggleFollow(u)}
               disabled={busyIds.has(u.id)}
               className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-60 ${
-                isFollowing
+                isFollowing || isPending
                   ? "border border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
                   : "bg-indigo-600 text-white hover:bg-indigo-700"
               }`}
             >
-              {isFollowing ? "트메" : "트메 신청"}
+              {isFollowing ? "트메" : isPending ? "요청됨" : "트메 신청"}
             </button>
           </div>
         );

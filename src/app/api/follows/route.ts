@@ -36,20 +36,19 @@ export async function GET(request: NextRequest) {
   const targetUserId = request.nextUrl.searchParams.get("targetUserId");
   const list = request.nextUrl.searchParams.get("list");
 
-  if (list === "followers" || list === "following") {
+  if (list === "followers" || list === "following" || list === "received" || list === "sent") {
     if (!session?.user?.id) {
       return NextResponse.json({ users: [] });
     }
-    const result =
-      list === "followers"
-        ? await pool.query(
-            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 and f.status = 'accepted' order by f.created_at desc`,
-            [session.user.id],
-          )
-        : await pool.query(
-            `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 and f.status = 'accepted' order by f.created_at desc`,
-            [session.user.id],
-          );
+    // followers/following = 수락된 관계, received/sent = 아직 대기 중인 신청
+    // (받은 것 = 나에게 온 pending, 보낸 것 = 내가 보낸 pending).
+    const queries: Record<string, string> = {
+      followers: `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 and f.status = 'accepted' order by f.created_at desc`,
+      following: `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 and f.status = 'accepted' order by f.created_at desc`,
+      received: `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followerId" where f."followingId" = $1 and f.status = 'pending' order by f.created_at desc`,
+      sent: `select u.id, u.nickname as name, u.image from follows f join users u on u.id = f."followingId" where f."followerId" = $1 and f.status = 'pending' order by f.created_at desc`,
+    };
+    const result = await pool.query(queries[list], [session.user.id]);
     return NextResponse.json({ users: result.rows as FollowUser[] });
   }
 

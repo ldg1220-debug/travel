@@ -441,8 +441,8 @@ export async function rejectFollowRequest(requesterId: number): Promise<void> {
   await fetch(`/api/follows?requesterId=${requesterId}`, { method: "DELETE" });
 }
 
-/** The current user's own followers or following list (수락된 관계만) — used by "특정인공개"'s picker. */
-export async function fetchFollowList(list: "followers" | "following"): Promise<FollowUser[]> {
+/** The current user's own follow-related lists — followers/following은 수락된 관계, received/sent는 대기 중인 트메 신청(받은 것/보낸 것). */
+export async function fetchFollowList(list: "followers" | "following" | "received" | "sent"): Promise<FollowUser[]> {
   const res = await fetch(`/api/follows?list=${list}`);
   if (!res.ok) return [];
   const data = (await res.json()) as { users?: FollowUser[] };
