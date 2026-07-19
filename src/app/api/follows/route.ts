@@ -92,10 +92,13 @@ export async function POST(request: NextRequest) {
   if (targetId === Number(session.user.id)) {
     return NextResponse.json({ error: "cannot follow yourself" }, { status: 400 });
   }
-  await pool.query(
-    `insert into follows ("followerId", "followingId") values ($1, $2) on conflict ("followerId", "followingId") do nothing`,
+  const inserted = await pool.query(
+    `insert into follows ("followerId", "followingId") values ($1, $2) on conflict ("followerId", "followingId") do nothing returning id`,
     [session.user.id, targetId],
   );
+  if ((inserted.rowCount ?? 0) > 0) {
+    await pool.query(`insert into notifications ("recipientId", "actorId", type) values ($1, $2, 'follow')`, [targetId, session.user.id]);
+  }
   return NextResponse.json({ ok: true });
 }
 

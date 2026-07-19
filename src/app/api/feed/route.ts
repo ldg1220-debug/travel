@@ -19,6 +19,11 @@ const DEFAULT_LIMIT = 10;
  * places' names (via the author's per-place reviews for that trip) — lets
  * "후기 보기" answer "누가 오사카성 후기 썼지?" without a dedicated search
  * index.
+ *
+ * Optional `scope=following` narrows the feed to only posts by people the
+ * signed-in viewer follows (still gated by each post's own visibility —
+ * a followed-but-not-mutual author's "friends" posts stay hidden). Requires
+ * login; returns an empty page for an anonymous viewer.
  */
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -29,6 +34,11 @@ export async function GET(request: NextRequest) {
   const offset = (page - 1) * limit;
   const region = request.nextUrl.searchParams.get("region");
   const q = request.nextUrl.searchParams.get("q")?.trim() || null;
+  const scope = request.nextUrl.searchParams.get("scope");
+
+  if (scope === "following" && viewerId == null) {
+    return NextResponse.json({ posts: [], pagination: { page, limit, total: 0, hasMore: false } });
+  }
 
   const params: (string | number)[] = [];
   const visibilityChecks = [`p.visibility = 'public'`];
@@ -47,6 +57,11 @@ export async function GET(request: NextRequest) {
     );
   }
   const conditions = [`(${visibilityChecks.join(" or ")})`];
+
+  if (scope === "following" && viewerId != null) {
+    params.push(viewerId);
+    conditions.push(`exists (select 1 from follows f where f."followerId" = $${params.length} and f."followingId" = p."userId")`);
+  }
 
   if (region === "domestic" || region === "international") {
     params.push(region);

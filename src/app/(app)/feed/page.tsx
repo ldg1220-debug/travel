@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Rss, Loader2, Search } from "lucide-react";
 import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
+import { LoginModal } from "@/components/LoginModal";
 import type { Region } from "@/lib/types";
 
 const SEARCH_DEBOUNCE_MS = 400;
@@ -13,10 +15,15 @@ const REGION_OPTIONS: { value: Region | "all"; label: string }[] = [
   { value: "domestic", label: "국내" },
   { value: "international", label: "해외" },
 ];
+const SCOPE_OPTIONS: { value: "all" | "following"; label: string }[] = [
+  { value: "all", label: "전체" },
+  { value: "following", label: "팔로잉" },
+];
 
-/** Public feed of everyone's published 여행 후기 (blog/Instagram-style trip posts) — browsable without logging in, same as /discover. Supports filtering by region and free-text search (post title/내용, 여행 제목, 다녀온 장소 이름). */
+/** Public feed of everyone's published 여행 후기 (blog/Instagram-style trip posts) — browsable without logging in, same as /discover. Supports filtering by region, scope(전체/팔로잉), and free-text search (post title/내용, 여행 제목, 다녀온 장소 이름). */
 export default function FeedPage() {
   const router = useRouter();
+  const { data: session } = useSession();
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -24,13 +31,15 @@ export default function FeedPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState<Region | "all">("all");
+  const [scope, setScope] = useState<"all" | "following">("all");
+  const [loginOpen, setLoginOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setLoading(true);
-      fetchFeed(1, 10, { region: region === "all" ? undefined : region, q: query }).then((data) => {
+      fetchFeed(1, 10, { region: region === "all" ? undefined : region, q: query, scope }).then((data) => {
         setPosts(data.posts);
         setHasMore(data.pagination.hasMore);
         setPage(1);
@@ -40,16 +49,24 @@ export default function FeedPage() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, region]);
+  }, [query, region, scope]);
 
   const loadMore = async () => {
     setLoadingMore(true);
     const next = page + 1;
-    const data = await fetchFeed(next, 10, { region: region === "all" ? undefined : region, q: query });
+    const data = await fetchFeed(next, 10, { region: region === "all" ? undefined : region, q: query, scope });
     setPosts((prev) => [...prev, ...data.posts]);
     setHasMore(data.pagination.hasMore);
     setPage(next);
     setLoadingMore(false);
+  };
+
+  const handleScopeChange = (value: "all" | "following") => {
+    if (value === "following" && !session?.user) {
+      setLoginOpen(true);
+      return;
+    }
+    setScope(value);
   };
 
   return (
@@ -68,6 +85,20 @@ export default function FeedPage() {
             placeholder="제목, 지역, 장소로 후기 검색"
             className="min-w-0 flex-1 bg-transparent text-[13.5px] outline-none"
           />
+        </div>
+
+        <div className="mb-3 flex gap-1.5">
+          {SCOPE_OPTIONS.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => handleScopeChange(s.value)}
+              className={`rounded-full px-3.5 py-1.5 text-[13px] font-bold transition-colors ${
+                scope === s.value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
 
         <div className="mb-6 flex gap-1.5">
@@ -92,10 +123,18 @@ export default function FeedPage() {
               <Rss size={24} />
             </span>
             <p className="text-sm font-semibold text-slate-700">
-              {query || region !== "all" ? "조건에 맞는 후기가 없어요" : "아직 공개된 후기가 없어요"}
+              {scope === "following"
+                ? "팔로잉한 사람이 공개한 후기가 없어요"
+                : query || region !== "all"
+                  ? "조건에 맞는 후기가 없어요"
+                  : "아직 공개된 후기가 없어요"}
             </p>
             <p className="mt-1 text-[13px] text-slate-400">
-              {query || region !== "all" ? "다른 검색어나 지역으로 찾아보세요." : "여행 보관함에서 첫 여행 후기를 남겨보세요."}
+              {scope === "following"
+                ? "관심 있는 사람을 팔로우하면 여기서 후기를 모아볼 수 있어요."
+                : query || region !== "all"
+                  ? "다른 검색어나 지역으로 찾아보세요."
+                  : "여행 보관함에서 첫 여행 후기를 남겨보세요."}
             </p>
           </div>
         ) : (
@@ -118,6 +157,8 @@ export default function FeedPage() {
           </div>
         )}
       </div>
+
+      {loginOpen && <LoginModal reason="팔로잉 피드를 보려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
     </div>
   );
 }
