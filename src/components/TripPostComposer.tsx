@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X, Loader2, Plus, Hash } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
-import { Switch } from "@/components/ui/switch";
+import { VisibilitySelector } from "@/components/VisibilitySelector";
 import type { SavedPlan, Region } from "@/lib/types";
-import { fetchMyReviews, fetchMyTripPost, fetchTripPost, saveTripPost, searchPlaces, uploadReviewPhotos, type Review } from "@/lib/api";
+import { fetchMyReviews, fetchMyTripPost, fetchTripPost, saveTripPost, searchPlaces, uploadReviewPhotos, type Review, type Visibility } from "@/lib/api";
 import { PlaceReviewEditSheet, type PlaceStub } from "@/components/PlaceReviewEditSheet";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { hashtagSlug } from "@/lib/hashtag";
@@ -58,7 +58,8 @@ export function TripPostComposer({
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [images, setImages] = useState<string[]>([]);
-  const [isPublic, setIsPublic] = useState(false);
+  const [visibility, setVisibility] = useState<Visibility>("private");
+  const [visibleToUserIds, setVisibleToUserIds] = useState<number[]>([]);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +103,8 @@ export function TripPostComposer({
         setTitle(post.title);
         setContent(post.content);
         setImages(post.images);
-        setIsPublic(post.isPublic);
+        setVisibility(post.visibility);
+        setVisibleToUserIds(post.visibleToUserIds);
         setReviews(
           Object.fromEntries(
             placeReviews.map((r) => [
@@ -137,7 +139,8 @@ export function TripPostComposer({
         setTitle(post.title);
         setContent(post.content);
         setImages(post.images);
-        setIsPublic(post.isPublic);
+        setVisibility(post.visibility);
+        setVisibleToUserIds(post.visibleToUserIds);
       } else if (plan) {
         setTitle(plan.name);
       }
@@ -195,7 +198,8 @@ export function TripPostComposer({
         title: title.trim(),
         content: content.trim(),
         images,
-        isPublic,
+        visibility,
+        visibleToUserIds,
       });
       setPostId(id);
       setSaved(true);
@@ -339,10 +343,15 @@ export function TripPostComposer({
               )}
             </div>
 
-            <label className="mb-4 flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
-              <span className="text-[13px] font-medium text-slate-700">피드에 공개하기</span>
-              <Switch checked={isPublic} onCheckedChange={setIsPublic} />
-            </label>
+            <div className="mb-4">
+              <p className="mb-2 text-[12.5px] font-semibold text-slate-600">공개 범위</p>
+              <VisibilitySelector
+                value={visibility}
+                onChange={setVisibility}
+                visibleToUserIds={visibleToUserIds}
+                onVisibleToUserIdsChange={setVisibleToUserIds}
+              />
+            </div>
 
             {error && <p className="mb-3 text-center text-[12px] text-rose-500">{error}</p>}
 

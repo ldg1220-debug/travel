@@ -2,13 +2,26 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Link as LinkIcon, ChevronLeft } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
-import { deleteTripPost, fetchTripPost, saveTripPost, type TripPostDetail, type TripPostPlaceReview } from "@/lib/api";
+import {
+  deleteTripPost,
+  fetchFollowStatus,
+  fetchTripPost,
+  followUser,
+  saveTripPost,
+  unfollowUser,
+  type FollowStatus,
+  type TripPostDetail,
+  type TripPostPlaceReview,
+  type Visibility,
+} from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { hashtagSlug } from "@/lib/hashtag";
-import { Switch } from "@/components/ui/switch";
+import { VisibilitySelector } from "@/components/VisibilitySelector";
+import { LoginModal } from "@/components/LoginModal";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { TripPostComposer } from "@/components/TripPostComposer";
 
@@ -16,6 +29,7 @@ import { TripPostComposer } from "@/components/TripPostComposer";
 export default function TripPostDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { data: session } = useSession();
   const [post, setPost] = useState<TripPostDetail | null>(null);
   const [placeReviews, setPlaceReviews] = useState<TripPostPlaceReview[]>([]);
   const [isOwner, setIsOwner] = useState(false);
@@ -26,6 +40,9 @@ export default function TripPostDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [followStatus, setFollowStatus] = useState<FollowStatus | null>(null);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
 
   const reload = () => {
     const id = Number(params.id);
@@ -63,16 +80,48 @@ export default function TripPostDetailPage() {
     });
   }, [params.id]);
 
+  // 남의 후기를 볼 때만 팔로우 상태를 조회 — 팔로우 버튼과 "친구공개" 접근
+  // 가능 여부 표시에 쓴다.
+  useEffect(() => {
+    if (!post || isOwner || !session?.user) return;
+    let cancelled = false;
+    fetchFollowStatus(post.authorId).then((next) => {
+      if (!cancelled) setFollowStatus(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [post, isOwner, session?.user]);
+
+  const handleToggleFollow = async () => {
+    if (!post) return;
+    if (!session?.user) {
+      setLoginOpen(true);
+      return;
+    }
+    setFollowBusy(true);
+    try {
+      if (followStatus?.isFollowing) {
+        await unfollowUser(post.authorId);
+      } else {
+        await followUser(post.authorId);
+      }
+      const next = await fetchFollowStatus(post.authorId);
+      setFollowStatus(next);
+    } finally {
+      setFollowBusy(false);
+    }
+  };
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 1600);
   };
 
-  // 작성 시점의 "피드에 공개하기" 토글과 별개로, 다 쓴 후에도 전체 편집
-  // 화면을 다시 열지 않고 바로 공개/비공개를 뒤집을 수 있게 한다.
-  const handleToggleVisibility = async () => {
+  // 작성 시점의 공개 범위 선택과 별개로, 다 쓴 후에도 전체 편집 화면을
+  // 다시 열지 않고 바로 공개 범위를 바꿀 수 있게 한다.
+  const handleChangeVisibility = async (visibility: Visibility, visibleToUserIds: number[]) => {
     if (!post) return;
-    const nextIsPublic = !post.isPublic;
     setTogglingVisibility(true);
     try {
       await saveTripPost({
@@ -80,10 +129,11 @@ export default function TripPostDetailPage() {
         title: post.title,
         content: post.content,
         images: post.images,
-        isPublic: nextIsPublic,
+        visibility,
+        visibleToUserIds,
       });
-      setPost((prev) => (prev ? { ...prev, isPublic: nextIsPublic } : prev));
-      showToast(nextIsPublic ? "피드에 공개됐어요" : "비공개로 전환했어요");
+      setPost((prev) => (prev ? { ...prev, visibility, visibleToUserIds } : prev));
+      showToast("공개 범위가 변경됐어요");
     } catch {
       showToast("변경에 실패했어요");
     } finally {
@@ -159,18 +209,34 @@ export default function TripPostDetailPage() {
           </div>
         )}
 
-        <p className="mb-1 text-[12.5px] text-slate-400">{metaLine}</p>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">{metaLine}</p>
+          {!isOwner && (
+            <button
+              onClick={handleToggleFollow}
+              disabled={followBusy}
+              className={`shrink-0 rounded-full px-3 py-1 text-[11.5px] font-semibold transition-colors disabled:opacity-60 ${
+                followStatus?.isFollowing ? "border border-slate-200 bg-white text-slate-500" : "bg-indigo-600 text-white hover:bg-indigo-700"
+              }`}
+            >
+              {followStatus?.isFollowing ? (followStatus.isFriend ? "친구" : "팔로잉") : "팔로우"}
+            </button>
+          )}
+        </div>
         <h1 className="text-xl font-bold tracking-tight">{post.title}</h1>
 
         {isOwner && (
           <div className="mt-3 space-y-2">
-            <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-2.5">
-              <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-700">
-                {post.isPublic ? <CordixIcon name="globe" size={14} className="text-emerald-500" /> : <CordixIcon name="lock" size={14} className="text-slate-400" />}
-                {post.isPublic ? "피드에 공개 중" : "비공개 (나만 보기)"}
-              </span>
-              <Switch checked={post.isPublic} disabled={togglingVisibility} onCheckedChange={handleToggleVisibility} />
-            </label>
+            <div>
+              <p className="mb-1.5 text-[12px] font-semibold text-slate-500">공개 범위</p>
+              <VisibilitySelector
+                value={post.visibility}
+                onChange={(v) => handleChangeVisibility(v, post.visibleToUserIds)}
+                visibleToUserIds={post.visibleToUserIds}
+                onVisibleToUserIdsChange={(ids) => handleChangeVisibility(post.visibility, ids)}
+              />
+              {togglingVisibility && <p className="mt-1 text-[11px] text-slate-400">변경 중…</p>}
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setEditOpen(true)}
@@ -289,6 +355,8 @@ export default function TripPostDetailPage() {
           }}
         />
       )}
+
+      {loginOpen && <LoginModal reason="팔로우하려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
     </div>
   );
 }

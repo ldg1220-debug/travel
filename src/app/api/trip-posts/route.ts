@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 
+type Visibility = "public" | "friends" | "custom" | "private";
+const VISIBILITIES: Visibility[] = ["public", "friends", "custom", "private"];
+
 interface TripPostBody {
   /** Update this specific post directly — the only way to target a post that isn't tied to any plan (itineraryId null), since there's nothing else to upsert against. */
   id?: number;
@@ -10,7 +13,9 @@ interface TripPostBody {
   title: string;
   content: string;
   images: string[];
-  isPublic: boolean;
+  visibility: Visibility;
+  /** Required (and only meaningful) when visibility is "custom" — the allowed viewers' user ids, from the author's own followers. */
+  visibleToUserIds?: number[];
 }
 
 export interface TripPostRow {
@@ -19,7 +24,8 @@ export interface TripPostRow {
   title: string;
   content: string;
   images: string[];
-  isPublic: boolean;
+  visibility: Visibility;
+  visibleToUserIds: number[];
   createdAt: string;
   updatedAt: string;
 }
@@ -40,11 +46,21 @@ export async function GET(request: NextRequest) {
   }
 
   const result = await pool.query(
-    `select id, "itineraryId", title, content, images, "isPublic", created_at as "createdAt", updated_at as "updatedAt"
-     from trip_posts where ${where} order by updated_at desc`,
+    `select p.id, p."itineraryId", p.title, p.content, p.images, p.visibility,
+            coalesce((select array_agg(v."userId") from trip_post_visible_to v where v."postId" = p.id), '{}') as "visibleToUserIds",
+            p.created_at as "createdAt", p.updated_at as "updatedAt"
+     from trip_posts p where ${where} order by p.updated_at desc`,
     params,
   );
   return NextResponse.json({ posts: result.rows });
+}
+
+/** Replaces the "custom" visibility allow-list for a post with exactly `userIds` — a no-op empty list when visibility isn't "custom". */
+async function setVisibleTo(postId: number, visibility: Visibility, userIds: number[]) {
+  await pool.query(`delete from trip_post_visible_to where "postId" = $1`, [postId]);
+  if (visibility !== "custom" || userIds.length === 0) return;
+  const values = userIds.map((_, i) => `($1, $${i + 2})`).join(", ");
+  await pool.query(`insert into trip_post_visible_to ("postId", "userId") values ${values} on conflict do nothing`, [postId, ...userIds]);
 }
 
 /**
@@ -65,39 +81,47 @@ export async function POST(request: NextRequest) {
   if (!body.title?.trim() || !body.content?.trim()) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
+  const visibility: Visibility = VISIBILITIES.includes(body.visibility) ? body.visibility : "private";
+  const visibleToUserIds = visibility === "custom" ? (body.visibleToUserIds ?? []).map(Number).filter(Boolean) : [];
   const images = JSON.stringify((body.images ?? []).slice(0, 10));
   const itineraryId = body.itineraryId ?? null;
+  const isPublic = visibility === "public";
 
   if (body.id) {
     const updated = await pool.query(
-      `update trip_posts set title = $3, content = $4, images = $5, "isPublic" = $6, "itineraryId" = $7, updated_at = now()
+      `update trip_posts set title = $3, content = $4, images = $5, visibility = $6, "isPublic" = $7, "itineraryId" = $8, updated_at = now()
        where id = $1 and "userId" = $2
        returning id`,
-      [body.id, session.user.id, body.title.trim(), body.content.trim(), images, Boolean(body.isPublic), itineraryId],
+      [body.id, session.user.id, body.title.trim(), body.content.trim(), images, visibility, isPublic, itineraryId],
     );
-    if (updated.rowCount) return NextResponse.json({ id: updated.rows[0].id });
+    if (updated.rowCount) {
+      await setVisibleTo(updated.rows[0].id, visibility, visibleToUserIds);
+      return NextResponse.json({ id: updated.rows[0].id });
+    }
     // Given id doesn't exist or belongs to someone else — fall through and
     // create a fresh row rather than erroring, same as itineraries' POST.
   }
 
   if (itineraryId != null) {
     const result = await pool.query(
-      `insert into trip_posts ("userId", "itineraryId", title, content, images, "isPublic")
-       values ($1, $2, $3, $4, $5, $6)
+      `insert into trip_posts ("userId", "itineraryId", title, content, images, visibility, "isPublic")
+       values ($1, $2, $3, $4, $5, $6, $7)
        on conflict ("userId", "itineraryId")
-       do update set title = $3, content = $4, images = $5, "isPublic" = $6, updated_at = now()
+       do update set title = $3, content = $4, images = $5, visibility = $6, "isPublic" = $7, updated_at = now()
        returning id`,
-      [session.user.id, itineraryId, body.title.trim(), body.content.trim(), images, Boolean(body.isPublic)],
+      [session.user.id, itineraryId, body.title.trim(), body.content.trim(), images, visibility, isPublic],
     );
+    await setVisibleTo(result.rows[0].id, visibility, visibleToUserIds);
     return NextResponse.json({ id: result.rows[0].id });
   }
 
   const result = await pool.query(
-    `insert into trip_posts ("userId", "itineraryId", title, content, images, "isPublic")
-     values ($1, null, $2, $3, $4, $5)
+    `insert into trip_posts ("userId", "itineraryId", title, content, images, visibility, "isPublic")
+     values ($1, null, $2, $3, $4, $5, $6)
      returning id`,
-    [session.user.id, body.title.trim(), body.content.trim(), images, Boolean(body.isPublic)],
+    [session.user.id, body.title.trim(), body.content.trim(), images, visibility, isPublic],
   );
+  await setVisibleTo(result.rows[0].id, visibility, visibleToUserIds);
   return NextResponse.json({ id: result.rows[0].id });
 }
 

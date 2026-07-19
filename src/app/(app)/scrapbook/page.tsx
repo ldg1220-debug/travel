@@ -13,8 +13,11 @@ import { TripPostComposer } from "@/components/TripPostComposer";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { formatDateLabel } from "@/lib/timeline";
 import { syncPlanToServer } from "@/lib/planSync";
-import { fetchMyTripPosts, type TripPost } from "@/lib/api";
+import { fetchMyTripPosts, type TripPost, type Visibility } from "@/lib/api";
 import type { SavedPlan } from "@/lib/types";
+
+const VISIBILITY_ICON: Record<Visibility, CordixIconName> = { public: "globe", friends: "group", custom: "user", private: "lock" };
+const VISIBILITY_LABEL: Record<Visibility, string> = { public: "전체공개", friends: "친구공개", custom: "특정공개", private: "비공개" };
 
 // "다녀온 여행"인지는 날짜가 지났는지가 아니라 그 계획에 대해 실제로
 // 여행 후기를 남겼는지로 정한다 — A/B/C 세 계획을 세워뒀다고 셋 다
@@ -334,8 +337,8 @@ export default function ScrapbookPage() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13.5px] font-semibold text-slate-800">{post.title}</span>
                     <span className="flex items-center gap-1 text-[11.5px] text-slate-400">
-                      {post.isPublic ? <CordixIcon name="globe" size={11} /> : <CordixIcon name="lock" size={11} />}
-                      {post.isPublic ? "공개" : "비공개"} · {formatDateLabel(post.createdAt.slice(0, 10))}
+                      <CordixIcon name={VISIBILITY_ICON[post.visibility]} size={11} />
+                      {VISIBILITY_LABEL[post.visibility]} · {formatDateLabel(post.createdAt.slice(0, 10))}
                     </span>
                   </span>
                 </button>

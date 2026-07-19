@@ -225,13 +225,18 @@ export async function deleteReview(id: number): Promise<void> {
   await fetch(`/api/reviews?id=${id}`, { method: "DELETE" });
 }
 
+/** 전체공개 / 친구공개(맞팔로우만) / 특정인공개(선택한 팔로워만) / 비공개(나만). */
+export type Visibility = "public" | "friends" | "custom" | "private";
+
 export interface TripPost {
   id: number;
   itineraryId: number | null;
   title: string;
   content: string;
   images: string[];
-  isPublic: boolean;
+  visibility: Visibility;
+  /** Only populated when visibility is "custom" — the allowed viewers' user ids. */
+  visibleToUserIds: number[];
   createdAt: string;
   updatedAt: string;
 }
@@ -265,7 +270,9 @@ export async function saveTripPost(input: {
   title: string;
   content: string;
   images: string[];
-  isPublic: boolean;
+  visibility: Visibility;
+  /** Required when visibility is "custom" — ignored otherwise. */
+  visibleToUserIds?: number[];
 }): Promise<{ id: number }> {
   const res = await fetch("/api/trip-posts", {
     method: "POST",
@@ -286,6 +293,7 @@ export interface FeedPost {
   content: string;
   images: string[];
   createdAt: string;
+  authorId: number;
   authorName: string | null;
   authorImage: string | null;
   tripTitle: string | null;
@@ -317,7 +325,9 @@ export interface TripPostPlaceReview {
 }
 
 export interface TripPostDetail extends FeedPost {
-  isPublic: boolean;
+  visibility: Visibility;
+  /** Only populated for the owner when visibility is "custom". */
+  visibleToUserIds: number[];
   /** null for a plan-less ("완전 새로 작성") post. */
   itineraryId: number | null;
 }
@@ -327,6 +337,55 @@ export async function fetchTripPost(id: number): Promise<{ post: TripPostDetail;
   const res = await fetch(`/api/trip-posts/${id}`);
   if (!res.ok) return null;
   return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────
+// 팔로우 — "친구공개"(맞팔로우)와 "특정인공개"(내 팔로워 중 선택)의 기반이
+// 되는 단방향 팔로우 관계. 팔로우 자체는 승인 없이 즉시 이뤄지고, "친구"
+// 판정만 양방향(맞팔로우)을 요구한다.
+
+export interface FollowUser {
+  id: number;
+  name: string | null;
+  image: string | null;
+}
+
+export interface FollowStatus {
+  /** I follow them. */
+  isFollowing: boolean;
+  /** They follow me. */
+  isFollowedBy: boolean;
+  /** Both directions — what "친구공개" gates on. */
+  isFriend: boolean;
+  followerCount: number;
+  followingCount: number;
+}
+
+/** Follow status + counts for one target user, relative to the current session. */
+export async function fetchFollowStatus(targetUserId: number): Promise<FollowStatus> {
+  const res = await fetch(`/api/follows?targetUserId=${targetUserId}`);
+  if (!res.ok) return { isFollowing: false, isFollowedBy: false, isFriend: false, followerCount: 0, followingCount: 0 };
+  return res.json();
+}
+
+export async function followUser(targetUserId: number): Promise<void> {
+  await fetch("/api/follows", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targetUserId }),
+  });
+}
+
+export async function unfollowUser(targetUserId: number): Promise<void> {
+  await fetch(`/api/follows?targetUserId=${targetUserId}`, { method: "DELETE" });
+}
+
+/** The current user's own followers or following list — used by "특정인공개"'s picker. */
+export async function fetchFollowList(list: "followers" | "following"): Promise<FollowUser[]> {
+  const res = await fetch(`/api/follows?list=${list}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { users?: FollowUser[] };
+  return data.users ?? [];
 }
 
 export interface DiscoverBrowseResponse {

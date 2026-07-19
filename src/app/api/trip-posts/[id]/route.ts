@@ -5,8 +5,12 @@ import { pool } from "@/lib/server/db";
 /**
  * A single trip post with author/trip context plus its author's per-place
  * reviews for the same trip (the "다녀온 장소" section embedded read-only
- * on the /trip/[id] page) — visible to anyone if published (`isPublic`),
- * otherwise only to its own author.
+ * on the /trip/[id] page). Visibility gates who can see it:
+ *  - "public": anyone
+ *  - "friends": only viewers who *mutually* follow the author
+ *  - "custom": only viewers on the author's explicit allow-list for this post
+ *  - "private": only the author
+ * The owner can always see their own post regardless of visibility.
  */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -15,10 +19,11 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const session = await auth();
+  const viewerId = session?.user?.id != null ? Number(session.user.id) : null;
 
   const result = await pool.query(
-    `select p.id, p.title, p.content, p.images, p."isPublic", p.created_at as "createdAt",
-            p."userId", p."itineraryId", u.name as "authorName", u.image as "authorImage",
+    `select p.id, p.title, p.content, p.images, p.visibility, p.created_at as "createdAt",
+            p."userId" as "authorId", p."itineraryId", u.name as "authorName", u.image as "authorImage",
             i.title as "tripTitle"
      from trip_posts p
      join users u on u.id = p."userId"
@@ -30,9 +35,30 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const row = result.rows[0];
-  const isOwner = session?.user?.id != null && String(session.user.id) === String(row.userId);
-  if (!row.isPublic && !isOwner) {
+  const isOwner = viewerId != null && viewerId === Number(row.authorId);
+
+  let canView = isOwner || row.visibility === "public";
+  if (!canView && viewerId != null && row.visibility === "friends") {
+    const mutual = await pool.query(
+      `select 1 from follows where "followerId" = $1 and "followingId" = $2
+       and exists (select 1 from follows where "followerId" = $2 and "followingId" = $1)`,
+      [viewerId, row.authorId],
+    );
+    canView = (mutual.rowCount ?? 0) > 0;
+  }
+  if (!canView && viewerId != null && row.visibility === "custom") {
+    const allowed = await pool.query(`select 1 from trip_post_visible_to where "postId" = $1 and "userId" = $2`, [postId, viewerId]);
+    canView = (allowed.rowCount ?? 0) > 0;
+  }
+  if (!canView) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (isOwner && row.visibility === "custom") {
+    const visibleTo = await pool.query(`select "userId" from trip_post_visible_to where "postId" = $1`, [postId]);
+    row.visibleToUserIds = visibleTo.rows.map((r) => r.userId);
+  } else {
+    row.visibleToUserIds = [];
   }
 
   // A plan-linked post's "다녀온 장소" is every review left for that same
@@ -60,7 +86,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
              from reviews where "userId" = $1 and "itineraryId" is null
              order by "placeId", updated_at desc
            ) t order by created_at asc`,
-      row.itineraryId ? [row.userId, row.itineraryId] : [row.userId],
+      row.itineraryId ? [row.authorId, row.itineraryId] : [row.authorId],
     )
   ).rows;
 

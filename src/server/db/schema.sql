@@ -186,6 +186,37 @@ CREATE INDEX IF NOT EXISTS trip_posts_user_id_idx ON trip_posts ("userId");
 CREATE INDEX IF NOT EXISTS trip_posts_itinerary_id_idx ON trip_posts ("itineraryId");
 CREATE INDEX IF NOT EXISTS trip_posts_is_public_idx ON trip_posts ("isPublic");
 
+-- 4-level visibility (전체공개/친구공개/특정인공개/비공개), replacing the
+-- old public/private-only "isPublic" boolean. "isPublic" itself is kept in
+-- sync (true iff visibility = 'public') rather than dropped, since it's a
+-- smaller/older column other tooling may still assume exists.
+ALTER TABLE trip_posts ADD COLUMN IF NOT EXISTS visibility VARCHAR(10) NOT NULL DEFAULT 'private';
+UPDATE trip_posts SET visibility = 'public' WHERE "isPublic" = true AND visibility = 'private';
+CREATE INDEX IF NOT EXISTS trip_posts_visibility_idx ON trip_posts (visibility);
+
+-- Explicit per-viewer allow-list for a "특정인공개" (visibility = 'custom')
+-- post — which of the author's followers can see it.
+CREATE TABLE IF NOT EXISTS trip_post_visible_to (
+  "postId" INTEGER NOT NULL REFERENCES trip_posts(id) ON DELETE CASCADE,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY ("postId", "userId")
+);
+
+-- One-way follow edges — "친구" (used by visibility = 'friends') means a
+-- *mutual* follow: both (A follows B) and (B follows A) rows exist. Kept as
+-- simple one-way edges rather than a request/approve flow so following is
+-- always immediate; only the "친구" label/gate requires the other side to
+-- follow back.
+CREATE TABLE IF NOT EXISTS follows (
+  id SERIAL PRIMARY KEY,
+  "followerId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "followingId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS follows_pair_key ON follows ("followerId", "followingId");
+CREATE INDEX IF NOT EXISTS follows_follower_idx ON follows ("followerId");
+CREATE INDEX IF NOT EXISTS follows_following_idx ON follows ("followingId");
+
 -- Server-side cache of place-to-place transit estimates (src/lib/transit.ts
 -- computes a Haversine-based fallback today; this table exists so a real
 -- Google Distance Matrix result, once wired in, doesn't re-pay the API
