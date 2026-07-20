@@ -44,13 +44,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // are our own additions, so they're fetched separately rather than
         // relying on the adapter to surface them.
         const result = await pool.query(
-          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "isAdmin", "isBanned" from users where id = $1`,
+          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "isAdmin", "isBanned" from users where id = $1`,
           [user.id],
         );
         session.user.nickname = result.rows[0]?.nickname ?? null;
         session.user.termsAgreed = result.rows[0]?.termsAgreedAt != null;
         session.user.notifyMateRequests = result.rows[0]?.notifyMateRequests ?? true;
         session.user.notifyLikes = result.rows[0]?.notifyLikes ?? true;
+        session.user.notifyMessages = result.rows[0]?.notifyMessages ?? true;
         session.user.isAdmin = result.rows[0]?.isAdmin ?? false;
         session.user.isBanned = result.rows[0]?.isBanned ?? false;
       }

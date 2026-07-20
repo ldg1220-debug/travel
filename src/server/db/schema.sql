@@ -251,6 +251,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS "termsAgreedAt" TIMESTAMPTZ;
 -- 별개로 끌 수 있게 분리.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "notifyMateRequests" BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "notifyLikes" BOOLEAN NOT NULL DEFAULT true;
+-- 새 메시지 알림 on/off — 메시지 기능이 나온 뒤 추가된 세 번째 종류.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "notifyMessages" BOOLEAN NOT NULL DEFAULT true;
 
 -- 1:1 다이렉트 메시지. 신고/차단 등 모더레이션 인프라가 아직 없어서 첫
 -- 버전은 서로 트래블 메이트인 사이에서만 보낼 수 있게 애플리케이션
@@ -372,3 +374,19 @@ CREATE INDEX IF NOT EXISTS reviews_trip_post_id_idx ON reviews ("tripPostId");
 DROP INDEX IF EXISTS reviews_user_place_no_itinerary_key;
 CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_trip_post_place_key
   ON reviews ("userId", "tripPostId", "placeId") WHERE "itineraryId" IS NULL AND "tripPostId" IS NOT NULL;
+
+-- 앱을 홈 화면에 설치했을 때(PWA) 실제 OS 팝업으로 뜨는 푸시 알림 구독
+-- 정보 — 브라우저/기기 하나당 한 구독(endpoint가 그 조합의 고유 식별자).
+-- 로그아웃해도 남겨두면 다른 계정으로 로그인 시 엉뚱한 사람에게 알림이
+-- 갈 수 있으므로, 구독은 세션이 아니라 계정에 묶고 로그아웃 시 클라이언트가
+-- 명시적으로 해지 요청을 보낸다(POST /api/push/unsubscribe).
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id SERIAL PRIMARY KEY,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_endpoint_key ON push_subscriptions (endpoint);
+CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions ("userId");

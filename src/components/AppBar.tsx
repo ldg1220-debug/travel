@@ -19,6 +19,7 @@ import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { fetchUserItineraries } from "@/lib/api";
 import { syncPlanToServer } from "@/lib/planSync";
 import { formatDateLabel } from "@/lib/timeline";
+import { unsubscribeFromPush } from "@/lib/push";
 import type { SavedPlan } from "@/lib/types";
 
 // 일정(계획)과는 완전히 분리된 두 개의 보관함: 다녀온 여행 보관함(지난
@@ -426,7 +427,10 @@ export function AppBar() {
                     </div>
                   </button>
                   <button
-                    onClick={() => signOut()}
+                    onClick={() => {
+                      unsubscribeFromPush().catch(() => {});
+                      signOut();
+                    }}
                     aria-label="로그아웃"
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                   >

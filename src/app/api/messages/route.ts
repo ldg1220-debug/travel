@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { sendPushToUser } from "@/lib/server/push";
 
 const MAX_CONTENT_LENGTH = 2000;
 
@@ -84,5 +85,16 @@ export async function POST(request: NextRequest) {
      returning id, "senderId", "recipientId", content, created_at as "createdAt"`,
     [session.user.id, recipientId, content],
   );
+
+  const recipient = await pool.query(`select "notifyMessages" from users where id = $1`, [recipientId]);
+  if (recipient.rows[0]?.notifyMessages) {
+    const sender = await pool.query(`select coalesce(nickname, '여행자') as nickname from users where id = $1`, [session.user.id]);
+    void sendPushToUser(recipientId, {
+      title: sender.rows[0]?.nickname ?? "여행자",
+      body: content.length > 80 ? `${content.slice(0, 80)}…` : content,
+      url: `/messages/${session.user.id}`,
+    });
+  }
+
   return NextResponse.json({ message: inserted.rows[0] });
 }
