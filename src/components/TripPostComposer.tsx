@@ -288,18 +288,21 @@ export function TripPostComposer({
               )}
             </div>
 
-            <div className="relative mb-2">
-              <textarea
-                ref={contentRef}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="이번 여행은 어땠나요? 자유롭게 남겨보세요. #장소이름 을 붙이면 그 장소 후기와 연결돼요"
-                rows={12}
-                className="min-h-[30vh] w-full resize-y rounded-2xl border border-slate-200 p-3 pr-11 text-[13.5px] leading-relaxed outline-none focus:border-indigo-400"
-              />
+            <textarea
+              ref={contentRef}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="이번 여행은 어땠나요? 자유롭게 남겨보세요. #장소이름 을 붙이면 그 장소 후기와 연결돼요"
+              rows={12}
+              className="min-h-[30vh] w-full resize-y rounded-2xl border border-slate-200 p-3 text-[13.5px] leading-relaxed outline-none focus:border-indigo-400"
+            />
+            {/* 입력창 테두리 안에 겹쳐두면 눈에 잘 안 띈다는 피드백 — 박스 밖,
+                자기만의 자리를 가진 버튼으로 뺐다. */}
+            <div className="mb-2 mt-1.5">
               <EmojiPickerButton
                 onSelect={insertAtCursor}
-                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-lg text-slate-400 hover:bg-slate-100"
+                label="이모지"
+                className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-slate-500 hover:border-indigo-300 hover:text-indigo-600"
               />
             </div>
 

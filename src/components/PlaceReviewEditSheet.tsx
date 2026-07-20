@@ -129,18 +129,18 @@ export function PlaceReviewEditSheet({
           ))}
         </div>
 
-        <div className="relative">
+        <div className="flex items-center gap-1.5">
           <input
             ref={contentRef}
             value={content}
             onChange={(e) => setContent(e.target.value.slice(0, 50))}
             placeholder="한 줄로 남겨보세요 (예: 야경이 정말 예뻤어요)"
             maxLength={50}
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 pr-10 text-[13.5px] outline-none focus:border-indigo-400"
+            className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-3 py-2.5 text-[13.5px] outline-none focus:border-indigo-400"
           />
           <EmojiPickerButton
             onSelect={insertEmoji}
-            className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-base text-slate-400 hover:bg-slate-100"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-base text-slate-400 hover:border-indigo-300 hover:text-indigo-600"
           />
         </div>
         <p className="mb-3 text-right text-[11px] text-slate-400">{content.length}/50</p>
