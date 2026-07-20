@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Calendar, Rss, X, ChevronLeft } from "lucide-react";
+import { Calendar, X, ChevronLeft } from "lucide-react";
 import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { Badge } from "@/components/ui/badge";
 import { LoginModal } from "@/components/LoginModal";
@@ -244,7 +244,7 @@ export default function ScrapbookPage() {
                 onClick={() => router.push("/feed")}
                 className="flex items-center gap-1 text-[13px] font-semibold text-indigo-500 transition-colors hover:text-indigo-700"
               >
-                <Rss size={14} /> 후기 피드
+                <CordixIcon name="feed-announce" size={14} /> 후기 피드
               </button>
               <button
                 onClick={openNewPostChooser}
