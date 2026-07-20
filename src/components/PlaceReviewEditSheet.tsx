@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { saveReview, uploadReviewPhotos, type Review } from "@/lib/api";
 import { resizeImageFiles } from "@/lib/imageResize";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
+import { EmojiPickerButton } from "@/components/EmojiPicker";
 
 const MAX_IMAGES = 5;
 
@@ -43,6 +44,25 @@ export function PlaceReviewEditSheet({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const contentRef = useRef<HTMLInputElement | null>(null);
+
+  const insertEmoji = (emoji: string) => {
+    const el = contentRef.current;
+    const next = (content + emoji).slice(0, 50);
+    if (!el) {
+      setContent(next);
+      return;
+    }
+    const start = el.selectionStart ?? content.length;
+    const end = el.selectionEnd ?? content.length;
+    const merged = (content.slice(0, start) + emoji + content.slice(end)).slice(0, 50);
+    setContent(merged);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = Math.min(start + emoji.length, merged.length);
+      el.selectionStart = el.selectionEnd = pos;
+    });
+  };
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -109,13 +129,20 @@ export function PlaceReviewEditSheet({
           ))}
         </div>
 
-        <input
-          value={content}
-          onChange={(e) => setContent(e.target.value.slice(0, 50))}
-          placeholder="한 줄로 남겨보세요 (예: 야경이 정말 예뻤어요)"
-          maxLength={50}
-          className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-[13.5px] outline-none focus:border-indigo-400"
-        />
+        <div className="relative">
+          <input
+            ref={contentRef}
+            value={content}
+            onChange={(e) => setContent(e.target.value.slice(0, 50))}
+            placeholder="한 줄로 남겨보세요 (예: 야경이 정말 예뻤어요)"
+            maxLength={50}
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 pr-10 text-[13.5px] outline-none focus:border-indigo-400"
+          />
+          <EmojiPickerButton
+            onSelect={insertEmoji}
+            className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-base text-slate-400 hover:bg-slate-100"
+          />
+        </div>
         <p className="mb-3 text-right text-[11px] text-slate-400">{content.length}/50</p>
 
         <div className="mb-4 flex flex-wrap gap-2">

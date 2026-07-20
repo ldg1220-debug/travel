@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { ChevronLeft, Send } from "lucide-react";
 import { fetchThread, fetchUserProfile, sendMessage, type ChatMessage, type UserProfile } from "@/lib/api";
 import { ReportModal } from "@/components/ReportModal";
+import { EmojiPickerButton } from "@/components/EmojiPicker";
 
 const POLL_INTERVAL_MS = 4_000;
 
@@ -28,6 +29,7 @@ export default function MessageThreadPage() {
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const draftRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!otherId) return;
@@ -68,6 +70,22 @@ export default function MessageThreadPage() {
     } finally {
       setSending(false);
     }
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const el = draftRef.current;
+    if (!el) {
+      setDraft((prev) => prev + emoji);
+      return;
+    }
+    const start = el.selectionStart ?? draft.length;
+    const end = el.selectionEnd ?? draft.length;
+    const next = draft.slice(0, start) + emoji + draft.slice(end);
+    setDraft(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.selectionStart = el.selectionEnd = start + emoji.length;
+    });
   };
 
   if (!otherId) return null;
@@ -137,6 +155,7 @@ export default function MessageThreadPage() {
           ) : (
             <>
               <textarea
+                ref={draftRef}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
@@ -149,6 +168,7 @@ export default function MessageThreadPage() {
                 rows={1}
                 className="min-h-11 flex-1 resize-none rounded-2xl border border-slate-200 px-3.5 py-2.5 text-[13.5px] outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               />
+              <EmojiPickerButton onSelect={insertEmoji} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" />
               <button
                 onClick={handleSend}
                 disabled={!draft.trim() || sending}
