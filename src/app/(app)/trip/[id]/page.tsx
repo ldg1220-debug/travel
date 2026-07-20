@@ -25,6 +25,7 @@ import { shareToKakao } from "@/lib/kakaoShare";
 import { hashtagSlug } from "@/lib/hashtag";
 import { VisibilitySelector } from "@/components/VisibilitySelector";
 import { LoginModal } from "@/components/LoginModal";
+import { ReportModal } from "@/components/ReportModal";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { TripPostComposer } from "@/components/TripPostComposer";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
@@ -53,6 +54,7 @@ export default function TripPostDetailPage() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginReason, setLoginReason] = useState("트래블 메이트를 맺으려면 로그인해주세요.");
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const reload = () => {
     const id = Number(params.id);
@@ -142,6 +144,15 @@ export default function TripPostDetailPage() {
     } finally {
       setFollowBusy(false);
     }
+  };
+
+  const handleOpenReport = () => {
+    if (!session?.user) {
+      setLoginReason("신고하려면 로그인해주세요.");
+      setLoginOpen(true);
+      return;
+    }
+    setReportOpen(true);
   };
 
   const handleToggleLike = async () => {
@@ -301,6 +312,11 @@ export default function TripPostDetailPage() {
                     : "메이트 신청"}
             </button>
           )}
+          {!isOwner && (
+            <button onClick={handleOpenReport} aria-label="신고하기" className="shrink-0 text-[11px] text-slate-400 hover:text-slate-500 hover:underline">
+              신고
+            </button>
+          )}
         </div>
         <h1 className="text-xl font-bold tracking-tight">{post.title}</h1>
 
@@ -454,6 +470,7 @@ export default function TripPostDetailPage() {
       )}
 
       {loginOpen && <LoginModal reason={loginReason} onClose={() => setLoginOpen(false)} />}
+      {reportOpen && <ReportModal targetType="trip_post" targetId={post.id} onClose={() => setReportOpen(false)} />}
 
       {profileUserId != null && (
         <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} onChange={refreshFollowStatus} />

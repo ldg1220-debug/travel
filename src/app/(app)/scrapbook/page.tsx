@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Calendar, X, ChevronLeft } from "lucide-react";
@@ -70,9 +70,20 @@ function coverGradient(planId: string): string {
 // src/components/AppBar.tsx, rendered once by src/app/(app)/layout.tsx
 // above every screen in this group — this page owns only the content
 // below it, not another header.
+// useSearchParams() (for the /feed -> ?write=1 handoff) requires a Suspense
+// boundary so Next.js can still statically render everything around it.
 export default function ScrapbookPage() {
+  return (
+    <Suspense fallback={null}>
+      <ScrapbookPageInner />
+    </Suspense>
+  );
+}
+
+function ScrapbookPageInner() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const { data: session, status: sessionStatus } = useSession();
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const loadPlan = useItineraryStore((s) => s.loadPlan);
   const deletePlan = useItineraryStore((s) => s.deletePlan);
@@ -226,6 +237,17 @@ export default function ScrapbookPage() {
     }
     setNewPostChooserOpen(true);
   };
+
+  // 후기 피드의 "나도 후기 쓰기" 버튼이 /scrapbook?write=1로 넘어오면 곧장
+  // 이 화면의 새 여행 후기 플로우를 띄운다 — 세션 로딩이 끝나기 전엔
+  // 로그인 여부를 아직 몰라 로그인 모달이 잘못 뜰 수 있으므로 대기한다.
+  useEffect(() => {
+    if (sessionStatus === "loading" || searchParams.get("write") !== "1") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from the URL (an external system) on first mount, same pattern as useRecentSearches
+    openNewPostChooser();
+    router.replace("/scrapbook");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 이 쿼리 파라미터를 처음 발견했을 때 1회만 실행
+  }, [sessionStatus, searchParams]);
 
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">

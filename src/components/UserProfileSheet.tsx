@@ -7,6 +7,7 @@ import { X } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { acceptFollowRequest, fetchUserProfile, followUser, rejectFollowRequest, unfollowUser, type UserProfile } from "@/lib/api";
 import { LoginModal } from "@/components/LoginModal";
+import { ReportModal } from "@/components/ReportModal";
 
 /**
  * 닉네임을 탭하면 뜨는 공개 프로필 팝업 — 아바타·닉네임·팔로워/트메 수를 보여주고,
@@ -24,6 +25,7 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [busy, setBusy] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,11 +160,21 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
                   트래블 메이트 신청
                 </button>
               ))}
+
+            {!isSelf && (
+              <button
+                onClick={() => (requireLogin() ? undefined : setReportOpen(true))}
+                className="mt-3 text-[11.5px] text-slate-400 hover:text-slate-500 hover:underline dark:hover:text-slate-300"
+              >
+                신고하기
+              </button>
+            )}
           </div>
         )}
       </div>
 
       {loginOpen && <LoginModal reason="트래블 메이트를 맺으려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
+      {reportOpen && <ReportModal targetType="user" targetId={userId} onClose={() => setReportOpen(false)} />}
     </div>
   );
 }

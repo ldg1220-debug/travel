@@ -75,9 +75,17 @@ export default function FeedPage() {
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6">
-        <div className="mb-6 flex items-center gap-2">
-          <CordixIcon name="feed-announce" size={20} stroke="#6366f1" />
-          <h2 className="text-2xl font-bold tracking-tight">후기 피드</h2>
+        <div className="mb-6 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CordixIcon name="feed-announce" size={20} stroke="#6366f1" />
+            <h2 className="text-2xl font-bold tracking-tight">후기 피드</h2>
+          </div>
+          <button
+            onClick={() => (session?.user ? router.push("/scrapbook?write=1") : setLoginOpen(true))}
+            className="flex shrink-0 items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700"
+          >
+            <CordixIcon name="pencil" size={13} /> 나도 후기 쓰기
+          </button>
         </div>
 
         <div className="mb-4 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5">

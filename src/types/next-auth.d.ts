@@ -12,6 +12,10 @@ declare module "next-auth" {
       notifyMateRequests: boolean;
       /** 좋아요 알림 on/off — 기본 true. */
       notifyLikes: boolean;
+      /** 신고 관리 화면(/admin/reports) 접근 및 정지 처리 권한. */
+      isAdmin: boolean;
+      /** 신고 처리로 정지된 계정인지 — true면 로그인 자체가 막힌다. */
+      isBanned: boolean;
     } & DefaultSession["user"];
   }
 }
