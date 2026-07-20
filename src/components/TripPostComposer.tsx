@@ -109,7 +109,7 @@ export function TripPostComposer({
           Object.fromEntries(
             placeReviews.map((r) => [
               r.placeId,
-              { ...r, id: 0, itineraryId: post.itineraryId, isPublic: false, createdAt: "", updatedAt: "" },
+              { ...r, id: 0, itineraryId: post.itineraryId, tripPostId: post.id, isPublic: false, createdAt: "", updatedAt: "" },
             ]),
           ),
         );
@@ -121,19 +121,18 @@ export function TripPostComposer({
       };
     }
 
+    // A brand-new plan-less compose (no `itineraryId`, no `initialPostId`)
+    // has no trip post yet to scope place reviews by, so it starts empty —
+    // fetching would otherwise mean either showing every plan-less review
+    // the user has ever written across unrelated past posts, or (before
+    // tripPostId scoping existed) actually reusing/overwriting one of them.
     Promise.all([
-      fetchMyReviews(itineraryId ?? undefined),
+      itineraryId ? fetchMyReviews(itineraryId) : Promise.resolve([]),
       itineraryId ? fetchMyTripPost(itineraryId) : Promise.resolve(null),
     ]).then(([allReviews, post]) => {
       if (cancelled) return;
-      // fetchMyReviews() with no itineraryId returns every review the user
-      // has ever written, across every plan — for a plan-less compose
-      // (itineraryId null) that must be narrowed to this user's own
-      // plan-less reviews, or a fresh "완전 새로 작성" post would come in
-      // pre-filled with unrelated places from a completely different trip.
-      const reviewList = itineraryId == null ? allReviews.filter((r) => r.itineraryId == null) : allReviews;
-      setReviews(Object.fromEntries(reviewList.map((r) => [r.placeId, r])));
-      applyExtraPlacesFromReviews(reviewList);
+      setReviews(Object.fromEntries(allReviews.map((r) => [r.placeId, r])));
+      applyExtraPlacesFromReviews(allReviews);
       if (post) {
         setPostId(post.id);
         setTitle(post.title);
@@ -184,10 +183,10 @@ export function TripPostComposer({
     });
   };
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<number | null> => {
     if (!title.trim() || !content.trim()) {
       setError("제목과 내용을 입력해주세요");
-      return;
+      return null;
     }
     setSaving(true);
     setError(null);
@@ -204,11 +203,37 @@ export function TripPostComposer({
       setPostId(id);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
+      return id;
     } catch {
       setError("저장에 실패했어요");
+      return null;
     } finally {
       setSaving(false);
     }
+  };
+
+  // 계획 없는("완전 새로 작성") 후기의 장소 리뷰는 이제 특정 trip_posts
+  // 글에 묶여야 하므로, 글이 아직 한 번도 저장되지 않았다면(postId 없음)
+  // "장소 추가"/장소 칩을 누르는 시점에 제목·내용을 먼저 저장해 id를
+  // 확보한다 — 계획에 묶인 경우(itineraryId 있음)는 원래도 문제없어서
+  // 그대로 통과시킨다.
+  const ensurePlaceReviewTarget = async (): Promise<boolean> => {
+    if (itineraryId != null || postId != null) return true;
+    if (!title.trim() || !content.trim()) {
+      setError("제목과 내용을 먼저 입력하면 다녀온 장소를 추가할 수 있어요");
+      return false;
+    }
+    return (await handleSave()) != null;
+  };
+
+  const openSearch = async () => {
+    if (!(await ensurePlaceReviewTarget())) return;
+    setSearchOpen((v) => !v);
+  };
+
+  const openPlace = async (p: PlaceStub) => {
+    if (!(await ensurePlaceReviewTarget())) return;
+    setActivePlace(p);
   };
 
   return (
@@ -288,7 +313,7 @@ export function TripPostComposer({
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-[12.5px] font-semibold text-slate-600">다녀온 장소 {places.length > 0 && `(${places.length})`}</p>
                 <button
-                  onClick={() => setSearchOpen((v) => !v)}
+                  onClick={openSearch}
                   className="flex items-center gap-1 text-[12px] font-semibold text-indigo-500 hover:text-indigo-700"
                 >
                   <Plus size={13} /> 장소 추가
@@ -317,7 +342,7 @@ export function TripPostComposer({
                     const isExtra = extraPlaces.some((e) => e.placeId === p.placeId);
                     return (
                       <div key={p.placeId} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-[12.5px]">
-                        <button onClick={() => setActivePlace(p)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                        <button onClick={() => openPlace(p)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                           <span className="min-w-0 flex-1 truncate font-semibold text-slate-700">{p.name}</span>
                           {existing ? (
                             <span className="flex shrink-0 items-center gap-0.5 font-semibold text-amber-500">
@@ -369,6 +394,7 @@ export function TripPostComposer({
       {activePlace && (
         <PlaceReviewEditSheet
           itineraryId={resolvedItineraryId}
+          tripPostId={resolvedItineraryId == null ? postId : null}
           place={activePlace}
           existing={reviews[activePlace.placeId]}
           onClose={() => setActivePlace(null)}

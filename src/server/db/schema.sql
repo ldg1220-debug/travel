@@ -149,7 +149,9 @@ WHERE r."itineraryId" IS NULL
   AND r."placeId" = newer."placeId"
   AND (newer.updated_at, newer.id) > (r.updated_at, r.id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_place_no_itinerary_key ON reviews ("userId", "placeId") WHERE "itineraryId" IS NULL;
+-- reviews_user_place_no_itinerary_key (userId, placeId) 전역 유니크 인덱스는
+-- 파일 뒷부분에서 "tripPostId" 컬럼이 추가되며 reviews_user_trip_post_place_key
+-- ("userId", "tripPostId", "placeId")로 대체됐다 — 여기서 다시 만들지 않는다.
 
 CREATE INDEX IF NOT EXISTS reviews_place_id_idx ON reviews ("placeId");
 CREATE INDEX IF NOT EXISTS reviews_user_id_idx ON reviews ("userId");
@@ -350,3 +352,23 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 CREATE INDEX IF NOT EXISTS reports_status_idx ON reports (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS reports_reported_user_idx ON reports ("reportedUserId");
+
+-- 계획 없는("완전 새로 작성") 여행 후기의 "다녀온 장소"는 원래 (userId,
+-- placeId)로만 스코프돼 있었다 — itineraryId가 없는 리뷰 전부가 유저 한
+-- 명당 하나의 전역 목록처럼 취급돼서, 새 글을 써도 예전에 다른 글에서
+-- 남긴 장소 리뷰가 그대로 딸려 들어오는 버그가 있었다(글을 지우고 새로
+-- 써도 재현됨). 이제 어느 trip_posts 글에 속하는지 명시적으로 남겨서
+-- 글 단위로 스코프한다 — trip_posts보다 나중에 정의되므로 파일 뒷부분에서
+-- 참조 컬럼을 추가한다. 계획에 묶인 리뷰(itineraryId not null)는 원래도
+-- itineraryId로 정확히 스코프됐으므로 그대로 둔다.
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "tripPostId" INTEGER REFERENCES trip_posts(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS reviews_trip_post_id_idx ON reviews ("tripPostId");
+
+-- 예전 인덱스는 유저+장소당 전역으로 하나만 허용해서 같은 장소를 서로 다른
+-- 계획 없는 글 두 개에 각각 남길 수 없게 막았다 — tripPostId 스코프로
+-- 대체한다. tripPostId가 아직 없는(글을 먼저 저장하기 전) 레거시/과도기
+-- 행에는 이 제약을 적용하지 않는다 — 새로 쓰는 리뷰는 API 레벨에서 항상
+-- tripPostId를 먼저 채운 뒤에만 저장되도록 강제한다(POST /api/reviews).
+DROP INDEX IF EXISTS reviews_user_place_no_itinerary_key;
+CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_trip_post_place_key
+  ON reviews ("userId", "tripPostId", "placeId") WHERE "itineraryId" IS NULL AND "tripPostId" IS NOT NULL;

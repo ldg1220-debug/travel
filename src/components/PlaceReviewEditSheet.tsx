@@ -22,12 +22,15 @@ export interface PlaceStub {
 // saved plan (여행 후기 "완전 새로 작성" with places added ad-hoc).
 export function PlaceReviewEditSheet({
   itineraryId,
+  tripPostId,
   place,
   existing,
   onClose,
   onSaved,
 }: {
   itineraryId: number | null;
+  /** Which plan-less trip post this place review belongs to — ignored when `itineraryId` is set. */
+  tripPostId: number | null;
   place: PlaceStub;
   existing?: Review;
   onClose: () => void;
@@ -66,10 +69,11 @@ export function PlaceReviewEditSheet({
     try {
       // 장소별 후기는 여행 전체 후기에 자동으로 묶여서 노출되므로 여기
       // 자체엔 별도 공개 여부가 없다 — 공개 여부는 전체 후기 쪽에서만 정한다.
-      const { id } = await saveReview({ itineraryId, placeId: place.placeId, placeName: place.name, rating, content: content.trim(), images, isPublic: false });
+      const { id } = await saveReview({ itineraryId, tripPostId, placeId: place.placeId, placeName: place.name, rating, content: content.trim(), images, isPublic: false });
       onSaved({
         id,
         itineraryId,
+        tripPostId,
         placeId: place.placeId,
         placeName: place.name,
         rating,

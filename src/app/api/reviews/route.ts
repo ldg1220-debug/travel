@@ -4,6 +4,7 @@ import { pool } from "@/lib/server/db";
 
 interface ReviewBody {
   itineraryId: number | null;
+  tripPostId?: number | null;
   placeId: string;
   placeName: string;
   rating: number;
@@ -15,6 +16,7 @@ interface ReviewBody {
 export interface ReviewRow {
   id: number;
   itineraryId: number | null;
+  tripPostId: number | null;
   placeId: string;
   placeName: string;
   rating: number;
@@ -41,14 +43,23 @@ export async function GET(request: NextRequest) {
   }
 
   const result = await pool.query(
-    `select id, "itineraryId", "placeId", "placeName", rating, content, images, "isPublic", created_at as "createdAt", updated_at as "updatedAt"
+    `select id, "itineraryId", "tripPostId", "placeId", "placeName", rating, content, images, "isPublic", created_at as "createdAt", updated_at as "updatedAt"
      from reviews where ${where} order by updated_at desc`,
     params,
   );
   return NextResponse.json({ reviews: result.rows });
 }
 
-/** Creates or updates the current user's review for a place within a trip — one review per (user, trip, place), so writing again just edits it in place. */
+/**
+ * Creates or updates the current user's review for a place. A plan-linked
+ * review (itineraryId set) is scoped one-per-(user, trip, place). A
+ * plan-less review ("완전 새로 작성") has no trip to scope by, so it must
+ * instead belong to a specific trip_posts row (tripPostId) — the composer
+ * always saves the post itself first to get an id before letting the user
+ * add any place review, so tripPostId is required here whenever
+ * itineraryId is null (never silently falls back to a global, unscoped
+ * review shared across every plan-less post the user has ever written).
+ */
 export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -62,21 +73,29 @@ export async function POST(request: NextRequest) {
   const rating = Math.min(5, Math.max(1, body.rating));
   const images = JSON.stringify((body.images ?? []).slice(0, 5));
   const itineraryId = body.itineraryId ?? null;
+  const tripPostId = body.tripPostId ?? null;
+  if (itineraryId == null && tripPostId == null) {
+    return NextResponse.json({ error: "글을 먼저 저장해주세요" }, { status: 400 });
+  }
 
   // Postgres never matches NULL = NULL for conflict detection, so a
   // plan-less review (itineraryId null) has to target the partial unique
-  // index scoped to those rows instead of the (userId, itineraryId,
-  // placeId) index — targeting the wrong one for a NULL itineraryId would
-  // silently fall through to a plain INSERT and duplicate the row.
-  const conflictTarget = itineraryId == null ? `("userId", "placeId") where "itineraryId" is null` : `("userId", "itineraryId", "placeId")`;
+  // index scoped to those rows (by tripPostId now, not just userId+placeId)
+  // instead of the (userId, itineraryId, placeId) index — targeting the
+  // wrong one for a NULL itineraryId would silently fall through to a plain
+  // INSERT and duplicate the row.
+  const conflictTarget =
+    itineraryId == null
+      ? `("userId", "tripPostId", "placeId") where "itineraryId" is null and "tripPostId" is not null`
+      : `("userId", "itineraryId", "placeId")`;
 
   const result = await pool.query(
-    `insert into reviews ("userId", "itineraryId", "placeId", "placeName", rating, content, images, "isPublic")
-     values ($1, $2, $3, $4, $5, $6, $7, $8)
+    `insert into reviews ("userId", "itineraryId", "tripPostId", "placeId", "placeName", rating, content, images, "isPublic")
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      on conflict ${conflictTarget}
-     do update set rating = $5, content = $6, images = $7, "isPublic" = $8, updated_at = now()
+     do update set rating = $6, content = $7, images = $8, "isPublic" = $9, updated_at = now()
      returning id`,
-    [session.user.id, itineraryId, body.placeId, body.placeName ?? "", rating, body.content.trim(), images, Boolean(body.isPublic)],
+    [session.user.id, itineraryId, tripPostId, body.placeId, body.placeName ?? "", rating, body.content.trim(), images, Boolean(body.isPublic)],
   );
   return NextResponse.json({ id: result.rows[0].id });
 }

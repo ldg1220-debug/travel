@@ -96,6 +96,7 @@ export function ReviewComposer({ plan, itineraryId, onClose }: { plan: SavedPlan
       {activePlace && (
         <PlaceReviewEditSheet
           itineraryId={itineraryId}
+          tripPostId={null}
           place={activePlace}
           existing={reviews[activePlace.placeId]}
           onClose={() => setActivePlace(null)}

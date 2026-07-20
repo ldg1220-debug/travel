@@ -71,17 +71,13 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   row.isLiked = (likedRow.rowCount ?? 0) > 0;
 
   // A plan-linked post's "다녀온 장소" is every review left for that same
-  // trip. A plan-less ("완전 새로 작성") post has no itineraryId to scope
-  // by — its ad-hoc place reviews were saved with itineraryId null too, so
-  // this falls back to all of the author's plan-less reviews. Imprecise if
-  // someone's written more than one plan-less post (reviews aren't tied to
-  // a specific trip_posts row), but still the best available signal, and
-  // consistent with how TripPostComposer itself already reads plan-less
-  // reviews back (fetchMyReviews with no itineraryId = "all of them").
-  // distinct on "placeId" defensively collapses any pre-existing duplicate
-  // rows (from before the reviews table's plan-less unique index was added)
-  // down to each place's most recently updated review, so an old duplicate
-  // can't still show a place twice here even before that cleanup runs.
+  // trip (itineraryId). A plan-less ("완전 새로 작성") post has no
+  // itineraryId to scope by, so it scopes by tripPostId instead — every
+  // place review the composer saves for a plan-less post is tagged with
+  // this post's own id (see POST /api/reviews), so two different plan-less
+  // posts no longer bleed into each other's "다녀온 장소" list. distinct on
+  // "placeId" defensively collapses any pre-existing duplicate rows down to
+  // each place's most recently updated review.
   const placeReviews = (
     await pool.query(
       row.itineraryId
@@ -92,10 +88,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
            ) t order by created_at asc`
         : `select "placeId", "placeName", rating, content, images from (
              select distinct on ("placeId") "placeId", "placeName", rating, content, images, created_at
-             from reviews where "userId" = $1 and "itineraryId" is null
+             from reviews where "userId" = $1 and "tripPostId" = $2
              order by "placeId", updated_at desc
            ) t order by created_at asc`,
-      row.itineraryId ? [row.authorId, row.itineraryId] : [row.authorId],
+      [row.authorId, row.itineraryId ?? postId],
     )
   ).rows;
 

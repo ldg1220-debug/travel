@@ -167,6 +167,7 @@ export async function fetchSharedItinerary(shareToken: string): Promise<SharedIt
 export interface Review {
   id: number;
   itineraryId: number | null;
+  tripPostId?: number | null;
   placeId: string;
   placeName: string;
   rating: number;
@@ -230,9 +231,15 @@ export async function fetchMyReviews(itineraryId?: number): Promise<Review[]> {
   return data.reviews ?? [];
 }
 
-/** Creates or updates the current user's review for a place within a trip — `itineraryId` null for a place added ad-hoc to a 여행 후기 with no linked saved plan. */
+/**
+ * Creates or updates the current user's review for a place. `itineraryId`
+ * null means it's not tied to a saved plan — a plan-less review must then
+ * instead be scoped to a specific `tripPostId` (which trip post it's the
+ * "다녀온 장소" for), never both null.
+ */
 export async function saveReview(input: {
   itineraryId: number | null;
+  tripPostId?: number | null;
   placeId: string;
   placeName: string;
   rating: number;
