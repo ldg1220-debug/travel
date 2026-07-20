@@ -221,8 +221,15 @@ function EmojiPickerSheet({ onSelect, onClose }: { onSelect: (emoji: string) => 
   );
 }
 
-/** Drop-in trigger button — opens the emoji sheet, calls `onSelect(emoji)` on tap, closes only via backdrop/X (so a user can add several emoji in a row). */
-export function EmojiPickerButton({ onSelect, className }: { onSelect: (emoji: string) => void; className?: string }) {
+/**
+ * Drop-in trigger button — opens the emoji sheet, calls `onSelect(emoji)` on
+ * tap, closes only via backdrop/X (so a user can add several emoji in a
+ * row). Pass `label` for a text+icon pill (reads clearly as its own button
+ * when it can't sit right next to the input it feeds) — omit it for a
+ * compact icon-only circle when there's already a dedicated slot for it
+ * (e.g. beside a send button).
+ */
+export function EmojiPickerButton({ onSelect, className, label }: { onSelect: (emoji: string) => void; className?: string; label?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -232,7 +239,8 @@ export function EmojiPickerButton({ onSelect, className }: { onSelect: (emoji: s
         aria-label="이모지 추가"
         className={className ?? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"}
       >
-        🙂
+        <span aria-hidden>🙂</span>
+        {label && <span>{label}</span>}
       </button>
       {open && <EmojiPickerSheet onSelect={onSelect} onClose={() => setOpen(false)} />}
     </>
