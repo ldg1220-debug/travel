@@ -45,7 +45,12 @@ export async function GET(request: NextRequest) {
   if (viewerId != null) {
     params.push(viewerId);
     const viewerParam = `$${params.length}`;
+    // 본인이 쓴 글은 공개 범위와 상관없이 항상 자기 눈엔 보여야 한다 — 글
+    // 상세 페이지(GET /api/trip-posts/[id])는 isOwner로 이미 이렇게 처리하는데
+    // 피드 목록 쿼리엔 이 조건이 빠져 있어서, 메이트공개로 써둔 자기 글이
+    // 정작 작성자 본인의 피드 목록에는 안 뜨는 버그가 있었다.
     visibilityChecks.push(
+      `p."userId" = ${viewerParam}`,
       `(p.visibility = 'friends' and exists (
          select 1 from follows f1 where f1."followerId" = ${viewerParam} and f1."followingId" = p."userId" and f1.status = 'accepted'
        ) and exists (

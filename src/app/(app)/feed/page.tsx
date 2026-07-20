@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Rss, Loader2, Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { LoginModal } from "@/components/LoginModal";
@@ -75,7 +76,7 @@ export default function FeedPage() {
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6">
         <div className="mb-6 flex items-center gap-2">
-          <Rss size={20} className="text-indigo-500" />
+          <CordixIcon name="feed-announce" size={20} stroke="#6366f1" />
           <h2 className="text-2xl font-bold tracking-tight">후기 피드</h2>
         </div>
 
@@ -122,7 +123,7 @@ export default function FeedPage() {
         ) : posts.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center">
             <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-              <Rss size={24} />
+              <CordixIcon name="feed-announce" size={24} />
             </span>
             <p className="text-sm font-semibold text-slate-700">
               {scope === "following"
