@@ -8,7 +8,7 @@ import { fetchConversations } from "@/lib/api";
 
 const POLL_INTERVAL_MS = 30_000;
 
-/** 상단바 메시지 아이콘 — 안 읽은 메시지가 있으면 점 배지를 보여준다. 눌러서 /messages로 이동. */
+/** 상단바 메시지 아이콘 — 안 읽은 메시지가 있으면 숫자 배지를 보여준다(9개 넘으면 "9+"). 눌러서 /messages로 이동. */
 export function MessageBell() {
   const { data: session } = useSession();
   const [unread, setUnread] = useState(0);
@@ -39,7 +39,11 @@ export function MessageBell() {
       className="relative flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
     >
       <CordixIcon name="message" size={18} />
-      {unread > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900" />}
+      {unread > 0 && (
+        <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9.5px] font-bold leading-none text-white ring-2 ring-white dark:ring-slate-900">
+          {unread > 9 ? "9+" : unread}
+        </span>
+      )}
     </Link>
   );
 }

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { ChevronLeft, Send } from "lucide-react";
 import { fetchThread, fetchUserProfile, sendMessage, type ChatMessage, type UserProfile } from "@/lib/api";
+import { ReportModal } from "@/components/ReportModal";
 
 const POLL_INTERVAL_MS = 4_000;
 
@@ -25,6 +26,7 @@ export default function MessageThreadPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -89,6 +91,12 @@ export default function MessageThreadPage() {
           </span>
         )}
         <span className="truncate text-[14.5px] font-bold">{profile?.nickname ?? "여행자"}</span>
+        <button
+          onClick={() => setReportOpen(true)}
+          className="ml-auto shrink-0 text-[11px] text-slate-400 hover:text-slate-500 hover:underline"
+        >
+          신고
+        </button>
       </div>
 
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-2 overflow-y-auto px-4 py-5">
@@ -154,6 +162,8 @@ export default function MessageThreadPage() {
         </div>
         {error && <p className="mt-1.5 text-center text-[11.5px] text-rose-500">{error}</p>}
       </div>
+
+      {reportOpen && <ReportModal targetType="user" targetId={otherId} onClose={() => setReportOpen(false)} />}
     </div>
   );
 }

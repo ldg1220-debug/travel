@@ -638,3 +638,62 @@ export async function fetchDiscoverSearch(
   if (!res.ok) throw new Error("Discover search failed");
   return res.json();
 }
+
+export type ReportTargetType = "trip_post" | "message" | "user";
+export type ReportReason = "spam" | "abuse" | "sexual" | "illegal" | "other";
+
+export interface Report {
+  id: number;
+  reporterId: number | null;
+  reporterNickname: string | null;
+  reportedUserId: number | null;
+  reportedNickname: string | null;
+  targetType: string;
+  targetId: number;
+  reason: string;
+  detail: string;
+  status: string;
+  adminNote: string;
+  createdAt: string;
+}
+
+/** 여행 후기·메시지·사용자 프로필을 관리자에게 신고한다. */
+export async function submitReport(input: { targetType: ReportTargetType; targetId: number; reason: ReportReason; detail?: string }): Promise<void> {
+  const res = await fetch("/api/reports", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "신고를 접수하지 못했어요");
+  }
+}
+
+/** 관리자 전용 — 전체 신고 목록. */
+export async function fetchReports(): Promise<Report[]> {
+  const res = await fetch("/api/reports");
+  if (!res.ok) return [];
+  const data = (await res.json()) as { reports: Report[] };
+  return data.reports;
+}
+
+/** 관리자 전용 — 신고 처리 상태/메모 갱신. */
+export async function updateReport(id: number, input: { status?: string; adminNote?: string }): Promise<void> {
+  const res = await fetch(`/api/reports/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error("신고 처리 갱신에 실패했어요");
+}
+
+/** 관리자 전용 — 사용자 정지/정지 해제. */
+export async function setUserBanned(userId: number, isBanned: boolean): Promise<void> {
+  const res = await fetch(`/api/admin/users/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isBanned }),
+  });
+  if (!res.ok) throw new Error("계정 상태 변경에 실패했어요");
+}

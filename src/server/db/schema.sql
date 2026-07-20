@@ -315,3 +315,38 @@ CREATE INDEX IF NOT EXISTS notifications_recipient_idx ON notifications ("recipi
 -- 컬럼도 넓힌다 — VARCHAR 길이 확장은 Postgres에서 메타데이터만 바뀌는
 -- 즉시 처리라 큰 테이블에서도 안전하다.
 ALTER TABLE notifications ALTER COLUMN type TYPE VARCHAR(20);
+
+-- 관리자 여부 — 별도 가입 플로우 없이 운영자 이메일로 지정한다. 이메일이
+-- 그대로인 한 재실행해도 안전한 멱등 UPDATE(값이 이미 true여도 no-op).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "isAdmin" BOOLEAN NOT NULL DEFAULT false;
+UPDATE users SET "isAdmin" = true WHERE email = 'ldg1220@naver.com';
+
+-- 신고 처리로 정지된 계정 — true면 로그인 자체를 막는다(src/auth.ts의
+-- signIn 콜백).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "isBanned" BOOLEAN NOT NULL DEFAULT false;
+
+-- 신고 접수: 여행 후기(trip_post)·메시지·사용자 프로필을 대상으로 로그인한
+-- 누구나 접수할 수 있다(POST /api/reports). "targetId"는 targetType에 따라
+-- 다른 테이블을 가리키므로(targetType='user'일 땐 그 자체가 대상 유저 id)
+-- 강한 FK를 걸지 않는다 — 신고된 게시물이 나중에 삭제돼도 신고 이력과
+-- 처리 결과는 그대로 남아야 한다. "reportedUserId"는 신고 접수 시점에
+-- targetType별로 조회해 채워두는 대상자 캐시(게시물이 삭제된 뒤에도 누구를
+-- 신고한 것이었는지 알 수 있도록).
+CREATE TABLE IF NOT EXISTS reports (
+  id SERIAL PRIMARY KEY,
+  "reporterId" INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  "reportedUserId" INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  -- 'trip_post' | 'message' | 'user'
+  "targetType" VARCHAR(20) NOT NULL,
+  "targetId" INTEGER NOT NULL,
+  -- 'spam' | 'abuse' | 'sexual' | 'illegal' | 'other'
+  reason VARCHAR(20) NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  -- 'pending' | 'reviewing' | 'resolved' | 'dismissed'
+  status VARCHAR(12) NOT NULL DEFAULT 'pending',
+  "adminNote" TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS reports_status_idx ON reports (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS reports_reported_user_idx ON reports ("reportedUserId");

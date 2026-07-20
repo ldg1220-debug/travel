@@ -28,6 +28,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "database" },
   trustHost: true,
   callbacks: {
+    // 신고 처리로 정지된 계정은 로그인 자체를 막는다 — 이미 발급된 세션은
+    // 만료 전까지 유효하지만(추가 세션 무효화 인프라는 아직 없음), 최소한
+    // 새로 로그인하거나 세션을 갱신하는 경로는 여기서 차단된다.
+    async signIn({ user }) {
+      if (!user.email) return true;
+      const result = await pool.query(`select "isBanned" from users where email = $1`, [user.email]);
+      return result.rows[0]?.isBanned !== true;
+    },
     async session({ session, user }) {
       if (session.user) {
         session.user.id = user.id;
@@ -36,13 +44,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // are our own additions, so they're fetched separately rather than
         // relying on the adapter to surface them.
         const result = await pool.query(
-          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes" from users where id = $1`,
+          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "isAdmin", "isBanned" from users where id = $1`,
           [user.id],
         );
         session.user.nickname = result.rows[0]?.nickname ?? null;
         session.user.termsAgreed = result.rows[0]?.termsAgreedAt != null;
         session.user.notifyMateRequests = result.rows[0]?.notifyMateRequests ?? true;
         session.user.notifyLikes = result.rows[0]?.notifyLikes ?? true;
+        session.user.isAdmin = result.rows[0]?.isAdmin ?? false;
+        session.user.isBanned = result.rows[0]?.isBanned ?? false;
       }
       return session;
     },

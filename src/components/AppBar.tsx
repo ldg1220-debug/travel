@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Menu, UserPlus, Plus, ChevronDown, LogIn, LogOut, X, Calendar } from "lucide-react";
+import { Menu, UserPlus, Plus, ChevronDown, LogIn, LogOut, X, Calendar, ShieldAlert } from "lucide-react";
 import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
@@ -83,6 +83,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/messages": "메시지",
   "/terms": "이용약관",
   "/privacy": "개인정보처리방침",
+  "/admin/reports": "신고 관리",
 };
 
 /**
@@ -375,6 +376,22 @@ export function AppBar() {
                 {SAVED_PLACES_NAV_ITEM.label}
               </Link>
             </div>
+
+            {/* 관리자 전용 — 신고 처리 화면. */}
+            {session?.user?.isAdmin && (
+              <div className="mt-2 border-t border-slate-100 px-2 pt-2 dark:border-slate-800">
+                <Link
+                  href="/admin/reports"
+                  onClick={() => setMenuOpen(false)}
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                    pathname === "/admin/reports" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  <ShieldAlert className="h-5 w-5" strokeWidth={1.8} />
+                  신고 관리
+                </Link>
+              </div>
+            )}
 
             {/* 약관/방침 — 서랍 맨 아래 계정 영역 위에 작게. */}
             <div className="mt-auto flex gap-3 px-3 pb-1 text-[11px] text-slate-400">
