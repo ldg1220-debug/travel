@@ -208,6 +208,36 @@ const ICONS: Record<string, string> = {
     <line x1="3" y1="16" x2="5" y2="16" stroke="{stroke}" stroke-width="2"/>
     <line x1="27" y1="16" x2="29" y2="16" stroke="{stroke}" stroke-width="2"/>
   `,
+
+  // ── Group E: 홈 · 사이드바 메뉴 (Tradule Icon Set v1.1, 디자인팀 전달분) ──
+  "trip-map": `
+    <path d="M4 8L12 4L20 8L28 4V24L20 28L12 24L4 28V8Z" fill="none" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+    <path d="M12 4V24M20 8V28" stroke="{stroke}" stroke-width="2"/>
+    <path d="M20 10C20 12.2091 18.2091 14 16 14C13.7909 14 12 12.2091 12 10C12 7.79086 13.7909 6 16 6C18.2091 6 20 7.79086 20 10Z"
+      fill="{accent}" stroke="{stroke}" stroke-width="2"/>
+  `,
+  "course-sparkle": `
+    <path d="M16 2L18 8L24 10L18 12L16 18L14 12L8 10L14 8Z" fill="{accent}" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+    <path d="M26 14L27 17L30 18L27 19L26 22L25 19L22 18L25 17Z" fill="{accent}" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+    <path d="M6 16L7 19L10 20L7 21L6 24L5 21L2 20L5 19Z" fill="{accent}" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+  `,
+  "plan-check": `
+    <rect x="4" y="6" width="24" height="22" rx="2" fill="none" stroke="{stroke}" stroke-width="2"/>
+    <path d="M4 12H28" stroke="{stroke}" stroke-width="2"/>
+    <path d="M10 18L14 22L22 14" fill="none" stroke="{accent}" stroke-width="3" stroke-linecap="square" stroke-linejoin="miter"/>
+    <rect x="8" y="18" width="4" height="4" fill="{stroke}"/>
+  `,
+  "trip-archive": `
+    <path d="M6 6H26V26H6V6Z" fill="none" stroke="{stroke}" stroke-width="2"/>
+    <path d="M6 6H12V26H6Z" fill="{accent}" stroke="{stroke}" stroke-width="2"/>
+    <rect x="16" y="10" width="6" height="4" rx="1" fill="none" stroke="{stroke}" stroke-width="2"/>
+    <path d="M16 18H24" stroke="{stroke}" stroke-width="2"/>
+  `,
+  "feed-chat": `
+    <path d="M4 8H28V24H12L8 28V24H4V8Z" fill="none" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+    <path d="M8 12H24M8 16H24M8 20H18" stroke="{stroke}" stroke-width="2"/>
+    <rect x="12" y="12" width="4" height="4" fill="{accent}"/>
+  `,
 };
 
 export type CordixIconName = keyof typeof ICONS;

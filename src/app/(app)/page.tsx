@@ -4,32 +4,33 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Calendar, ChevronRight, Heart, FolderOpen, Route, Rss } from "lucide-react";
+import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 
 // 카드 이름은 사이드바 메뉴와 1:1로 맞춘다 (여행 계획짜기/계획/여행 보관함).
 // 코스 만들기는 여행 계획짜기의 하위 플로우라 홈 카드에서는 뺐다.
-const QUICK_ACCESS = [
+const QUICK_ACCESS: { href: string; title: string; description: string; icon: CordixIconName }[] = [
   {
     href: "/discover",
     title: "여행 계획짜기",
     description: "인기 스팟과 실시간 맛집을 검색하고 코스를 만들어보세요",
-    iconSrc: "/icons/3d/world-map.png",
+    icon: "trip-map",
   },
   {
     href: "/planner",
     title: "계획",
     description: "지도와 타임라인으로 여행을 짜보세요",
-    iconSrc: "/icons/3d/calendar.png",
+    icon: "plan-check",
   },
   {
     href: "/scrapbook",
     title: "여행 보관함",
     description: "다녀온 여행과 저장한 코스를 확인하세요",
-    iconSrc: "/icons/3d/open-book.png",
+    icon: "trip-archive",
   },
-] as const;
+];
 
 // ─────────────────────────────────────────────────────────────
 // The global App Bar (hamburger + title + Sheet nav) already lives in
@@ -53,15 +54,14 @@ export default function HomePage() {
 
         {/* ── QUICK ACCESS ── */}
         <section className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {QUICK_ACCESS.map(({ href, title, description, iconSrc }) => (
+          {QUICK_ACCESS.map(({ href, title, description, icon }) => (
             <Link
               key={href}
               href={href}
               className="group flex items-center gap-3 rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200 sm:flex-col sm:items-start sm:p-5 dark:border-slate-800 dark:bg-slate-900 dark:hover:shadow-none"
             >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 p-2 shadow-sm sm:mb-4 sm:h-12 sm:w-12 dark:bg-slate-800">
-                {/* eslint-disable-next-line @next/next/no-img-element -- static local asset */}
-                <img src={iconSrc} alt="" className="h-full w-full object-contain" />
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 p-2 text-slate-900 shadow-sm sm:mb-4 sm:h-12 sm:w-12 dark:bg-slate-800 dark:text-slate-100">
+                <CordixIcon name={icon} size={26} />
               </span>
               <div className="min-w-0 flex-1 sm:w-full sm:flex-none">
                 <h2 className="truncate text-[15px] font-bold tracking-tight text-slate-900 sm:text-base dark:text-slate-100">{title}</h2>
