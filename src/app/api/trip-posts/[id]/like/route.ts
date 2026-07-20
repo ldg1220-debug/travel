@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { sendPushToUser } from "@/lib/server/push";
 
 /** Can `viewerId` see this post? Mirrors the GET /api/trip-posts/[id] visibility gate — liking requires the same access as reading. */
 async function canView(postId: number, viewerId: number, row: { authorId: number; visibility: string }): Promise<boolean> {
@@ -47,11 +48,20 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
   );
   if ((inserted.rowCount ?? 0) > 0 && row.authorId !== viewerId) {
     // 받는 사람이 좋아요 알림을 꺼뒀으면 알림 자체를 남기지 않는다.
-    await pool.query(
+    const notified = await pool.query(
       `insert into notifications ("recipientId", "actorId", type, "postId")
-       select $1, $2, 'like', $3 where exists (select 1 from users where id = $1 and "notifyLikes")`,
+       select $1, $2, 'like', $3 where exists (select 1 from users where id = $1 and "notifyLikes")
+       returning id`,
       [row.authorId, viewerId, postId],
     );
+    if ((notified.rowCount ?? 0) > 0) {
+      const liker = await pool.query(`select coalesce(nickname, '여행자') as nickname from users where id = $1`, [viewerId]);
+      void sendPushToUser(row.authorId, {
+        title: "좋아요",
+        body: `${liker.rows[0]?.nickname ?? "여행자"}님이 내 여행 후기를 좋아해요`,
+        url: `/trip/${postId}`,
+      });
+    }
   }
   return NextResponse.json({ ok: true });
 }

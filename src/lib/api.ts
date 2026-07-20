@@ -201,6 +201,7 @@ export async function updateProfile(input: {
   agreeTerms?: boolean;
   notifyMateRequests?: boolean;
   notifyLikes?: boolean;
+  notifyMessages?: boolean;
 }): Promise<void> {
   const res = await fetch("/api/profile", {
     method: "PATCH",

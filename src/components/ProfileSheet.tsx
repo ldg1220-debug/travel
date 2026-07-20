@@ -21,6 +21,7 @@ import { resizeImageFiles } from "@/lib/imageResize";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
 import { LegalDocSheet } from "@/components/LegalDocSheet";
+import { getExistingPushSubscription, isPushSupported, subscribeToPush, unsubscribeFromPush } from "@/lib/push";
 
 type Tab = "settings" | "mates" | "requests";
 
@@ -46,7 +47,23 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   // 알림 on/off — 서버 값(session)을 낙관적으로 미러링, 저장 실패 시 되돌린다.
   const [notifyMateRequests, setNotifyMateRequests] = useState(session?.user?.notifyMateRequests ?? true);
   const [notifyLikes, setNotifyLikes] = useState(session?.user?.notifyLikes ?? true);
+  const [notifyMessages, setNotifyMessages] = useState(session?.user?.notifyMessages ?? true);
   const [notifyError, setNotifyError] = useState<string | null>(null);
+
+  // 이 기기에서 실제 OS 팝업으로 뜨는 푸시 알림(앱 설치 시 특히 유용) — 알림
+  // 종류 on/off와 별개로, 브라우저 권한 + 구독이 필요한 기기 단위 설정이라
+  // 서버의 계정 설정이 아니라 이 기기의 구독 여부로 상태를 판단한다.
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isPushSupported()) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from the browser's own push-support/subscription state (an external system) on first mount, same pattern as useRecentSearches
+    setPushSupported(true);
+    getExistingPushSubscription().then((sub) => setPushEnabled(sub != null));
+  }, []);
 
   const [deleteConfirming, setDeleteConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -196,8 +213,8 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
 
   // 알림 종류별 on/off — 즉시 서버에 반영(별도 저장 버튼 없이 토글=저장),
   // 실패하면 이전 상태로 되돌린다.
-  const handleToggleNotify = async (key: "notifyMateRequests" | "notifyLikes", next: boolean) => {
-    const setter = key === "notifyMateRequests" ? setNotifyMateRequests : setNotifyLikes;
+  const handleToggleNotify = async (key: "notifyMateRequests" | "notifyLikes" | "notifyMessages", next: boolean) => {
+    const setter = key === "notifyMateRequests" ? setNotifyMateRequests : key === "notifyLikes" ? setNotifyLikes : setNotifyMessages;
     setter(next);
     setNotifyError(null);
     try {
@@ -208,11 +225,37 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
     }
   };
 
+  // 이 기기의 푸시 구독 on/off — 켤 땐 브라우저 알림 권한을 요청하고
+  // 구독을 서버에 등록, 끌 땐 구독을 해지한다.
+  const handleTogglePush = async (next: boolean) => {
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      if (next) {
+        const ok = await subscribeToPush();
+        if (!ok) {
+          setPushError("알림 권한이 거부됐거나 지금은 사용할 수 없어요");
+          setPushEnabled(false);
+          return;
+        }
+        setPushEnabled(true);
+      } else {
+        await unsubscribeFromPush();
+        setPushEnabled(false);
+      }
+    } catch {
+      setPushError("설정을 저장하지 못했어요");
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
   // 회원 탈퇴 — 되돌릴 수 없으므로 두 번째 확인을 거친 뒤에만 실행한다.
   const handleDeleteAccount = async () => {
     setDeleting(true);
     setDeleteError(null);
     try {
+      await unsubscribeFromPush().catch(() => {});
       await deleteAccount();
       await signOut({ redirect: false });
       router.push("/");
@@ -373,8 +416,24 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                         onChange={(v) => handleToggleNotify("notifyMateRequests", v)}
                       />
                       <NotifyToggle label="좋아요 알림" checked={notifyLikes} onChange={(v) => handleToggleNotify("notifyLikes", v)} />
+                      <NotifyToggle label="새 메시지 알림" checked={notifyMessages} onChange={(v) => handleToggleNotify("notifyMessages", v)} />
                     </div>
                     {notifyError && <p className="mt-2 text-[11.5px] text-rose-500">{notifyError}</p>}
+
+                    {pushSupported && (
+                      <div className="mt-3">
+                        <NotifyToggle
+                          label="이 기기에 팝업 알림 받기"
+                          checked={pushEnabled}
+                          disabled={pushBusy}
+                          onChange={handleTogglePush}
+                        />
+                        <p className="mt-1 pl-0.5 text-[11px] text-slate-400">
+                          홈 화면에 설치한 앱에서 새 메시지·트래블 메이트·좋아요를 OS 알림으로 받아요. 위 알림 종류별 설정을 함께 켜야 도착해요.
+                        </p>
+                        {pushError && <p className="mt-1 text-[11.5px] text-rose-500">{pushError}</p>}
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-7 border-t border-slate-100 pt-6 dark:border-slate-800">
@@ -534,14 +593,25 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
 }
 
 /** 켜짐/꺼짐 토글 한 줄 — 라벨 클릭으로도 토글되게 label로 감싼다. */
-function NotifyToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function NotifyToggle({
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-1 py-2">
+    <label className={`flex items-center justify-between gap-3 rounded-xl px-1 py-2 ${disabled ? "opacity-60" : "cursor-pointer"}`}>
       <span className="text-[13px] text-slate-700 dark:text-slate-200">{label}</span>
       <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
         <input
           type="checkbox"
           checked={checked}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.checked)}
           className="peer sr-only"
         />

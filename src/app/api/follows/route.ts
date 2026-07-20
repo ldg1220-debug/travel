@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { sendPushToUser } from "@/lib/server/push";
 
 export interface FollowUser {
   id: number;
@@ -105,11 +106,20 @@ export async function POST(request: NextRequest) {
   );
   if ((inserted.rowCount ?? 0) > 0) {
     // 받는 사람이 트래블 메이트 알림을 꺼뒀으면 알림 자체를 남기지 않는다.
-    await pool.query(
+    const notified = await pool.query(
       `insert into notifications ("recipientId", "actorId", type)
-       select $1, $2, 'follow_request' where exists (select 1 from users where id = $1 and "notifyMateRequests")`,
+       select $1, $2, 'follow_request' where exists (select 1 from users where id = $1 and "notifyMateRequests")
+       returning id`,
       [targetId, session.user.id],
     );
+    if ((notified.rowCount ?? 0) > 0) {
+      const requester = await pool.query(`select coalesce(nickname, '여행자') as nickname from users where id = $1`, [session.user.id]);
+      void sendPushToUser(targetId, {
+        title: "트래블 메이트 신청",
+        body: `${requester.rows[0]?.nickname ?? "여행자"}님이 트래블 메이트를 신청했어요`,
+        url: "/",
+      });
+    }
   }
   return NextResponse.json({ ok: true });
 }
@@ -137,11 +147,20 @@ export async function PATCH(request: NextRequest) {
        on conflict ("followerId", "followingId") do update set status = 'accepted'`,
       [session.user.id, requesterId],
     );
-    await pool.query(
+    const notified = await pool.query(
       `insert into notifications ("recipientId", "actorId", type)
-       select $1, $2, 'follow_accept' where exists (select 1 from users where id = $1 and "notifyMateRequests")`,
+       select $1, $2, 'follow_accept' where exists (select 1 from users where id = $1 and "notifyMateRequests")
+       returning id`,
       [requesterId, session.user.id],
     );
+    if ((notified.rowCount ?? 0) > 0) {
+      const accepter = await pool.query(`select coalesce(nickname, '여행자') as nickname from users where id = $1`, [session.user.id]);
+      void sendPushToUser(requesterId, {
+        title: "트래블 메이트 수락",
+        body: `${accepter.rows[0]?.nickname ?? "여행자"}님이 트래블 메이트 신청을 수락했어요`,
+        url: "/",
+      });
+    }
   }
   return NextResponse.json({ ok: true });
 }

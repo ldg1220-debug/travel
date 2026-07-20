@@ -11,6 +11,7 @@ interface ProfileBody {
   /** 알림 종류별 on/off. */
   notifyMateRequests?: boolean;
   notifyLikes?: boolean;
+  notifyMessages?: boolean;
 }
 
 const NICKNAME_PATTERN = /^[가-힣a-zA-Z0-9_]{2,20}$/;
@@ -49,6 +50,10 @@ export async function PATCH(request: NextRequest) {
   if (body.notifyLikes !== undefined) {
     params.push(body.notifyLikes);
     sets.push(`"notifyLikes" = $${params.length}`);
+  }
+  if (body.notifyMessages !== undefined) {
+    params.push(body.notifyMessages);
+    sets.push(`"notifyMessages" = $${params.length}`);
   }
   if (sets.length === 0) {
     return NextResponse.json({ ok: true });
