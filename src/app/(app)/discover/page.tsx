@@ -499,10 +499,12 @@ export default function DiscoverPage() {
     () => (bundle ? shuffled(bundle.favorites.filter((s) => !isLodging(s.tag)).slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT) : []),
     [bundle],
   );
-  const lodgingCompact = useMemo(
-    () => shuffled(lodgingSpots.slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT),
-    [lodgingSpots],
-  );
+  // 트렌딩/즐겨찾기와 달리 숙소는 매번 랜덤으로 섞이면 안 된다 — "어디로 갈지
+  // 정해놓고 그 지역 인기 숙소 순위를 보러 오는" 용도라, 지역별 칩으로 좁힌
+  // 뒤에도 매번 다른 순서로 보이면 "1위가 뭐였지"를 놓치게 된다. saves(담은
+  // 수) 내림차순 고정 랭킹으로 보여준다.
+  const lodgingRanked = useMemo(() => [...lodgingSpots].sort((a, b) => b.saves - a.saves), [lodgingSpots]);
+  const lodgingCompact = useMemo(() => lodgingRanked.slice(0, COMPACT_SPOT_COUNT), [lodgingRanked]);
   const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
 
   return (
@@ -728,7 +730,7 @@ export default function DiscoverPage() {
         {expandedSection && bundle ? (
           <ExpandedSection
             kind={expandedSection}
-            bundle={{ ...bundle, lodging: lodgingSpots }}
+            bundle={{ ...bundle, lodging: lodgingRanked }}
             onBack={() => setExpandedSection(null)}
             onAddSpot={handleAddSpot}
             onOpenDetail={handleOpenDetail}
@@ -821,12 +823,16 @@ export default function DiscoverPage() {
                     icon={Hotel}
                     iconClass="text-sky-500"
                     title="인기 숙소"
-                    caption="이 지역에서 많이 담긴 숙소"
+                    caption={
+                      regionPath.length > 0
+                        ? `${regionPath[regionPath.length - 1]} 인기 숙소 순위`
+                        : "지역별 칩으로 지역을 좁히면 그 지역 순위만 볼 수 있어요"
+                    }
                     onSeeAll={lodgingSpots.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("lodging") : undefined}
                   />
                   <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-                    {lodgingCompact.map((spot) => (
-                      <SpotCard key={spot.id} spot={spot} onAdd={() => handleAddSpot(spot)} onOpenDetail={() => handleOpenDetail(spot)} />
+                    {lodgingCompact.map((spot, i) => (
+                      <SpotCard key={spot.id} spot={spot} rank={i + 1} onAdd={() => handleAddSpot(spot)} onOpenDetail={() => handleOpenDetail(spot)} />
                     ))}
                   </div>
                 </>
@@ -1046,8 +1052,15 @@ function ExpandedSection({
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          {spots.map((spot) => (
-            <SpotCard key={spot.id} spot={spot} favorite={kind === "favorites"} onAdd={() => onAddSpot(spot)} onOpenDetail={() => onOpenDetail(spot)} />
+          {spots.map((spot, i) => (
+            <SpotCard
+              key={spot.id}
+              spot={spot}
+              favorite={kind === "favorites"}
+              rank={kind === "lodging" ? i + 1 : undefined}
+              onAdd={() => onAddSpot(spot)}
+              onOpenDetail={() => onOpenDetail(spot)}
+            />
           ))}
         </div>
       )}
