@@ -6,9 +6,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Button } from "@/components/ui/button";
-import { useGoogleMapsStatus } from "./MapProvider";
+import { useGoogleMapsStatus, useKakaoMapsStatus } from "./MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { haversineDistanceMeters } from "@/lib/geo";
+import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { fetchPlaceDetails, type PlaceDetails } from "@/lib/api";
 import { PlaceGlyph } from "./icons";
 import { Pin } from "./MapMarkers";
@@ -55,7 +56,9 @@ interface PlaceDetailOverlayProps {
  * map (no second script load).
  */
 export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: PlaceDetailOverlayProps) {
-  const { isLoaded: mapsLoaded } = useGoogleMapsStatus();
+  const { isLoaded: googleLoaded } = useGoogleMapsStatus();
+  const { isLoaded: kakaoLoaded } = useKakaoMapsStatus();
+  const mapsLoaded = place ? (isDomesticCoordinate(place.lat, place.lng) ? kakaoLoaded : googleLoaded) : false;
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
 
   // Other 관심 장소 within a short walk/ride of the one being viewed — gives

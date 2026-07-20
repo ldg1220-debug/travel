@@ -42,7 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { LoginModal } from "@/components/LoginModal";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
-import { MapProvider, useGoogleMapsStatus } from "./MapProvider";
+import { MapProvider, useGoogleMapsStatus, useKakaoMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
 import { Pin } from "./MapMarkers";
 import { PlacesSearchInput } from "./PlacesSearchInput";
@@ -75,12 +75,24 @@ import { fetchSharedItinerary } from "@/lib/api";
 import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
+import { nudgeKakaoMapResize, getKakaoMaps, type KakaoMapInstance } from "@/lib/maps/kakao-map";
+import { kakaoBoundsFor } from "./KakaoMapPrimitives";
 import type { ItineraryItem, Place } from "@/lib/types";
 import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
 
 // Always client-only: the Maps SDK/canvas must never be part of the
 // server-rendered (or hydration-replayed) HTML — see PlannerGoogleMap.tsx.
 const PlannerGoogleMap = dynamic(() => import("./PlannerGoogleMap"), {
+  ssr: false,
+  loading: () => <div className="flex h-full items-center justify-center text-sm text-slate-500">지도 불러오는 중…</div>,
+});
+// 국내(domestic) 계획일 때 렌더되는 카카오맵 버전 — PlannerGoogleMap과
+// 동일한 인터랙션(드래그로 일정 배치, 지도 클릭으로 관심 장소 저장 등)을
+// 제공한다. 유일한 차이는 지도 클릭 시 구글의 라벨 붙은 업체 아이콘 자동
+// 이름 인식(PlacesService)에 대응하는 기능이 카카오 SDK엔 없어서, 좌표
+// 클릭은 항상 이름 없이(빈 placeId) 들어온다는 점 — handleMapClick이
+// 이미 그 경우 일반 라벨("선택한 위치")로 대체하도록 돼 있어 그대로 동작한다.
+const PlannerKakaoMap = dynamic(() => import("./PlannerKakaoMap"), {
   ssr: false,
   loading: () => <div className="flex h-full items-center justify-center text-sm text-slate-500">지도 불러오는 중…</div>,
 });
@@ -151,13 +163,15 @@ export function PlannerBoard({ shareToken }: PlannerBoardProps) {
 }
 
 function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
-  const { isLoaded: mapsLoaded, loadError: mapsError } = useGoogleMapsStatus();
+  const { isLoaded: googleMapsLoaded, loadError: googleMapsError } = useGoogleMapsStatus();
+  const { isLoaded: kakaoMapsLoaded, loadError: kakaoMapsError } = useKakaoMapsStatus();
   // Bounding-box reference for the drag-ghost's absolute x/y — only ever
   // read inside event handlers (never during render), so a plain ref is
   // fine here (no ref-callback/state dance needed).
   const boardRef = useRef<HTMLDivElement | null>(null);
   const slotRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const mapRef = useRef<google.maps.Map | null>(null);
+  const googleMapRef = useRef<google.maps.Map | null>(null);
+  const kakaoMapRef = useRef<KakaoMapInstance | null>(null);
   // See handlePlaceDiscovered below — set right before an explicit pan/zoom
   // so the next "smart zoom" effect run (triggered by that same places
   // update) skips its own fitBounds instead of immediately undoing it.
@@ -186,6 +200,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const optimizeRoute = useItineraryStore((s) => s.optimizeRoute);
   const region = useItineraryStore((s) => s.region);
+  const isDomestic = region === "domestic";
+  const mapsLoaded = isDomestic ? kakaoMapsLoaded : googleMapsLoaded;
+  const mapsError = isDomestic ? kakaoMapsError : googleMapsError;
   const setRegion = useItineraryStore((s) => s.setRegion);
   const setItems = useItineraryStore((s) => s.setItems);
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
@@ -247,13 +264,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const wasCollapsed = mapCollapsed;
     setMapCollapsed(!wasCollapsed);
     // Expanding again: the Maps SDK doesn't notice its container resizing
-    // back up on its own (see nudgeGoogleMapResize), so force a re-measure
-    // once the CSS transition has actually finished — center/zoom are left
-    // as they were, no need to re-fit bounds, since collapsing never moved
-    // the camera in the first place.
-    if (wasCollapsed && mapRef.current) {
-      const map = mapRef.current;
-      setTimeout(() => nudgeGoogleMapResize(map), 320);
+    // back up on its own (see nudgeGoogleMapResize/nudgeKakaoMapResize), so
+    // force a re-measure once the CSS transition has actually finished —
+    // center/zoom are left as they were, no need to re-fit bounds, since
+    // collapsing never moved the camera in the first place.
+    if (wasCollapsed) {
+      if (isDomestic && kakaoMapRef.current) {
+        const map = kakaoMapRef.current;
+        setTimeout(() => nudgeKakaoMapResize(map), 320);
+      } else if (!isDomestic && googleMapRef.current) {
+        const map = googleMapRef.current;
+        setTimeout(() => nudgeGoogleMapResize(map), 320);
+      }
     }
   };
 
@@ -586,19 +608,34 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // skipNextFitRef tells the smart-zoom effect below to skip its own
   // fitBounds this one time, so this explicit pan/zoom isn't immediately
   // overridden once `places` updates and that effect re-runs.
+  // Pans/zooms whichever map engine is currently active (region-dependent)
+  // to a single place — shared by handlePlaceDiscovered/panToSavedPlace
+  // below so neither has to know which SDK is live.
+  const panToAndZoom = (place: Place) => {
+    if (isDomestic) {
+      const map = kakaoMapRef.current;
+      if (!map) return;
+      map.panTo(new (getKakaoMaps().LatLng)(place.lat, place.lng));
+      map.setLevel(4);
+    } else {
+      const map = googleMapRef.current;
+      if (!map) return;
+      map.panTo({ lat: place.lat, lng: place.lng });
+      map.setZoom(15);
+    }
+  };
+
   const handlePlaceDiscovered = (place: Place) => {
     addPlaces([place]);
     setPendingSearchPlace(place);
     showToast(`${place.name} added to map`);
     skipNextFitRef.current = true;
-    mapRef.current?.panTo({ lat: place.lat, lng: place.lng });
-    mapRef.current?.setZoom(15);
+    panToAndZoom(place);
   };
 
   const panToSavedPlace = (place: Place) => {
     setSelectedSavedId(place.id);
-    mapRef.current?.panTo({ lat: place.lat, lng: place.lng });
-    mapRef.current?.setZoom(15);
+    panToAndZoom(place);
   };
 
   // Single entry point for "open the detail overlay for this place" —
@@ -645,14 +682,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   };
 
   // Map click-to-save: a POI icon click carries a placeId (looked up via
-  // PlacesService for its real name); a bare coordinate click has neither,
-  // so it just gets a generic label. Either way, opens the popup for the
-  // user to confirm before it actually lands in 관심 장소.
+  // PlacesService for its real name) — Google-only, Kakao's SDK has no
+  // equivalent so a domestic click's `info.placeId` is always null and
+  // this branch never runs for it. A bare coordinate click has neither, so
+  // it just gets a generic label. Either way, opens the popup for the user
+  // to confirm before it actually lands in 관심 장소.
   const handleMapClick = (info: MapClickInfo) => {
-    if (info.placeId && mapRef.current) {
+    if (info.placeId && googleMapRef.current) {
       clickedPlaceIdRef.current = info.placeId;
       setClickedPlace({ lat: info.lat, lng: info.lng, name: "불러오는 중…", loading: true });
-      const service = new google.maps.places.PlacesService(mapRef.current);
+      const service = new google.maps.places.PlacesService(googleMapRef.current);
       service.getDetails({ placeId: info.placeId, fields: ["name"] }, (result, status) => {
         // Ignore a response that arrives after the user's already clicked
         // somewhere else (or closed the popup).
@@ -943,22 +982,50 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         },
   );
 
-  const fitToPlaces = useCallback((map: google.maps.Map, list: Place[]) => {
-    if (list.length === 0) return;
-    if (list.length === 1) {
-      map.panTo({ lat: list[0].lat, lng: list[0].lng });
-      map.setZoom(15);
-      return;
-    }
-    const bounds = new google.maps.LatLngBounds();
-    list.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
-    map.fitBounds(bounds, 56);
-  }, []);
+  // Fits whichever map engine is currently active (region-dependent) to a
+  // set of places — reads the live ref directly rather than taking a map
+  // param, so callers (onMapLoad, the smart-zoom effect below) don't need
+  // to know which SDK is live either.
+  const fitToPlaces = useCallback(
+    (list: Place[]) => {
+      if (list.length === 0) return;
+      if (isDomestic) {
+        const map = kakaoMapRef.current;
+        if (!map) return;
+        if (list.length === 1) {
+          map.panTo(new (getKakaoMaps().LatLng)(list[0].lat, list[0].lng));
+          map.setLevel(4);
+          return;
+        }
+        map.setBounds(kakaoBoundsFor(list), 56);
+      } else {
+        const map = googleMapRef.current;
+        if (!map) return;
+        if (list.length === 1) {
+          map.panTo({ lat: list[0].lat, lng: list[0].lng });
+          map.setZoom(15);
+          return;
+        }
+        const bounds = new google.maps.LatLngBounds();
+        list.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
+        map.fitBounds(bounds, 56);
+      }
+    },
+    [isDomestic],
+  );
 
-  const onMapLoad = useCallback(
+  const onGoogleMapLoad = useCallback(
     (map: google.maps.Map) => {
-      mapRef.current = map;
-      fitToPlaces(map, visibleMarkerPlaces);
+      googleMapRef.current = map;
+      fitToPlaces(visibleMarkerPlaces);
+    },
+    [fitToPlaces, visibleMarkerPlaces],
+  );
+
+  const onKakaoMapLoad = useCallback(
+    (map: KakaoMapInstance) => {
+      kakaoMapRef.current = map;
+      fitToPlaces(visibleMarkerPlaces);
     },
     [fitToPlaces, visibleMarkerPlaces],
   );
@@ -968,13 +1035,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // so the whole spread stays visible, instead of leaving the camera
   // parked wherever it happened to be.
   useEffect(() => {
-    if (!mapRef.current) return;
+    const mapReady = isDomestic ? kakaoMapRef.current : googleMapRef.current;
+    if (!mapReady) return;
     if (skipNextFitRef.current) {
       skipNextFitRef.current = false;
       return;
     }
-    fitToPlaces(mapRef.current, visibleMarkerPlaces);
-  }, [visibleMarkerPlaces, fitToPlaces]);
+    fitToPlaces(visibleMarkerPlaces);
+  }, [visibleMarkerPlaces, fitToPlaces, isDomestic]);
 
   const shiftWindow = (days: number) => {
     const next = shiftISODate(windowStart, days);
@@ -1046,8 +1114,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             </div>
           )}
 
-          {/* Collapsed: keep TrendSheet/PlannerGoogleMap mounted (unmounting
-              would drop mapRef and re-trigger the whole Maps SDK load) but
+          {/* Collapsed: keep TrendSheet/the map mounted (unmounting would drop
+              the live map ref and re-trigger the whole Maps SDK load) but
               visually hidden, so expanding back just needs a resize nudge
               instead of a full re-init. */}
           <div className={mapCollapsed || scheduleExpanded ? "hidden" : "contents"}>
@@ -1066,29 +1134,55 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             nearAnchors={schedule.map((s) => s.coordinates)}
           />
 
-          <PlannerGoogleMap
-            mapsError={Boolean(mapsError)}
-            mapsLoaded={mapsLoaded}
-            mapCenter={mapCenter}
-            onMapLoad={onMapLoad}
-            tab={tab}
-            routePoints={routePoints}
-            places={scheduleMapPlaces}
-            orderByPlace={orderByPlace}
-            pressingId={pressingId}
-            draggingPlaceId={drag?.place.id ?? null}
-            onDown={onPinDown}
-            onUp={onUp}
-            onMove={onMove}
-            onCancel={cancelPress}
-            savedPlaces={savedPlaces}
-            selectedSavedPlace={selectedSavedPlace}
-            onSelectSaved={setSelectedSavedId}
-            onMapClick={handleMapClick}
-            clickedPlace={clickedPlace}
-            onCloseClickedPlace={() => setClickedPlace(null)}
-            onSaveClickedPlace={handleSaveClickedPlace}
-          />
+          {isDomestic ? (
+            <PlannerKakaoMap
+              mapsError={Boolean(mapsError)}
+              mapsLoaded={mapsLoaded}
+              mapCenter={mapCenter}
+              onMapLoad={onKakaoMapLoad}
+              tab={tab}
+              routePoints={routePoints}
+              places={scheduleMapPlaces}
+              orderByPlace={orderByPlace}
+              pressingId={pressingId}
+              draggingPlaceId={drag?.place.id ?? null}
+              onDown={onPinDown}
+              onUp={onUp}
+              onMove={onMove}
+              onCancel={cancelPress}
+              savedPlaces={savedPlaces}
+              selectedSavedPlace={selectedSavedPlace}
+              onSelectSaved={setSelectedSavedId}
+              onMapClick={handleMapClick}
+              clickedPlace={clickedPlace}
+              onCloseClickedPlace={() => setClickedPlace(null)}
+              onSaveClickedPlace={handleSaveClickedPlace}
+            />
+          ) : (
+            <PlannerGoogleMap
+              mapsError={Boolean(mapsError)}
+              mapsLoaded={mapsLoaded}
+              mapCenter={mapCenter}
+              onMapLoad={onGoogleMapLoad}
+              tab={tab}
+              routePoints={routePoints}
+              places={scheduleMapPlaces}
+              orderByPlace={orderByPlace}
+              pressingId={pressingId}
+              draggingPlaceId={drag?.place.id ?? null}
+              onDown={onPinDown}
+              onUp={onUp}
+              onMove={onMove}
+              onCancel={cancelPress}
+              savedPlaces={savedPlaces}
+              selectedSavedPlace={selectedSavedPlace}
+              onSelectSaved={setSelectedSavedId}
+              onMapClick={handleMapClick}
+              clickedPlace={clickedPlace}
+              onCloseClickedPlace={() => setClickedPlace(null)}
+              onSaveClickedPlace={handleSaveClickedPlace}
+            />
+          )}
           </div>
         </div>
 
