@@ -250,6 +250,24 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS "termsAgreedAt" TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "notifyMateRequests" BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "notifyLikes" BOOLEAN NOT NULL DEFAULT true;
 
+-- 1:1 다이렉트 메시지. 신고/차단 등 모더레이션 인프라가 아직 없어서 첫
+-- 버전은 서로 트래블 메이트인 사이에서만 보낼 수 있게 애플리케이션
+-- 레이어(POST /api/messages)에서 제한한다 — 이미 있는 메시지 기록은
+-- 메이트 관계가 끊긴 뒤에도 계속 읽을 수 있다(새로 보내는 것만 막힘).
+CREATE TABLE IF NOT EXISTS messages (
+  id SERIAL PRIMARY KEY,
+  "senderId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "recipientId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  read BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- 두 사용자 사이의 대화 하나를 방향과 무관하게 빠르게 모아 조회하기 위한
+-- 인덱스 — least/greatest로 (A,B)든 (B,A)든 같은 키가 되게 정규화한다.
+CREATE INDEX IF NOT EXISTS messages_conversation_idx
+  ON messages (least("senderId", "recipientId"), greatest("senderId", "recipientId"), created_at);
+CREATE INDEX IF NOT EXISTS messages_recipient_unread_idx ON messages ("recipientId", read);
+
 -- Server-side cache of place-to-place transit estimates (src/lib/transit.ts
 -- computes a Haversine-based fallback today; this table exists so a real
 -- Google Distance Matrix result, once wired in, doesn't re-pay the API

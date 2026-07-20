@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { X } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 import { acceptFollowRequest, fetchUserProfile, followUser, rejectFollowRequest, unfollowUser, type UserProfile } from "@/lib/api";
 import { LoginModal } from "@/components/LoginModal";
 
@@ -17,6 +19,7 @@ import { LoginModal } from "@/components/LoginModal";
  * 다시 불러오게 한다.
  */
 export function UserProfileSheet({ userId, onClose, onChange }: { userId: number; onClose: () => void; onChange?: () => void }) {
+  const router = useRouter();
   const { data: session } = useSession();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [busy, setBusy] = useState(false);
@@ -102,6 +105,15 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
               <span className="block text-[15px] font-bold text-slate-800 dark:text-slate-100">{profile.followingCount}</span>
               <span className="block text-[11.5px] text-slate-400">트래블 메이트</span>
             </div>
+
+            {!isSelf && profile.isFriend && (
+              <button
+                onClick={() => router.push(`/messages/${userId}`)}
+                className="mb-2 flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 text-[13.5px] font-semibold text-white transition-colors hover:bg-indigo-700"
+              >
+                <CordixIcon name="message" size={15} stroke="#fff" accent="#fff" /> 메시지 보내기
+              </button>
+            )}
 
             {!isSelf &&
               (profile.isFollowing ? (

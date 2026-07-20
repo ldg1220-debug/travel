@@ -514,6 +514,56 @@ export async function markNotificationsRead(): Promise<void> {
   await fetch("/api/notifications", { method: "PATCH" });
 }
 
+// ─────────────────────────────────────────────────────────────
+// 다이렉트 메시지 — 서로 트래블 메이트인 사람끼리만 보낼 수 있다.
+
+export interface Conversation {
+  userId: number;
+  nickname: string | null;
+  image: string | null;
+  lastMessage: string;
+  lastSenderId: number;
+  lastMessageAt: string;
+  unreadCount: number;
+}
+
+export interface ChatMessage {
+  id: number;
+  senderId: number;
+  recipientId: number;
+  content: string;
+  createdAt: string;
+}
+
+export async function fetchConversations(): Promise<Conversation[]> {
+  const res = await fetch("/api/messages");
+  if (!res.ok) return [];
+  const data = (await res.json()) as { conversations: Conversation[] };
+  return data.conversations;
+}
+
+/** Loads (and marks read) the message thread with one specific 트래블 메이트. */
+export async function fetchThread(userId: number): Promise<ChatMessage[]> {
+  const res = await fetch(`/api/messages/${userId}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { messages: ChatMessage[] };
+  return data.messages;
+}
+
+export async function sendMessage(recipientId: number, content: string): Promise<ChatMessage> {
+  const res = await fetch("/api/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recipientId, content }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "메시지를 보내지 못했어요");
+  }
+  const data = (await res.json()) as { message: ChatMessage };
+  return data.message;
+}
+
 export interface DiscoverBrowseResponse {
   bundle: DiscoverBundle;
   regionTree: RegionNode[];
