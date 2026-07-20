@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Calendar, ChevronRight, Heart, FolderOpen, Route, Rss } from "lucide-react";
+import { Calendar, ChevronRight, Heart, FolderOpen } from "lucide-react";
 import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchFeed, type FeedPost } from "@/lib/api";
@@ -117,7 +117,7 @@ function ResumeSection() {
     <section>
       <div className="mb-3 flex items-center gap-2">
         <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-500 dark:bg-slate-800">
-          <Route size={17} />
+          <CordixIcon name="trip-route" size={17} />
         </span>
         <h2 className="text-xl font-bold tracking-tight">내 여행 현황</h2>
       </div>
@@ -185,7 +185,7 @@ function ResumeSection() {
           className="group flex items-center gap-4 rounded-3xl border border-dashed border-slate-300 bg-white/60 p-6 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-lg dark:border-slate-700 dark:bg-slate-900/60"
         >
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm">
-            <Route size={22} />
+            <CordixIcon name="trip-route" size={22} stroke="#fff" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-[15px] font-bold">아직 계획 중인 여행이 없어요</span>
@@ -219,7 +219,7 @@ function LatestFeedSection() {
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-500 dark:bg-slate-800">
-            <Rss size={17} />
+            <CordixIcon name="feed-announce" size={17} />
           </span>
           <h2 className="text-xl font-bold tracking-tight">최신 여행 후기</h2>
         </div>
@@ -247,7 +247,7 @@ function LatestFeedSection() {
                 <img src={post.images[0]} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />
               ) : (
                 <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-400 to-violet-400 text-white">
-                  <Rss size={18} />
+                  <CordixIcon name="feed-announce" size={18} stroke="#fff" />
                 </span>
               )}
               <div className="min-w-0 flex-1">
