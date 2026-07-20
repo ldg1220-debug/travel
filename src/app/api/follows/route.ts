@@ -104,7 +104,12 @@ export async function POST(request: NextRequest) {
     [session.user.id, targetId],
   );
   if ((inserted.rowCount ?? 0) > 0) {
-    await pool.query(`insert into notifications ("recipientId", "actorId", type) values ($1, $2, 'follow_request')`, [targetId, session.user.id]);
+    // 받는 사람이 트래블 메이트 알림을 꺼뒀으면 알림 자체를 남기지 않는다.
+    await pool.query(
+      `insert into notifications ("recipientId", "actorId", type)
+       select $1, $2, 'follow_request' where exists (select 1 from users where id = $1 and "notifyMateRequests")`,
+      [targetId, session.user.id],
+    );
   }
   return NextResponse.json({ ok: true });
 }
@@ -132,7 +137,11 @@ export async function PATCH(request: NextRequest) {
        on conflict ("followerId", "followingId") do update set status = 'accepted'`,
       [session.user.id, requesterId],
     );
-    await pool.query(`insert into notifications ("recipientId", "actorId", type) values ($1, $2, 'follow_accept')`, [requesterId, session.user.id]);
+    await pool.query(
+      `insert into notifications ("recipientId", "actorId", type)
+       select $1, $2, 'follow_accept' where exists (select 1 from users where id = $1 and "notifyMateRequests")`,
+      [requesterId, session.user.id],
+    );
   }
   return NextResponse.json({ ok: true });
 }

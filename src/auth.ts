@@ -35,9 +35,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // columns (id/name/email/image/emailVerified) — nickname/termsAgreedAt
         // are our own additions, so they're fetched separately rather than
         // relying on the adapter to surface them.
-        const result = await pool.query(`select nickname, "termsAgreedAt" from users where id = $1`, [user.id]);
+        const result = await pool.query(
+          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes" from users where id = $1`,
+          [user.id],
+        );
         session.user.nickname = result.rows[0]?.nickname ?? null;
         session.user.termsAgreed = result.rows[0]?.termsAgreedAt != null;
+        session.user.notifyMateRequests = result.rows[0]?.notifyMateRequests ?? true;
+        session.user.notifyLikes = result.rows[0]?.notifyLikes ?? true;
       }
       return session;
     },

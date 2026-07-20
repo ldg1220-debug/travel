@@ -8,6 +8,9 @@ interface ProfileBody {
   image?: string | null;
   /** true = 이용약관·개인정보처리방침 동의 기록 (최초 가입 게이트에서 전송). */
   agreeTerms?: boolean;
+  /** 알림 종류별 on/off. */
+  notifyMateRequests?: boolean;
+  notifyLikes?: boolean;
 }
 
 const NICKNAME_PATTERN = /^[가-힣a-zA-Z0-9_]{2,20}$/;
@@ -21,7 +24,7 @@ export async function PATCH(request: NextRequest) {
 
   const body = (await request.json()) as ProfileBody;
   const sets: string[] = [];
-  const params: (string | null)[] = [];
+  const params: (string | boolean | null)[] = [];
 
   if (body.nickname !== undefined) {
     const nickname = body.nickname.trim();
@@ -38,6 +41,14 @@ export async function PATCH(request: NextRequest) {
   if (body.agreeTerms === true) {
     // 최초 동의 시각만 기록 — 재저장으로 동의일이 덮이지 않게 coalesce.
     sets.push(`"termsAgreedAt" = coalesce("termsAgreedAt", now())`);
+  }
+  if (body.notifyMateRequests !== undefined) {
+    params.push(body.notifyMateRequests);
+    sets.push(`"notifyMateRequests" = $${params.length}`);
+  }
+  if (body.notifyLikes !== undefined) {
+    params.push(body.notifyLikes);
+    sets.push(`"notifyLikes" = $${params.length}`);
   }
   if (sets.length === 0) {
     return NextResponse.json({ ok: true });
