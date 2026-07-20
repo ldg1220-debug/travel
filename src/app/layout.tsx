@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "./providers";
 import { SplashScreen } from "@/components/SplashScreen";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -58,6 +59,7 @@ export default function RootLayout({
       <body className="h-full bg-slate-200 dark:bg-slate-950">
         {/* Fetch the brand logo ASAP so it's ready for the splash (React hoists this to <head>). */}
         <link rel="preload" href="/brand/tradule-logo.png" as="image" />
+        <ServiceWorkerRegister />
         <SplashScreen />
         <Providers>{children}</Providers>
       </body>
