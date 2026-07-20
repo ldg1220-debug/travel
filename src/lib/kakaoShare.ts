@@ -35,7 +35,7 @@ const SDK_SRC = "https://t1.kakaocdn.net/kakao_js_sdk/2.7.2/kakao.min.js";
 // 내용을 바꿔도 같은 경로(`/apple-icon.png`)면 예전에 캐싱된 이미지를 계속
 // 보여준다. 로고 애셋을 바꿀 때는 이 버전 숫자만 올리면 카카오가 새 이미지로
 // 다시 캐싱한다(경로가 바뀌었다고 인식하기 때문).
-const SHARE_IMAGE_VERSION = 2;
+const SHARE_IMAGE_VERSION = 3;
 
 let loadPromise: Promise<void> | null = null;
 
