@@ -45,6 +45,7 @@ import { MonthCalendar } from "@/components/MonthCalendar";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlacePager } from "@/components/PlacePager";
 import { useItineraryStore } from "@/store/itineraryStore";
+import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch } from "@/lib/api";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
@@ -309,6 +310,7 @@ export default function DiscoverPage() {
   const hasConflict = useItineraryStore((s) => s.hasConflict);
   const setCurrentCity = useItineraryStore((s) => s.setCurrentCity);
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
+  const setRegion = useItineraryStore((s) => s.setRegion);
 
   const [scope, setScope] = useState<DiscoverScope>("domestic");
   // 계절/핫한 are combinable check-filters; 지역별 opens the drill-down and
@@ -435,6 +437,7 @@ export default function DiscoverPage() {
   };
   const confirmAddToFavorites = () => {
     if (!addChoiceTarget) return;
+    setRegion(isDomesticCoordinate(addChoiceTarget.place.lat, addChoiceTarget.place.lng) ? "domestic" : "international");
     upsertSavedPlace(addChoiceTarget.place);
     showToast(`${addChoiceTarget.place.name} 관심 장소에 저장됨`);
     setAddChoiceTarget(null);
@@ -454,6 +457,7 @@ export default function DiscoverPage() {
     if (!routeTarget) return;
     setCurrentCity(routeTarget.region);
     const places = routeTarget.stops.map((stop) => routeStopToPlace(routeTarget.id, stop));
+    if (places[0]) setRegion(isDomesticCoordinate(places[0].lat, places[0].lng) ? "domestic" : "international");
     addPlaces(places);
     // Keep each stop's originally-suggested hour, nudging forward to the
     // next free slot on the chosen date if two stops collide — never
@@ -898,6 +902,7 @@ export default function DiscoverPage() {
           showDuration
           onClose={() => setScheduleSpot(null)}
           onConfirm={(date, hour, minute, _budget, duration) => {
+            setRegion(isDomesticCoordinate(scheduleSpot.lat, scheduleSpot.lng) ? "domestic" : "international");
             addPlaces([scheduleSpot]);
             addItem({
               placeId: scheduleSpot.id,
@@ -921,6 +926,7 @@ export default function DiscoverPage() {
             place={detailPlace}
             onClose={() => setDetailPlace(null)}
             onSave={(p) => {
+              setRegion(isDomesticCoordinate(p.lat, p.lng) ? "domestic" : "international");
               upsertSavedPlace(p);
               showToast(`${p.name} 관심 장소에 저장됨`);
               setDetailPlace(null);

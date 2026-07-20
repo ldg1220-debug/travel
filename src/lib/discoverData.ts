@@ -1273,6 +1273,21 @@ function queryTokens(query: string): string[] {
  * what lets a dish-specific query like "오사카 라멘" surface every
  * ramen-adjacent place, not just ones with "라멘" literally in the name.
  */
+/**
+ * `d-gen*`/`o-gen*` ids mark the template-generated breadth-pass spots
+ * (see DOMESTIC_CITY_SEEDS/WORLD_CITIES above) — generic names like "대전
+ * 한우 구이집" built from a suffix template, not a real business. They
+ * exist purely to keep the trending/browse sections from looking empty
+ * for uncurated cities. A free-text search query can coincidentally
+ * token-match one (the city name + a generic suffix that happens to
+ * contain the searched dish/keyword), which reads as a real search hit
+ * for a place that doesn't exist — so text search excludes them; browsing
+ * (region drill-down, category chips with no query) still shows them.
+ */
+export function isPlaceholderSpot(spot: DiscoverSpot): boolean {
+  return spot.id.startsWith("d-gen") || spot.id.startsWith("o-gen");
+}
+
 export function spotMatches(spot: DiscoverSpot, query: string): boolean {
   const tokens = queryTokens(query);
   if (tokens.length === 0) return false;
