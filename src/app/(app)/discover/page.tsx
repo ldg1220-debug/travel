@@ -297,6 +297,53 @@ function nodesAtPath(tree: RegionNode[], path: string[]): RegionNode[] {
   return level;
 }
 
+/** 대륙→국가→도시 (해외) / 광역→시군→동 (국내) 지역 좁히기 chips — 메인 브라우즈 화면과 "전체보기"(ExpandedSection) 양쪽에서 같은 regionPath 상태를 공유해 쓴다. */
+function RegionDrilldown({
+  regionPath,
+  regionOptions,
+  onSetPath,
+}: {
+  regionPath: string[];
+  regionOptions: RegionNode[];
+  onSetPath: (path: string[]) => void;
+}) {
+  if (regionPath.length === 0 && regionOptions.length === 0) return null;
+  return (
+    <div className="flex flex-col items-center gap-2">
+      {regionPath.length > 0 && (
+        <div className="flex flex-wrap items-center justify-center gap-1.5">
+          <button onClick={() => onSetPath([])} className="rounded-full bg-slate-100 px-3 py-1 text-[11.5px] font-medium text-slate-500 hover:bg-slate-200">
+            전체
+          </button>
+          {regionPath.map((label, i) => (
+            <button
+              key={label}
+              onClick={() => onSetPath(regionPath.slice(0, i + 1))}
+              className="flex items-center gap-0.5 rounded-full bg-indigo-600 px-3 py-1 text-[11.5px] font-semibold text-white"
+            >
+              {label}
+              {i < regionPath.length - 1 && <ChevronRight size={11} />}
+            </button>
+          ))}
+        </div>
+      )}
+      {regionOptions.length > 0 && (
+        <div className="flex flex-wrap items-center justify-center gap-1.5">
+          {regionOptions.map((node) => (
+            <button
+              key={node.label}
+              onClick={() => onSetPath([...regionPath, node.label])}
+              className="rounded-full bg-slate-100 px-3 py-1 text-[11.5px] font-medium text-slate-500 hover:bg-slate-200"
+            >
+              {node.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // The global App Bar (hamburger + title + Sheet nav) already lives in
 // src/components/AppBar.tsx, rendered once by src/app/(app)/layout.tsx
@@ -499,10 +546,12 @@ export default function DiscoverPage() {
     () => (bundle ? shuffled(bundle.favorites.filter((s) => !isLodging(s.tag)).slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT) : []),
     [bundle],
   );
-  const lodgingCompact = useMemo(
-    () => shuffled(lodgingSpots.slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT),
-    [lodgingSpots],
-  );
+  // 트렌딩/즐겨찾기와 달리 숙소는 매번 랜덤으로 섞이면 안 된다 — "어디로 갈지
+  // 정해놓고 그 지역 인기 숙소 순위를 보러 오는" 용도라, 지역별 칩으로 좁힌
+  // 뒤에도 매번 다른 순서로 보이면 "1위가 뭐였지"를 놓치게 된다. saves(담은
+  // 수) 내림차순 고정 랭킹으로 보여준다.
+  const lodgingRanked = useMemo(() => [...lodgingSpots].sort((a, b) => b.saves - a.saves), [lodgingSpots]);
+  const lodgingCompact = useMemo(() => lodgingRanked.slice(0, COMPACT_SPOT_COUNT), [lodgingRanked]);
   const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
 
   return (
@@ -680,40 +729,8 @@ export default function DiscoverPage() {
 
           {/* 지역별 drill-down: 대륙→국가→도시 (해외) / 광역→시군→동 (국내) */}
           {!isSearching && !expandedSection && (regionOpen || regionPath.length > 0) && (
-            <div className="mt-3 flex flex-col items-center gap-2">
-              {regionPath.length > 0 && (
-                <div className="flex flex-wrap items-center justify-center gap-1.5">
-                  <button
-                    onClick={() => setRegionPath([])}
-                    className="rounded-full bg-slate-100 px-3 py-1 text-[11.5px] font-medium text-slate-500 hover:bg-slate-200"
-                  >
-                    전체
-                  </button>
-                  {regionPath.map((label, i) => (
-                    <button
-                      key={label}
-                      onClick={() => setRegionPath(regionPath.slice(0, i + 1))}
-                      className="flex items-center gap-0.5 rounded-full bg-indigo-600 px-3 py-1 text-[11.5px] font-semibold text-white"
-                    >
-                      {label}
-                      {i < regionPath.length - 1 && <ChevronRight size={11} />}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {regionOptions.length > 0 && (
-                <div className="flex flex-wrap items-center justify-center gap-1.5">
-                  {regionOptions.map((node) => (
-                    <button
-                      key={node.label}
-                      onClick={() => setRegionPath([...regionPath, node.label])}
-                      className="rounded-full bg-slate-100 px-3 py-1 text-[11.5px] font-medium text-slate-500 hover:bg-slate-200"
-                    >
-                      {node.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+            <div className="mt-3">
+              <RegionDrilldown regionPath={regionPath} regionOptions={regionOptions} onSetPath={setRegionPath} />
             </div>
           )}
         </section>
@@ -728,7 +745,10 @@ export default function DiscoverPage() {
         {expandedSection && bundle ? (
           <ExpandedSection
             kind={expandedSection}
-            bundle={{ ...bundle, lodging: lodgingSpots }}
+            bundle={{ ...bundle, lodging: lodgingRanked }}
+            regionPath={regionPath}
+            regionOptions={regionOptions}
+            onSetRegionPath={setRegionPath}
             onBack={() => setExpandedSection(null)}
             onAddSpot={handleAddSpot}
             onOpenDetail={handleOpenDetail}
@@ -821,12 +841,16 @@ export default function DiscoverPage() {
                     icon={Hotel}
                     iconClass="text-sky-500"
                     title="인기 숙소"
-                    caption="이 지역에서 많이 담긴 숙소"
+                    caption={
+                      regionPath.length > 0
+                        ? `${regionPath[regionPath.length - 1]} 인기 숙소 순위`
+                        : "지역별 칩으로 지역을 좁히면 그 지역 순위만 볼 수 있어요"
+                    }
                     onSeeAll={lodgingSpots.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("lodging") : undefined}
                   />
                   <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-                    {lodgingCompact.map((spot) => (
-                      <SpotCard key={spot.id} spot={spot} onAdd={() => handleAddSpot(spot)} onOpenDetail={() => handleOpenDetail(spot)} />
+                    {lodgingCompact.map((spot, i) => (
+                      <SpotCard key={spot.id} spot={spot} rank={i + 1} onAdd={() => handleAddSpot(spot)} onOpenDetail={() => handleOpenDetail(spot)} />
                     ))}
                   </div>
                 </>
@@ -1005,6 +1029,9 @@ const SECTION_META: Record<SectionKind, { icon: React.ComponentType<{ size?: num
 function ExpandedSection({
   kind,
   bundle,
+  regionPath,
+  regionOptions,
+  onSetRegionPath,
   onBack,
   onAddSpot,
   onOpenDetail,
@@ -1012,6 +1039,9 @@ function ExpandedSection({
 }: {
   kind: SectionKind;
   bundle: { trending: DiscoverSpot[]; favorites: DiscoverSpot[]; lodging: DiscoverSpot[]; routes: DiscoverRoute[] };
+  regionPath: string[];
+  regionOptions: RegionNode[];
+  onSetRegionPath: (path: string[]) => void;
   onBack: () => void;
   onAddSpot: (spot: DiscoverSpot) => void;
   onOpenDetail: (spot: DiscoverSpot) => void;
@@ -1032,12 +1062,25 @@ function ExpandedSection({
       <button onClick={onBack} className="mb-4 flex items-center gap-1 text-[13px] font-semibold text-slate-500 hover:text-slate-800">
         <ChevronLeft size={15} /> 뒤로
       </button>
-      <div className="mb-6 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-2">
         <span className={`flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 ${meta.iconClass}`}>
           <meta.icon size={17} />
         </span>
-        <h2 className="text-xl font-bold tracking-tight">{meta.title}</h2>
+        <div>
+          <h2 className="text-xl font-bold tracking-tight">{meta.title}</h2>
+          {kind === "lodging" && (
+            <p className="text-[12px] text-slate-400">{regionPath.length > 0 ? `${regionPath[regionPath.length - 1]} 인기 숙소 순위` : "전체 지역 인기 숙소 순위 — 지역을 눌러 좁혀보세요"}</p>
+          )}
+        </div>
       </div>
+      {/* 여기서 지역을 좁히면 페이지 전체(bundle)를 채우는 같은 regionPath
+          상태가 바뀌면서 뒤로 나가지 않고도 바로 이 목록에 반영된다 —
+          "전체보기 안에서도 지역별로 눌러볼 수 있어야" 한다는 사용자 피드백. */}
+      {kind !== "routes" && (
+        <div className="mb-5">
+          <RegionDrilldown regionPath={regionPath} regionOptions={regionOptions} onSetPath={onSetRegionPath} />
+        </div>
+      )}
       {kind === "routes" ? (
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           {bundle.routes.map((route) => (
@@ -1046,8 +1089,15 @@ function ExpandedSection({
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          {spots.map((spot) => (
-            <SpotCard key={spot.id} spot={spot} favorite={kind === "favorites"} onAdd={() => onAddSpot(spot)} onOpenDetail={() => onOpenDetail(spot)} />
+          {spots.map((spot, i) => (
+            <SpotCard
+              key={spot.id}
+              spot={spot}
+              favorite={kind === "favorites"}
+              rank={kind === "lodging" ? i + 1 : undefined}
+              onAdd={() => onAddSpot(spot)}
+              onOpenDetail={() => onOpenDetail(spot)}
+            />
           ))}
         </div>
       )}

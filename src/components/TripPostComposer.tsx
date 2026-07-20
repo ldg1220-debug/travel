@@ -10,6 +10,7 @@ import { PlaceReviewEditSheet, type PlaceStub } from "@/components/PlaceReviewEd
 import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { hashtagSlug } from "@/lib/hashtag";
 import { resizeImageFiles } from "@/lib/imageResize";
+import { EmojiPickerButton } from "@/components/EmojiPicker";
 
 const MAX_IMAGES = 10;
 const SEARCH_DEBOUNCE_MS = 400;
@@ -166,22 +167,23 @@ export function TripPostComposer({
     }
   };
 
-  const insertHashtag = (place: PlaceStub) => {
-    const tag = `#${hashtagSlug(place.name)} `;
+  const insertAtCursor = (text: string) => {
     const el = contentRef.current;
     if (!el) {
-      setContent((prev) => (prev ? `${prev} ${tag}` : tag));
+      setContent((prev) => (prev ? `${prev} ${text}` : text));
       return;
     }
     const start = el.selectionStart ?? content.length;
     const end = el.selectionEnd ?? content.length;
-    const next = content.slice(0, start) + tag + content.slice(end);
+    const next = content.slice(0, start) + text + content.slice(end);
     setContent(next);
     requestAnimationFrame(() => {
       el.focus();
-      el.selectionStart = el.selectionEnd = start + tag.length;
+      el.selectionStart = el.selectionEnd = start + text.length;
     });
   };
+
+  const insertHashtag = (place: PlaceStub) => insertAtCursor(`#${hashtagSlug(place.name)} `);
 
   const handleSave = async (): Promise<number | null> => {
     if (!title.trim() || !content.trim()) {
@@ -286,14 +288,20 @@ export function TripPostComposer({
               )}
             </div>
 
-            <textarea
-              ref={contentRef}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="이번 여행은 어땠나요? 자유롭게 남겨보세요. #장소이름 을 붙이면 그 장소 후기와 연결돼요"
-              rows={12}
-              className="mb-2 min-h-[30vh] w-full resize-y rounded-2xl border border-slate-200 p-3 text-[13.5px] leading-relaxed outline-none focus:border-indigo-400"
-            />
+            <div className="relative mb-2">
+              <textarea
+                ref={contentRef}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="이번 여행은 어땠나요? 자유롭게 남겨보세요. #장소이름 을 붙이면 그 장소 후기와 연결돼요"
+                rows={12}
+                className="min-h-[30vh] w-full resize-y rounded-2xl border border-slate-200 p-3 pr-11 text-[13.5px] leading-relaxed outline-none focus:border-indigo-400"
+              />
+              <EmojiPickerButton
+                onSelect={insertAtCursor}
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-lg text-slate-400 hover:bg-slate-100"
+              />
+            </div>
 
             {places.length > 0 && (
               <div className="mb-4 flex flex-wrap gap-1.5">
