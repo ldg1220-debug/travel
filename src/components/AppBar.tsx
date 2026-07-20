@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { Menu, UserPlus, Plus, ChevronDown, LogIn, LogOut, X, Calendar } from "lucide-react";
-import { CordixIcon } from "@/components/icons/CordixIcon";
+import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
 import { ProfileSheet } from "@/components/ProfileSheet";
@@ -28,30 +28,47 @@ import type { SavedPlan } from "@/lib/types";
 interface NavItem {
   href: string;
   label: string;
-  iconSrc: string;
-  sub?: { href: string; label: string; iconSrc: string }[];
+  icon: CordixIconName;
+  sub?: { href: string; label: string; icon: CordixIconName }[];
 }
-// 3D 아이콘(public/icons/3d/, MIT 라이선스 Fluent Emoji) — 예전엔 사이드바만
-// 무채색 선 아이콘이라 나머지 화면들에 비해 밋밋하고 올드해 보였다.
+// Tradule Icon Set(듀오톤, 디자인팀 전달분) — 예전엔 Fluent Emoji 3D PNG를 썼는데
+// 나머지 화면(CordixIcon)과 결이 달라 사이드바만 밋밋하고 올드해 보였다.
 const NAV_ITEMS: NavItem[] = [
   {
     href: "/discover",
     label: "여행 계획짜기",
-    iconSrc: "/icons/3d/world-map.png",
-    sub: [{ href: "/course", label: "코스 만들기", iconSrc: "/icons/3d/sparkles.png" }],
+    icon: "trip-map",
+    sub: [{ href: "/course", label: "코스 만들기", icon: "course-sparkle" }],
   },
-  { href: "/planner", label: "계획", iconSrc: "/icons/3d/calendar.png" },
-  { href: "/scrapbook", label: "여행 보관함", iconSrc: "/icons/3d/open-book.png" },
-  { href: "/feed", label: "후기 피드", iconSrc: "/icons/3d/newspaper.png" },
+  { href: "/planner", label: "계획", icon: "plan-check" },
+  { href: "/scrapbook", label: "여행 보관함", icon: "trip-archive" },
+  { href: "/feed", label: "후기 피드", icon: "feed-chat" },
 ];
+// 아직 새 아이콘 세트가 제공되지 않은 항목 — 기존 3D 이모지 PNG를 그대로 유지.
 const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", iconSrc: "/icons/3d/red-heart.png" };
 
-/** A 3D emoji icon on a neutral square backdrop — the icon itself already carries color, so the badge stays plain instead of tinted per-item. */
-function NavIcon({ src, size = "h-8 w-8", padding = "p-1.5" }: { src: string; size?: string; padding?: string }) {
+/** 사이드바 메뉴 아이콘 배지 — `icon`(CordixIcon 이름)이 있으면 그걸, 없으면 `src`(정적 PNG)를 그린다. */
+function NavIcon({
+  icon,
+  src,
+  size = "h-8 w-8",
+  padding = "p-1.5",
+}: {
+  icon?: CordixIconName;
+  src?: string;
+  size?: string;
+  padding?: string;
+}) {
   return (
-    <span className={`flex ${size} shrink-0 items-center justify-center rounded-xl bg-slate-100 ${padding} dark:bg-slate-800`}>
-      {/* eslint-disable-next-line @next/next/no-img-element -- static local asset, not worth next/image's overhead for a 32px icon */}
-      <img src={src} alt="" className="h-full w-full object-contain" />
+    <span
+      className={`flex ${size} shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-900 ${padding} dark:bg-slate-800 dark:text-slate-100`}
+    >
+      {icon ? (
+        <CordixIcon name={icon} size={size === "h-8 w-8" ? 22 : 16} className="h-full w-full" />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element -- static local asset, not worth next/image's overhead for a 32px icon
+        <img src={src} alt="" className="h-full w-full object-contain" />
+      )}
     </span>
   );
 }
@@ -191,10 +208,10 @@ export function AppBar() {
               </div>
             </SheetHeader>
             <nav className="flex flex-col gap-1 px-2">
-              {NAV_ITEMS.map(({ href, label, iconSrc, sub }) => {
+              {NAV_ITEMS.map(({ href, label, icon, sub }) => {
                 const active = pathname?.startsWith(href) ?? false;
                 const isPlan = href === "/planner";
-                const iconBadge = <NavIcon src={iconSrc} size="h-8 w-8" />;
+                const iconBadge = <NavIcon icon={icon} size="h-8 w-8" />;
                 return (
                   <div key={href}>
                     <div className="flex items-center gap-0.5">
@@ -316,7 +333,7 @@ export function AppBar() {
                     {/* 하위 플로우 링크 (예: 여행 계획짜기 → 코스 만들기) — 항상 펼쳐진 서랍 */}
                     {sub && (
                       <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 dark:border-slate-800 pl-3">
-                        {sub.map(({ href: subHref, label: subLabel, iconSrc: subIconSrc }) => {
+                        {sub.map(({ href: subHref, label: subLabel, icon: subIcon }) => {
                           const subActive = pathname?.startsWith(subHref) ?? false;
                           return (
                             <Link
@@ -329,7 +346,7 @@ export function AppBar() {
                                   : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                               }`}
                             >
-                              <NavIcon src={subIconSrc} size="h-6 w-6" padding="p-1" />
+                              <NavIcon icon={subIcon} size="h-6 w-6" padding="p-1" />
                               {subLabel}
                             </Link>
                           );

@@ -1202,30 +1202,30 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <button
                     onClick={() => setSaveModalOpen(true)}
-                    className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                    className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3.5 py-2 text-[13.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
                   >
-                    <Save size={11} />
+                    <Save size={15} />
                     계획 저장
                   </button>
                   <button
                     onClick={handleCaptureSchedule}
                     disabled={capturing || schedule.length === 0}
-                    className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
+                    className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3.5 py-2 text-[13.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
                   >
-                    <ImageDown size={11} />
+                    <ImageDown size={15} />
                     {capturing ? "저장 중…" : "이미지로 저장"}
                   </button>
                   <button
                     onClick={handleShareToKakao}
                     disabled={sharing || items.length === 0}
-                    className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
+                    className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3.5 py-2 text-[13.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
                   >
-                    <CordixIcon name="share" size={11} />
+                    <CordixIcon name="share" size={15} />
                     {sharing ? "공유 중…" : "카카오톡 공유"}
                   </button>
                   {clearConfirmOpen ? (
-                    <div className="flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1">
-                      <span className="text-[11px] font-medium text-rose-600">전체 비울까요?</span>
+                    <div className="flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3.5 py-2">
+                      <span className="text-[13.5px] font-medium text-rose-600">전체 비울까요?</span>
                       <button
                         onClick={() => {
                           const snapshot = items;
@@ -1233,11 +1233,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                           setClearConfirmOpen(false);
                           showUndoToast("일정을 비웠어요", () => setItems(snapshot));
                         }}
-                        className="text-[11px] font-bold text-rose-600"
+                        className="text-[13.5px] font-bold text-rose-600"
                       >
                         확인
                       </button>
-                      <button onClick={() => setClearConfirmOpen(false)} className="text-[11px] text-slate-400">
+                      <button onClick={() => setClearConfirmOpen(false)} className="text-[13.5px] text-slate-400">
                         취소
                       </button>
                     </div>
@@ -1245,9 +1245,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     <button
                       onClick={() => setClearConfirmOpen(true)}
                       disabled={items.length === 0}
-                      className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
+                      className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3.5 py-2 text-[13.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
                     >
-                      <CordixIcon name="trash" size={11} />
+                      <CordixIcon name="trash" size={15} />
                       비우기
                     </button>
                   )}

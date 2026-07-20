@@ -171,7 +171,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
     try {
       await shareToKakao({
         title: `${session.user.nickname ?? "여행자"}님의 트래블 메이트 초대`,
-        description: "트레쥴에서 트래블 메이트(여행 친구)를 맺고 여행 후기·계획을 함께 봐요!",
+        description: "트레쥴에서 트래블 메이트를 맺고 여행 후기를 함께 나눠요!",
         url: `${window.location.origin}/tme/${session.user.id}`,
         buttonTitle: "트래블 메이트 맺으러 가기",
       });
