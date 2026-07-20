@@ -194,10 +194,12 @@ async function searchInternational(
         // No "Y" at all ("카이유칸 근처" with nothing after) — fan out
         // across several categories within the radius instead of one
         // generic "맛집" call, so every theme bucket in the grouped live
-        // results gets a chance to have something in it.
-        for (const lbl of NEAR_FANOUT_LABELS) {
-          if (merged.length >= FANOUT_TARGET) break;
-          const nearby = await callGoogleSearchText(`${near.landmark} ${lbl}`, apiKey, undefined, bias);
+        // results gets a chance to have something in it. Fired together
+        // rather than one round trip at a time.
+        const nearbyResults = await Promise.all(
+          NEAR_FANOUT_LABELS.map((lbl) => callGoogleSearchText(`${near.landmark} ${lbl}`, apiKey, undefined, bias)),
+        );
+        for (const nearby of nearbyResults) {
           if (nearby) mergePlaces(merged, nearby);
         }
       }
@@ -251,10 +253,10 @@ async function searchInternational(
     mergePlaces(merged, res);
   };
 
-  for (const a of direct) {
-    if (merged.length >= FANOUT_TARGET) break;
-    await attempt(a);
-  }
+  // direct[] is short (2-3 entries) and each is a distinct, specific query —
+  // firing them together instead of one full round-trip at a time is a pure
+  // latency win with no extra API calls (same total requests either way).
+  await Promise.all(direct.map((a) => attempt(a)));
 
   // Fan out into "{locality} 관광명소/맛집/…" ONLY when it genuinely helps:
   //  - a concept query (야경/전망/…) always wants the wider spread, and
@@ -262,14 +264,14 @@ async function searchInternational(
   // A specific business name ("우오신") that already returned several real
   // hits must NOT pull in the area's famous attractions (e.g. 도톤보리), and
   // an explicit category chip relies on its own expansion, not generic
-  // augmentation — so both skip the fan-out.
+  // augmentation — so both skip the fan-out entirely (still an up-front
+  // quota-saving decision, made once, before any of its calls fire).
   const FANOUT_MIN = 4;
   const wantFanout = !includedType && (concept || merged.length < FANOUT_MIN);
   if (wantFanout && locality) {
-    for (const lbl of augLabels) {
-      if (merged.length >= FANOUT_TARGET) break;
-      await attempt({ q: `${locality} ${lbl}`, type: undefined });
-    }
+    // Same parallel-wave approach — up to 5 attempts that used to run one at
+    // a time (each a full round trip) now fire together.
+    await Promise.all(augLabels.map((lbl) => attempt({ q: `${locality} ${lbl}`, type: undefined })));
   }
 
   if (merged.length === 0) {
