@@ -238,6 +238,27 @@ const ICONS: Record<string, string> = {
     <path d="M8 12H24M8 16H24M8 20H18" stroke="{stroke}" stroke-width="2"/>
     <rect x="12" y="12" width="4" height="4" fill="{accent}"/>
   `,
+  "saved-card-heart": `
+    <path d="M8 6H26V24H8V6Z" fill="none" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+    <path d="M6 10H24V28H6V10Z" fill="none" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+    <path d="M15 21C15 21 8 16.5 8 13C8 11 9.5 9.5 11.5 9.5C13 9.5 14.2 10.4 15 11.5C15.8 10.4 17 9.5 18.5 9.5C20.5 9.5 22 11 22 13C22 16.5 15 21 15 21Z"
+      fill="{accent}" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+  `,
+  "trip-route": `
+    <path d="M8 26V22C8 19.5 10 17.5 12.5 17.5H19.5C22 17.5 24 15.5 24 13V9"
+      fill="none" stroke="{stroke}" stroke-width="2" stroke-dasharray="3 3"/>
+    <circle cx="8" cy="26" r="3" fill="{accent}" stroke="{stroke}" stroke-width="2"/>
+    <circle cx="16" cy="13" r="2.5" fill="{stroke}"/>
+    <path d="M24 9C21.8 9 20 10.8 20 13C20 16 24 20 24 20C24 20 28 16 28 13C28 10.8 26.2 9 24 9Z"
+      fill="{accent}" stroke="{stroke}" stroke-width="2"/>
+  `,
+  "feed-announce": `
+    <path d="M4 12H10L18 6V26L10 20H4V12Z" fill="{accent}" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+    <path d="M8 20V25C8 26.1 8.9 27 10 27H11" fill="none" stroke="{stroke}" stroke-width="2" stroke-linecap="square"/>
+    <path d="M20 10H28V20H24L21 23V20H20V10Z" fill="none" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+    <line x1="22" y1="14" x2="26" y2="14" stroke="{stroke}" stroke-width="2" stroke-linecap="square"/>
+    <line x1="22" y1="17" x2="24" y2="17" stroke="{stroke}" stroke-width="2" stroke-linecap="square"/>
+  `,
 };
 
 export type CordixIconName = keyof typeof ICONS;

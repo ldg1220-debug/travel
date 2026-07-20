@@ -44,8 +44,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/scrapbook", label: "여행 보관함", icon: "trip-archive" },
   { href: "/feed", label: "후기 피드", icon: "feed-chat" },
 ];
-// 아직 새 아이콘 세트가 제공되지 않은 항목 — 기존 3D 이모지 PNG를 그대로 유지.
-const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", iconSrc: "/icons/3d/red-heart.png" };
+const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", icon: "saved-card-heart" as const };
 
 /** 사이드바 메뉴 아이콘 배지 — `icon`(CordixIcon 이름)이 있으면 그걸, 없으면 `src`(정적 PNG)를 그린다. */
 function NavIcon({
@@ -370,7 +369,7 @@ export function AppBar() {
                     : "text-slate-700 hover:bg-slate-100"
                 }`}
               >
-                <NavIcon src={SAVED_PLACES_NAV_ITEM.iconSrc} size="h-8 w-8" />
+                <NavIcon icon={SAVED_PLACES_NAV_ITEM.icon} size="h-8 w-8" />
                 {SAVED_PLACES_NAV_ITEM.label}
               </Link>
             </div>
