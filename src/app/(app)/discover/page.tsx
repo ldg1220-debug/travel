@@ -68,7 +68,7 @@ import { bookingProviders, isLodging, hasAffiliateLink } from "@/lib/affiliates"
 const RoutePreviewMap = dynamic(() => import("./RoutePreviewMap"), { ssr: false });
 const LiveResultsMap = dynamic(() => import("./LiveResultsMap"), { ssr: false });
 
-type SectionKind = "trending" | "favorites" | "routes";
+type SectionKind = "trending" | "favorites" | "lodging" | "routes";
 const COMPACT_SPOT_COUNT = 4;
 /** How many of the top-ranked candidates the compact preview draws its random pick from — keeps the shown spots genuinely popular while still varying which ones surface each visit. */
 const COMPACT_POOL_SIZE = 10;
@@ -480,13 +480,24 @@ export default function DiscoverPage() {
   // underlying bundle changes (a fresh fetch / filter change) — previously
   // this always sliced the exact same first N items in the exact same
   // order, so the page read identically on every single visit.
+  // 숙소는 "명소"가 아니라서 지금 뜨는 장소/꾸준히 사랑받는 명소에서는 빼고,
+  // 아래 별도의 "인기 숙소" 섹션으로 모아 보여준다 — 호텔이 관광지 카드들
+  // 사이에 섞여 나오면 어색해 보이는 문제(사용자 피드백)를 해결.
+  const lodgingSpots = useMemo(
+    () => (bundle ? [...bundle.trending, ...bundle.favorites].filter((s) => isLodging(s.tag)) : []),
+    [bundle],
+  );
   const trendingCompact = useMemo(
-    () => (bundle ? shuffled(bundle.trending.slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT) : []),
+    () => (bundle ? shuffled(bundle.trending.filter((s) => !isLodging(s.tag)).slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT) : []),
     [bundle],
   );
   const favoritesCompact = useMemo(
-    () => (bundle ? shuffled(bundle.favorites.slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT) : []),
+    () => (bundle ? shuffled(bundle.favorites.filter((s) => !isLodging(s.tag)).slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT) : []),
     [bundle],
+  );
+  const lodgingCompact = useMemo(
+    () => shuffled(lodgingSpots.slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT),
+    [lodgingSpots],
   );
   const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
 
@@ -713,7 +724,7 @@ export default function DiscoverPage() {
         {expandedSection && bundle ? (
           <ExpandedSection
             kind={expandedSection}
-            bundle={bundle}
+            bundle={{ ...bundle, lodging: lodgingSpots }}
             onBack={() => setExpandedSection(null)}
             onAddSpot={handleAddSpot}
             onOpenDetail={handleOpenDetail}
@@ -795,6 +806,23 @@ export default function DiscoverPage() {
                         onAdd={() => handleAddSpot(spot)}
                         onOpenDetail={() => handleOpenDetail(spot)}
                       />
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {lodgingSpots.length > 0 && (
+                <>
+                  <SectionHeader
+                    icon={Hotel}
+                    iconClass="text-sky-500"
+                    title="인기 숙소"
+                    caption="이 지역에서 많이 담긴 숙소"
+                    onSeeAll={lodgingSpots.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("lodging") : undefined}
+                  />
+                  <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+                    {lodgingCompact.map((spot) => (
+                      <SpotCard key={spot.id} spot={spot} onAdd={() => handleAddSpot(spot)} onOpenDetail={() => handleOpenDetail(spot)} />
                     ))}
                   </div>
                 </>
@@ -964,6 +992,7 @@ function SectionHeader({
 const SECTION_META: Record<SectionKind, { icon: React.ComponentType<{ size?: number; className?: string }>; iconClass: string; title: string }> = {
   trending: { icon: Flame, iconClass: "text-rose-500", title: "지금 뜨는 장소" },
   favorites: { icon: Crown, iconClass: "text-amber-500", title: "꾸준히 사랑받는 명소" },
+  lodging: { icon: Hotel, iconClass: "text-sky-500", title: "인기 숙소" },
   routes: { icon: MapIcon, iconClass: "text-indigo-500", title: "추천 코스" },
 };
 
@@ -976,13 +1005,22 @@ function ExpandedSection({
   onPreviewRoute,
 }: {
   kind: SectionKind;
-  bundle: { trending: DiscoverSpot[]; favorites: DiscoverSpot[]; routes: DiscoverRoute[] };
+  bundle: { trending: DiscoverSpot[]; favorites: DiscoverSpot[]; lodging: DiscoverSpot[]; routes: DiscoverRoute[] };
   onBack: () => void;
   onAddSpot: (spot: DiscoverSpot) => void;
   onOpenDetail: (spot: DiscoverSpot) => void;
   onPreviewRoute: (route: DiscoverRoute) => void;
 }) {
   const meta = SECTION_META[kind];
+  // 명소 섹션(지금 뜨는 장소/꾸준히 사랑받는 명소)에서는 숙소를 뺀다 — 숙소는
+  // 별도 "인기 숙소" 섹션에서만 보여준다(사용자 피드백: 호텔이 명소 목록에
+  // 섞여 나오면 어색함).
+  const spots =
+    kind === "trending"
+      ? bundle.trending.filter((s) => !isLodging(s.tag))
+      : kind === "favorites"
+        ? bundle.favorites.filter((s) => !isLodging(s.tag))
+        : bundle.lodging;
   return (
     <div>
       <button onClick={onBack} className="mb-4 flex items-center gap-1 text-[13px] font-semibold text-slate-500 hover:text-slate-800">
@@ -1002,7 +1040,7 @@ function ExpandedSection({
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          {(kind === "trending" ? bundle.trending : bundle.favorites).map((spot) => (
+          {spots.map((spot) => (
             <SpotCard key={spot.id} spot={spot} favorite={kind === "favorites"} onAdd={() => onAddSpot(spot)} onOpenDetail={() => onOpenDetail(spot)} />
           ))}
         </div>

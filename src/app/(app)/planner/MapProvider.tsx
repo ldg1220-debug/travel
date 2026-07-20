@@ -1,7 +1,9 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useCallback, useContext, useState } from "react";
+import Script from "next/script";
 import { useJsApiLoader } from "@react-google-maps/api";
+import { KAKAO_MAP_KEY, kakaoMapScriptSrc, loadKakaoMaps, isKakaoMapsReady } from "@/lib/maps/kakao-map";
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
 
@@ -20,29 +22,74 @@ const LIBRARIES: "places"[] = ["places"];
 // defensively anyway in case that ever changes.
 const GOOGLE_MAPS_LOADER_ID = "travel-scheduler-google-maps";
 
-interface MapContextValue {
+interface GoogleStatus {
   isLoaded: boolean;
   loadError?: Error;
 }
 
-const MapContext = createContext<MapContextValue>({ isLoaded: false });
+interface KakaoStatus {
+  isLoaded: boolean;
+  loadError: Error | null;
+}
 
-export function useGoogleMapsStatus() {
-  return useContext(MapContext);
+interface MapContextValue {
+  google: GoogleStatus;
+  kakao: KakaoStatus;
+}
+
+const MapContext = createContext<MapContextValue>({
+  google: { isLoaded: false },
+  kakao: { isLoaded: false, loadError: null },
+});
+
+export function useGoogleMapsStatus(): GoogleStatus {
+  return useContext(MapContext).google;
+}
+
+/** 국내(domestic) 장소 지도용 카카오맵 SDK 상태 — Google과 마찬가지로 이 Provider가 한 번만 스크립트를 로드하고 모든 소비자가 이 훅으로 공유한다. */
+export function useKakaoMapsStatus(): KakaoStatus {
+  return useContext(MapContext).kakao;
 }
 
 /**
- * Loads the Google Maps JS API script once at the top of the client tree
- * and exposes its ready state via context, so the map itself and its
- * marker overlays can render conditionally without each mounting their own
- * loader (and without re-requesting the script on every re-render).
+ * Loads both map SDKs' scripts once at the top of the client tree and
+ * exposes their ready state via context — Google for 해외(international)
+ * places, Kakao for 국내(domestic) ones (see src/lib/maps/regionForCoords.ts
+ * for how a screen decides which one a given place needs). Both load in
+ * parallel rather than lazily per-region, since a single page (e.g.
+ * /discover toggling 국내/해외) can need either one without a full remount.
+ * Kakao's script is skipped entirely when NEXT_PUBLIC_KAKAO_MAP_KEY isn't
+ * configured — screens needing it then just show their "not configured"
+ * fallback instead of hanging on a load that will never happen.
  */
 export function MapProvider({ children }: { children: React.ReactNode }) {
-  const { isLoaded, loadError } = useJsApiLoader({
+  const { isLoaded: googleLoaded, loadError: googleLoadError } = useJsApiLoader({
     id: GOOGLE_MAPS_LOADER_ID,
     googleMapsApiKey: GOOGLE_MAPS_API_KEY,
     libraries: LIBRARIES,
   });
 
-  return <MapContext.Provider value={{ isLoaded, loadError }}>{children}</MapContext.Provider>;
+  const [kakaoLoaded, setKakaoLoaded] = useState(false);
+  const [kakaoLoadError, setKakaoLoadError] = useState<Error | null>(null);
+
+  const handleKakaoScriptLoad = useCallback(() => {
+    loadKakaoMaps(() => setKakaoLoaded(isKakaoMapsReady()));
+  }, []);
+  const handleKakaoScriptError = useCallback(() => {
+    setKakaoLoadError(new Error("Failed to load Kakao Maps SDK"));
+  }, []);
+
+  return (
+    <MapContext.Provider
+      value={{
+        google: { isLoaded: googleLoaded, loadError: googleLoadError },
+        kakao: { isLoaded: kakaoLoaded, loadError: kakaoLoadError },
+      }}
+    >
+      {KAKAO_MAP_KEY && !kakaoLoaded && !kakaoLoadError && (
+        <Script src={kakaoMapScriptSrc()} strategy="afterInteractive" onLoad={handleKakaoScriptLoad} onError={handleKakaoScriptError} />
+      )}
+      {children}
+    </MapContext.Provider>
+  );
 }
