@@ -259,6 +259,12 @@ const ICONS: Record<string, string> = {
     <line x1="22" y1="14" x2="26" y2="14" stroke="{stroke}" stroke-width="2" stroke-linecap="square"/>
     <line x1="22" y1="17" x2="24" y2="17" stroke="{stroke}" stroke-width="2" stroke-linecap="square"/>
   `,
+  message: `
+    <path d="M4 6H28V20H14L8 26V20H4V6Z" fill="none" stroke="{stroke}" stroke-width="2" stroke-linejoin="miter"/>
+    <circle cx="11" cy="13" r="1.6" fill="{accent}"/>
+    <circle cx="16" cy="13" r="1.6" fill="{accent}"/>
+    <circle cx="21" cy="13" r="1.6" fill="{accent}"/>
+  `,
 };
 
 export type CordixIconName = keyof typeof ICONS;

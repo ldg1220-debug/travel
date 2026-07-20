@@ -570,6 +570,7 @@ function FollowUserList({
   onOpenProfile: (userId: number) => void;
   emptyText: string;
 }) {
+  const router = useRouter();
   if (users == null) {
     return <p className="py-10 text-center text-[12.5px] text-slate-400">불러오는 중…</p>;
   }
@@ -594,6 +595,15 @@ function FollowUserList({
               )}
               <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-slate-700 dark:text-slate-200">{u.name ?? "여행자"}</span>
             </button>
+            {isMate && (
+              <button
+                onClick={() => router.push(`/messages/${u.id}`)}
+                aria-label={`${u.name ?? "여행자"}님에게 메시지 보내기`}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <CordixIcon name="message" size={15} />
+              </button>
+            )}
             <button
               onClick={() => onToggleFollow(u)}
               disabled={busyIds.has(u.id)}

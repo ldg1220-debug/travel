@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { LoginModal } from "@/components/LoginModal";
 import { ProfileSheet } from "@/components/ProfileSheet";
 import { NotificationBell } from "@/components/NotificationBell";
+import { MessageBell } from "@/components/MessageBell";
 import { ThemedLogo } from "@/components/BrandLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
@@ -79,6 +80,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/scrapbook": "여행 보관함",
   "/saved-places": "관심 장소 보관함",
   "/feed": "후기 피드",
+  "/messages": "메시지",
   "/terms": "이용약관",
   "/privacy": "개인정보처리방침",
 };
@@ -471,7 +473,14 @@ export function AppBar() {
               <UserPlus size={18} />
             </button>
           )}
-          {session?.user ? <NotificationBell /> : !isPlanner && <div className="h-9 w-9" aria-hidden />}
+          {session?.user ? (
+            <>
+              <MessageBell />
+              <NotificationBell />
+            </>
+          ) : (
+            !isPlanner && <div className="h-9 w-9" aria-hidden />
+          )}
         </div>
       </header>
 
