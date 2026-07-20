@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   DISCOVER_DATA,
   allSpots,
+  isPlaceholderSpot,
   matchesRegionPath,
   parseSearchQuery,
   regionHierarchy,
@@ -97,9 +98,13 @@ export async function GET(request: NextRequest) {
 
     // A query that was *only* an intent keyword ("맛집" with no city) has
     // nothing left to text-match — fall back to every spot of that
-    // category scope-wide instead of returning zero results.
+    // category scope-wide instead of returning zero results. Template-
+    // generated placeholder spots (isPlaceholderSpot) are excluded from
+    // text matches — a generic name like "대전 한우 구이집" can
+    // coincidentally token-match a query and read as a real business hit
+    // when it isn't one; they're still fine to show while just browsing.
     let matched = coreQuery
-      ? allSpots(scope).filter((s) => spotMatches(s, coreQuery))
+      ? allSpots(scope).filter((s) => !isPlaceholderSpot(s) && spotMatches(s, coreQuery))
       : intentTag
         ? allSpots(scope).filter((s) => s.tag === intentTag)
         : [];
