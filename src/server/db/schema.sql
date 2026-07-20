@@ -244,6 +244,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_nickname_key ON users (lower(nickname)) 
 -- 다시 뜬다(약관 도입 전 기존 가입자도 다음 접속 때 동의를 거치게 됨).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "termsAgreedAt" TIMESTAMPTZ;
 
+-- 알림 종류별 on/off — 기본은 둘 다 켜짐. 트래블 메이트 신청/수락 알림은 하나로
+-- 묶는다(사용자 입장에서 굳이 나눌 이유가 없는 같은 맥락의 알림), 좋아요는
+-- 별개로 끌 수 있게 분리.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "notifyMateRequests" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "notifyLikes" BOOLEAN NOT NULL DEFAULT true;
+
 -- Server-side cache of place-to-place transit estimates (src/lib/transit.ts
 -- computes a Haversine-based fallback today; this table exists so a real
 -- Google Distance Matrix result, once wired in, doesn't re-pay the API

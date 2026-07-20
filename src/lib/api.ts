@@ -194,7 +194,13 @@ export async function uploadReviewPhotos(files: File[]): Promise<string[]> {
 }
 
 /** Updates the current user's nickname and/or avatar. `image: null` clears it back to the initial-letter fallback. */
-export async function updateProfile(input: { nickname?: string; image?: string | null; agreeTerms?: boolean }): Promise<void> {
+export async function updateProfile(input: {
+  nickname?: string;
+  image?: string | null;
+  agreeTerms?: boolean;
+  notifyMateRequests?: boolean;
+  notifyLikes?: boolean;
+}): Promise<void> {
   const res = await fetch("/api/profile", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -203,6 +209,15 @@ export async function updateProfile(input: { nickname?: string; image?: string |
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(data?.error ?? "저장에 실패했어요");
+  }
+}
+
+/** 회원 탈퇴 — 계정과 모든 데이터를 영구 삭제한다. 되돌릴 수 없다. */
+export async function deleteAccount(): Promise<void> {
+  const res = await fetch("/api/account", { method: "DELETE" });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "탈퇴 처리에 실패했어요");
   }
 }
 

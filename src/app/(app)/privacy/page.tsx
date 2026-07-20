@@ -7,10 +7,20 @@ export default function PrivacyPage() {
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto max-w-2xl px-5 pb-24 pt-8">
-        <h1 className="text-2xl font-bold tracking-tight">개인정보처리방침</h1>
-        <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 20일</p>
+        <PrivacyBody />
+      </div>
+    </div>
+  );
+}
 
-        <div className="mt-6 space-y-7 text-[13.5px] leading-relaxed text-slate-700 dark:text-slate-300 [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-slate-900 dark:[&_h2]:text-slate-100 [&_ul]:mt-1.5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_table]:mt-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-200 [&_td]:px-2.5 [&_td]:py-1.5 dark:[&_td]:border-slate-700 [&_th]:border [&_th]:border-slate-200 [&_th]:bg-slate-100 [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:text-left dark:[&_th]:border-slate-700 dark:[&_th]:bg-slate-800">
+/** 본문만 — 독립 페이지(/privacy)와 ProfileSheet의 인앱 뷰어(LegalDocSheet)가 함께 쓴다. */
+export function PrivacyBody() {
+  return (
+    <>
+      <h1 className="text-2xl font-bold tracking-tight">개인정보처리방침</h1>
+      <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 20일</p>
+
+      <div className="mt-6 space-y-7 text-[13.5px] leading-relaxed text-slate-700 dark:text-slate-300 [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-slate-900 dark:[&_h2]:text-slate-100 [&_ul]:mt-1.5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_table]:mt-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-200 [&_td]:px-2.5 [&_td]:py-1.5 dark:[&_td]:border-slate-700 [&_th]:border [&_th]:border-slate-200 [&_th]:bg-slate-100 [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:text-left dark:[&_th]:border-slate-700 dark:[&_th]:bg-slate-800">
           <p>
             트레쥴(Tradule, 이하 &ldquo;서비스&rdquo;)은 개인정보 보호법 등 관련 법령을 준수하며, 이용자의 개인정보를 아래와 같이
             처리합니다.
@@ -109,7 +119,7 @@ export default function PrivacyPage() {
             <h2>6. 이용자의 권리</h2>
             <ul>
               <li>이용자는 언제든지 자신의 개인정보를 조회·수정(프로필 설정)할 수 있습니다.</li>
-              <li>이용자는 언제든지 회원 탈퇴(개인정보 삭제)를 요청할 수 있습니다 — 아래 문의처로 접수 시 지체 없이 처리합니다(서비스 내 탈퇴 기능 제공 예정).</li>
+              <li>이용자는 언제든지 프로필 설정 화면에서 직접 회원 탈퇴(계정·개인정보 삭제)를 할 수 있으며, 탈퇴 즉시 처리됩니다.</li>
               <li>만 14세 미만 아동의 개인정보는 수집하지 않습니다.</li>
             </ul>
           </section>
@@ -148,8 +158,7 @@ export default function PrivacyPage() {
               경우 다시 동의를 받습니다.
             </p>
           </section>
-        </div>
       </div>
-    </div>
+    </>
   );
 }

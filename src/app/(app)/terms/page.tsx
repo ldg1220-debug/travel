@@ -7,10 +7,20 @@ export default function TermsPage() {
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto max-w-2xl px-5 pb-24 pt-8">
-        <h1 className="text-2xl font-bold tracking-tight">이용약관</h1>
-        <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 20일</p>
+        <TermsBody />
+      </div>
+    </div>
+  );
+}
 
-        <div className="mt-6 space-y-7 text-[13.5px] leading-relaxed text-slate-700 dark:text-slate-300 [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-slate-900 dark:[&_h2]:text-slate-100 [&_ul]:mt-1.5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
+/** 본문만 — 독립 페이지(/terms)와 ProfileSheet의 인앱 뷰어(LegalDocSheet)가 함께 쓴다. */
+export function TermsBody() {
+  return (
+    <>
+      <h1 className="text-2xl font-bold tracking-tight">이용약관</h1>
+      <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 20일</p>
+
+      <div className="mt-6 space-y-7 text-[13.5px] leading-relaxed text-slate-700 dark:text-slate-300 [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-slate-900 dark:[&_h2]:text-slate-100 [&_ul]:mt-1.5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
           <section>
             <h2>제1조 (목적)</h2>
             <p className="mt-1.5">
@@ -85,8 +95,8 @@ export default function TermsPage() {
           <section>
             <h2>제8조 (계약 해지 · 탈퇴)</h2>
             <p className="mt-1.5">
-              이용자는 언제든지 서비스 탈퇴를 요청할 수 있으며, 탈퇴 시 계정 및 개인정보는 개인정보처리방침에 따라 파기됩니다.
-              탈퇴 요청은 아래 문의처로 접수할 수 있습니다(서비스 내 탈퇴 기능 제공 예정).
+              이용자는 언제든지 프로필 설정 화면에서 직접 서비스 탈퇴를 할 수 있으며, 탈퇴 시 계정 및 개인정보는
+              개인정보처리방침에 따라 즉시 파기됩니다. 탈퇴는 되돌릴 수 없습니다.
             </p>
           </section>
 
@@ -109,8 +119,7 @@ export default function TermsPage() {
             <h2>문의처</h2>
             <p className="mt-1.5">이메일: ldg1220@naver.com</p>
           </section>
-        </div>
       </div>
-    </div>
+    </>
   );
 }

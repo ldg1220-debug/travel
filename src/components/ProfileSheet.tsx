@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 import { X, Loader2 } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import {
   acceptFollowRequest,
+  deleteAccount,
   fetchFollowList,
   fetchFollowStatus,
   followUser,
@@ -18,6 +20,7 @@ import {
 import { resizeImageFiles } from "@/lib/imageResize";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
+import { LegalDocSheet } from "@/components/LegalDocSheet";
 
 type Tab = "settings" | "mates" | "requests";
 
@@ -32,11 +35,22 @@ type Tab = "settings" | "mates" | "requests";
  */
 export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => void; mandatory?: boolean }) {
   const { data: session, update } = useSession();
+  const router = useRouter();
   const [nickname, setNickname] = useState(session?.user?.nickname ?? "");
   const [image, setImage] = useState<string | null | undefined>(session?.user?.image);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [legalDoc, setLegalDoc] = useState<"terms" | "privacy" | null>(null);
+
+  // 알림 on/off — 서버 값(session)을 낙관적으로 미러링, 저장 실패 시 되돌린다.
+  const [notifyMateRequests, setNotifyMateRequests] = useState(session?.user?.notifyMateRequests ?? true);
+  const [notifyLikes, setNotifyLikes] = useState(session?.user?.notifyLikes ?? true);
+  const [notifyError, setNotifyError] = useState<string | null>(null);
+
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [tab, setTab] = useState<Tab>("settings");
   // 트래블 메이트는 상호 관계 — 카운트도 목록도 하나뿐이다(팔로워/팔로잉 구분 없음).
@@ -180,6 +194,34 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
     }
   };
 
+  // 알림 종류별 on/off — 즉시 서버에 반영(별도 저장 버튼 없이 토글=저장),
+  // 실패하면 이전 상태로 되돌린다.
+  const handleToggleNotify = async (key: "notifyMateRequests" | "notifyLikes", next: boolean) => {
+    const setter = key === "notifyMateRequests" ? setNotifyMateRequests : setNotifyLikes;
+    setter(next);
+    setNotifyError(null);
+    try {
+      await updateProfile({ [key]: next });
+    } catch (e) {
+      setter(!next);
+      setNotifyError(e instanceof Error ? e.message : "설정을 저장하지 못했어요");
+    }
+  };
+
+  // 회원 탈퇴 — 되돌릴 수 없으므로 두 번째 확인을 거친 뒤에만 실행한다.
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteAccount();
+      await signOut({ redirect: false });
+      router.push("/");
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "탈퇴 처리에 실패했어요");
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[95] flex items-end justify-center sm:items-center">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={mandatory ? undefined : onClose} />
@@ -278,9 +320,13 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                     />
                     <span className="min-w-0 flex-1">
                       (필수){" "}
-                      <a href="/terms" target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">
+                      <button
+                        type="button"
+                        onClick={() => setLegalDoc("terms")}
+                        className="font-semibold underline underline-offset-2"
+                      >
                         이용약관
-                      </a>
+                      </button>
                       에 동의합니다
                     </span>
                   </label>
@@ -293,9 +339,13 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                     />
                     <span className="min-w-0 flex-1">
                       (필수){" "}
-                      <a href="/privacy" target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">
+                      <button
+                        type="button"
+                        onClick={() => setLegalDoc("privacy")}
+                        className="font-semibold underline underline-offset-2"
+                      >
                         개인정보처리방침
-                      </a>
+                      </button>
                       에 동의합니다
                     </span>
                   </label>
@@ -311,6 +361,61 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
               >
                 {saving ? "저장 중…" : "저장"}
               </button>
+
+              {!mandatory && (
+                <>
+                  <div className="mt-7 border-t border-slate-100 pt-6 dark:border-slate-800">
+                    <p className="mb-3 text-[12.5px] font-bold text-slate-600 dark:text-slate-300">알림</p>
+                    <div className="space-y-1">
+                      <NotifyToggle
+                        label="트래블 메이트 신청·수락 알림"
+                        checked={notifyMateRequests}
+                        onChange={(v) => handleToggleNotify("notifyMateRequests", v)}
+                      />
+                      <NotifyToggle label="좋아요 알림" checked={notifyLikes} onChange={(v) => handleToggleNotify("notifyLikes", v)} />
+                    </div>
+                    {notifyError && <p className="mt-2 text-[11.5px] text-rose-500">{notifyError}</p>}
+                  </div>
+
+                  <div className="mt-7 border-t border-slate-100 pt-6 dark:border-slate-800">
+                    <p className="mb-3 text-[12.5px] font-bold text-slate-600 dark:text-slate-300">계정</p>
+                    {deleteConfirming ? (
+                      <div className="space-y-2.5 rounded-2xl border border-rose-200 bg-rose-50 p-3.5 dark:border-rose-900/60 dark:bg-rose-950/30">
+                        <p className="text-[12.5px] font-semibold text-rose-600 dark:text-rose-400">
+                          정말 탈퇴하시겠어요?
+                        </p>
+                        <p className="text-[11.5px] leading-relaxed text-rose-500/90 dark:text-rose-400/80">
+                          계정, 여행 계획, 후기, 트래블 메이트 관계 등 모든 데이터가 즉시 영구 삭제되며 복구할 수 없어요.
+                        </p>
+                        {deleteError && <p className="text-[11.5px] text-rose-600 dark:text-rose-400">{deleteError}</p>}
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            onClick={handleDeleteAccount}
+                            disabled={deleting}
+                            className="h-10 flex-1 rounded-xl bg-rose-600 text-[13px] font-semibold text-white transition-opacity hover:bg-rose-700 disabled:opacity-60"
+                          >
+                            {deleting ? "탈퇴 처리 중…" : "탈퇴하기"}
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirming(false)}
+                            disabled={deleting}
+                            className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-500 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                          >
+                            취소
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setDeleteConfirming(true)}
+                        className="text-[12.5px] font-semibold text-slate-400 hover:text-rose-500"
+                      >
+                        회원 탈퇴
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
             </>
           ) : tab === "requests" ? (
             <div className="space-y-6">
@@ -423,7 +528,27 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
       {profileUserId != null && (
         <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} onChange={refreshFollowData} />
       )}
+      {legalDoc && <LegalDocSheet doc={legalDoc} onClose={() => setLegalDoc(null)} />}
     </div>
+  );
+}
+
+/** 켜짐/꺼짐 토글 한 줄 — 라벨 클릭으로도 토글되게 label로 감싼다. */
+function NotifyToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-1 py-2">
+      <span className="text-[13px] text-slate-700 dark:text-slate-200">{label}</span>
+      <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="peer sr-only"
+        />
+        <span className="absolute inset-0 rounded-full bg-slate-200 transition-colors peer-checked:bg-indigo-600 dark:bg-slate-700" />
+        <span className="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+      </span>
+    </label>
   );
 }
 

@@ -46,8 +46,10 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     [postId, viewerId],
   );
   if ((inserted.rowCount ?? 0) > 0 && row.authorId !== viewerId) {
+    // 받는 사람이 좋아요 알림을 꺼뒀으면 알림 자체를 남기지 않는다.
     await pool.query(
-      `insert into notifications ("recipientId", "actorId", type, "postId") values ($1, $2, 'like', $3)`,
+      `insert into notifications ("recipientId", "actorId", type, "postId")
+       select $1, $2, 'like', $3 where exists (select 1 from users where id = $1 and "notifyLikes")`,
       [row.authorId, viewerId, postId],
     );
   }
