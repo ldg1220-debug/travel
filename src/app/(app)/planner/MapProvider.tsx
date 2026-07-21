@@ -1,9 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState } from "react";
-import Script from "next/script";
+import { createContext, useContext, useEffect, useState } from "react";
 import { useJsApiLoader } from "@react-google-maps/api";
-import { KAKAO_MAP_KEY, kakaoMapScriptSrc, loadKakaoMaps, isKakaoMapsReady } from "@/lib/maps/kakao-map";
+import { KAKAO_MAP_KEY, ensureKakaoMapsLoaded } from "@/lib/maps/kakao-map";
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
 
@@ -72,11 +71,19 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
   const [kakaoLoaded, setKakaoLoaded] = useState(false);
   const [kakaoLoadError, setKakaoLoadError] = useState<Error | null>(null);
 
-  const handleKakaoScriptLoad = useCallback(() => {
-    loadKakaoMaps(() => setKakaoLoaded(isKakaoMapsReady()));
-  }, []);
-  const handleKakaoScriptError = useCallback(() => {
-    setKakaoLoadError(new Error("Failed to load Kakao Maps SDK"));
+  useEffect(() => {
+    if (!KAKAO_MAP_KEY) return;
+    let cancelled = false;
+    ensureKakaoMapsLoaded()
+      .then(() => {
+        if (!cancelled) setKakaoLoaded(true);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setKakaoLoadError(err instanceof Error ? err : new Error(String(err)));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -86,9 +93,6 @@ export function MapProvider({ children }: { children: React.ReactNode }) {
         kakao: { isLoaded: kakaoLoaded, loadError: kakaoLoadError },
       }}
     >
-      {KAKAO_MAP_KEY && !kakaoLoaded && !kakaoLoadError && (
-        <Script src={kakaoMapScriptSrc()} strategy="afterInteractive" onLoad={handleKakaoScriptLoad} onError={handleKakaoScriptError} />
-      )}
       {children}
     </MapContext.Provider>
   );

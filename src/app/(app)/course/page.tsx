@@ -53,6 +53,11 @@ export default function CourseBuilderPage() {
   const [scope, setScope] = useState<DiscoverScope>("domestic");
   // 통합 지역 트리 드릴다운 경로 — 국내 [광역, 시/군], 해외 [대륙, 국가, 도시].
   const [path, setPath] = useState<string[]>([]);
+  // "기타 (직접 검색)" — 목록에 없는 동네/도시 이름을 직접 입력한 경우,
+  // path의 마지막 세그먼트(부모 지역) 대신 이 값을 검색 기준 도시로 쓴다.
+  const [customCity, setCustomCity] = useState<string | null>(null);
+  const [customSearchOpen, setCustomSearchOpen] = useState(false);
+  const [customSearchInput, setCustomSearchInput] = useState("");
   // slot key -> chosen places (multiple allowed per slot)
   const [picks, setPicks] = useState<Record<string, Place[]>>({});
   const [activeSlot, setActiveSlot] = useState<string>(COURSE_SLOTS[0].key);
@@ -68,7 +73,7 @@ export default function CourseBuilderPage() {
   const tree = courseRegionTree(scope);
   const options = courseNodesAtPath(tree, path);
   const maxDepth = searchableDepth(scope);
-  const city = path.length > 0 ? path[path.length - 1] : null;
+  const city = customCity ?? (path.length > 0 ? path[path.length - 1] : null);
 
   const showToast = (m: string) => {
     setToast(m);
@@ -79,6 +84,7 @@ export default function CourseBuilderPage() {
   const drillInto = (label: string) => {
     const next = [...path, label];
     setPath(next);
+    setCustomCity(null);
     if (next.length >= maxDepth || courseNodesAtPath(tree, next).length === 0) {
       setPicks({});
       setActiveSlot(COURSE_SLOTS[0].key);
@@ -88,6 +94,8 @@ export default function CourseBuilderPage() {
 
   /** Back one step: build → last drill level; drill → pop a level (or scope at the root). */
   const goBack = () => {
+    setCustomCity(null);
+    setCustomSearchOpen(false);
     if (path.length === 0) {
       setStep("scope");
       return;
@@ -102,11 +110,25 @@ export default function CourseBuilderPage() {
     const next = path.slice(0, depth);
     setPath(next);
     setPicks({});
+    setCustomCity(null);
+    setCustomSearchOpen(false);
     if (depth === 0) {
       setStep("scope");
       return;
     }
     setStep(next.length >= maxDepth || courseNodesAtPath(tree, next).length === 0 ? "build" : "drill");
+  };
+
+  /** "기타 (직접 검색)" 제출 — 목록에 없는 동네/도시 이름을 직접 입력해 검색 기준으로 쓴다. */
+  const submitCustomSearch = () => {
+    const trimmed = customSearchInput.trim();
+    if (!trimmed) return;
+    setCustomCity(trimmed);
+    setCustomSearchOpen(false);
+    setCustomSearchInput("");
+    setPicks({});
+    setActiveSlot(COURSE_SLOTS[0].key);
+    setStep("build");
   };
 
   // Flattened picks in slot order (관광지 → 점심 → … ), preserving pick
@@ -197,9 +219,9 @@ export default function CourseBuilderPage() {
             <button
               onClick={goBack}
               aria-label="뒤로"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+              className="flex h-10 items-center gap-1 rounded-full border border-slate-300 bg-white pl-2 pr-3.5 text-[13.5px] font-semibold text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-50"
             >
-              <ChevronLeft size={17} />
+              <ChevronLeft size={19} /> 뒤로
             </button>
           )}
           <div>
@@ -299,15 +321,11 @@ export default function CourseBuilderPage() {
                   </span>
                 </button>
               ))}
-              {/* 목록에 원하는 동네/도시가 없을 때 — 한 단계 위(이미 고른 지역/국가)
-                  이름 그대로를 검색어로 써서 큐레이션 목록 밖 장소도 찾을 수 있게 한다. */}
+              {/* 목록에 원하는 동네/도시가 없을 때 — 직접 이름을 입력해 그
+                  검색어로 큐레이션 목록 밖 장소도 찾을 수 있게 한다. */}
               {path.length === maxDepth - 1 && (
                 <button
-                  onClick={() => {
-                    setPicks({});
-                    setActiveSlot(COURSE_SLOTS[0].key);
-                    setStep("build");
-                  }}
+                  onClick={() => setCustomSearchOpen(true)}
                   className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-slate-300 px-3 py-3 text-center text-[13.5px] font-semibold text-slate-500 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-600"
                 >
                   기타
@@ -317,6 +335,44 @@ export default function CourseBuilderPage() {
               )}
             </div>
           ))}
+
+        {step === "drill" && customSearchOpen && (
+          <div
+            className="fixed inset-0 z-[70] flex items-end justify-center px-4 pb-4 sm:items-center sm:pb-0"
+            onClick={() => setCustomSearchOpen(false)}
+          >
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" />
+            <div className="relative w-full max-w-[360px] rounded-3xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <p className="text-[15px] font-bold text-slate-900">동네·도시 이름을 입력해주세요</p>
+              <p className="mt-0.5 text-[12.5px] text-slate-500">목록에 없는 곳도 이름으로 바로 찾을 수 있어요</p>
+              <input
+                autoFocus
+                value={customSearchInput}
+                onChange={(e) => setCustomSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitCustomSearch();
+                }}
+                placeholder={path.length > 0 ? `예: ${path[path.length - 1]} OO동` : "예: 을왕리"}
+                className="mt-4 w-full rounded-2xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-indigo-400"
+              />
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={() => setCustomSearchOpen(false)}
+                  className="h-11 flex-1 rounded-2xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={submitCustomSearch}
+                  disabled={!customSearchInput.trim()}
+                  className="h-11 flex-1 rounded-2xl bg-slate-900 text-sm font-semibold text-white disabled:opacity-40"
+                >
+                  검색
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── STEP: build course ── */}
         {step === "build" && city && (

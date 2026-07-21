@@ -44,6 +44,7 @@ import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlacePager } from "@/components/PlacePager";
+import { FolderChips } from "@/components/FolderChips";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch } from "@/lib/api";
@@ -373,6 +374,7 @@ export default function DiscoverPage() {
   // Set by the "+" quick-add button — asks whether the tapped place should
   // go to 일정 or 관심 장소 instead of assuming one or the other.
   const [addChoiceTarget, setAddChoiceTarget] = useState<{ place: Place; city: string } | null>(null);
+  const [choosingFolder, setChoosingFolder] = useState(false);
   const [detailPlace, setDetailPlace] = useState<Place | null>(null);
   const [routeTarget, setRouteTarget] = useState<DiscoverRoute | null>(null);
   const [previewRoute, setPreviewRoute] = useState<DiscoverRoute | null>(null);
@@ -482,12 +484,15 @@ export default function DiscoverPage() {
     setScheduleSpot(addChoiceTarget.place);
     setAddChoiceTarget(null);
   };
-  const confirmAddToFavorites = () => {
+  // "관심 장소에 추가" now asks which folder before actually saving (see the
+  // addChoiceTarget sheet below) instead of always dropping it in 미분류.
+  const confirmAddToFavorites = (folderId: string | undefined) => {
     if (!addChoiceTarget) return;
     setRegion(isDomesticCoordinate(addChoiceTarget.place.lat, addChoiceTarget.place.lng) ? "domestic" : "international");
-    upsertSavedPlace(addChoiceTarget.place);
+    upsertSavedPlace({ ...addChoiceTarget.place, folderId });
     showToast(`${addChoiceTarget.place.name} 관심 장소에 저장됨`);
     setAddChoiceTarget(null);
+    setChoosingFolder(false);
   };
 
   const handleOpenLiveDetail = (place: Place) => {
@@ -889,7 +894,10 @@ export default function DiscoverPage() {
       {addChoiceTarget && (
         <div
           className="fixed inset-0 z-[70] flex items-end justify-center px-4 pb-4 sm:items-center sm:pb-0"
-          onClick={() => setAddChoiceTarget(null)}
+          onClick={() => {
+            setAddChoiceTarget(null);
+            setChoosingFolder(false);
+          }}
         >
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" />
           <div
@@ -897,21 +905,38 @@ export default function DiscoverPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <p className="truncate text-[15px] font-bold text-slate-900">{addChoiceTarget.place.name}</p>
-            <p className="mt-0.5 text-[12.5px] text-slate-500">어디에 추가할까요?</p>
-            <div className="mt-4 flex flex-col gap-2">
-              <button
-                onClick={confirmAddToSchedule}
-                className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-slate-900 text-sm font-semibold text-white transition-transform active:scale-[0.98]"
-              >
-                <CalendarRange size={15} /> 일정에 추가
-              </button>
-              <button
-                onClick={confirmAddToFavorites}
-                className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl border border-slate-200 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                <Heart size={15} /> 관심 장소에 추가
-              </button>
-            </div>
+            {choosingFolder ? (
+              <>
+                <p className="mt-0.5 text-[12.5px] text-slate-500">어느 폴더에 저장할까요?</p>
+                <div className="mt-3">
+                  <FolderChips value={undefined} onChange={confirmAddToFavorites} />
+                </div>
+                <button
+                  onClick={() => setChoosingFolder(false)}
+                  className="mt-4 w-full text-center text-[12px] font-medium text-slate-400 hover:text-slate-600"
+                >
+                  뒤로
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="mt-0.5 text-[12.5px] text-slate-500">어디에 추가할까요?</p>
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    onClick={confirmAddToSchedule}
+                    className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-slate-900 text-sm font-semibold text-white transition-transform active:scale-[0.98]"
+                  >
+                    <CalendarRange size={15} /> 일정에 추가
+                  </button>
+                  <button
+                    onClick={() => setChoosingFolder(true)}
+                    className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl border border-slate-200 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <Heart size={15} /> 관심 장소에 추가
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

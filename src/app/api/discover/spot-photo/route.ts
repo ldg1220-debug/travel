@@ -14,8 +14,22 @@ export const dynamic = "force-dynamic";
  * warm lambda, and long CDN cache headers on both the redirect and the
  * 404 mean each unique spot only bills Google roughly once a week per
  * edge region — not once per card render.
+ *
+ * Capped at MEMO_MAX entries (evicting the oldest first, since Map
+ * preserves insertion order) — this route sees a wide, ever-growing set of
+ * distinct spot names, and a warm lambda instance can stay alive for a long
+ * time, so an unbounded Map here would otherwise just grow forever.
  */
+const MEMO_MAX = 2000;
 const photoNameMemo = new Map<string, string | null>();
+
+function rememberPhotoName(q: string, photoName: string | null): void {
+  if (photoNameMemo.size >= MEMO_MAX) {
+    const oldestKey = photoNameMemo.keys().next().value;
+    if (oldestKey !== undefined) photoNameMemo.delete(oldestKey);
+  }
+  photoNameMemo.set(q, photoName);
+}
 
 const CACHE_HEADERS = { "Cache-Control": "public, max-age=86400, s-maxage=604800" };
 
@@ -43,7 +57,7 @@ export async function GET(request: NextRequest) {
     }
     const data = (await res.json()) as { places?: { photos?: { name: string }[] }[] };
     photoName = data.places?.[0]?.photos?.[0]?.name ?? null;
-    photoNameMemo.set(q, photoName);
+    rememberPhotoName(q, photoName);
   }
   if (!photoName) return NextResponse.json({ error: "no photo" }, { status: 404, headers: CACHE_HEADERS });
 

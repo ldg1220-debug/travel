@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { isTrustedPushEndpoint } from "@/lib/server/push";
 
 interface SubscribeBody {
   endpoint: string;
@@ -16,6 +17,11 @@ export async function POST(request: NextRequest) {
   const body = (await request.json()) as SubscribeBody;
   if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  }
+  // Only ever store endpoints that belong to a real browser push service —
+  // see isTrustedPushEndpoint's doc comment for why (SSRF prevention).
+  if (!isTrustedPushEndpoint(body.endpoint)) {
+    return NextResponse.json({ error: "invalid endpoint" }, { status: 400 });
   }
   await pool.query(
     `insert into push_subscriptions ("userId", endpoint, p256dh, auth)

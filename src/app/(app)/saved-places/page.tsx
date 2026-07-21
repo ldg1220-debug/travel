@@ -43,6 +43,7 @@ export default function SavedPlacesPage() {
   const addSavedPlaceFolder = useItineraryStore((s) => s.addSavedPlaceFolder);
   const renameSavedPlaceFolder = useItineraryStore((s) => s.renameSavedPlaceFolder);
   const deleteSavedPlaceFolder = useItineraryStore((s) => s.deleteSavedPlaceFolder);
+  const setSavedPlaceFolder = useItineraryStore((s) => s.setSavedPlaceFolder);
 
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [folderFilter, setFolderFilter] = useState<string>("all");
@@ -353,7 +354,7 @@ export default function SavedPlacesPage() {
                         value={place.folderId ?? ""}
                         onChange={(e) => {
                           e.stopPropagation();
-                          upsertSavedPlace({ ...place, folderId: e.target.value || undefined });
+                          setSavedPlaceFolder(place.id, e.target.value || undefined);
                         }}
                         onClick={(e) => e.stopPropagation()}
                         aria-label={`${place.name} 폴더 변경`}

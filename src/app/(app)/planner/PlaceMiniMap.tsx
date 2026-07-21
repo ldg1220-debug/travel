@@ -36,14 +36,23 @@ const WITH_NEARBY_LEVEL = 6;
  * so this reads as "this place and what's around it" instead of an
  * isolated dot with no geographic context.
  */
-export default function PlaceMiniMap({ place, nearbyPlaces = [] }: { place: Place; nearbyPlaces?: Place[] }) {
+export default function PlaceMiniMap({
+  place,
+  nearbyPlaces = [],
+  interactive = false,
+}: {
+  place: Place;
+  nearbyPlaces?: Place[];
+  /** Enables pan/zoom/scroll gestures — off by default (a static-looking preview), on for the tap-to-expand full-screen view. */
+  interactive?: boolean;
+}) {
   if (isDomesticCoordinate(place.lat, place.lng)) {
-    return <PlaceMiniMapKakao place={place} nearbyPlaces={nearbyPlaces} />;
+    return <PlaceMiniMapKakao place={place} nearbyPlaces={nearbyPlaces} interactive={interactive} />;
   }
-  return <PlaceMiniMapGoogle place={place} nearbyPlaces={nearbyPlaces} />;
+  return <PlaceMiniMapGoogle place={place} nearbyPlaces={nearbyPlaces} interactive={interactive} />;
 }
 
-function PlaceMiniMapGoogle({ place, nearbyPlaces }: { place: Place; nearbyPlaces: Place[] }) {
+function PlaceMiniMapGoogle({ place, nearbyPlaces, interactive }: { place: Place; nearbyPlaces: Place[]; interactive: boolean }) {
   const zoom = nearbyPlaces.length > 0 ? WITH_NEARBY_ZOOM : SOLO_ZOOM;
   return (
     <GoogleMap
@@ -62,7 +71,11 @@ function PlaceMiniMapGoogle({ place, nearbyPlaces }: { place: Place; nearbyPlace
           map.setZoom(zoom);
         });
       }}
-      options={{ disableDefaultUI: true, gestureHandling: "none", keyboardShortcuts: false }}
+      options={
+        interactive
+          ? { gestureHandling: "greedy" }
+          : { disableDefaultUI: true, gestureHandling: "none", keyboardShortcuts: false }
+      }
     >
       {nearbyPlaces.map((p) => (
         <OverlayView key={p.id} position={{ lat: p.lat, lng: p.lng }} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
@@ -75,7 +88,11 @@ function PlaceMiniMapGoogle({ place, nearbyPlaces }: { place: Place; nearbyPlace
   );
 }
 
-function PlaceMiniMapKakao({ place, nearbyPlaces }: { place: Place; nearbyPlaces: Place[] }) {
+// Kakao's map is draggable/zoomable by default (KakaoMapCanvas never
+// disables gestures the way the Google branch explicitly does) — so
+// `interactive` doesn't need to toggle anything here; it's only in the
+// prop type to match PlaceMiniMap's shared interface.
+function PlaceMiniMapKakao({ place, nearbyPlaces }: { place: Place; nearbyPlaces: Place[]; interactive: boolean }) {
   const level = nearbyPlaces.length > 0 ? WITH_NEARBY_LEVEL : SOLO_LEVEL;
   const handleLoad = (map: KakaoMapInstance) => {
     if (nearbyPlaces.length > 0) {

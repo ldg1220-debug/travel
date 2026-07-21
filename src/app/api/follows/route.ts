@@ -37,6 +37,22 @@ export async function GET(request: NextRequest) {
   const targetUserId = request.nextUrl.searchParams.get("targetUserId");
   const list = request.nextUrl.searchParams.get("list");
 
+  // Lightest possible path for "just the number" (ProfileSheet's 트래블
+  // 메이트 탭 라벨) — a single count query instead of routing through the
+  // 4-subquery targetUserId path below (which also checks both directions'
+  // relationship status, pointless when checking your own count against
+  // yourself) or paying for a full user-row list fetch.
+  if (list === "count") {
+    if (!session?.user?.id) {
+      return NextResponse.json({ count: 0 });
+    }
+    const result = await pool.query(
+      `select count(*)::int as count from follows where "followerId" = $1 and status = 'accepted'`,
+      [session.user.id],
+    );
+    return NextResponse.json({ count: result.rows[0]?.count ?? 0 });
+  }
+
   if (list === "followers" || list === "following" || list === "received" || list === "sent") {
     if (!session?.user?.id) {
       return NextResponse.json({ users: [] });

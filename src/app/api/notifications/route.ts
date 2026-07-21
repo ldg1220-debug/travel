@@ -25,8 +25,8 @@ export async function GET() {
        left join follows f on f."followerId" = n."actorId" and f."followingId" = n."recipientId" and n.type = 'follow_request'
        where n."recipientId" = $1
        order by n.created_at desc
-       limit ${LIST_LIMIT}`,
-      [session.user.id],
+       limit $2`,
+      [session.user.id, LIST_LIMIT],
     ),
     pool.query(`select count(*)::int as count from notifications where "recipientId" = $1 and read = false`, [session.user.id]),
   ]);

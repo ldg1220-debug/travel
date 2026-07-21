@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { auth } from "@/auth";
+import { sniffImageType } from "@/lib/server/imageSniff";
 
 const MAX_FILES = 6;
 const MAX_BYTES = 8 * 1024 * 1024; // 8MB per photo
@@ -41,20 +42,30 @@ export async function POST(request: NextRequest) {
   if (files.length > MAX_FILES) {
     return NextResponse.json({ error: `사진은 최대 ${MAX_FILES}장까지 첨부할 수 있어요` }, { status: 400 });
   }
+  // Sniffs each file's actual magic bytes rather than trusting the
+  // client-supplied `file.type` (or filename extension) — either can be
+  // spoofed to smuggle e.g. an `image/svg+xml` payload past a naive
+  // "starts with image/" check, and Blob would otherwise serve it back
+  // same-origin with that same (attacker-chosen) content-type, which is a
+  // stored-XSS vector for a format that can carry a <script>.
+  const sniffed: { file: File; buffer: ArrayBuffer; contentType: string }[] = [];
   for (const file of files) {
-    if (!file.type.startsWith("image/")) {
-      return NextResponse.json({ error: "이미지 파일만 첨부할 수 있어요" }, { status: 400 });
-    }
     if (file.size > MAX_BYTES) {
       return NextResponse.json({ error: "사진 용량은 8MB 이하로 올려주세요" }, { status: 400 });
     }
+    const buffer = await file.arrayBuffer();
+    const contentType = sniffImageType(new Uint8Array(buffer));
+    if (!contentType) {
+      return NextResponse.json({ error: "이미지 파일만 첨부할 수 있어요 (JPEG/PNG/WebP/GIF)" }, { status: 400 });
+    }
+    sniffed.push({ file, buffer, contentType });
   }
 
   try {
     const urls = await Promise.all(
-      files.map(async (file) => {
+      sniffed.map(async ({ file, buffer, contentType }) => {
         const pathname = `reviews/${session.user.id}/${Date.now()}-${file.name}`;
-        await put(pathname, file, { access: "private" });
+        await put(pathname, buffer, { access: "private", contentType });
         return `/api/blob/${pathname.split("/").map(encodeURIComponent).join("/")}`;
       }),
     );
