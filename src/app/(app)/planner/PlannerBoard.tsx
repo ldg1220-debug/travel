@@ -1712,10 +1712,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               if (planId && session?.user) {
                 const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
                 if (plan) {
+                  // 로컬 저장은 항상 성공하지만, 서버 동기화(다른 기기에서
+                  // 보이게 하는 부분)는 실패할 수 있다 — 그걸 조용히
+                  // 삼키면 사용자는 "저장됨" 토스트만 보고 다른 기기에
+                  // 안 뜰 때까지 아무것도 잘못됐다는 걸 알 길이 없다.
                   syncPlanToServer(planId, plan.region, plan.items, plan.name, plan.remoteId)
                     .then(({ id, shareToken: token }) => setPlanRemoteInfo(planId, id, token))
-                    .catch(() => {});
+                    .catch(() => showToast(`"${name}" 서버 동기화에 실패했어요 — 다른 기기에서 안 보일 수 있어요`));
                 }
+              } else if (planId && !session?.user) {
+                showToast(`"${name}" 이 기기에만 저장됐어요 — 다른 기기에서 보려면 로그인해주세요`);
               }
             }}
           />

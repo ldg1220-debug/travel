@@ -436,48 +436,53 @@ export const useItineraryStore = create<ItineraryState>()(
 
       hydrateSavedPlansFromServer: (remote) => {
         const state = get();
-        const remoteIds = new Set(remote.map((r) => r.id));
-        const knownRemoteIds = new Set(state.savedPlans.map((p) => p.remoteId).filter((id): id is number => id != null));
+        const remoteById = new Map(remote.map((r) => [r.id, r]));
+        // A hydrated plan has no local `places` catalog of its own — leaving
+        // this empty made every card fall through to fallbackDisplay's
+        // uncolored gray default (it has no place id to hash a color from),
+        // so a synced/shared-then-saved plan always rendered as a wall of
+        // identical gray cards. Synthesize one minimal marker per item
+        // instead, same as the live shared-link viewer already does, so each
+        // place still gets its own stable hashed color/icon.
+        const toSavedPlan = (r: NonNullable<ReturnType<typeof remoteById.get>>, localId: string): SavedPlan => ({
+          id: localId,
+          name: r.title,
+          savedAt: Date.now(),
+          items: r.placesData,
+          places: r.placesData.map((item) => {
+            const { color, icon } = styleForCategory("Place", item.placeId);
+            return {
+              id: item.placeId,
+              placeId: item.placeId,
+              name: item.name,
+              category: "Place",
+              color,
+              lat: item.coordinates.lat,
+              lng: item.coordinates.lng,
+              icon,
+            } satisfies Place;
+          }),
+          activeDate: r.placesData[0]?.date ?? todayISODate(),
+          currentCity: r.title,
+          region: r.region,
+          remoteId: r.id,
+          shareToken: r.shareToken,
+        });
+        // A synced plan (has a remoteId) that's no longer in the server's
+        // list was deleted elsewhere — drop the stale local copy. One that's
+        // still there gets its content refreshed from the server (the
+        // shared source of truth for anything with a remoteId) instead of
+        // only being checked for existence — otherwise an edit synced from
+        // another device would never show up here beyond the first time this
+        // plan was ever pulled down. Unsynced plans (no remoteId) are never
+        // touched here.
+        const survivors = state.savedPlans
+          .filter((p) => p.remoteId == null || remoteById.has(p.remoteId))
+          .map((p) => (p.remoteId != null && remoteById.has(p.remoteId) ? toSavedPlan(remoteById.get(p.remoteId)!, p.id) : p));
+        const knownRemoteIds = new Set(survivors.map((p) => p.remoteId).filter((id): id is number => id != null));
         const newPlans: SavedPlan[] = remote
           .filter((r) => !knownRemoteIds.has(r.id))
-          .map((r) => ({
-            id: `plan-remote-${r.id}`,
-            name: r.title,
-            savedAt: Date.now(),
-            items: r.placesData,
-            // A hydrated plan has no local `places` catalog of its own —
-            // leaving this empty made every card fall through to
-            // fallbackDisplay's uncolored gray default (it has no place id
-            // to hash a color from), so a synced/shared-then-saved plan
-            // always rendered as a wall of identical gray cards. Synthesize
-            // one minimal marker per item instead, same as the live
-            // shared-link viewer already does, so each place still gets its
-            // own stable hashed color/icon.
-            places: r.placesData.map((item) => {
-              const { color, icon } = styleForCategory("Place", item.placeId);
-              return {
-                id: item.placeId,
-                placeId: item.placeId,
-                name: item.name,
-                category: "Place",
-                color,
-                lat: item.coordinates.lat,
-                lng: item.coordinates.lng,
-                icon,
-              } satisfies Place;
-            }),
-            activeDate: r.placesData[0]?.date ?? todayISODate(),
-            currentCity: r.title,
-            region: r.region,
-            remoteId: r.id,
-            shareToken: r.shareToken,
-          }));
-        // A synced plan (has a remoteId) that's no longer in the server's
-        // list was deleted elsewhere — drop the stale local copy instead of
-        // letting it live on forever. Unsynced plans (no remoteId) are never
-        // touched here.
-        const survivors = state.savedPlans.filter((p) => p.remoteId == null || remoteIds.has(p.remoteId));
-        if (newPlans.length === 0 && survivors.length === state.savedPlans.length) return;
+          .map((r) => toSavedPlan(r, `plan-remote-${r.id}`));
         set({
           savedPlans: [...newPlans, ...survivors],
           activePlanId: state.activePlanId && !survivors.some((p) => p.id === state.activePlanId) ? null : state.activePlanId,

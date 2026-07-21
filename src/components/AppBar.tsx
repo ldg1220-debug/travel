@@ -534,8 +534,10 @@ export function AppBar() {
               if (plan) {
                 syncPlanToServer(planId, plan.region, plan.items, plan.name, plan.remoteId)
                   .then(({ id, shareToken }) => setPlanRemoteInfo(planId, id, shareToken))
-                  .catch(() => {});
+                  .catch(() => showToast(`"${name}" 서버 동기화에 실패했어요 — 다른 기기에서 안 보일 수 있어요`));
               }
+            } else if (planId && !session?.user) {
+              showToast(`"${name}" 이 기기에만 저장됐어요 — 다른 기기에서 보려면 로그인해주세요`);
             }
           }}
         />
