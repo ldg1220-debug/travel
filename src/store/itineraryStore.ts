@@ -65,7 +65,7 @@ interface ItineraryState {
   /** Adds one place to `savedPlaces` by id, no-op if already saved. */
   addSavedPlace: (place: Place) => void;
   removeSavedPlace: (placeId: string) => void;
-  /** Adds or overwrites a `savedPlaces` entry by id — the detail overlay's "저장하기" action. */
+  /** Adds or overwrites a `savedPlaces` entry by id — the detail overlay's "저장하기" action. Always preserves the existing entry's `folderId` (see `setSavedPlaceFolder` for the one action that's actually meant to change it) — most callers (search results, re-opening the detail overlay) build a fresh `Place` that was never told what folder it's in, and must not silently un-file it. */
   upsertSavedPlace: (place: Place) => void;
 
   /** User-defined folders for organizing `savedPlaces` — see `SavedPlaceFolder`. */
@@ -75,6 +75,8 @@ interface ItineraryState {
   renameSavedPlaceFolder: (id: string, name: string) => void;
   /** Deletes a folder and un-files any `savedPlaces` entries that were in it (they fall back to unfiled, not deleted). */
   deleteSavedPlaceFolder: (id: string) => void;
+  /** The one place a saved place's `folderId` is actually meant to change — the folder picker/dropdown. */
+  setSavedPlaceFolder: (placeId: string, folderId: string | undefined) => void;
 
   isHourTaken: (date: string, hour: number) => boolean;
   /**
@@ -197,12 +199,18 @@ export const useItineraryStore = create<ItineraryState>()(
         set((state) => ({ savedPlaces: state.savedPlaces.filter((p) => p.id !== placeId) })),
       upsertSavedPlace: (place) =>
         set((state) => {
-          const exists = state.savedPlaces.some((p) => p.id === place.id);
-          return {
-            savedPlaces: exists
-              ? state.savedPlaces.map((p) => (p.id === place.id ? place : p))
-              : [...state.savedPlaces, place],
-          };
+          const existing = state.savedPlaces.find((p) => p.id === place.id);
+          if (!existing) return { savedPlaces: [...state.savedPlaces, place] };
+          // Preserve the existing folderId unless the caller explicitly
+          // included one — even `undefined` (e.g. "미분류" picked in the
+          // folder picker) counts as explicit, checked via `in` rather than
+          // a plain undefined check. Most callers (a fresh search-result
+          // tap building a brand new Place literal) never mention folderId
+          // at all and must not silently un-file an already-filed place;
+          // PlaceDetailOverlay's save always includes the key since it
+          // manages folderId explicitly via FolderChips.
+          const next = "folderId" in place ? place : { ...place, folderId: existing.folderId };
+          return { savedPlaces: state.savedPlaces.map((p) => (p.id === place.id ? next : p)) };
         }),
 
       addSavedPlaceFolder: (name) => {
@@ -213,6 +221,10 @@ export const useItineraryStore = create<ItineraryState>()(
       renameSavedPlaceFolder: (id, name) =>
         set((state) => ({
           savedPlaceFolders: state.savedPlaceFolders.map((f) => (f.id === id ? { ...f, name } : f)),
+        })),
+      setSavedPlaceFolder: (placeId, folderId) =>
+        set((state) => ({
+          savedPlaces: state.savedPlaces.map((p) => (p.id === placeId ? { ...p, folderId } : p)),
         })),
       deleteSavedPlaceFolder: (id) =>
         set((state) => ({

@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Button } from "@/components/ui/button";
+import { FolderChips } from "@/components/FolderChips";
 import { useGoogleMapsStatus, useKakaoMapsStatus } from "./MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { haversineDistanceMeters } from "@/lib/geo";
@@ -136,6 +137,7 @@ interface PlaceDetailFormProps {
 function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
   const [category, setCategory] = useState(place.category);
   const [memo, setMemo] = useState(place.memo ?? "");
+  const [folderId, setFolderId] = useState(place.folderId);
   // Which gallery photo is open full-screen — null = lightbox closed.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // Review text is clamped to 4 lines by default; toggled open per-review
@@ -290,6 +292,9 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
         ))}
       </div>
 
+      <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-500">관심 장소 폴더</p>
+      <FolderChips value={folderId} onChange={setFolderId} />
+
       <label className="mb-2 mt-4 block text-[11px] font-medium uppercase tracking-wide text-slate-500">메모</label>
       <textarea
         value={memo}
@@ -301,7 +306,7 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
 
       <div className="mt-5 flex gap-2">
         <Button
-          onClick={() => onSave({ ...place, category, memo: memo.trim() || undefined })}
+          onClick={() => onSave({ ...place, category, memo: memo.trim() || undefined, folderId })}
           className="h-12 flex-1 rounded-2xl text-sm font-semibold text-white"
           style={{ background: place.color }}
         >
@@ -309,7 +314,7 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
         </Button>
         {onSchedule && (
           <Button
-            onClick={() => onSchedule({ ...place, category, memo: memo.trim() || undefined })}
+            onClick={() => onSchedule({ ...place, category, memo: memo.trim() || undefined, folderId })}
             variant="outline"
             className="h-12 flex-1 rounded-2xl border-slate-300 text-sm font-semibold text-slate-700"
           >
