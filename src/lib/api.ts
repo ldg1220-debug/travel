@@ -436,6 +436,14 @@ export async function fetchFollowStatus(targetUserId: number): Promise<FollowSta
   return res.json();
 }
 
+/** Just the current session's own 트래블 메이트 count — a single-query fast path (see /api/follows `list=count`) for UI that only needs the number, not the full status/list payloads. */
+export async function fetchMateCount(): Promise<number> {
+  const res = await fetch("/api/follows?list=count");
+  if (!res.ok) return 0;
+  const data = (await res.json()) as { count: number };
+  return data.count;
+}
+
 /** Sends a 트메 신청 — needs the recipient's acceptance before it counts as a real connection. */
 export async function followUser(targetUserId: number): Promise<void> {
   await fetch("/api/follows", {

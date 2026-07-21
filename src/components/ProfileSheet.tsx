@@ -9,7 +9,7 @@ import {
   acceptFollowRequest,
   deleteAccount,
   fetchFollowList,
-  fetchFollowStatus,
+  fetchMateCount,
   followUser,
   rejectFollowRequest,
   unfollowUser,
@@ -98,8 +98,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   // 다시 호출해준다.
   const refreshFollowData = () => {
     if (mandatory || !session?.user?.id) return;
-    const userId = Number(session.user.id);
-    fetchFollowStatus(userId).then((status) => setMateCount(status.followingCount));
+    fetchMateCount().then(setMateCount);
     fetchFollowList("following").then(setMates);
     fetchFollowList("sent").then(setSent);
     fetchFollowList("received").then(setReceived);
