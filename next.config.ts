@@ -4,7 +4,17 @@ import type { NextConfig } from "next";
 // runtime — Google Maps JS SDK, Kakao Maps JS SDK, Kakao's share SDK
 // (카카오톡 공유하기, see src/lib/kakaoShare.ts). Everything else (fonts via
 // next/font, Tailwind's compiled CSS, all API calls) is same-origin.
-const MAP_SCRIPT_HOSTS = "https://maps.googleapis.com https://maps.gstatic.com https://dapi.kakao.com https://t1.kakaocdn.net";
+// Kakao Maps SDK loads with autoload=false, then kakao.maps.load(callback)
+// pulls in its actual map-engine bundle from a *different* Kakao/Daum CDN
+// host than the initial dapi.kakao.com script tag — exactly which one isn't
+// documented, so this trusts the same *.kakaocdn.net/*.daumcdn.net wildcard
+// already allowed for connect-src below. Narrower than that (just
+// dapi.kakao.com + t1.kakaocdn.net) left the map stuck on "지도 로딩 중…"
+// forever in production — the initial script tag's own onload still fires
+// (so no onerror surfaces), but the internal load() call that depends on
+// this second fetch never completes.
+const MAP_SCRIPT_HOSTS =
+  "https://maps.googleapis.com https://maps.gstatic.com https://dapi.kakao.com https://*.kakaocdn.net https://*.daumcdn.net";
 // Runtime XHR/fetch destinations the Google/Kakao map SDKs themselves make
 // for tile/place data, beyond the script hosts above.
 const MAP_CONNECT_HOSTS = "https://maps.googleapis.com https://*.googleapis.com https://dapi.kakao.com https://*.daumcdn.net https://*.kakaocdn.net";
