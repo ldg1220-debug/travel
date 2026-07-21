@@ -71,7 +71,9 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
 
   const [tab, setTab] = useState<Tab>("settings");
   // 트래블 메이트는 상호 관계 — 카운트도 목록도 하나뿐이다(팔로워/팔로잉 구분 없음).
-  const [mateCount, setMateCount] = useState(0);
+  // null(아직 못 불러옴)과 0(진짜 0명)을 구분해야 탭 라벨이 로딩 중에
+  // "트래블 메이트 0"으로 잠깐 반짝였다가 실제 숫자로 바뀌는 게 안 보인다.
+  const [mateCount, setMateCount] = useState<number | null>(null);
   const [mates, setMates] = useState<FollowUser[] | null>(null);
   // 대기 중인 트래블 메이트 신청 — received: 나에게 온 것(수락/거절), sent: 내가 보낸 것(취소).
   const [received, setReceived] = useState<FollowUser[] | null>(null);
@@ -166,7 +168,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
         // 메이트 해제 — 상호 관계라 서버에서 양방향이 함께 끊긴다
         await unfollowUser(target.id);
         setMates((prev) => (prev ?? []).filter((u) => u.id !== target.id));
-        setMateCount((c) => c - 1);
+        setMateCount((c) => (c ?? 0) - 1);
       } else if (sentIds.has(target.id)) {
         // 내가 보낸 신청 취소
         await unfollowUser(target.id);
@@ -184,7 +186,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
       setReceived((prev) => (prev ?? []).filter((u) => u.id !== target.id));
       // 수락 = 상호 관계 성립 — 바로 내 트래블 메이트 목록/카운트에 반영
       setMates((prev) => (prev == null ? prev : [target, ...prev]));
-      setMateCount((c) => c + 1);
+      setMateCount((c) => (c ?? 0) + 1);
     });
 
   const handleRejectRequest = (target: FollowUser) =>
@@ -294,7 +296,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
             {(
               [
                 { value: "settings", label: "설정" },
-                { value: "mates", label: `트래블 메이트 ${mateCount}` },
+                { value: "mates", label: `트래블 메이트${mateCount != null ? ` ${mateCount}` : ""}` },
                 { value: "requests", label: `신청${received && received.length > 0 ? ` ${received.length}` : ""}` },
               ] as const
             ).map((t) => (
