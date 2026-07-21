@@ -59,6 +59,7 @@ import {
   minutesFromTime,
   rangesOverlap,
   formatDateLabelShort,
+  todayISODate,
   dateWindow,
   shiftISODate,
   TIMELINE_HOURS,
@@ -247,8 +248,22 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // changed only by the prev/next chevrons and the month-view jump; a day
   // header click only moves `activeDate` (which day's route is shown),
   // leaving the window itself untouched.
-  const [windowStart, setWindowStart] = useState(activeDate);
+  // `activeDate` persists across sessions (see itineraryStore's partialize)
+  // so someone mid-planning a future trip finds it exactly where they left
+  // it — but if it's stuck in the PAST (left the app open on a date that's
+  // since gone by), that reads as a bug: the schedule looks empty because
+  // the visible window is anchored days behind "today," not because nothing
+  // was ever added. Catch back up to today on first mount in that case only
+  // — a future activeDate (deliberate trip planning) is left untouched.
+  // windowStart's initializer applies the same correction so the two never
+  // disagree about which "today" they opened on.
+  const [windowStart, setWindowStart] = useState(() => (activeDate < todayISODate() ? todayISODate() : activeDate));
   const visibleDates = useMemo(() => dateWindow(windowStart, visibleDays), [windowStart, visibleDays]);
+
+  useEffect(() => {
+    if (activeDate < todayISODate()) setActiveDate(todayISODate());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
+  }, []);
 
   // Month-grid view toggle — the day-column strip only ever shows a few
   // days at once; this swaps it for a full month at a glance (Notion/Google
