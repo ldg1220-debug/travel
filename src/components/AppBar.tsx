@@ -131,8 +131,9 @@ export function AppBar() {
 
   // 계정 기준 계획 동기화 — 저장된 계획은 기존엔 이 브라우저의 로컬 저장소
   // 안에만 있어서, 같은 계정으로 다른 기기에서 로그인해도 안 보였다. 로그인
-  // 상태가 되는 순간 한 번, 서버에 저장된 이 계정의 계획들을 가져와 로컬
-  // 목록에 없는 것만 채워 넣는다 (이미 로컬에 있는 건 덮어쓰지 않음).
+  // 상태가 되는 순간 한 번, 서버에 저장된 이 계정의 계획들을 가져온다 —
+  // 이미 로컬에 있던(동기화된) 계획은 서버 최신 내용으로 갱신되고, 로컬에
+  // 없던 계획만 새로 채워진다.
   const hydratedRef = useRef(false);
   useEffect(() => {
     if (!session?.user || hydratedRef.current) return;
@@ -141,6 +142,36 @@ export function AppBar() {
       .then((remote) => hydrateSavedPlansFromServer(remote))
       .catch(() => {});
   }, [session, hydrateSavedPlansFromServer]);
+
+  // 일정 자동 저장 — "계획 저장"을 따로 누르지 않아도, 로그인 상태에서
+  // 일정에 장소를 추가/수정/삭제하면 (날짜/시간을 정해 실제로 스케줄에
+  // 반영한 시점 기준) 잠시 후 자동으로 서버에 반영해 다른 기기에서도 곧바로
+  // 보이게 한다. 아직 어떤 계획에도 속하지 않은 상태(activePlanId 없음)에서
+  // 첫 장소가 추가되면 도시 이름으로 계획을 하나 자동 생성한 뒤, 그 계획을
+  // 계속 갱신한다 — 사용자가 "저장했다고 생각했는데 다른 기기에 없다"고
+  // 느끼는 간극을 없애기 위함. 관심 장소(savedPlaces)나 즐겨찾기 같은 건
+  // 이 흐름과 무관 — 오직 일정(items)만 대상.
+  const autoSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!session?.user) return;
+    const hasActivePlan = useItineraryStore.getState().activePlanId != null;
+    if (items.length === 0 && !hasActivePlan) return;
+    if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
+    autoSyncTimer.current = setTimeout(() => {
+      const state = useItineraryStore.getState();
+      let planId = state.activePlanId;
+      if (!planId) planId = state.savePlanAs(state.currentCity || "새 여행");
+      if (!planId) return; // MAX_SAVED_PLANS에 도달해 자동 생성이 막힌 경우 — 사용자가 직접 정리해야 함
+      const plan = state.savedPlans.find((p) => p.id === planId);
+      if (!plan) return;
+      syncPlanToServer(planId, plan.region, plan.items, plan.name, plan.remoteId)
+        .then(({ id, shareToken }) => setPlanRemoteInfo(planId!, id, shareToken))
+        .catch(() => {});
+    }, 1500);
+    return () => {
+      if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
+    };
+  }, [items, session, setPlanRemoteInfo]);
 
   const isPlanner = pathname?.startsWith("/planner") ?? false;
   // /planner is the base route; /planner/{shareToken} is the only sub-route.
