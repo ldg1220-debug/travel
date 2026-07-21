@@ -1688,6 +1688,12 @@ function LivePlaceCard({
   const lodging = isLodging(place.category);
   const providers = lodging ? bookingProviders(place.name, region) : [];
   const showAffiliate = hasAffiliateLink(providers);
+  // Kakao Local (국내) search never returns a photo of its own — unlike
+  // Google Places, its keyword API has no photo field at all. Falls back to
+  // the same live name+address lookup SpotCard uses for curated spots with
+  // no photo of their own (/api/discover/spot-photo); 404/no-match just
+  // reverts to the gradient placeholder below, same as SpotCard.
+  const [photoFailed, setPhotoFailed] = useState(false);
   return (
     <div
       onClick={onOpenDetail}
@@ -1700,6 +1706,15 @@ function LivePlaceCard({
             src={`/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=640`}
             alt={place.name}
             loading="lazy"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : !photoFailed ? (
+          // eslint-disable-next-line @next/next/no-img-element -- /api/discover/spot-photo proxy, see SpotCard
+          <img
+            src={`/api/discover/spot-photo?q=${encodeURIComponent(`${place.name} ${place.address ?? ""}`.trim())}`}
+            alt={place.name}
+            loading="lazy"
+            onError={() => setPhotoFailed(true)}
             className="absolute inset-0 h-full w-full object-cover"
           />
         ) : (
