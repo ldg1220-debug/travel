@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { ChevronLeft, Send } from "lucide-react";
-import { fetchThread, fetchUserProfile, sendMessage, type ChatMessage, type UserProfile } from "@/lib/api";
+import { deleteMessage, fetchThread, fetchUserProfile, sendMessage, type ChatMessage, type UserProfile } from "@/lib/api";
 import { ReportModal } from "@/components/ReportModal";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
+import { CordixIcon } from "@/components/icons/CordixIcon";
 
 const POLL_INTERVAL_MS = 4_000;
 
@@ -28,6 +29,7 @@ export default function MessageThreadPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const draftRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -69,6 +71,17 @@ export default function MessageThreadPage() {
       setError(e instanceof Error ? e.message : "메시지를 보내지 못했어요");
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleDelete = async (messageId: number) => {
+    setConfirmDeleteId(null);
+    setMessages((prev) => prev?.map((m) => (m.id === messageId ? { ...m, content: "", deleted: true } : m)) ?? prev);
+    try {
+      await deleteMessage(otherId, messageId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "메시지를 삭제하지 못했어요");
+      fetchThread(otherId).then(setMessages);
     }
   };
 
@@ -127,19 +140,49 @@ export default function MessageThreadPage() {
         ) : (
           messages.map((m) => {
             const mine = m.senderId === viewerId;
+            const unread = mine && !m.deleted && !m.read;
             return (
               <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                 <div className={`flex max-w-[75%] items-end gap-1.5 ${mine ? "flex-row-reverse" : "flex-row"}`}>
-                  <p
-                    className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed ${
-                      mine
-                        ? "rounded-br-md bg-indigo-600 text-white"
-                        : "rounded-bl-md bg-white text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-200"
-                    }`}
-                  >
-                    {m.content}
-                  </p>
-                  <span className="shrink-0 pb-0.5 text-[10px] text-slate-400">{formatTime(m.createdAt)}</span>
+                  {m.deleted ? (
+                    <p className="rounded-2xl bg-slate-100 px-3.5 py-2.5 text-[13px] italic text-slate-400 dark:bg-slate-900 dark:text-slate-500">
+                      삭제된 메시지예요
+                    </p>
+                  ) : (
+                    <p
+                      className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed ${
+                        mine
+                          ? "rounded-br-md bg-indigo-600 text-white"
+                          : "rounded-bl-md bg-white text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-200"
+                      }`}
+                    >
+                      {m.content}
+                    </p>
+                  )}
+                  <div className="flex shrink-0 flex-col items-end gap-0.5 pb-0.5">
+                    {unread && <span className="text-[10px] font-semibold leading-none text-amber-500">1</span>}
+                    <span className="text-[10px] leading-none text-slate-400">{formatTime(m.createdAt)}</span>
+                    {mine && !m.deleted && (
+                      confirmDeleteId === m.id ? (
+                        <div className="mt-0.5 flex items-center gap-1">
+                          <button onClick={() => handleDelete(m.id)} className="text-[10px] font-semibold text-rose-500">
+                            삭제
+                          </button>
+                          <button onClick={() => setConfirmDeleteId(null)} className="text-[10px] text-slate-400">
+                            취소
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(m.id)}
+                          aria-label="메시지 삭제"
+                          className="mt-0.5 text-slate-300 hover:text-rose-400"
+                        >
+                          <CordixIcon name="trash" size={10} />
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
               </div>
             );

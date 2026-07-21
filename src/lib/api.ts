@@ -540,6 +540,7 @@ export interface Conversation {
   nickname: string | null;
   image: string | null;
   lastMessage: string;
+  lastMessageDeleted: boolean;
   lastSenderId: number;
   lastMessageAt: string;
   unreadCount: number;
@@ -551,6 +552,8 @@ export interface ChatMessage {
   recipientId: number;
   content: string;
   createdAt: string;
+  read: boolean;
+  deleted: boolean;
 }
 
 export async function fetchConversations(): Promise<Conversation[]> {
@@ -580,6 +583,15 @@ export async function sendMessage(recipientId: number, content: string): Promise
   }
   const data = (await res.json()) as { message: ChatMessage };
   return data.message;
+}
+
+/** 내가 보낸 메시지를 삭제한다 — 성공하면 대화 양쪽 모두에서 "삭제된 메시지"로 보인다. */
+export async function deleteMessage(otherId: number, messageId: number): Promise<void> {
+  const res = await fetch(`/api/messages/${otherId}?messageId=${messageId}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "메시지를 삭제하지 못했어요");
+  }
 }
 
 export interface DiscoverBrowseResponse {
