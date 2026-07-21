@@ -17,7 +17,8 @@ const MAP_SCRIPT_HOSTS =
   "https://maps.googleapis.com https://maps.gstatic.com https://dapi.kakao.com https://*.kakaocdn.net https://*.daumcdn.net";
 // Runtime XHR/fetch destinations the Google/Kakao map SDKs themselves make
 // for tile/place data, beyond the script hosts above.
-const MAP_CONNECT_HOSTS = "https://maps.googleapis.com https://*.googleapis.com https://dapi.kakao.com https://*.daumcdn.net https://*.kakaocdn.net";
+const MAP_CONNECT_HOSTS =
+  "https://maps.googleapis.com https://*.googleapis.com https://maps.gstatic.com https://*.gstatic.com https://dapi.kakao.com https://*.daumcdn.net https://*.kakaocdn.net";
 
 // 'unsafe-inline'/'unsafe-eval' are unfortunately required here — Next.js's
 // own hydration script is inline, and the Google Maps JS SDK injects both
