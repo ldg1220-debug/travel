@@ -69,6 +69,11 @@ CREATE TABLE IF NOT EXISTS itineraries (
   "forkedFromId" INTEGER REFERENCES itineraries(id) ON DELETE SET NULL,
   "likesCount" INTEGER NOT NULL DEFAULT 0,
   "forksCount" INTEGER NOT NULL DEFAULT 0,
+  -- The one unnamed "진행 중인 계획" scratchpad row per user, as opposed to
+  -- an explicitly-named "저장된 계획" — never shown in the saved-plans list
+  -- (see the isDraft filter in src/app/api/itineraries/route.ts GET), just
+  -- keeps that draft synced across devices the same way a named plan is.
+  "isDraft" BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -79,6 +84,7 @@ ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "isPublic" BOOLEAN NOT NULL DEF
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "forkedFromId" INTEGER REFERENCES itineraries(id) ON DELETE SET NULL;
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "likesCount" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "forksCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "isDraft" BOOLEAN NOT NULL DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS itineraries_user_id_idx ON itineraries ("userId");
 CREATE INDEX IF NOT EXISTS itineraries_share_token_idx ON itineraries ("shareToken");

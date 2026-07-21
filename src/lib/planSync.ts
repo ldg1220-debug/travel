@@ -21,10 +21,11 @@ export function syncPlanToServer(
   items: ItineraryItem[],
   title: string,
   remoteId: number | undefined,
+  isDraft?: boolean,
 ): Promise<{ id: number; shareToken: string }> {
   const existing = inFlight.get(planId);
   if (existing) return existing;
-  const promise = saveItinerary(region, items, title, remoteId).finally(() => {
+  const promise = saveItinerary(region, items, title, remoteId, isDraft).finally(() => {
     inFlight.delete(planId);
   });
   inFlight.set(planId, promise);

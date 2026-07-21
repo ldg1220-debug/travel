@@ -121,66 +121,81 @@ export function AppBar() {
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const activePlanId = useItineraryStore((s) => s.activePlanId);
   const savePlanAs = useItineraryStore((s) => s.savePlanAs);
+  const promoteDraftToPlan = useItineraryStore((s) => s.promoteDraftToPlan);
   const loadPlan = useItineraryStore((s) => s.loadPlan);
   const deletePlan = useItineraryStore((s) => s.deletePlan);
   const setActiveDate = useItineraryStore((s) => s.setActiveDate);
   const setPlanRemoteInfo = useItineraryStore((s) => s.setPlanRemoteInfo);
   const hydrateSavedPlansFromServer = useItineraryStore((s) => s.hydrateSavedPlansFromServer);
+  const hydrateDraftFromServer = useItineraryStore((s) => s.hydrateDraftFromServer);
+  const setDraftRemoteInfo = useItineraryStore((s) => s.setDraftRemoteInfo);
+  const openDraft = useItineraryStore((s) => s.openDraft);
 
   const previewMarkedDates = useMemo(() => new Set((previewPlan?.items ?? []).map((i) => i.date)), [previewPlan]);
 
   // 계정 기준 계획 동기화 — 저장된 계획은 기존엔 이 브라우저의 로컬 저장소
   // 안에만 있어서, 같은 계정으로 다른 기기에서 로그인해도 안 보였다. 로그인
-  // 상태가 되는 순간 한 번, 서버에 저장된 이 계정의 계획들을 가져온다 —
-  // 이미 로컬에 있던(동기화된) 계획은 서버 최신 내용으로 갱신되고, 로컬에
-  // 없던 계획만 새로 채워진다.
+  // 상태가 되는 순간 한 번, 서버에 저장된 이 계정의 계획들(과 진행 중인
+  // 계획 초안)을 가져온다 — 이미 로컬에 있던(동기화된) 건 서버 최신 내용으로
+  // 갱신되고, 로컬에 없던 것만 새로 채워진다.
   const hydratedRef = useRef(false);
   useEffect(() => {
     if (!session?.user || hydratedRef.current) return;
     hydratedRef.current = true;
     fetchUserItineraries()
-      .then((remote) => hydrateSavedPlansFromServer(remote))
+      .then(({ itineraries, draft }) => {
+        hydrateSavedPlansFromServer(itineraries);
+        hydrateDraftFromServer(draft);
+      })
       .catch(() => {});
-  }, [session, hydrateSavedPlansFromServer]);
+  }, [session, hydrateSavedPlansFromServer, hydrateDraftFromServer]);
 
   // 일정 자동 저장 — "계획 저장"을 따로 누르지 않아도, 로그인 상태에서
-  // 일정에 장소를 추가/수정/삭제하면 (날짜/시간을 정해 실제로 스케줄에
-  // 반영한 시점 기준) 잠시 후 자동으로 서버에 반영해 다른 기기에서도 곧바로
-  // 보이게 한다. 아직 어떤 계획에도 속하지 않은 상태(activePlanId 없음)에서
-  // 첫 장소가 추가되면 도시 이름으로 계획을 하나 자동 생성한 뒤, 그 계획을
-  // 계속 갱신한다 — 사용자가 "저장했다고 생각했는데 다른 기기에 없다"고
-  // 느끼는 간극을 없애기 위함. 관심 장소(savedPlaces)나 즐겨찾기 같은 건
-  // 이 흐름과 무관 — 오직 일정(items)만 대상.
+  // 일정에 장소를 추가/수정/삭제하면 잠시 후 자동으로 서버에 반영해 다른
+  // 기기에서도 곧바로 보이게 한다. 이름 붙은 계획이 열려 있으면(activePlanId)
+  // 그 계획 자신에게 반영되고, 열려 있지 않으면 "진행 중인 계획" 초안
+  // 슬롯에만 반영된다 — 저장된 계획 목록에는 절대 새 항목을 만들지 않는다
+  // (그건 오직 "계획 저장"을 명시적으로 눌렀을 때만 생긴다). 관심
+  // 장소(savedPlaces)는 이 흐름과 무관 — 오직 일정(items)만 대상.
   const autoSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!session?.user) return;
-    const hasActivePlan = useItineraryStore.getState().activePlanId != null;
-    if (items.length === 0 && !hasActivePlan) return;
+    const s0 = useItineraryStore.getState();
+    if (items.length === 0 && !s0.activePlanId && !s0.draft) return;
     if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
     autoSyncTimer.current = setTimeout(() => {
       const state = useItineraryStore.getState();
-      // savePlanAs(name, activePlanId) refreshes that plan's own snapshot in
-      // `savedPlans` from the LIVE working itinerary first — without this,
-      // a plan loaded via 사이드바/loadPlan and then edited only ever
-      // diverges further from its saved-plans list entry (which nothing
-      // else keeps in sync except an explicit "계획 저장" click), so this
-      // effect would silently keep re-uploading that plan's stale old
-      // content to the server on every edit instead of what's actually on
-      // screen. Passing no id when there's no active plan yet creates one.
-      const existingPlan = state.activePlanId ? state.savedPlans.find((p) => p.id === state.activePlanId) : undefined;
-      const name = existingPlan?.name ?? (state.currentCity || "새 여행");
-      const planId = state.savePlanAs(name, state.activePlanId ?? undefined);
-      if (!planId) return; // MAX_SAVED_PLANS에 도달해 자동 생성이 막힌 경우 — 사용자가 직접 정리해야 함
-      const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
-      if (!plan) return;
-      syncPlanToServer(planId, plan.region, plan.items, plan.name, plan.remoteId)
-        .then(({ id, shareToken }) => setPlanRemoteInfo(planId!, id, shareToken))
-        .catch(() => {});
+      if (state.activePlanId) {
+        // savePlanAs(name, activePlanId) refreshes that plan's own snapshot
+        // in `savedPlans` from the LIVE working itinerary first — without
+        // this, a plan loaded via 사이드바/loadPlan and then edited only
+        // ever diverges further from its saved-plans list entry, so this
+        // would silently keep re-uploading its stale old content instead of
+        // what's actually on screen.
+        const existingPlan = state.savedPlans.find((p) => p.id === state.activePlanId);
+        const name = existingPlan?.name ?? (state.currentCity || "새 여행");
+        const planId = state.savePlanAs(name, state.activePlanId);
+        if (!planId) return;
+        const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
+        if (!plan) return;
+        syncPlanToServer(planId, plan.region, plan.items, plan.name, plan.remoteId)
+          .then(({ id, shareToken }) => setPlanRemoteInfo(planId, id, shareToken))
+          .catch(() => {});
+      } else {
+        // No plan open — sync the 진행 중인 계획 draft slot only, never a
+        // named plan.
+        state.syncDraftFromWorkingState();
+        const draft = useItineraryStore.getState().draft;
+        if (!draft) return;
+        syncPlanToServer("draft", draft.region, draft.items, draft.name, draft.remoteId, true)
+          .then(({ id, shareToken }) => setDraftRemoteInfo(id, shareToken))
+          .catch(() => {});
+      }
     }, 1500);
     return () => {
       if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
     };
-  }, [items, session, setPlanRemoteInfo]);
+  }, [items, session, setPlanRemoteInfo, setDraftRemoteInfo]);
 
   const isPlanner = pathname?.startsWith("/planner") ?? false;
   // /planner is the base route; /planner/{shareToken} is the only sub-route.
@@ -303,6 +318,7 @@ export function AppBar() {
                             막다른 길이 되지 않도록. */}
                         <button
                           onClick={() => {
+                            openDraft();
                             router.push("/planner");
                             setMenuOpen(false);
                           }}
@@ -563,7 +579,12 @@ export function AppBar() {
           savedPlans={savedPlans}
           onClose={() => setSaveModalOpen(false)}
           onSave={(name, overwriteId) => {
-            const planId = savePlanAs(name, overwriteId);
+            // "계획 저장"이 진행 중인 계획(초안)에서 눌린 거면 그 내용을 새
+            // 계획으로 "전환"(promoteDraftToPlan) — 초안이 비워짐. 이미
+            // 열려 있는 이름 붙은 계획을 다른 이름으로 저장/덮어쓰는 경우는
+            // 초안과 무관하므로 그냥 savePlanAs.
+            const wasOnDraft = useItineraryStore.getState().activePlanId == null;
+            const planId = overwriteId ? savePlanAs(name, overwriteId) : wasOnDraft ? promoteDraftToPlan(name) : savePlanAs(name);
             setSaveModalOpen(false);
             showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
             // 로그인 상태면 이 계획 전용 서버 행에 동기화 — 다른 기기에서

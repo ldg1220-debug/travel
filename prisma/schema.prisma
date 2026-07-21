@@ -108,6 +108,9 @@ model Itinerary {
   likesCount   Int     @default(0)
   forksCount   Int     @default(0)
   forkedFromId Int?
+  // The one unnamed "진행 중인 계획" scratchpad row per user — see the
+  // matching column doc in src/server/db/schema.sql.
+  isDraft      Boolean @default(false)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @map("updated_at")
