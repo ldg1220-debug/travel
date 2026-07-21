@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Calendar, ChevronRight, Heart, FolderOpen } from "lucide-react";
+import { Calendar, ChevronRight, Heart, FolderOpen, Search } from "lucide-react";
 import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
+import { Input } from "@/components/ui/input";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
@@ -39,18 +41,47 @@ const QUICK_ACCESS: { href: string; title: string; description: string; icon: Co
 // below it, not another header.
 export default function HomePage() {
   const { data: session } = useSession();
+  const router = useRouter();
+  const [homeQuery, setHomeQuery] = useState("");
   // 로그인한 사용자면 닉네임으로 인사, 아니면 일반 인사.
   const nickname = session?.user?.nickname;
+
+  const submitHomeSearch = () => {
+    const trimmed = homeQuery.trim();
+    if (!trimmed) return;
+    router.push(`/discover?q=${encodeURIComponent(trimmed)}`);
+  };
+
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
         {/* ── GREETING ── (the brand wordmark + slogan live in the top bar) */}
-        <section className="mb-8">
+        <section className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight">
             {nickname ? `안녕하세요, ${nickname}님` : "안녕하세요"}
           </h1>
           <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">오늘은 어디로 떠나볼까요?</p>
         </section>
+
+        {/* ── HOME SEARCH ── 바로 검색어를 치면 /discover로 넘어가 그 검색을
+            이어서 실행 — "여행 계획짜기" 카드까지 눌러 들어가지 않고도
+            여기서 바로 목적지/맛집을 찾아보는 흐름을 만든다. discover
+            페이지의 ?q= 복원 로직(useEffect, line ~402)을 그대로 탄다. */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitHomeSearch();
+          }}
+          className="relative mb-8"
+        >
+          <Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={homeQuery}
+            onChange={(e) => setHomeQuery(e.target.value)}
+            placeholder="여행지, 맛집, 숙소를 검색해보세요"
+            className="h-14 rounded-2xl border-slate-200/70 bg-white pl-11 text-[15px] shadow-sm dark:border-slate-800 dark:bg-slate-900"
+          />
+        </form>
 
         {/* ── QUICK ACCESS ── */}
         <section className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
