@@ -51,6 +51,7 @@ import { TrendSheet } from "./TrendSheet";
 import { PlaceDetailOverlay } from "./PlaceDetailOverlay";
 import { ScheduleModal } from "@/components/ScheduleModal";
 import { SavePlanModal } from "@/components/SavePlanModal";
+import { SchedulePlanPickerModal, type SchedulePlanTarget } from "@/components/SchedulePlanPickerModal";
 import {
   pad2,
   formatTime,
@@ -196,6 +197,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const activePlanId = useItineraryStore((s) => s.activePlanId);
   const savePlanAs = useItineraryStore((s) => s.savePlanAs);
+  const loadPlan = useItineraryStore((s) => s.loadPlan);
   const setPlanRemoteInfo = useItineraryStore((s) => s.setPlanRemoteInfo);
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const optimizeRoute = useItineraryStore((s) => s.optimizeRoute);
@@ -463,6 +465,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const totalBudget = items.reduce((sum, s) => sum + (s.budget ?? 0), 0);
 
   const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null);
+  // Place waiting on "어떤 계획에 추가할까요?" before its ScheduleModal opens —
+  // only shown when there's an actual choice to make (see handleScheduleFromDetail).
+  const [schedulePickerPlace, setSchedulePickerPlace] = useState<Place | null>(null);
   const [pressingId, setPressingId] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ place: Place; x: number; y: number } | null>(null);
   const [hoverSlot, setHoverSlot] = useState<{ date: string; hour: number } | null>(null);
@@ -728,10 +733,38 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // "관심 장소 -> 일정" — closes the detail overlay and opens the same
   // ScheduleModal used everywhere else, instead of silently auto-filling
   // the next free hour, so this path stays consistent with "no more
-  // silent auto-add."
+  // silent auto-add." When more than one saved plan exists, asks which one
+  // the place should land in first (SchedulePlanPickerModal below) instead
+  // of always dropping it into whatever the working itinerary currently
+  // holds — with just one (or zero) plans there's no real choice to make,
+  // so that step is skipped.
   const handleScheduleFromDetail = (place: Place) => {
     setDetailPlace(null);
     setTab("schedule");
+    if (savedPlans.length > 0) {
+      setSchedulePickerPlace(place);
+    } else {
+      openCreateModal(place);
+    }
+  };
+
+  // Whether switching the working itinerary to a different saved plan right
+  // now would drop something un-snapshotted — either edits that have
+  // diverged from `activePlanId`'s last save, or (with no active plan at
+  // all) any stops in an itinerary that was never saved as a plan yet.
+  const hasUnsavedPlanChanges = activePlanId
+    ? JSON.stringify(items) !== JSON.stringify(activePlan?.items ?? [])
+    : items.length > 0;
+
+  const handleSchedulePlanPicked = (target: SchedulePlanTarget) => {
+    const place = schedulePickerPlace;
+    setSchedulePickerPlace(null);
+    if (!place) return;
+    if (target.type === "existing") loadPlan(target.planId);
+    else if (target.type === "new") {
+      clearAllItems();
+      savePlanAs(target.name);
+    }
     openCreateModal(place);
   };
 
@@ -1659,6 +1692,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 }
               }
             }}
+          />
+        )}
+
+        {schedulePickerPlace && (
+          <SchedulePlanPickerModal
+            placeName={schedulePickerPlace.name}
+            savedPlans={savedPlans}
+            activePlanId={activePlanId}
+            hasUnsavedChanges={hasUnsavedPlanChanges}
+            atCap={savedPlans.length >= MAX_SAVED_PLANS}
+            onClose={() => setSchedulePickerPlace(null)}
+            onConfirm={handleSchedulePlanPicked}
           />
         )}
 

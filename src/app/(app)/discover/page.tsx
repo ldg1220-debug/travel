@@ -45,7 +45,8 @@ import { MonthCalendar } from "@/components/MonthCalendar";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlacePager } from "@/components/PlacePager";
 import { FolderChips } from "@/components/FolderChips";
-import { useItineraryStore } from "@/store/itineraryStore";
+import { SchedulePlanPickerModal, type SchedulePlanTarget } from "@/components/SchedulePlanPickerModal";
+import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch } from "@/lib/api";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
@@ -359,6 +360,12 @@ export default function DiscoverPage() {
   const setCurrentCity = useItineraryStore((s) => s.setCurrentCity);
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
   const setRegion = useItineraryStore((s) => s.setRegion);
+  const items = useItineraryStore((s) => s.items);
+  const savedPlans = useItineraryStore((s) => s.savedPlans);
+  const activePlanId = useItineraryStore((s) => s.activePlanId);
+  const loadPlan = useItineraryStore((s) => s.loadPlan);
+  const savePlanAs = useItineraryStore((s) => s.savePlanAs);
+  const clearAllItems = useItineraryStore((s) => s.clearAllItems);
 
   const [scope, setScope] = useState<DiscoverScope>("domestic");
   // 계절/핫한 are combinable check-filters; 지역별 opens the drill-down and
@@ -371,6 +378,10 @@ export default function DiscoverPage() {
   const [activeQuery, setActiveQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [scheduleSpot, setScheduleSpot] = useState<Place | null>(null);
+  // Place waiting on "어떤 계획에 추가할까요?" before its ScheduleModal opens —
+  // same picker PlannerBoard uses, only shown when there's an actual choice
+  // (see requestSchedule below).
+  const [schedulePickerPlace, setSchedulePickerPlace] = useState<Place | null>(null);
   // Set by the "+" quick-add button — asks whether the tapped place should
   // go to 일정 or 관심 장소 instead of assuming one or the other.
   const [addChoiceTarget, setAddChoiceTarget] = useState<{ place: Place; city: string } | null>(null);
@@ -478,10 +489,37 @@ export default function DiscoverPage() {
     setAddChoiceTarget({ place, city: activeQuery.trim() });
   };
 
+  const activePlan = savedPlans.find((p) => p.id === activePlanId);
+  // Whether switching the working itinerary to a different saved plan right
+  // now would drop something un-snapshotted — mirrors PlannerBoard's check.
+  const hasUnsavedPlanChanges = activePlanId
+    ? JSON.stringify(items) !== JSON.stringify(activePlan?.items ?? [])
+    : items.length > 0;
+
+  // Asks which plan a place should be scheduled into when there's an actual
+  // choice to make (more than one saved plan) — otherwise goes straight to
+  // ScheduleModal, same as before.
+  const requestSchedule = (place: Place) => {
+    if (savedPlans.length > 0) setSchedulePickerPlace(place);
+    else setScheduleSpot(place);
+  };
+
+  const handleSchedulePlanPicked = (target: SchedulePlanTarget) => {
+    const place = schedulePickerPlace;
+    setSchedulePickerPlace(null);
+    if (!place) return;
+    if (target.type === "existing") loadPlan(target.planId);
+    else if (target.type === "new") {
+      clearAllItems();
+      savePlanAs(target.name);
+    }
+    setScheduleSpot(place);
+  };
+
   const confirmAddToSchedule = () => {
     if (!addChoiceTarget) return;
     setCurrentCity(addChoiceTarget.city);
-    setScheduleSpot(addChoiceTarget.place);
+    requestSchedule(addChoiceTarget.place);
     setAddChoiceTarget(null);
   };
   // "관심 장소에 추가" now asks which folder before actually saving (see the
@@ -982,10 +1020,22 @@ export default function DiscoverPage() {
             }}
             onSchedule={(p) => {
               setDetailPlace(null);
-              setScheduleSpot(p);
+              requestSchedule(p);
             }}
           />
         </MapProvider>
+      )}
+
+      {schedulePickerPlace && (
+        <SchedulePlanPickerModal
+          placeName={schedulePickerPlace.name}
+          savedPlans={savedPlans}
+          activePlanId={activePlanId}
+          hasUnsavedChanges={hasUnsavedPlanChanges}
+          atCap={savedPlans.length >= MAX_SAVED_PLANS}
+          onClose={() => setSchedulePickerPlace(null)}
+          onConfirm={handleSchedulePlanPicked}
+        />
       )}
 
       {routeTarget && <RouteDateModal route={routeTarget} onClose={() => setRouteTarget(null)} onConfirm={confirmRouteAdd} />}
