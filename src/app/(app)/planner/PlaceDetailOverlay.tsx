@@ -147,14 +147,19 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
               제스처(드래그/핀치줌)를 켜서 실제로 둘러볼 수 있게 한다(작은
               미리보기는 고정 프레임이라 그럴 필요가 없어 꺼둔 것과 대비). */}
           {mapExpanded && mapsLoaded && (
-            <div className="fixed inset-0 z-[95] bg-white">
+            <div className="fixed inset-0 z-[100] bg-white">
               <PlaceMiniMap place={place} nearbyPlaces={nearbyPlaces} interactive />
+              {/* 지도가 화면 전체를 덮으므로, 닫기 버튼 배경이 지도 위 어떤
+                  색과 겹쳐도 항상 보이도록 그라디언트 스크림을 깔아둔다
+                  (버튼 자체만 믿으면 밝은 도로/라벨 위에서 묻힐 수 있음). */}
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/35 to-transparent" />
               <button
                 onClick={() => setMapExpanded(false)}
                 aria-label="지도 닫기"
-                className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-lg"
+                className="absolute right-3 flex h-11 w-11 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-black/5"
+                style={{ top: "max(0.75rem, env(safe-area-inset-top, 0px) + 0.5rem)" }}
               >
-                <X size={16} color="#64748b" />
+                <X size={20} color="#1e293b" />
               </button>
             </div>
           )}
