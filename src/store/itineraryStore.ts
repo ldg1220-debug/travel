@@ -31,6 +31,49 @@ function stripMockPlaces(places: Place[]): Place[] {
 /** Cap on how many named plans a user can keep side by side — enough to compare a handful of trip drafts without the switcher list growing unbounded. */
 export const MAX_SAVED_PLANS = 10;
 
+/** Synthesizes a minimal Place per item so a plan/draft hydrated from the server (which only stores placesData, not a `places` catalog) still gets a stable hashed color/icon per stop instead of falling back to fallbackDisplay's uncolored gray default. */
+function placesFromItems(items: ItineraryItem[]): Place[] {
+  return items.map((item) => {
+    const { color, icon } = styleForCategory("Place", item.placeId);
+    return {
+      id: item.placeId,
+      placeId: item.placeId,
+      name: item.name,
+      category: "Place",
+      color,
+      lat: item.coordinates.lat,
+      lng: item.coordinates.lng,
+      icon,
+    } satisfies Place;
+  });
+}
+
+/**
+ * Snapshots whatever's currently live (진행 중인 계획 or an active named
+ * plan) back into its own slot — shared by loadPlan/openDraft so switching
+ * away from either never silently drops edits that haven't been synced yet.
+ */
+function flushLiveState(state: ItineraryState): { savedPlans: SavedPlan[]; draft: SavedPlan | null } {
+  const snapshot = {
+    items: state.items,
+    places: state.places,
+    activeDate: state.activeDate,
+    currentCity: state.currentCity,
+    region: state.region,
+    savedAt: Date.now(),
+  };
+  if (state.activePlanId) {
+    return {
+      savedPlans: state.savedPlans.map((p) => (p.id === state.activePlanId ? { ...p, ...snapshot } : p)),
+      draft: state.draft,
+    };
+  }
+  return {
+    savedPlans: state.savedPlans,
+    draft: { id: "draft", name: "진행 중인 계획", remoteId: state.draft?.remoteId, shareToken: state.draft?.shareToken, ...snapshot },
+  };
+}
+
 interface ItineraryState {
   items: ItineraryItem[];
   activeDate: string;
@@ -143,6 +186,14 @@ interface ItineraryState {
    * delete one first.
    */
   savePlanAs: (name: string, overwriteId?: string) => string | null;
+  /**
+   * "계획 저장" while 진행 중인 계획 (no named plan open) is what's on
+   * screen — creates the new plan via savePlanAs, then clears the draft
+   * slot (locally and its server row) since its content now belongs to
+   * that plan instead. Only valid when nothing is currently open
+   * (activePlanId null); the caller decides whether that's the case.
+   */
+  promoteDraftToPlan: (name: string) => string | null;
   /** Replaces the working itinerary with a saved plan's snapshot. */
   loadPlan: (id: string) => void;
   deletePlan: (id: string) => void;
@@ -164,6 +215,30 @@ interface ItineraryState {
   hydrateSavedPlansFromServer: (
     remote: { id: number; title: string; region: Region; placesData: ItineraryItem[]; shareToken: string }[],
   ) => void;
+
+  /**
+   * 진행 중인 계획 — the one unnamed scratchpad, structurally separate from
+   * `savedPlans`. Adding places here never creates (or gets confused with)
+   * a named plan; only an explicit `savePlanAs` promotes its content into
+   * one (and clears this in the process — see savePlanAs below). Reuses
+   * the `SavedPlan` shape purely for convenience (a self-contained
+   * items/places/activeDate/… snapshot); its `id`/`name` fields are never
+   * shown anywhere.
+   */
+  draft: SavedPlan | null;
+  /** Refreshes `draft` from the live working state — a no-op if a named plan is currently active (activePlanId set), since in that case the live state belongs to that plan, not the draft. */
+  syncDraftFromWorkingState: () => void;
+  /** Attaches the draft's server-side row identity after a successful sync — mirrors setPlanRemoteInfo but for the single draft slot. */
+  setDraftRemoteInfo: (remoteId: number, shareToken: string) => void;
+  /**
+   * Switches back to 진행 중인 계획 (from whatever named plan, if any, is
+   * currently open) — flushing that plan's latest edits into its own
+   * savedPlans entry first, same as loadPlan does, so navigating away never
+   * silently drops unsaved changes.
+   */
+  openDraft: () => void;
+  /** Reconciles the local draft against the server's copy on login — same "server wins for anything already synced" rule as hydrateSavedPlansFromServer. `null` means the server has no draft yet, so the local one (if any, not yet synced) is left untouched. */
+  hydrateDraftFromServer: (remote: { id: number; title: string; region: Region; placesData: ItineraryItem[]; shareToken: string } | null) => void;
 }
 
 export const useItineraryStore = create<ItineraryState>()(
@@ -178,6 +253,7 @@ export const useItineraryStore = create<ItineraryState>()(
       savedPlaceFolders: [],
       savedPlans: [],
       activePlanId: null,
+      draft: null,
       setCurrentCity: (city) => set({ currentCity: city }),
 
       setActiveDate: (date) => set({ activeDate: date }),
@@ -403,10 +479,30 @@ export const useItineraryStore = create<ItineraryState>()(
         return plan.id;
       },
 
+      promoteDraftToPlan: (name) => {
+        // "계획 저장" while 진행 중인 계획 is open transfers its content into
+        // a newly-named plan rather than copying it — otherwise the draft
+        // would go on holding an identical, silently-diverging copy of
+        // what's now a saved plan, and "지금 작업 중인 일정 보기" would show
+        // stale leftovers instead of a fresh scratchpad. Deliberately a
+        // separate action from plain savePlanAs (used as-is by e.g. the
+        // course-builder "새 계획 만들기" flow, which explicitly clears the
+        // working itinerary first and must NOT also wipe out unrelated
+        // draft content in the process).
+        const state = get();
+        const planId = state.savePlanAs(name);
+        if (!planId) return null;
+        if (state.draft?.remoteId != null) deleteItinerary(state.draft.remoteId).catch(() => {});
+        set({ draft: null });
+        return planId;
+      },
+
       loadPlan: (id) => {
-        const plan = get().savedPlans.find((p) => p.id === id);
+        const state = get();
+        const plan = state.savedPlans.find((p) => p.id === id);
         if (!plan) return;
         set({
+          ...flushLiveState(state),
           items: plan.items,
           places: plan.places,
           activeDate: plan.activeDate,
@@ -449,19 +545,7 @@ export const useItineraryStore = create<ItineraryState>()(
           name: r.title,
           savedAt: Date.now(),
           items: r.placesData,
-          places: r.placesData.map((item) => {
-            const { color, icon } = styleForCategory("Place", item.placeId);
-            return {
-              id: item.placeId,
-              placeId: item.placeId,
-              name: item.name,
-              category: "Place",
-              color,
-              lat: item.coordinates.lat,
-              lng: item.coordinates.lng,
-              icon,
-            } satisfies Place;
-          }),
+          places: placesFromItems(r.placesData),
           activeDate: r.placesData[0]?.date ?? todayISODate(),
           currentCity: r.title,
           region: r.region,
@@ -488,6 +572,67 @@ export const useItineraryStore = create<ItineraryState>()(
           activePlanId: state.activePlanId && !survivors.some((p) => p.id === state.activePlanId) ? null : state.activePlanId,
         });
       },
+
+      syncDraftFromWorkingState: () => {
+        const state = get();
+        if (state.activePlanId) return; // a named plan is active — the live state belongs to it, not the draft
+        set({
+          draft: {
+            id: "draft",
+            name: "진행 중인 계획",
+            savedAt: Date.now(),
+            items: state.items,
+            places: state.places,
+            activeDate: state.activeDate,
+            currentCity: state.currentCity,
+            region: state.region,
+            remoteId: state.draft?.remoteId,
+            shareToken: state.draft?.shareToken,
+          },
+        });
+      },
+
+      setDraftRemoteInfo: (remoteId, shareToken) =>
+        set((state) => ({ draft: state.draft ? { ...state.draft, remoteId, shareToken } : state.draft })),
+
+      openDraft: () => {
+        const state = get();
+        const flushed = flushLiveState(state);
+        const d = flushed.draft;
+        set({
+          ...flushed,
+          items: d?.items ?? [],
+          places: d?.places ?? [],
+          activeDate: d?.activeDate ?? todayISODate(),
+          currentCity: d?.currentCity ?? "새 여행",
+          region: d?.region ?? state.region,
+          activePlanId: null,
+        });
+      },
+
+      hydrateDraftFromServer: (remote) => {
+        if (!remote) return; // server has no draft yet — leave the local one (if any, not yet synced) untouched
+        const state = get();
+        const next: SavedPlan = {
+          id: "draft",
+          name: "진행 중인 계획",
+          savedAt: Date.now(),
+          items: remote.placesData,
+          places: placesFromItems(remote.placesData),
+          activeDate: remote.placesData[0]?.date ?? todayISODate(),
+          currentCity: remote.title,
+          region: remote.region,
+          remoteId: remote.id,
+          shareToken: remote.shareToken,
+        };
+        const wasOnDraft = state.activePlanId == null;
+        set({
+          draft: next,
+          ...(wasOnDraft
+            ? { items: next.items, places: next.places, activeDate: next.activeDate, currentCity: next.currentCity, region: next.region }
+            : {}),
+        });
+      },
     }),
     {
       name: "travel-scheduler-saved-places",
@@ -509,7 +654,9 @@ export const useItineraryStore = create<ItineraryState>()(
       // v4: add savedPlans/activePlanId (named multi-plan snapshots).
       //
       // v5: add savedPlaceFolders (user-defined 관심 장소 보관함 folders).
-      version: 5,
+      //
+      // v6: add draft (진행 중인 계획, structurally separate from savedPlans).
+      version: 6,
       partialize: (state) => ({
         items: state.items,
         places: state.places,
@@ -520,6 +667,7 @@ export const useItineraryStore = create<ItineraryState>()(
         region: state.region,
         savedPlans: state.savedPlans,
         activePlanId: state.activePlanId,
+        draft: state.draft,
       }),
       // No explicit migrate needed for v1 -> v2: zustand shallow-merges the
       // persisted slice over the initial state, so v1's { savedPlaces }
@@ -537,6 +685,7 @@ export const useItineraryStore = create<ItineraryState>()(
           region: state.region ?? ("international" as Region),
           savedPlans: state.savedPlans ?? [],
           activePlanId: state.activePlanId ?? null,
+          draft: state.draft ?? null,
         };
         if (version < 3) {
           migrated.places = stripMockPlaces(migrated.places);

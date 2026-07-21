@@ -17,20 +17,28 @@ interface SaveItineraryBody {
   region: Region;
   /** The frontend's `schedule` array — stored as-is in the placesData JSONB column. */
   placesData: ItineraryItem[];
+  /** True for the one unnamed "진행 중인 계획" scratchpad row — kept out of the named "저장된 계획" list (see GET below). */
+  isDraft?: boolean;
 }
 
-/** Every itinerary the current user has ever saved/shared, most recent first. */
+/**
+ * Every itinerary the current user has ever saved/shared, most recent first
+ * — split into the named "저장된 계획" list and the one (if any) unnamed
+ * draft row, so the client never has to filter isDraft out itself.
+ */
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.json({ itineraries: [] });
+    return NextResponse.json({ itineraries: [], draft: null });
   }
 
   const result = await pool.query(
-    `select id, title, region, "placesData", "shareToken" from itineraries where "userId" = $1 order by updated_at desc`,
+    `select id, title, region, "placesData", "shareToken", "isDraft" from itineraries where "userId" = $1 order by updated_at desc`,
     [session.user.id],
   );
-  return NextResponse.json({ itineraries: result.rows });
+  const draft = result.rows.find((r) => r.isDraft) ?? null;
+  const itineraries = result.rows.filter((r) => !r.isDraft);
+  return NextResponse.json({ itineraries, draft });
 }
 
 /**
@@ -70,8 +78,8 @@ export async function POST(request: NextRequest) {
 
   const shareToken = randomUUID();
   const inserted = await pool.query(
-    `insert into itineraries ("userId", title, region, "placesData", "shareToken") values ($1, $2, $3, $4, $5) returning id`,
-    [session.user.id, title, body.region, placesDataJson, shareToken],
+    `insert into itineraries ("userId", title, region, "placesData", "shareToken", "isDraft") values ($1, $2, $3, $4, $5, $6) returning id`,
+    [session.user.id, title, body.region, placesDataJson, shareToken, Boolean(body.isDraft)],
   );
   return NextResponse.json({ id: inserted.rows[0].id, shareToken });
 }

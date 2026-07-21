@@ -107,11 +107,12 @@ export async function saveItinerary(
   placesData: ItineraryItem[],
   title?: string,
   id?: number,
+  isDraft?: boolean,
 ): Promise<{ id: number; shareToken: string }> {
   const res = await fetch("/api/itineraries", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, region, placesData, title }),
+    body: JSON.stringify({ id, region, placesData, title, isDraft }),
   });
   if (!res.ok) throw new Error("Failed to save itinerary");
   return res.json();
@@ -128,16 +129,17 @@ export interface UserItinerary {
 /**
  * Every itinerary the logged-in user has saved/shared across any device —
  * used to hydrate 저장된 계획 on login, including reconciling plans deleted
- * from another device. Throws (rather than resolving to `[]`) on a failed
- * request, so a transient network/server hiccup can't be mistaken for "this
- * account genuinely has zero itineraries" and wipe every locally-synced
- * plan during reconciliation.
+ * from another device — plus the one unnamed 진행 중인 계획 draft row
+ * separately, if one exists. Throws (rather than resolving to `[]`) on a
+ * failed request, so a transient network/server hiccup can't be mistaken
+ * for "this account genuinely has zero itineraries" and wipe every
+ * locally-synced plan during reconciliation.
  */
-export async function fetchUserItineraries(): Promise<UserItinerary[]> {
+export async function fetchUserItineraries(): Promise<{ itineraries: UserItinerary[]; draft: UserItinerary | null }> {
   const res = await fetch("/api/itineraries");
   if (!res.ok) throw new Error("Failed to fetch itineraries");
-  const data = (await res.json()) as { itineraries?: UserItinerary[] };
-  return data.itineraries ?? [];
+  const data = (await res.json()) as { itineraries?: UserItinerary[]; draft?: UserItinerary | null };
+  return { itineraries: data.itineraries ?? [], draft: data.draft ?? null };
 }
 
 /**

@@ -198,6 +198,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const activePlanId = useItineraryStore((s) => s.activePlanId);
   const savePlanAs = useItineraryStore((s) => s.savePlanAs);
+  const promoteDraftToPlan = useItineraryStore((s) => s.promoteDraftToPlan);
   const loadPlan = useItineraryStore((s) => s.loadPlan);
   const setPlanRemoteInfo = useItineraryStore((s) => s.setPlanRemoteInfo);
   const addPlaces = useItineraryStore((s) => s.addPlaces);
@@ -1706,7 +1707,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             savedPlans={savedPlans}
             onClose={() => setSaveModalOpen(false)}
             onSave={(name, overwriteId) => {
-              const planId = savePlanAs(name, overwriteId);
+              // "계획 저장"이 진행 중인 계획(초안)에서 눌린 거면 그 내용을
+              // 새 계획으로 "전환"(promoteDraftToPlan) — 초안이 비워짐.
+              // 이미 열려 있는 이름 붙은 계획을 다른 이름으로 저장/덮어쓰는
+              // 경우는 초안과 무관하므로 그냥 savePlanAs.
+              const wasOnDraft = useItineraryStore.getState().activePlanId == null;
+              const planId = overwriteId ? savePlanAs(name, overwriteId) : wasOnDraft ? promoteDraftToPlan(name) : savePlanAs(name);
               setSaveModalOpen(false);
               showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
               if (planId && session?.user) {
