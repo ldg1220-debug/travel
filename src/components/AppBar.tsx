@@ -159,10 +159,19 @@ export function AppBar() {
     if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
     autoSyncTimer.current = setTimeout(() => {
       const state = useItineraryStore.getState();
-      let planId = state.activePlanId;
-      if (!planId) planId = state.savePlanAs(state.currentCity || "새 여행");
+      // savePlanAs(name, activePlanId) refreshes that plan's own snapshot in
+      // `savedPlans` from the LIVE working itinerary first — without this,
+      // a plan loaded via 사이드바/loadPlan and then edited only ever
+      // diverges further from its saved-plans list entry (which nothing
+      // else keeps in sync except an explicit "계획 저장" click), so this
+      // effect would silently keep re-uploading that plan's stale old
+      // content to the server on every edit instead of what's actually on
+      // screen. Passing no id when there's no active plan yet creates one.
+      const existingPlan = state.activePlanId ? state.savedPlans.find((p) => p.id === state.activePlanId) : undefined;
+      const name = existingPlan?.name ?? (state.currentCity || "새 여행");
+      const planId = state.savePlanAs(name, state.activePlanId ?? undefined);
       if (!planId) return; // MAX_SAVED_PLANS에 도달해 자동 생성이 막힌 경우 — 사용자가 직접 정리해야 함
-      const plan = state.savedPlans.find((p) => p.id === planId);
+      const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
       if (!plan) return;
       syncPlanToServer(planId, plan.region, plan.items, plan.name, plan.remoteId)
         .then(({ id, shareToken }) => setPlanRemoteInfo(planId!, id, shareToken))
