@@ -1,10 +1,10 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import Script from "next/script";
 import type { Region } from "@/lib/types";
 import { GOOGLE_MAPS_API_KEY, googleMapsScriptSrc, isGoogleMapsReady } from "@/lib/maps/google-map";
-import { KAKAO_MAP_KEY, kakaoMapScriptSrc, loadKakaoMaps } from "@/lib/maps/kakao-map";
+import { KAKAO_MAP_KEY, ensureKakaoMapsLoaded } from "@/lib/maps/kakao-map";
 
 export type MapProviderKind = "google" | "kakao";
 
@@ -58,27 +58,37 @@ export function MapProvider({ children, provider, region }: MapProviderProps) {
 
   const isConfigured = resolved === "google" ? Boolean(GOOGLE_MAPS_API_KEY) : Boolean(KAKAO_MAP_KEY);
 
-  const handleLoad = useCallback(() => {
-    if (resolved === "kakao") {
-      loadKakaoMaps(() => setIsLoaded(true));
-    } else {
-      setIsLoaded(isGoogleMapsReady());
-    }
-  }, [resolved]);
+  const handleGoogleLoad = useCallback(() => {
+    setIsLoaded(isGoogleMapsReady());
+  }, []);
 
-  const handleError = useCallback(() => {
-    setLoadError(new Error(`Failed to load ${resolved === "google" ? "Google" : "Kakao"} Maps SDK`));
+  const handleGoogleError = useCallback(() => {
+    setLoadError(new Error("Failed to load Google Maps SDK"));
+  }, []);
+
+  // Kakao goes through the same page-lifetime-shared loader MapProvider.tsx
+  // (the real one, at src/app/(app)/planner/MapProvider.tsx) uses — see its
+  // doc comment for why a per-mount <Script onLoad> doesn't work for Kakao's
+  // one-shot maps.load() init.
+  useEffect(() => {
+    if (resolved !== "kakao" || !KAKAO_MAP_KEY) return;
+    let cancelled = false;
+    ensureKakaoMapsLoaded()
+      .then(() => {
+        if (!cancelled) setIsLoaded(true);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err : new Error(String(err)));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [resolved]);
 
   return (
     <MapContext.Provider value={{ provider: resolved, isLoaded, loadError, isConfigured }}>
-      {isConfigured && !isLoaded && !loadError && (
-        <Script
-          src={resolved === "google" ? googleMapsScriptSrc() : kakaoMapScriptSrc()}
-          strategy="afterInteractive"
-          onLoad={handleLoad}
-          onError={handleError}
-        />
+      {resolved === "google" && isConfigured && !isLoaded && !loadError && (
+        <Script src={googleMapsScriptSrc()} strategy="afterInteractive" onLoad={handleGoogleLoad} onError={handleGoogleError} />
       )}
       {children}
     </MapContext.Provider>
