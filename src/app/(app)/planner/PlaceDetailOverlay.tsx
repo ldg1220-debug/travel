@@ -147,20 +147,27 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
               제스처(드래그/핀치줌)를 켜서 실제로 둘러볼 수 있게 한다(작은
               미리보기는 고정 프레임이라 그럴 필요가 없어 꺼둔 것과 대비). */}
           {mapExpanded && mapsLoaded && (
-            <div className="fixed inset-0 z-[100] bg-white">
-              <PlaceMiniMap place={place} nearbyPlaces={nearbyPlaces} interactive />
-              {/* 지도가 화면 전체를 덮으므로, 닫기 버튼 배경이 지도 위 어떤
-                  색과 겹쳐도 항상 보이도록 그라디언트 스크림을 깔아둔다
-                  (버튼 자체만 믿으면 밝은 도로/라벨 위에서 묻힐 수 있음). */}
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/35 to-transparent" />
-              <button
-                onClick={() => setMapExpanded(false)}
-                aria-label="지도 닫기"
-                className="absolute right-3 flex h-11 w-11 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-black/5"
-                style={{ top: "max(0.75rem, env(safe-area-inset-top, 0px) + 0.5rem)" }}
+            <div className="fixed inset-0 z-[100] flex flex-col bg-white">
+              {/* 닫기 버튼을 지도 위에 떠 있는 오버레이 대신 지도 위쪽의
+                  진짜 레이아웃 공간(별도 바)에 둔다 — 이전엔 absolute로
+                  지도 위에 겹쳐뒀는데, 일부 실기기(카카오톡 인앱 브라우저
+                  등)에서 겹치는 레이어가 통째로 안 보이는 사례가 있어 아예
+                  지도와 같은 층에서 경쟁하지 않도록 구조를 바꿨다. */}
+              <div
+                className="flex shrink-0 items-center justify-end border-b border-slate-100 px-3 py-2"
+                style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.5rem)" }}
               >
-                <X size={20} color="#1e293b" />
-              </button>
+                <button
+                  onClick={() => setMapExpanded(false)}
+                  aria-label="지도 닫기"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100"
+                >
+                  <X size={18} color="#1e293b" />
+                </button>
+              </div>
+              <div className="min-h-0 flex-1">
+                <PlaceMiniMap place={place} nearbyPlaces={nearbyPlaces} interactive />
+              </div>
             </div>
           )}
         </motion.div>

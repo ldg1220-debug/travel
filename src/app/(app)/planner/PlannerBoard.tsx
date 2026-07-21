@@ -59,6 +59,7 @@ import {
   minutesFromTime,
   rangesOverlap,
   formatDateLabelShort,
+  todayISODate,
   dateWindow,
   shiftISODate,
   TIMELINE_HOURS,
@@ -247,8 +248,22 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // changed only by the prev/next chevrons and the month-view jump; a day
   // header click only moves `activeDate` (which day's route is shown),
   // leaving the window itself untouched.
-  const [windowStart, setWindowStart] = useState(activeDate);
+  // `activeDate` persists across sessions (see itineraryStore's partialize)
+  // so someone mid-planning a future trip finds it exactly where they left
+  // it — but if it's stuck in the PAST (left the app open on a date that's
+  // since gone by), that reads as a bug: the schedule looks empty because
+  // the visible window is anchored days behind "today," not because nothing
+  // was ever added. Catch back up to today on first mount in that case only
+  // — a future activeDate (deliberate trip planning) is left untouched.
+  // windowStart's initializer applies the same correction so the two never
+  // disagree about which "today" they opened on.
+  const [windowStart, setWindowStart] = useState(() => (activeDate < todayISODate() ? todayISODate() : activeDate));
   const visibleDates = useMemo(() => dateWindow(windowStart, visibleDays), [windowStart, visibleDays]);
+
+  useEffect(() => {
+    if (activeDate < todayISODate()) setActiveDate(todayISODate());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
+  }, []);
 
   // Month-grid view toggle — the day-column strip only ever shows a few
   // days at once; this swaps it for a full month at a glance (Notion/Google
@@ -760,8 +775,19 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const place = schedulePickerPlace;
     setSchedulePickerPlace(null);
     if (!place) return;
-    if (target.type === "existing") loadPlan(target.planId);
-    else if (target.type === "new") {
+    if (target.type === "existing") {
+      // loadPlan swaps activeDate to that plan's own last-saved date, which
+      // can land far outside the currently visible 3-day window — without
+      // this, the new stop gets added successfully but silently scrolls out
+      // of view (looks exactly like "it didn't get added" — see the
+      // schedule-window comment above windowStart's declaration).
+      const plan = savedPlans.find((p) => p.id === target.planId);
+      loadPlan(target.planId);
+      if (plan) {
+        setWindowStart(plan.activeDate);
+        showToast(`"${plan.name}" 계획으로 전환했어요`);
+      }
+    } else if (target.type === "new") {
       clearAllItems();
       savePlanAs(target.name);
     }
@@ -1686,10 +1712,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               if (planId && session?.user) {
                 const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
                 if (plan) {
+                  // 로컬 저장은 항상 성공하지만, 서버 동기화(다른 기기에서
+                  // 보이게 하는 부분)는 실패할 수 있다 — 그걸 조용히
+                  // 삼키면 사용자는 "저장됨" 토스트만 보고 다른 기기에
+                  // 안 뜰 때까지 아무것도 잘못됐다는 걸 알 길이 없다.
                   syncPlanToServer(planId, plan.region, plan.items, plan.name, plan.remoteId)
                     .then(({ id, shareToken: token }) => setPlanRemoteInfo(planId, id, token))
-                    .catch(() => {});
+                    .catch(() => showToast(`"${name}" 서버 동기화에 실패했어요 — 다른 기기에서 안 보일 수 있어요`));
                 }
+              } else if (planId && !session?.user) {
+                showToast(`"${name}" 이 기기에만 저장됐어요 — 다른 기기에서 보려면 로그인해주세요`);
               }
             }}
           />
