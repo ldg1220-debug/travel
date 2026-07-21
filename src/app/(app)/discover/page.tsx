@@ -508,8 +508,11 @@ export default function DiscoverPage() {
     const place = schedulePickerPlace;
     setSchedulePickerPlace(null);
     if (!place) return;
-    if (target.type === "existing") loadPlan(target.planId);
-    else if (target.type === "new") {
+    if (target.type === "existing") {
+      const plan = savedPlans.find((p) => p.id === target.planId);
+      loadPlan(target.planId);
+      if (plan) showToast(`"${plan.name}" 계획으로 전환했어요`);
+    } else if (target.type === "new") {
       clearAllItems();
       savePlanAs(target.name);
     }

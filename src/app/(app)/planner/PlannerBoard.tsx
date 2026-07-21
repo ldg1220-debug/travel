@@ -760,8 +760,19 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const place = schedulePickerPlace;
     setSchedulePickerPlace(null);
     if (!place) return;
-    if (target.type === "existing") loadPlan(target.planId);
-    else if (target.type === "new") {
+    if (target.type === "existing") {
+      // loadPlan swaps activeDate to that plan's own last-saved date, which
+      // can land far outside the currently visible 3-day window — without
+      // this, the new stop gets added successfully but silently scrolls out
+      // of view (looks exactly like "it didn't get added" — see the
+      // schedule-window comment above windowStart's declaration).
+      const plan = savedPlans.find((p) => p.id === target.planId);
+      loadPlan(target.planId);
+      if (plan) {
+        setWindowStart(plan.activeDate);
+        showToast(`"${plan.name}" 계획으로 전환했어요`);
+      }
+    } else if (target.type === "new") {
       clearAllItems();
       savePlanAs(target.name);
     }
