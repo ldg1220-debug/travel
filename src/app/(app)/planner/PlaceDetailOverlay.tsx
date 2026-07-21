@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, Maximize2, X } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Button } from "@/components/ui/button";
 import { FolderChips } from "@/components/FolderChips";
@@ -61,6 +61,16 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
   const { isLoaded: kakaoLoaded } = useKakaoMapsStatus();
   const mapsLoaded = place ? (isDomesticCoordinate(place.lat, place.lng) ? kakaoLoaded : googleLoaded) : false;
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
+  const [mapExpanded, setMapExpanded] = useState(false);
+  // Resets the expanded-map state when a different place opens, without a
+  // remount-on-key (this component wraps the whole sheet, not just the
+  // form) — setState-during-render is React's sanctioned way to adjust
+  // state in response to a prop change.
+  const [lastPlaceId, setLastPlaceId] = useState(place?.id);
+  if (place?.id !== lastPlaceId) {
+    setLastPlaceId(place?.id);
+    setMapExpanded(false);
+  }
 
   // Other 관심 장소 within a short walk/ride of the one being viewed — gives
   // the mini map actual geographic context ("what else is around here")
@@ -99,7 +109,17 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
                   className="h-full w-full object-cover"
                 />
               ) : mapsLoaded ? (
-                <PlaceMiniMap place={place} nearbyPlaces={nearbyPlaces} />
+                <button
+                  type="button"
+                  onClick={() => setMapExpanded(true)}
+                  aria-label="지도 크게 보기"
+                  className="relative block h-full w-full cursor-pointer"
+                >
+                  <PlaceMiniMap place={place} nearbyPlaces={nearbyPlaces} />
+                  <span className="pointer-events-none absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-slate-500 shadow">
+                    <Maximize2 size={13} />
+                  </span>
+                </button>
               ) : (
                 <div className="flex h-full items-center justify-center text-xs text-slate-400">지도 로딩 중…</div>
               )}
@@ -122,6 +142,22 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
                 state via remount, instead of syncing it from a prop effect. */}
             <PlaceDetailForm key={place.id} place={place} onSave={onSave} onSchedule={onSchedule} />
           </motion.div>
+
+          {/* 지도 크게 보기 — 미니맵을 탭하면 뜨는 전체화면 지도. 이 상태에서는
+              제스처(드래그/핀치줌)를 켜서 실제로 둘러볼 수 있게 한다(작은
+              미리보기는 고정 프레임이라 그럴 필요가 없어 꺼둔 것과 대비). */}
+          {mapExpanded && mapsLoaded && (
+            <div className="fixed inset-0 z-[95] bg-white">
+              <PlaceMiniMap place={place} nearbyPlaces={nearbyPlaces} interactive />
+              <button
+                onClick={() => setMapExpanded(false)}
+                aria-label="지도 닫기"
+                className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-lg"
+              >
+                <X size={16} color="#64748b" />
+              </button>
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
