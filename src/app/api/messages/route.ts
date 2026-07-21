@@ -10,6 +10,7 @@ export interface Conversation {
   nickname: string | null;
   image: string | null;
   lastMessage: string;
+  lastMessageDeleted: boolean;
   lastSenderId: number;
   lastMessageAt: string;
   unreadCount: number;
@@ -26,7 +27,8 @@ export async function GET() {
   const result = await pool.query(
     `select
        other.id as "userId", other.nickname, other.image,
-       latest.content as "lastMessage", latest."senderId" as "lastSenderId", latest.created_at as "lastMessageAt",
+       latest.content as "lastMessage", latest.deleted as "lastMessageDeleted",
+       latest."senderId" as "lastSenderId", latest.created_at as "lastMessageAt",
        coalesce(unread.count, 0) as "unreadCount"
      from (
        select distinct case when "senderId" = $1 then "recipientId" else "senderId" end as "otherId"
@@ -35,7 +37,7 @@ export async function GET() {
      ) c
      join users other on other.id = c."otherId"
      join lateral (
-       select content, "senderId", created_at
+       select content, deleted, "senderId", created_at
        from messages
        where ("senderId" = $1 and "recipientId" = c."otherId") or ("senderId" = c."otherId" and "recipientId" = $1)
        order by created_at desc
@@ -44,7 +46,7 @@ export async function GET() {
      left join lateral (
        select count(*)::int as count
        from messages
-       where "senderId" = c."otherId" and "recipientId" = $1 and read = false
+       where "senderId" = c."otherId" and "recipientId" = $1 and read = false and deleted = false
      ) unread on true
      order by latest.created_at desc`,
     [viewerId],
@@ -82,7 +84,7 @@ export async function POST(request: NextRequest) {
 
   const inserted = await pool.query(
     `insert into messages ("senderId", "recipientId", content) values ($1, $2, $3)
-     returning id, "senderId", "recipientId", content, created_at as "createdAt"`,
+     returning id, "senderId", "recipientId", content, created_at as "createdAt", read, deleted`,
     [session.user.id, recipientId, content],
   );
 

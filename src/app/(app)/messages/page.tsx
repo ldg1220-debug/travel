@@ -102,7 +102,7 @@ export default function MessagesPage() {
                     }`}
                   >
                     {c.lastSenderId === Number(session?.user?.id) ? "나: " : ""}
-                    {c.lastMessage}
+                    {c.lastMessageDeleted ? "삭제된 메시지예요" : c.lastMessage}
                   </p>
                 </div>
                 {c.unreadCount > 0 && (

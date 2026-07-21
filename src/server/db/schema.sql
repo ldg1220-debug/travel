@@ -270,8 +270,13 @@ CREATE TABLE IF NOT EXISTS messages (
   "recipientId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
   read BOOLEAN NOT NULL DEFAULT false,
+  deleted BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 보낸 메시지 삭제("나에게서만"이 아니라 양쪽 모두에서 사라지는 방식) —
+-- 행을 지우지 않고 content를 비우고 deleted만 세워서, 대화 순서/개수가
+-- 삭제 후에도 흐트러지지 않게 한다.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false;
 -- 두 사용자 사이의 대화 하나를 방향과 무관하게 빠르게 모아 조회하기 위한
 -- 인덱스 — least/greatest로 (A,B)든 (B,A)든 같은 키가 되게 정규화한다.
 CREATE INDEX IF NOT EXISTS messages_conversation_idx
