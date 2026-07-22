@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Calendar, ChevronRight, Heart, FolderOpen, Search } from "lucide-react";
+import { Calendar, ChevronRight, Heart, FolderOpen, Search, X } from "lucide-react";
 import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { Input } from "@/components/ui/input";
 import { useItineraryStore } from "@/store/itineraryStore";
@@ -108,10 +108,55 @@ export default function HomePage() {
           ))}
         </section>
 
+        <OnboardingHint />
         <ResumeSection />
         <LatestFeedSection />
       </div>
     </div>
+  );
+}
+
+const ONBOARDING_SEEN_KEY = "tradule_onboarding_seen";
+
+/**
+ * 처음 여는 사람에게 "검색 → 일정에 추가 → 저장" 3단계 흐름을 한 줄로
+ * 짚어주는 배너 — 별도 투어 UI 없이도 핵심 루프를 놓치지 않게 한다.
+ * localStorage에 닫은 기록이 없을 때만 보이고, 한 번 닫으면 다시 안 뜬다.
+ */
+function OnboardingHint() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage(외부 상태)를 마운트 후에만 읽어 hydration mismatch를 피한다
+    setVisible(localStorage.getItem(ONBOARDING_SEEN_KEY) !== "1");
+  }, []);
+
+  if (!visible) return null;
+
+  const dismiss = () => {
+    localStorage.setItem(ONBOARDING_SEEN_KEY, "1");
+    setVisible(false);
+  };
+
+  return (
+    <section className="mb-8 flex items-start gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 dark:border-indigo-500/20 dark:bg-indigo-500/10">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-500 shadow-sm dark:bg-slate-900">
+        <CordixIcon name="trip-map" size={16} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-bold text-indigo-700 dark:text-indigo-300">이렇게 써보세요</p>
+        <p className="mt-0.5 text-[12.5px] leading-relaxed text-indigo-600/90 dark:text-indigo-300/80">
+          장소를 검색해서 <b>일정에 추가</b>하고, 다 짰으면 <b>계획 저장</b>으로 이름 붙여두세요. 로그인하면 다른 기기에서도 이어볼 수 있어요.
+        </p>
+      </div>
+      <button
+        onClick={dismiss}
+        aria-label="안내 닫기"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-indigo-400 hover:bg-white/70 dark:hover:bg-slate-800"
+      >
+        <X size={13} />
+      </button>
+    </section>
   );
 }
 

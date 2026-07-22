@@ -30,6 +30,7 @@ export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
   const [requestBusyId, setRequestBusyId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
   const loggedIn = !!session?.user;
@@ -81,9 +82,12 @@ export function NotificationBell() {
   const handleAccept = async (e: React.MouseEvent, n: AppNotification) => {
     e.stopPropagation();
     setRequestBusyId(n.id);
+    setActionError(null);
     try {
       await acceptFollowRequest(n.actorId);
       setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, requestStatus: "accepted" } : x)));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "수락하지 못했어요");
     } finally {
       setRequestBusyId(null);
     }
@@ -92,9 +96,12 @@ export function NotificationBell() {
   const handleReject = async (e: React.MouseEvent, n: AppNotification) => {
     e.stopPropagation();
     setRequestBusyId(n.id);
+    setActionError(null);
     try {
       await rejectFollowRequest(n.actorId);
       setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, requestStatus: "none" } : x)));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "거절하지 못했어요");
     } finally {
       setRequestBusyId(null);
     }
@@ -118,6 +125,7 @@ export function NotificationBell() {
       {open && (
         <div className="absolute right-0 top-11 z-[70] max-h-[70vh] w-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl sm:w-80 dark:border-slate-700 dark:bg-slate-900">
           <p className="px-3.5 py-2 text-[13px] font-bold text-slate-800 dark:text-slate-100">알림</p>
+          {actionError && <p className="px-3.5 pb-2 text-[11.5px] text-rose-500">{actionError}</p>}
           {notifications.length === 0 ? (
             <p className="px-3.5 py-6 text-center text-[12.5px] text-slate-400">아직 알림이 없어요</p>
           ) : (

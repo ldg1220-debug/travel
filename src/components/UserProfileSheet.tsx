@@ -26,6 +26,7 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
   const [busy, setBusy] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,11 +42,14 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
 
   const runAction = async (action: () => Promise<void>) => {
     setBusy(true);
+    setActionError(null);
     try {
       await action();
       const next = await fetchUserProfile(userId);
       setProfile(next);
       onChange?.();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "요청을 처리하지 못했어요");
     } finally {
       setBusy(false);
     }
@@ -160,6 +164,8 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
                   트래블 메이트 신청
                 </button>
               ))}
+
+            {!isSelf && actionError && <p className="mt-2 text-center text-[11.5px] text-rose-500">{actionError}</p>}
 
             {!isSelf && (
               <button

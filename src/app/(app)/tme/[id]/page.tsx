@@ -28,6 +28,7 @@ export default function TmeInvitePage() {
   const [notFound, setNotFound] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return; // 잘못된 id는 렌더 단계에서 바로 not-found 처리
@@ -50,10 +51,13 @@ export default function TmeInvitePage() {
       return;
     }
     setBusy(true);
+    setActionError(null);
     try {
       await action();
       const next = await fetchUserProfile(userId);
       setProfile(next);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "요청을 처리하지 못했어요");
     } finally {
       setBusy(false);
     }
@@ -142,6 +146,8 @@ export default function TmeInvitePage() {
             트래블 메이트 신청 보내기
           </button>
         )}
+
+        {actionError && <p className="mt-2.5 text-[12px] text-rose-500">{actionError}</p>}
 
         <button onClick={() => router.push("/")} className="mt-4 text-[12.5px] font-semibold text-slate-400 hover:text-slate-600">
           트레쥴 둘러보기

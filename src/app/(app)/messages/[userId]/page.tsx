@@ -48,9 +48,17 @@ export default function MessageThreadPage() {
     };
     load();
     const interval = setInterval(load, POLL_INTERVAL_MS);
+    // 4초 폴링만으로는 "다른 앱 보다가 돌아왔을 때" 최대 4초간 안읽음/새
+    // 메시지가 뒤늦게 보인다 — 탭/앱이 다시 포그라운드로 올 때는 그 주기를
+    // 기다리지 않고 즉시 한 번 더 불러온다.
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [otherId, viewerId]);
 
