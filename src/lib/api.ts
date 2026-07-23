@@ -149,7 +149,8 @@ export async function fetchUserItineraries(): Promise<{ itineraries: UserItinera
  * server row and pull it right back in as a "new" plan.
  */
 export async function deleteItinerary(id: number): Promise<void> {
-  await fetch(`/api/itineraries?id=${id}`, { method: "DELETE" });
+  const res = await fetch(`/api/itineraries?id=${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("계획을 삭제하지 못했어요");
 }
 
 export interface SharedItinerary {
@@ -260,7 +261,8 @@ export async function saveReview(input: {
 }
 
 export async function deleteReview(id: number): Promise<void> {
-  await fetch(`/api/reviews?id=${id}`, { method: "DELETE" });
+  const res = await fetch(`/api/reviews?id=${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("후기를 삭제하지 못했어요");
 }
 
 /** 전체공개 / 트메공개(맞팔로우만) / 특정인공개(선택한 팔로워만) / 비공개(나만). */
@@ -322,7 +324,8 @@ export async function saveTripPost(input: {
 }
 
 export async function deleteTripPost(id: number): Promise<void> {
-  await fetch(`/api/trip-posts?id=${id}`, { method: "DELETE" });
+  const res = await fetch(`/api/trip-posts?id=${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("삭제하지 못했어요");
 }
 
 export interface FeedPost {
@@ -386,11 +389,13 @@ export async function fetchTripPost(id: number): Promise<{ post: TripPostDetail;
 }
 
 export async function likeTripPost(id: number): Promise<void> {
-  await fetch(`/api/trip-posts/${id}/like`, { method: "POST" });
+  const res = await fetch(`/api/trip-posts/${id}/like`, { method: "POST" });
+  if (!res.ok) throw new Error("좋아요를 처리하지 못했어요");
 }
 
 export async function unlikeTripPost(id: number): Promise<void> {
-  await fetch(`/api/trip-posts/${id}/like`, { method: "DELETE" });
+  const res = await fetch(`/api/trip-posts/${id}/like`, { method: "DELETE" });
+  if (!res.ok) throw new Error("좋아요를 처리하지 못했어요");
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -446,32 +451,45 @@ export async function fetchMateCount(): Promise<number> {
   return data.count;
 }
 
+/** 실패를 조용히 삼키지 않도록 — 세션 만료(401) 등으로 실패했는데도 버튼만
+ * 아무 반응 없이 끝나 보이는 문제를 막는다. 서버가 주는 원문 에러는 영문
+ * 코드라 그대로 보여주지 않고, 상황별 한국어 메시지로 치환한다. */
+async function assertFollowsOk(res: Response, fallback: string): Promise<void> {
+  if (res.ok) return;
+  if (res.status === 401) throw new Error("로그인이 만료됐어요 — 다시 로그인해주세요");
+  throw new Error(fallback);
+}
+
 /** Sends a 트메 신청 — needs the recipient's acceptance before it counts as a real connection. */
 export async function followUser(targetUserId: number): Promise<void> {
-  await fetch("/api/follows", {
+  const res = await fetch("/api/follows", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targetUserId }),
   });
+  await assertFollowsOk(res, "트래블 메이트 신청을 보내지 못했어요");
 }
 
 /** Cancels my own pending 트메 신청 to `targetUserId`, or ends an already-accepted connection. */
 export async function unfollowUser(targetUserId: number): Promise<void> {
-  await fetch(`/api/follows?targetUserId=${targetUserId}`, { method: "DELETE" });
+  const res = await fetch(`/api/follows?targetUserId=${targetUserId}`, { method: "DELETE" });
+  await assertFollowsOk(res, "요청을 처리하지 못했어요");
 }
 
 /** Accepts a pending 트메 신청 sent to me by `requesterId`. */
 export async function acceptFollowRequest(requesterId: number): Promise<void> {
-  await fetch("/api/follows", {
+  const res = await fetch("/api/follows", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ requesterId }),
   });
+  await assertFollowsOk(res, "수락하지 못했어요");
 }
 
 /** Rejects a pending 트메 신청 sent to me by `requesterId`. */
 export async function rejectFollowRequest(requesterId: number): Promise<void> {
-  await fetch(`/api/follows?requesterId=${requesterId}`, { method: "DELETE" });
+  const res = await fetch(`/api/follows?requesterId=${requesterId}`, { method: "DELETE" });
+  await assertFollowsOk(res, "거절하지 못했어요");
 }
 
 /** The current user's own follow-related lists — followers/following은 수락된 관계, received/sent는 대기 중인 트메 신청(받은 것/보낸 것). */

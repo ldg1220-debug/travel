@@ -141,6 +141,8 @@ export default function TripPostDetailPage() {
       }
       const next = await fetchFollowStatus(post.authorId);
       setFollowStatus(next);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "요청을 처리하지 못했어요");
     } finally {
       setFollowBusy(false);
     }
@@ -172,6 +174,10 @@ export default function TripPostDetailPage() {
       } else {
         await likeTripPost(post.id);
       }
+    } catch {
+      // 실패했으면 낙관적으로 반영했던 상태를 되돌린다.
+      setPost((prev) => (prev ? { ...prev, isLiked: wasLiked, likesCount: prev.likesCount + (wasLiked ? 1 : -1) } : prev));
+      showToast("좋아요를 처리하지 못했어요");
     } finally {
       setLikeBusy(false);
     }

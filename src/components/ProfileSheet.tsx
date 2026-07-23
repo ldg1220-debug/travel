@@ -81,6 +81,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // 이용약관·개인정보처리방침 필수 동의 — 아직 동의 기록이 없는 계정이
   // mandatory 게이트를 만나면 체크해야 저장(=앱 진입)할 수 있다.
@@ -150,8 +151,11 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
 
   const withBusy = async (id: number, action: () => Promise<void>) => {
     setBusyIds((prev) => new Set(prev).add(id));
+    setActionError(null);
     try {
       await action();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "요청을 처리하지 못했어요");
     } finally {
       setBusyIds((prev) => {
         const next = new Set(prev);
@@ -310,6 +314,9 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
               </button>
             ))}
           </div>
+        )}
+        {!mandatory && tab !== "settings" && actionError && (
+          <p className="mb-3 text-[12px] text-rose-500">{actionError}</p>
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto">

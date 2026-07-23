@@ -37,9 +37,14 @@ export default function MessagesPage() {
     };
     load();
     const interval = setInterval(load, POLL_INTERVAL_MS);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [session?.user]);
 
