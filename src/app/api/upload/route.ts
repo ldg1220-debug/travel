@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { auth } from "@/auth";
 import { sniffImageType } from "@/lib/server/imageSniff";
+import { checkRateLimit } from "@/lib/server/rateLimit";
 
 const MAX_FILES = 6;
 const MAX_BYTES = 8 * 1024 * 1024; // 8MB per photo
@@ -32,6 +33,9 @@ export async function POST(request: NextRequest) {
   }
   if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) {
     return NextResponse.json({ error: "사진 업로드가 아직 설정되지 않았어요" }, { status: 503 });
+  }
+  if (!(await checkRateLimit(`upload:${session.user.id}`, 20, 600))) {
+    return NextResponse.json({ error: "사진을 너무 많이 올렸어요. 잠시 후 다시 시도해주세요" }, { status: 429 });
   }
 
   const form = await request.formData();

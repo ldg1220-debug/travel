@@ -457,6 +457,10 @@ export async function fetchMateCount(): Promise<number> {
 async function assertFollowsOk(res: Response, fallback: string): Promise<void> {
   if (res.ok) return;
   if (res.status === 401) throw new Error("로그인이 만료됐어요 — 다시 로그인해주세요");
+  if (res.status === 429) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? fallback);
+  }
   throw new Error(fallback);
 }
 

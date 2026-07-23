@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { sendPushToUser } from "@/lib/server/push";
+import { checkRateLimit } from "@/lib/server/rateLimit";
 
 export interface FollowUser {
   id: number;
@@ -107,6 +108,9 @@ export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!(await checkRateLimit(`follows:${session.user.id}`, 30, 3600))) {
+    return NextResponse.json({ error: "요청이 너무 많아요. 잠시 후 다시 시도해주세요" }, { status: 429 });
   }
   const body = (await request.json()) as { targetUserId?: number };
   const targetId = Number(body.targetUserId);
