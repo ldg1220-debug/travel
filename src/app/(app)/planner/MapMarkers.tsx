@@ -34,13 +34,15 @@ interface MarkerContentProps {
   onUp: (place: Place) => void;
   onMove: (e: React.PointerEvent) => void;
   onCancel: () => void;
+  /** Keyboard equivalent of a quick tap — long-press-drag has no keyboard analog, so this is the only way a keyboard user can act on a pin. */
+  onActivate: (place: Place) => void;
 }
 
 // Rendered inside an <OverlayView>, which already anchors its wrapper div
 // at the marker's projected lat/lng pixel (top-left) — the translate here
 // shifts that to a bottom-center pin anchor, same convention as the main
 // app's GoogleMapEngine.
-export function MarkerContent({ place, order, pressing, hidden, onDown, onUp, onMove, onCancel }: MarkerContentProps) {
+export function MarkerContent({ place, order, pressing, hidden, onDown, onUp, onMove, onCancel, onActivate }: MarkerContentProps) {
   return (
     <div
       className="absolute -translate-x-1/2 -translate-y-full touch-none select-none"
@@ -51,9 +53,17 @@ export function MarkerContent({ place, order, pressing, hidden, onDown, onUp, on
         onPointerUp={() => onUp(place)}
         onPointerMove={onMove}
         onPointerCancel={onCancel}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          onActivate(place);
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label={order != null ? `${place.name}, ${order}번째 일정` : place.name}
         animate={{ scale: pressing ? 1.12 : 1 }}
         transition={{ type: "spring", stiffness: 500, damping: 20 }}
-        className="relative cursor-pointer"
+        className="relative cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
       >
         {pressing && (
           <motion.span

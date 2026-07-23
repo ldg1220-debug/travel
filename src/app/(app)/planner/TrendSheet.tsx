@@ -37,6 +37,7 @@ interface TrendSheetProps {
   onUp: (place: Place) => void;
   onMove: (e: React.PointerEvent) => void;
   onCancel: () => void;
+  onActivate: (place: Place) => void;
   pressingId: string | null;
   /**
    * Coordinates of the day's already-scheduled stops — when present, trend
@@ -56,6 +57,7 @@ export function TrendSheet({
   onUp,
   onMove,
   onCancel,
+  onActivate,
   pressingId,
   nearAnchors,
 }: TrendSheetProps) {
@@ -113,6 +115,7 @@ export function TrendSheet({
               onUp={onUp}
               onMove={onMove}
               onCancel={onCancel}
+              onActivate={onActivate}
             />
           ))}
         </div>
@@ -129,9 +132,10 @@ interface TrendCardRowProps {
   onUp: (place: Place) => void;
   onMove: (e: React.PointerEvent) => void;
   onCancel: () => void;
+  onActivate: (place: Place) => void;
 }
 
-function TrendCardRow({ trend, distanceMeters, pressing, onDown, onUp, onMove, onCancel }: TrendCardRowProps) {
+function TrendCardRow({ trend, distanceMeters, pressing, onDown, onUp, onMove, onCancel, onActivate }: TrendCardRowProps) {
   const { place, hashtag } = trend;
   return (
     <div
@@ -139,7 +143,15 @@ function TrendCardRow({ trend, distanceMeters, pressing, onDown, onUp, onMove, o
       onPointerUp={() => onUp(place)}
       onPointerMove={onMove}
       onPointerCancel={onCancel}
-      className="flex cursor-pointer touch-none select-none items-center gap-3 rounded-2xl border border-slate-100 p-2.5"
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        onActivate(place);
+      }}
+      role="button"
+      tabIndex={0}
+      aria-label={place.name}
+      className="flex cursor-pointer touch-none select-none items-center gap-3 rounded-2xl border border-slate-100 p-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
       style={{ transform: pressing ? "scale(0.97)" : "scale(1)", transition: "transform 150ms ease-out" }}
     >
       <div

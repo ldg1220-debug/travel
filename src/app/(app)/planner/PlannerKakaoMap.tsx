@@ -21,6 +21,7 @@ interface PlannerKakaoMapProps {
   onUp: (place: Place) => void;
   onMove: (e: React.PointerEvent) => void;
   onCancel: () => void;
+  onActivate: (place: Place) => void;
   savedPlaces: Place[];
   selectedSavedPlace: Place | null;
   onSelectSaved: (id: string | null) => void;
@@ -54,6 +55,7 @@ export default function PlannerKakaoMap({
   onUp,
   onMove,
   onCancel,
+  onActivate,
   savedPlaces,
   selectedSavedPlace,
   onSelectSaved,
@@ -95,6 +97,7 @@ export default function PlannerKakaoMap({
                 onUp={onUp}
                 onMove={onMove}
                 onCancel={onCancel}
+                onActivate={onActivate}
               />
             </KakaoOverlay>
           ))}
@@ -105,7 +108,18 @@ export default function PlannerKakaoMap({
         <>
           {savedPlaces.map((p) => (
             <KakaoOverlay key={p.id} position={{ lat: p.lat, lng: p.lng }}>
-              <div className="cursor-pointer touch-none select-none" onClick={() => onSelectSaved(p.id)}>
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={p.name}
+                className="cursor-pointer touch-none select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
+                onClick={() => onSelectSaved(p.id)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  e.preventDefault();
+                  onSelectSaved(p.id);
+                }}
+              >
                 <Pin place={p} />
               </div>
             </KakaoOverlay>
