@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export interface PlaceDetails {
   openNow: boolean | null;
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const placeId = (request.nextUrl.searchParams.get("placeId") ?? "").trim();
   // New Places API place ids are opaque tokens (commonly "ChIJ…") — a
   // loose allowlist keeps this from being pointed at arbitrary paths.
@@ -81,4 +82,4 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(details, {
     headers: { "Cache-Control": "public, max-age=3600, s-maxage=86400" },
   });
-}
+});

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 export interface ChatMessage {
   id: number;
@@ -18,7 +19,7 @@ export interface ChatMessage {
  * Message history stays readable even after the two are no longer 트래블
  * 메이트 (only sending new ones is gated on that, in POST /api/messages).
  */
-export async function GET(_request: Request, { params }: { params: Promise<{ userId: string }> }) {
+export const GET = withApiErrorHandling(async (_request: Request, { params }: { params: Promise<{ userId: string }> }) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -43,10 +44,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ use
   await pool.query(`update messages set read = true where "senderId" = $1 and "recipientId" = $2 and read = false`, [otherId, viewerId]);
 
   return NextResponse.json({ messages: result.rows as ChatMessage[] });
-}
+});
 
 /** 보낸 사람 본인만 자기 메시지를 삭제할 수 있다 — 행을 지우는 대신 content를 비우고 deleted를 세워, 대화 양쪽 모두에 "삭제된 메시지"로 보이게 한다. */
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ userId: string }> }) {
+export const DELETE = withApiErrorHandling(async (request: NextRequest, { params }: { params: Promise<{ userId: string }> }) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -68,4 +69,4 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   }
 
   return NextResponse.json({ ok: true });
-}
+});

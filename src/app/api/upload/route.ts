@@ -3,6 +3,7 @@ import { put } from "@vercel/blob";
 import { auth } from "@/auth";
 import { sniffImageType } from "@/lib/server/imageSniff";
 import { checkRateLimit } from "@/lib/server/rateLimit";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 const MAX_FILES = 6;
 const MAX_BYTES = 8 * 1024 * 1024; // 8MB per photo
@@ -26,7 +27,7 @@ const MAX_BYTES = 8 * 1024 * 1024; // 8MB per photo
  * (including anonymous visitors of a public review/trip post) has to go
  * through a route that fetches it server-side instead.
  */
-export async function POST(request: NextRequest) {
+export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -78,4 +79,4 @@ export async function POST(request: NextRequest) {
     console.error("Blob upload failed", err);
     return NextResponse.json({ error: "사진 업로드에 실패했어요. 잠시 후 다시 시도해주세요" }, { status: 502 });
   }
-}
+});

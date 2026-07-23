@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 interface ReviewBody {
   itineraryId: number | null;
@@ -28,7 +29,7 @@ export interface ReviewRow {
 }
 
 /** The current user's own reviews — optionally scoped to one trip (`itineraryId`), used to prefill 여행 보관함's per-place 후기 작성 sheet and show "N개 장소 리뷰 작성됨" progress on a trip card. */
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ reviews: [] });
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
     params,
   );
   return NextResponse.json({ reviews: result.rows });
-}
+});
 
 /**
  * Creates or updates the current user's review for a place. A plan-linked
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
  * itineraryId is null (never silently falls back to a global, unscoped
  * review shared across every plan-less post the user has ever written).
  */
-export async function POST(request: NextRequest) {
+export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -98,10 +99,10 @@ export async function POST(request: NextRequest) {
     [session.user.id, itineraryId, tripPostId, body.placeId, body.placeName ?? "", rating, body.content.trim(), images, Boolean(body.isPublic)],
   );
   return NextResponse.json({ id: result.rows[0].id });
-}
+});
 
 /** Deletes one of the current user's reviews. */
-export async function DELETE(request: NextRequest) {
+export const DELETE = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -112,4 +113,4 @@ export async function DELETE(request: NextRequest) {
   }
   await pool.query(`delete from reviews where id = $1 and "userId" = $2`, [id, session.user.id]);
   return NextResponse.json({ ok: true });
-}
+});

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import type { ItineraryItem, Region } from "@/lib/types";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 interface SaveItineraryBody {
   /**
@@ -26,7 +27,7 @@ interface SaveItineraryBody {
  * — split into the named "저장된 계획" list and the one (if any) unnamed
  * draft row, so the client never has to filter isDraft out itself.
  */
-export async function GET() {
+export const GET = withApiErrorHandling(async () => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ itineraries: [], draft: null });
@@ -39,7 +40,7 @@ export async function GET() {
   const draft = result.rows.find((r) => r.isDraft) ?? null;
   const itineraries = result.rows.filter((r) => !r.isDraft);
   return NextResponse.json({ itineraries, draft });
-}
+});
 
 /**
  * Creates or updates one of the current user's itineraries. Passing `id`
@@ -48,7 +49,7 @@ export async function GET() {
  * row with a fresh shareToken, so two different plans never end up
  * aliasing the same link.
  */
-export async function POST(request: NextRequest) {
+export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -82,14 +83,14 @@ export async function POST(request: NextRequest) {
     [session.user.id, title, body.region, placesDataJson, shareToken, Boolean(body.isDraft)],
   );
   return NextResponse.json({ id: inserted.rows[0].id, shareToken });
-}
+});
 
 /**
  * Deletes one of the current user's itineraries — used when 저장된 계획 is
  * removed locally, so the server-side row doesn't outlive it and get pulled
  * back in as a "new" plan by the next cross-device hydration.
  */
-export async function DELETE(request: NextRequest) {
+export const DELETE = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -102,4 +103,4 @@ export async function DELETE(request: NextRequest) {
 
   await pool.query(`delete from itineraries where id = $1 and "userId" = $2`, [id, session.user.id]);
   return NextResponse.json({ ok: true });
-}
+});

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/server/db";
 import type { ItineraryItem, Region } from "@/lib/types";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 interface PushBody {
   region: Region;
@@ -14,7 +15,7 @@ interface PushBody {
  * "fastest reliable given current infra" sync mechanism (no WebSocket
  * server / Supabase in this stack).
  */
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ shareToken: string }> }) {
+export const GET = withApiErrorHandling(async (_request: NextRequest, { params }: { params: Promise<{ shareToken: string }> }) => {
   const { shareToken } = await params;
   const result = await pool.query(
     `select title, region, "placesData", updated_at from itineraries where "shareToken" = $1`,
@@ -30,9 +31,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     placesData: row.placesData,
     updatedAt: row.updated_at,
   });
-}
+});
 
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ shareToken: string }> }) {
+export const PUT = withApiErrorHandling(async (request: NextRequest, { params }: { params: Promise<{ shareToken: string }> }) => {
   const { shareToken } = await params;
   const body = (await request.json()) as PushBody;
 
@@ -44,4 +45,4 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   return NextResponse.json({ ok: true });
-}
+});

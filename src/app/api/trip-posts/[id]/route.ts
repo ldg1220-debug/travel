@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 /**
  * A single trip post with author/trip context plus its author's per-place
@@ -12,7 +13,7 @@ import { pool } from "@/lib/server/db";
  *  - "private": only the author
  * The owner can always see their own post regardless of visibility.
  */
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withApiErrorHandling(async (_request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const postId = Number(id);
   if (!postId) {
@@ -96,4 +97,4 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   ).rows;
 
   return NextResponse.json({ post: row, placeReviews, isOwner });
-}
+});

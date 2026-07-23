@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 const STATUSES = new Set(["pending", "reviewing", "resolved", "dismissed"]);
 
 /** 신고 처리 상태/메모 갱신 — 관리자만. */
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = withApiErrorHandling(async (request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const session = await auth();
   if (!session?.user?.isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -37,4 +38,4 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   await pool.query(`update reports set ${sets.join(", ")} where id = $${values.length}`, values);
   return NextResponse.json({ ok: true });
-}
+});

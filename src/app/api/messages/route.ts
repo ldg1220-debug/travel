@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { sendPushToUser } from "@/lib/server/push";
 import { checkRateLimit } from "@/lib/server/rateLimit";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 const MAX_CONTENT_LENGTH = 2000;
 
@@ -18,7 +19,7 @@ export interface Conversation {
 }
 
 /** Every conversation the current user is part of, most recently active first. */
-export async function GET() {
+export const GET = withApiErrorHandling(async () => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ conversations: [] });
@@ -53,10 +54,10 @@ export async function GET() {
     [viewerId],
   );
   return NextResponse.json({ conversations: result.rows as Conversation[] });
-}
+});
 
 /** Sends a message — only allowed between mutual 트래블 메이트 (both directions accepted). */
-export async function POST(request: NextRequest) {
+export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -103,4 +104,4 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ message: inserted.rows[0] });
-}
+});

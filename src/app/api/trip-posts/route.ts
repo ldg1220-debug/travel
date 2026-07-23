@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 type Visibility = "public" | "friends" | "custom" | "private";
 const VISIBILITIES: Visibility[] = ["public", "friends", "custom", "private"];
@@ -31,7 +32,7 @@ export interface TripPostRow {
 }
 
 /** The current user's own trip posts — optionally scoped to one trip, used to prefill 여행 보관함's 여행 후기 쓰기 editor. */
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ posts: [] });
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
     params,
   );
   return NextResponse.json({ posts: result.rows });
-}
+});
 
 /** Replaces the "custom" visibility allow-list for a post with exactly `userIds` — a no-op empty list when visibility isn't "custom". */
 async function setVisibleTo(postId: number, visibility: Visibility, userIds: number[]) {
@@ -71,7 +72,7 @@ async function setVisibleTo(postId: number, visibility: Visibility, userIds: num
  *  - `id` omitted, `itineraryId` given: upserts the one post for that plan.
  *  - both omitted: a wholly fresh, plan-less post ("완전 새로 작성").
  */
-export async function POST(request: NextRequest) {
+export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -123,10 +124,10 @@ export async function POST(request: NextRequest) {
   );
   await setVisibleTo(result.rows[0].id, visibility, visibleToUserIds);
   return NextResponse.json({ id: result.rows[0].id });
-}
+});
 
 /** Deletes one of the current user's trip posts. */
-export async function DELETE(request: NextRequest) {
+export const DELETE = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -137,4 +138,4 @@ export async function DELETE(request: NextRequest) {
   }
   await pool.query(`delete from trip_posts where id = $1 and "userId" = $2`, [id, session.user.id]);
   return NextResponse.json({ ok: true });
-}
+});

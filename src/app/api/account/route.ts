@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { list, del } from "@vercel/blob";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 /**
  * 회원 탈퇴 — 계정과 모든 데이터를 영구 삭제한다. `users` 행을 지우면
@@ -10,7 +11,7 @@ import { pool } from "@/lib/server/db";
  * (schema.sql 참고) — 별도로 지울 테이블이 없다. 업로드한 사진(Vercel Blob)만
  * 예외적으로 별도 정리가 필요하다.
  */
-export async function DELETE() {
+export const DELETE = withApiErrorHandling(async () => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -32,4 +33,4 @@ export async function DELETE() {
 
   await pool.query(`delete from users where id = $1`, [userId]);
   return NextResponse.json({ ok: true });
-}
+});

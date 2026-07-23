@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 const LIST_LIMIT = 30;
 
 /** Latest notifications (팔로우/좋아요) for the current user, newest first, plus the unread count for the bell badge. */
-export async function GET() {
+export const GET = withApiErrorHandling(async () => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ notifications: [], unreadCount: 0 });
@@ -32,14 +33,14 @@ export async function GET() {
   ]);
 
   return NextResponse.json({ notifications: listResult.rows, unreadCount: unreadResult.rows[0]?.count ?? 0 });
-}
+});
 
 /** Marks all of the current user's notifications as read (called when the bell panel opens). */
-export async function PATCH() {
+export const PATCH = withApiErrorHandling(async () => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   await pool.query(`update notifications set read = true where "recipientId" = $1 and read = false`, [session.user.id]);
   return NextResponse.json({ ok: true });
-}
+});
