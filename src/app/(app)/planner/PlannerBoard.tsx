@@ -914,6 +914,27 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (Math.hypot(e.clientX - startPos.current.x, e.clientY - startPos.current.y) > 8) cancelPress();
   };
 
+  // Keyboard equivalent of a quick tap on a map pin (drag-to-reschedule has
+  // no keyboard analog, but view/edit does) — same branch onUp takes for a
+  // press that didn't turn into a long-press-drag.
+  const activatePin = (place: Place) => {
+    if (tab === "saved") {
+      openDetailFor(place);
+    } else {
+      const existing = schedule.find((s) => s.placeId === place.id);
+      if (existing) openEditModal(existing);
+      else openCreateModal(place);
+    }
+    setSheetOpen(false);
+  };
+  // Same idea for TrendSheet cards — pressSource is always "trend" there,
+  // so onUp's short-tap branch never does the existing-stop lookup above.
+  const activateTrend = (place: Place) => {
+    if (tab === "saved") openDetailFor(place);
+    else openCreateModal(place);
+    setSheetOpen(false);
+  };
+
   useEffect(() => () => cancelPress(), []);
 
   // ── dnd-kit: reordering already-scheduled items across the grid ──
@@ -1190,6 +1211,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             onUp={onUp}
             onMove={onMove}
             onCancel={cancelPress}
+            onActivate={activateTrend}
             pressingId={pressingId}
             nearAnchors={schedule.map((s) => s.coordinates)}
           />
@@ -1210,6 +1232,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               onUp={onUp}
               onMove={onMove}
               onCancel={cancelPress}
+              onActivate={activatePin}
               savedPlaces={savedPlaces}
               selectedSavedPlace={selectedSavedPlace}
               onSelectSaved={setSelectedSavedId}
@@ -1234,6 +1257,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               onUp={onUp}
               onMove={onMove}
               onCancel={cancelPress}
+              onActivate={activatePin}
               savedPlaces={savedPlaces}
               selectedSavedPlace={selectedSavedPlace}
               onSelectSaved={setSelectedSavedId}
@@ -1893,6 +1917,44 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinut
     setLiveDuration(null);
   };
 
+  // Keyboard equivalents of the pointer-drag handles above — arrow keys
+  // step by RESIZE_STEP_MINUTES, Home/End jump to the allowed extremes.
+  const handleBottomResizeKeyDown = (e: React.KeyboardEvent) => {
+    let next: number | null = null;
+    if (e.key === "ArrowUp" || e.key === "ArrowRight") {
+      next = Math.min(maxDurationMinutes, item.durationMinutes + RESIZE_STEP_MINUTES);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
+      next = Math.max(MIN_DURATION_MINUTES, item.durationMinutes - RESIZE_STEP_MINUTES);
+    } else if (e.key === "Home") {
+      next = MIN_DURATION_MINUTES;
+    } else if (e.key === "End") {
+      next = maxDurationMinutes;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    if (next !== item.durationMinutes) onResize(item.id, next);
+  };
+
+  const handleTopResizeKeyDown = (e: React.KeyboardEvent) => {
+    const end = baseStart + item.durationMinutes;
+    const latestStart = end - MIN_DURATION_MINUTES;
+    let next: number | null = null;
+    if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+      next = Math.max(minStartMinutes, baseStart - RESIZE_STEP_MINUTES);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+      next = Math.min(latestStart, baseStart + RESIZE_STEP_MINUTES);
+    } else if (e.key === "Home") {
+      next = minStartMinutes;
+    } else if (e.key === "End") {
+      next = latestStart;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    if (next !== baseStart) onRetime(item.id, next, end - next);
+  };
+
   const effectiveStart = liveStartMinutes ?? baseStart;
   const effectiveDuration = liveDuration ?? item.durationMinutes;
   const effectiveTimeLabel = liveStartMinutes != null ? formatTime(Math.floor(effectiveStart / 60), effectiveStart % 60) : item.time;
@@ -1990,26 +2052,42 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinut
         </div>
       )}
 
-      {/* top-edge resize handle — drag to change this stop's start time in 15-minute steps, growing/shrinking upward with the end time held fixed */}
+      {/* top-edge resize handle — drag (or arrow keys when focused) to change this stop's start time in 15-minute steps, growing/shrinking upward with the end time held fixed */}
       <div
         onPointerDown={handleTopResizeDown}
         onPointerMove={handleTopResizeMove}
         onPointerUp={handleTopResizeUp}
         onPointerCancel={handleTopResizeUp}
         onClick={(e) => e.stopPropagation()}
-        className="absolute inset-x-0 top-0 flex h-2.5 cursor-ns-resize touch-none items-start justify-center"
+        onKeyDown={handleTopResizeKeyDown}
+        role="slider"
+        tabIndex={0}
+        aria-label={`${display.name} 시작 시간 조절`}
+        aria-valuemin={minStartMinutes}
+        aria-valuemax={baseStart + item.durationMinutes - MIN_DURATION_MINUTES}
+        aria-valuenow={effectiveStart}
+        aria-valuetext={effectiveTimeLabel}
+        className="absolute inset-x-0 top-0 flex h-2.5 cursor-ns-resize touch-none items-start justify-center focus:outline-none focus-visible:bg-slate-900/10"
       >
         <span className="mt-0.5 h-0.5 w-5 rounded-full bg-slate-400/60" />
       </div>
 
-      {/* bottom-edge resize handle — drag to change this stop's length in 15-minute steps */}
+      {/* bottom-edge resize handle — drag (or arrow keys when focused) to change this stop's length in 15-minute steps */}
       <div
         onPointerDown={handleResizeDown}
         onPointerMove={handleResizeMove}
         onPointerUp={handleResizeUp}
         onPointerCancel={handleResizeUp}
         onClick={(e) => e.stopPropagation()}
-        className="absolute inset-x-0 bottom-0 flex h-2.5 cursor-ns-resize touch-none items-end justify-center"
+        onKeyDown={handleBottomResizeKeyDown}
+        role="slider"
+        tabIndex={0}
+        aria-label={`${display.name} 소요 시간 조절`}
+        aria-valuemin={MIN_DURATION_MINUTES}
+        aria-valuemax={maxDurationMinutes}
+        aria-valuenow={effectiveDuration}
+        aria-valuetext={`${effectiveDuration}분`}
+        className="absolute inset-x-0 bottom-0 flex h-2.5 cursor-ns-resize touch-none items-end justify-center focus:outline-none focus-visible:bg-slate-900/10"
       >
         <span className="mb-0.5 h-0.5 w-5 rounded-full bg-slate-400/60" />
       </div>

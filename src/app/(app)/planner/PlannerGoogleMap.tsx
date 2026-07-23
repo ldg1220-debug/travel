@@ -35,6 +35,7 @@ interface PlannerGoogleMapProps {
   onUp: (place: Place) => void;
   onMove: (e: React.PointerEvent) => void;
   onCancel: () => void;
+  onActivate: (place: Place) => void;
   savedPlaces: Place[];
   selectedSavedPlace: Place | null;
   onSelectSaved: (id: string | null) => void;
@@ -69,6 +70,7 @@ export default function PlannerGoogleMap({
   onUp,
   onMove,
   onCancel,
+  onActivate,
   savedPlaces,
   selectedSavedPlace,
   onSelectSaved,
@@ -137,6 +139,7 @@ export default function PlannerGoogleMap({
                 onUp={onUp}
                 onMove={onMove}
                 onCancel={onCancel}
+                onActivate={onActivate}
               />
             </OverlayView>
           ))}
@@ -148,8 +151,16 @@ export default function PlannerGoogleMap({
           {savedPlaces.map((p) => (
             <OverlayView key={p.id} position={{ lat: p.lat, lng: p.lng }} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
               <div
-                className="-translate-x-1/2 -translate-y-full cursor-pointer touch-none select-none"
+                role="button"
+                tabIndex={0}
+                aria-label={p.name}
+                className="-translate-x-1/2 -translate-y-full cursor-pointer touch-none select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
                 onClick={() => onSelectSaved(p.id)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  e.preventDefault();
+                  onSelectSaved(p.id);
+                }}
               >
                 <Pin place={p} />
               </div>
