@@ -37,7 +37,12 @@ const APP_CSP = [
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self'",
+  // 'self' 만으로는 카카오톡 공유(src/lib/kakaoShare.ts)가 깨진다 — 카카오
+  // JS SDK는 Share.sendDefault() 호출 시 새로 띄운 팝업에 sharer.kakao.com
+  // 으로 향하는 폼을 만들어 제출하는 방식으로 공유 카드를 구성하는데,
+  // form-action이 이 도메인을 안 걸어두면 브라우저가 그 제출 자체를 막아서
+  // 팝업이 about:blank로 남는다(실사용 중 재현·콘솔에서 CSP 위반으로 확인됨).
+  "form-action 'self' https://sharer.kakao.com",
   "frame-ancestors 'none'",
 ].join("; ");
 

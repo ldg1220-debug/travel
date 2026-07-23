@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { checkRateLimit } from "@/lib/server/rateLimit";
 
 const TARGET_TYPES = new Set(["trip_post", "message", "user"]);
 const REASONS = new Set(["spam", "abuse", "sexual", "illegal", "other"]);
@@ -40,6 +41,9 @@ export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!(await checkRateLimit(`reports:${session.user.id}`, 10, 3600))) {
+    return NextResponse.json({ error: "신고를 너무 많이 접수했어요. 잠시 후 다시 시도해주세요" }, { status: 429 });
   }
   const body = (await request.json()) as { targetType?: string; targetId?: number; reason?: string; detail?: string };
   const targetType = body.targetType ?? "";

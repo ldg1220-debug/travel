@@ -1661,6 +1661,7 @@ function SpotCard({
               e.stopPropagation();
               onAdd();
             }}
+            aria-label={`${spot.name} 일정에 추가`}
             className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-indigo-500 hover:text-white"
           >
             <Plus size={15} />

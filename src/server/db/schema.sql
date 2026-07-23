@@ -401,3 +401,12 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_endpoint_key ON push_subscriptions (endpoint);
 CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions ("userId");
+
+-- 남용 방지용 고정 윈도우 레이트 리밋 (src/lib/server/rateLimit.ts). Redis
+-- 없이 이미 있는 Postgres 하나로 처리 — key는 "라우트:사용자id" 형태로
+-- 호출부에서 조립한다. 행이 계속 쌓이지는 않는다(키당 최대 1행, upsert).
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 1,
+  "windowStart" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
