@@ -25,6 +25,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Test
+        run: npm run test
+
       # `npm run build` also runs the DB migration script first (it needs a
       # live DATABASE_URL), which CI doesn't have — call `next build`
       # directly instead. Every server-only env var degrades gracefully at
