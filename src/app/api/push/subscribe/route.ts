@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { isTrustedPushEndpoint } from "@/lib/server/push";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 interface SubscribeBody {
   endpoint: string;
@@ -9,7 +10,7 @@ interface SubscribeBody {
 }
 
 /** Registers this device's push subscription for the current user — re-subscribing (same endpoint) just updates the owner, in case a shared/handed-down device previously belonged to someone else. */
-export async function POST(request: NextRequest) {
+export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -30,4 +31,4 @@ export async function POST(request: NextRequest) {
     [session.user.id, body.endpoint, body.keys.p256dh, body.keys.auth],
   );
   return NextResponse.json({ ok: true });
-}
+});

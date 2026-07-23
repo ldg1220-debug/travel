@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { sendPushToUser } from "@/lib/server/push";
 import { checkRateLimit } from "@/lib/server/rateLimit";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 export interface FollowUser {
   id: number;
@@ -33,7 +34,7 @@ export interface FollowStatus {
  *    list (used by TripPostComposer's "특정인 선택" picker for a "custom"
  *    visibility post). Only accepted (수락된) relationships count.
  */
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   const targetUserId = request.nextUrl.searchParams.get("targetUserId");
   const list = request.nextUrl.searchParams.get("list");
@@ -101,10 +102,10 @@ export async function GET(request: NextRequest) {
     followingCount: followingCountRow.rows[0]?.count ?? 0,
   };
   return NextResponse.json(status);
-}
+});
 
 /** Sends a 트메 신청 — idempotent (requesting again while pending/accepted is a no-op). Requires the recipient's acceptance before it counts as a real connection. */
-export async function POST(request: NextRequest) {
+export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -142,10 +143,10 @@ export async function POST(request: NextRequest) {
     }
   }
   return NextResponse.json({ ok: true });
-}
+});
 
 /** Accepts a pending 트메 신청 sent TO the current user. Body: { requesterId }. */
-export async function PATCH(request: NextRequest) {
+export const PATCH = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -183,7 +184,7 @@ export async function PATCH(request: NextRequest) {
     }
   }
   return NextResponse.json({ ok: true });
-}
+});
 
 /**
  * Two modes, both scoped to the current session:
@@ -192,7 +193,7 @@ export async function PATCH(request: NextRequest) {
  *    already-accepted connection.
  *  - `?requesterId=` — rejects a pending 트메 신청 sent TO me by that user.
  */
-export async function DELETE(request: NextRequest) {
+export const DELETE = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -224,4 +225,4 @@ export async function DELETE(request: NextRequest) {
     [session.user.id, targetId],
   );
   return NextResponse.json({ ok: true });
-}
+});

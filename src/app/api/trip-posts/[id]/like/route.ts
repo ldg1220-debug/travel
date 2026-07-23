@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { sendPushToUser } from "@/lib/server/push";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 /** Can `viewerId` see this post? Mirrors the GET /api/trip-posts/[id] visibility gate — liking requires the same access as reading. */
 async function canView(postId: number, viewerId: number, row: { authorId: number; visibility: string }): Promise<boolean> {
@@ -22,7 +23,7 @@ async function canView(postId: number, viewerId: number, row: { authorId: number
 }
 
 /** Likes a trip post — idempotent, and notifies the author (unless liking your own post). */
-export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withApiErrorHandling(async (_request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -64,10 +65,10 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     }
   }
   return NextResponse.json({ ok: true });
-}
+});
 
 /** Unlikes a trip post — idempotent. */
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withApiErrorHandling(async (_request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -78,4 +79,4 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   }
   await pool.query(`delete from trip_post_likes where "postId" = $1 and "userId" = $2`, [postId, session.user.id]);
   return NextResponse.json({ ok: true });
-}
+});

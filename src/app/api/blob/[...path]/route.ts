@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { get } from "@vercel/blob";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 /**
  * Serves a private Vercel Blob (an uploaded review/trip-post photo) through
@@ -14,7 +15,7 @@ import { get } from "@vercel/blob";
  * public Blob URLs had, and these photos back reviews/trip posts that are
  * meant to be viewable by anyone with the link once published.
  */
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+export const GET = withApiErrorHandling(async (_request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) => {
   const { path } = await params;
   const pathname = path.join("/");
 
@@ -29,4 +30,4 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       "cache-control": "public, max-age=31536000, immutable",
     },
   });
-}
+});

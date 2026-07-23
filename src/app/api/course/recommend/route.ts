@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { colorForId } from "@/lib/placeStyle";
 import type { Place } from "@/lib/types";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 export const dynamic = "force-dynamic";
 
@@ -131,7 +132,7 @@ async function kakaoTop(query: string, apiKey: string): Promise<KakaoDoc[]> {
   return data.documents ?? [];
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const scope = request.nextUrl.searchParams.get("scope") === "domestic" ? "domestic" : "overseas";
   const city = (request.nextUrl.searchParams.get("city") ?? "").trim().slice(0, 40);
   if (!city) return NextResponse.json({ error: "missing city" }, { status: 400 });
@@ -220,4 +221,4 @@ export async function GET(request: NextRequest) {
     });
   }
   return NextResponse.json({ course, source: "kakao" });
-}
+});

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { checkRateLimit } from "@/lib/server/rateLimit";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 const TARGET_TYPES = new Set(["trip_post", "message", "user"]);
 const REASONS = new Set(["spam", "abuse", "sexual", "illegal", "other"]);
@@ -37,7 +38,7 @@ async function resolveReportedUserId(targetType: string, targetId: number): Prom
 }
 
 /** 신고 접수 — 로그인한 누구나 여행 후기·메시지·사용자 프로필을 신고할 수 있다. */
-export async function POST(request: NextRequest) {
+export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -69,10 +70,10 @@ export async function POST(request: NextRequest) {
     [session.user.id, reportedUserId, targetType, targetId, reason, detail],
   );
   return NextResponse.json({ ok: true });
-}
+});
 
 /** 신고 목록 — 관리자만. 최근 접수 순. */
-export async function GET() {
+export const GET = withApiErrorHandling(async () => {
   const session = await auth();
   if (!session?.user?.isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -89,4 +90,4 @@ export async function GET() {
      limit 200`,
   );
   return NextResponse.json({ reports: result.rows as Report[] });
-}
+});

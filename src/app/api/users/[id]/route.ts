@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 /**
  * Public profile snapshot for any user — nickname/avatar + follower/트메(트래블메이트,
@@ -8,7 +9,7 @@ import { pool } from "@/lib/server/db";
  * 팔로우 상태(연결됨/신청 보냄/신청 받음/없음). 닉네임을 탭하면 뜨는 프로필 팝업
  * (UserProfileSheet)의 데이터 소스.
  */
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withApiErrorHandling(async (_request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const targetId = Number((await params).id);
   if (!targetId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -50,4 +51,4 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     isPendingOutgoing: outgoingStatus === "pending",
     isPendingIncoming: incomingStatus === "pending",
   });
-}
+});

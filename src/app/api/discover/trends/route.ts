@@ -16,6 +16,7 @@ import {
   type DiscoverSpot,
   type PlaceCategoryTag,
 } from "@/lib/discoverData";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 // ISR-style caching: identical to /api/trends and /api/planner/trends —
 // this curated feed doesn't need to be recomputed on every request.
@@ -73,7 +74,7 @@ function sortRoutesForIntent(routes: DiscoverRoute[], effectiveCategory: string)
  *    (`hasMore`/`nextPageToken`) so swapping in a live API later is a
  *    drop-in replacement rather than a redesign.
  */
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const scope: DiscoverScope = request.nextUrl.searchParams.get("scope") === "overseas" ? "overseas" : "domestic";
   const category = request.nextUrl.searchParams.get("category") ?? "all";
   const pathParam = request.nextUrl.searchParams.get("path");
@@ -197,4 +198,4 @@ export async function GET(request: NextRequest) {
     season,
     notice,
   });
-}
+});

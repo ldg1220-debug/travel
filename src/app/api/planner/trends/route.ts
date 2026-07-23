@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { TREND_CARDS } from "@/lib/mockTrends";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 /**
  * Mock trend-curation endpoint for the /planner screen.
@@ -12,6 +13,6 @@ import { TREND_CARDS } from "@/lib/mockTrends";
  * Pretends to read from a self-hosted cache DB the way the real pipeline
  * (src/server/pipeline) does; here it just returns fixed mock data.
  */
-export async function GET() {
+export const GET = withApiErrorHandling(async () => {
   return NextResponse.json({ trends: TREND_CARDS });
-}
+});

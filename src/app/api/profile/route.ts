@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 interface ProfileBody {
   nickname?: string;
@@ -17,7 +18,7 @@ interface ProfileBody {
 const NICKNAME_PATTERN = /^[가-힣a-zA-Z0-9_]{2,20}$/;
 
 /** Updates the current user's nickname and/or avatar (OAuth-provided name/email are never editable here — nickname is the sole public display identity). */
-export async function PATCH(request: NextRequest) {
+export const PATCH = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -69,4 +70,4 @@ export async function PATCH(request: NextRequest) {
     throw e;
   }
   return NextResponse.json({ ok: true });
-}
+});

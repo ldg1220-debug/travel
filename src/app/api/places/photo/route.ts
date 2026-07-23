@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
  * (skipHttpRedirect=true → JSON instead of a 302) and redirects the
  * browser there; the final image URL needs no key at all.
  */
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const name = request.nextUrl.searchParams.get("name") ?? "";
   const width = Math.min(Math.max(Number(request.nextUrl.searchParams.get("w")) || 640, 64), 1600);
   // Strict shape check — this proxy must only ever relay Places photo
@@ -42,4 +43,4 @@ export async function GET(request: NextRequest) {
     // to spare Google (and our quota) repeat lookups for a day.
     headers: { "Cache-Control": "public, max-age=86400" },
   });
-}
+});

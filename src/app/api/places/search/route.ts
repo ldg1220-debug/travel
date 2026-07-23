@@ -3,6 +3,7 @@ import { getTrendingPlaces } from "@/lib/server/getTrendingPlaces";
 import { DOMESTIC_PLACES } from "@/lib/mockPlacesDomestic";
 import { styleForCategory } from "@/lib/placeStyle";
 import type { Place, Region } from "@/lib/types";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 export const dynamic = "force-dynamic";
 
@@ -90,7 +91,7 @@ const NEAR_RADIUS_M = 3000;
 /** Category spread for a bare "X 근처" (no "Y" named) — one query per label, merged, so the grouped live-results UI has something in each theme bucket instead of whatever one generic query happened to surface. */
 const NEAR_FANOUT_LABELS = ["관광명소", "맛집", "카페", "술집", "숙소"];
 
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
   const rawQuery = (request.nextUrl.searchParams.get("q") ?? "").trim();
   const near = parseNearQuery(rawQuery);
@@ -109,7 +110,7 @@ export async function GET(request: NextRequest) {
   }
   const includedType = CATEGORY_TYPE_MAP[category];
   return NextResponse.json(await searchInternational(query, googleApiKey, includedType, category, near));
-}
+});
 
 interface GooglePlaceResult {
   id: string;

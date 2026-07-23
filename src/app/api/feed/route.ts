@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 const DEFAULT_LIMIT = 10;
 
@@ -25,7 +26,7 @@ const DEFAULT_LIMIT = 10;
  * a followed-but-not-mutual author's "friends" posts stay hidden). Requires
  * login; returns an empty page for an anonymous viewer.
  */
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   const viewerId = session?.user?.id != null ? Number(session.user.id) : null;
 
@@ -111,4 +112,4 @@ export async function GET(request: NextRequest) {
     posts: result.rows,
     pagination: { page, limit, total, hasMore: offset + limit < total },
   });
-}
+});

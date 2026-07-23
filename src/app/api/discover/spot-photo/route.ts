@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ function rememberPhotoName(q: string, photoName: string | null): void {
 
 const CACHE_HEADERS = { "Cache-Control": "public, max-age=86400, s-maxage=604800" };
 
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const q = (request.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 80);
   if (!q) return NextResponse.json({ error: "missing q" }, { status: 400 });
 
@@ -70,4 +71,4 @@ export async function GET(request: NextRequest) {
   if (!photoUri) return NextResponse.json({ error: "no photo uri" }, { status: 404, headers: CACHE_HEADERS });
 
   return NextResponse.redirect(photoUri, { headers: CACHE_HEADERS });
-}
+});
