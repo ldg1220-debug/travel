@@ -11,7 +11,7 @@ import { PlacePager } from "@/components/PlacePager";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { useItineraryStore } from "@/store/itineraryStore";
-import { fetchLivePlaceSearch, fetchRecommendedCourse, type RecommendedStop } from "@/lib/api";
+import { fetchLivePlaceSearch, fetchRecommendedCourse, type RecommendedStop, type CourseTheme } from "@/lib/api";
 import { COURSE_SLOTS, courseNodesAtPath, courseRegionTree, searchableDepth, type CourseSlot } from "@/lib/courseRegions";
 import { todayISODate, pad2, formatDateLabel } from "@/lib/timeline";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
@@ -19,6 +19,16 @@ import type { DiscoverScope } from "@/lib/discoverData";
 import type { Place } from "@/lib/types";
 
 type Step = "scope" | "drill" | "build";
+
+// AI 추천 동선의 테마 — 고르면 하루 골격(슬롯 구성·검색 키워드)이 바뀐다.
+// key는 서버 /api/course/recommend의 THEME_SLOTS와 일치해야 한다.
+const AI_THEMES: { key: CourseTheme; emoji: string; label: string }[] = [
+  { key: "balanced", emoji: "🧭", label: "밸런스" },
+  { key: "foodie", emoji: "🍽️", label: "미식" },
+  { key: "healing", emoji: "🌿", label: "힐링·감성" },
+  { key: "culture", emoji: "🏛️", label: "역사·문화" },
+  { key: "active", emoji: "🎢", label: "액티비티" },
+];
 
 // ── representative photo behind a scope/region tile — live Google Places
 // lookup by name (same /api/discover/spot-photo proxy CourseSpotCard's
@@ -69,6 +79,7 @@ export default function CourseBuilderPage() {
   // AI 추천 동선 (auto-assembled full-day course).
   const [aiCourse, setAiCourse] = useState<RecommendedStop[] | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiTheme, setAiTheme] = useState<CourseTheme>("balanced");
 
   const tree = courseRegionTree(scope);
   const options = courseNodesAtPath(tree, path);
@@ -187,7 +198,7 @@ export default function CourseBuilderPage() {
   const runAiRecommend = async () => {
     if (!city) return;
     setAiLoading(true);
-    const course = await fetchRecommendedCourse(scope, city);
+    const course = await fetchRecommendedCourse(scope, city, aiTheme);
     setAiLoading(false);
     setAiCourse(course);
   };
@@ -377,7 +388,24 @@ export default function CourseBuilderPage() {
         {/* ── STEP: build course ── */}
         {step === "build" && city && (
           <div>
-            {/* AI 자동 추천 — 직접 고르기 전에 한 번에 동선 받기 */}
+            {/* AI 자동 추천 — 테마를 고르고 한 번에 동선 받기 */}
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {AI_THEMES.map((t) => {
+                const active = aiTheme === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => setAiTheme(t.key)}
+                    aria-pressed={active}
+                    className={`rounded-full border px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                      active ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300"
+                    }`}
+                  >
+                    {t.emoji} {t.label}
+                  </button>
+                );
+              })}
+            </div>
             <button
               onClick={runAiRecommend}
               disabled={aiLoading}
@@ -385,8 +413,10 @@ export default function CourseBuilderPage() {
             >
               <Sparkles size={20} className="shrink-0" />
               <span className="min-w-0 flex-1">
-                <span className="block text-[14px] font-bold">{aiLoading ? "AI가 코스를 짜는 중…" : `${city} AI 추천 동선 받기`}</span>
-                <span className="block text-[11.5px] text-white/80">평점 높은 관광지·맛집·카페·야경을 하루 코스로 자동 구성</span>
+                <span className="block text-[14px] font-bold">
+                  {aiLoading ? "AI가 코스를 짜는 중…" : `${city} · ${AI_THEMES.find((t) => t.key === aiTheme)?.label} 동선 받기`}
+                </span>
+                <span className="block text-[11.5px] text-white/80">테마에 맞춰 평점 높은 실제 장소로 하루 코스를 자동 구성</span>
               </span>
             </button>
 
@@ -539,6 +569,7 @@ export default function CourseBuilderPage() {
                             {stop.slotLabel}
                             {stop.rating != null && ` · ⭐ ${stop.rating.toFixed(1)}`}
                           </p>
+                          {stop.reason && <p className="mt-0.5 truncate text-[11px] text-indigo-500">💬 {stop.reason}</p>}
                         </div>
                       </div>
                     ))}

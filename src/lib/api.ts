@@ -79,16 +79,22 @@ export interface RecommendedStop extends Place {
   slotLabel: string;
   hour: number;
   meal: boolean;
+  /** One-line recommendation rationale — only present when the LLM curation layer ran (LLM_API_KEY set). */
+  reason?: string;
 }
 
-/** AI 추천 동선 — a full auto-assembled day course of real top-rated places for a city. Empty array when the live API is unavailable (no key). */
-export async function fetchRecommendedCourse(scope: DiscoverScope, city: string): Promise<RecommendedStop[]> {
+/** 코스 테마 — 하루 골격/키워드를 바꾼다. server의 THEME_SLOTS와 키가 일치해야 함. */
+export type CourseTheme = "balanced" | "foodie" | "healing" | "culture" | "active";
+
+/** AI 추천 동선 — a full auto-assembled day course of real top-rated places for a city, shaped by `theme`. Empty array when the live API is unavailable (no key). */
+export async function fetchRecommendedCourse(scope: DiscoverScope, city: string, theme: CourseTheme = "balanced"): Promise<RecommendedStop[]> {
   if (!city.trim()) return [];
   try {
-    const res = await fetch(`/api/course/recommend?scope=${scope}&city=${encodeURIComponent(city)}`);
+    const res = await fetch(`/api/course/recommend?scope=${scope}&city=${encodeURIComponent(city)}&theme=${theme}`);
     if (!res.ok) return [];
     const data = (await res.json()) as { course?: RecommendedStop[]; source?: string };
-    if (data.source !== "google" && data.source !== "kakao") return [];
+    // "llm" = Claude-curated, "google"/"kakao" = deterministic ranker; all are real live results. "mock" = no API key.
+    if (data.source !== "google" && data.source !== "kakao" && data.source !== "llm") return [];
     return data.course ?? [];
   } catch {
     return [];
