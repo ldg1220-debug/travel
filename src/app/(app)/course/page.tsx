@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays } from "lucide-react";
+import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays, RefreshCw } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
@@ -11,7 +11,7 @@ import { PlacePager } from "@/components/PlacePager";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { useItineraryStore } from "@/store/itineraryStore";
-import { fetchLivePlaceSearch, fetchRecommendedCourse, type RecommendedStop, type CourseTheme } from "@/lib/api";
+import { fetchLivePlaceSearch, fetchRecommendedCourse, fetchRerolledStop, type RecommendedStop, type CourseTheme } from "@/lib/api";
 import { COURSE_SLOTS, courseNodesAtPath, courseRegionTree, searchableDepth, type CourseSlot } from "@/lib/courseRegions";
 import { todayISODate, pad2, formatDateLabel } from "@/lib/timeline";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
@@ -80,6 +80,8 @@ export default function CourseBuilderPage() {
   const [aiCourse, setAiCourse] = useState<RecommendedStop[] | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiTheme, setAiTheme] = useState<CourseTheme>("balanced");
+  // slotKey of the stop currently being rerolled — null when none in flight.
+  const [rerollingSlot, setRerollingSlot] = useState<string | null>(null);
 
   const tree = courseRegionTree(scope);
   const options = courseNodesAtPath(tree, path);
@@ -201,6 +203,24 @@ export default function CourseBuilderPage() {
     const course = await fetchRecommendedCourse(scope, city, aiTheme);
     setAiLoading(false);
     setAiCourse(course);
+  };
+
+  // 특정 시간대(슬롯)를 코스에서 빼기 — 그 시간은 빈 채로 남는다.
+  const removeAiStop = (slotKey: string) => {
+    setAiCourse((cur) => (cur ? cur.filter((s) => s.slotKey !== slotKey) : cur));
+  };
+
+  // 특정 시간대만 다시 추천받기 — 나머지 동선은 그대로 두고 이 한 곳만 교체.
+  const rerollAiStop = async (slotKey: string) => {
+    if (!aiCourse || !city) return;
+    setRerollingSlot(slotKey);
+    const next = await fetchRerolledStop(scope, city, aiTheme, slotKey, aiCourse);
+    setRerollingSlot(null);
+    if (!next) {
+      showToast("더 추천할 곳을 찾지 못했어요");
+      return;
+    }
+    setAiCourse((cur) => (cur ? cur.map((s) => (s.slotKey === slotKey ? next : s)) : cur));
   };
 
   const applyAiCourse = () => {
@@ -547,37 +567,63 @@ export default function CourseBuilderPage() {
               </button>
             </div>
             {aiCourse.length === 0 ? (
-              <p className="px-5 py-12 text-center text-[13px] text-slate-400">
-                추천 동선을 불러오지 못했어요. (실제 추천은 배포 환경에서 동작합니다)
-              </p>
+              <div className="px-5 py-12 text-center">
+                <p className="text-[13px] text-slate-400">
+                  동선이 비어 있어요. (실제 추천은 배포 환경에서 동작합니다)
+                </p>
+                <Button onClick={runAiRecommend} disabled={aiLoading} variant="outline" className="mt-4 h-10 rounded-xl border-slate-300 text-sm font-semibold">
+                  다시 추천
+                </Button>
+              </div>
             ) : (
               <>
                 <div className="flex-1 overflow-y-auto px-5 py-2">
                   <div className="relative space-y-1 pl-4">
                     {/* vertical line */}
                     <span className="absolute bottom-2 left-[7px] top-2 w-px bg-slate-200" />
-                    {aiCourse.map((stop, i) => (
-                      <div key={`${stop.id}-${i}`} className="relative flex items-center gap-3 py-2">
-                        <span className={`absolute -left-4 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white ${stop.meal ? "bg-amber-400" : "bg-indigo-500"}`} />
-                        <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-slate-400">{pad2(stop.hour)}:00</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13.5px] font-semibold text-slate-800">
-                            {stop.meal && <span className="mr-1 text-amber-500">🍴</span>}
-                            {stop.name}
-                          </p>
-                          <p className="truncate text-[11px] text-slate-400">
-                            {stop.slotLabel}
-                            {stop.rating != null && ` · ⭐ ${stop.rating.toFixed(1)}`}
-                          </p>
-                          {stop.reason && <p className="mt-0.5 truncate text-[11px] text-indigo-500">💬 {stop.reason}</p>}
+                    {aiCourse.map((stop) => {
+                      const isRerolling = rerollingSlot === stop.slotKey;
+                      return (
+                        <div key={stop.slotKey} className="relative flex items-center gap-3 py-2">
+                          <span className={`absolute -left-4 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white ${stop.meal ? "bg-amber-400" : "bg-indigo-500"}`} />
+                          <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-slate-400">{pad2(stop.hour)}:00</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[13.5px] font-semibold text-slate-800">
+                              {stop.meal && <span className="mr-1 text-amber-500">🍴</span>}
+                              {isRerolling ? "다른 곳 찾는 중…" : stop.name}
+                            </p>
+                            <p className="truncate text-[11px] text-slate-400">
+                              {stop.slotLabel}
+                              {stop.rating != null && ` · ⭐ ${stop.rating.toFixed(1)}`}
+                            </p>
+                            {stop.reason && !isRerolling && <p className="mt-0.5 truncate text-[11px] text-indigo-500">💬 {stop.reason}</p>}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              onClick={() => rerollAiStop(stop.slotKey)}
+                              disabled={isRerolling}
+                              aria-label={`${stop.slotLabel} 다른 곳 추천`}
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-indigo-500 disabled:opacity-40"
+                            >
+                              <RefreshCw size={14} className={isRerolling ? "animate-spin" : ""} />
+                            </button>
+                            <button
+                              onClick={() => removeAiStop(stop.slotKey)}
+                              disabled={isRerolling}
+                              aria-label={`${stop.slotLabel} 빼기`}
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-red-500 disabled:opacity-40"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="flex gap-2 border-t border-slate-100 px-5 py-3">
                   <Button onClick={runAiRecommend} disabled={aiLoading} variant="outline" className="h-11 flex-1 rounded-xl border-slate-300 text-sm font-semibold">
-                    다시 추천
+                    전체 다시 추천
                   </Button>
                   <Button onClick={applyAiCourse} className="h-11 flex-[2] rounded-xl bg-indigo-600 text-sm font-semibold hover:bg-indigo-700">
                     이 동선으로 일정 만들기

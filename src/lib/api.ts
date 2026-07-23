@@ -76,6 +76,8 @@ export async function fetchPlaceDetails(placeId: string): Promise<PlaceDetails |
 }
 
 export interface RecommendedStop extends Place {
+  /** Which day-course slot this stop fills (e.g. "lunch") — used to reroll just this stop via fetchRerolledStop. */
+  slotKey: string;
   slotLabel: string;
   hour: number;
   meal: boolean;
@@ -98,6 +100,45 @@ export async function fetchRecommendedCourse(scope: DiscoverScope, city: string,
     return data.course ?? [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * "다른 곳 추천" — replaces a single stop of an already-built AI course
+ * without regenerating the whole day. `currentCourse` supplies the
+ * exclude-list (so the reroll never repeats a place already shown) and an
+ * anchor point (the previous stop, if any) for proximity ranking. Returns
+ * null if no alternative was found (e.g. the pool is exhausted).
+ */
+export async function fetchRerolledStop(
+  scope: DiscoverScope,
+  city: string,
+  theme: CourseTheme,
+  slotKey: string,
+  currentCourse: RecommendedStop[],
+): Promise<RecommendedStop | null> {
+  if (!city.trim()) return null;
+  const idx = currentCourse.findIndex((s) => s.slotKey === slotKey);
+  const anchor = idx > 0 ? currentCourse[idx - 1] : null;
+  const params = new URLSearchParams({
+    scope,
+    city,
+    theme,
+    slot: slotKey,
+    excludeIds: currentCourse.map((s) => s.id).join(","),
+    excludeNames: currentCourse.map((s) => encodeURIComponent(s.name)).join(","),
+  });
+  if (anchor) {
+    params.set("anchorLat", String(anchor.lat));
+    params.set("anchorLng", String(anchor.lng));
+  }
+  try {
+    const res = await fetch(`/api/course/recommend/reroll?${params.toString()}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { stop?: RecommendedStop | null };
+    return data.stop ?? null;
+  } catch {
+    return null;
   }
 }
 
