@@ -87,6 +87,13 @@ export default function CourseBuilderPage() {
   const options = courseNodesAtPath(tree, path);
   const maxDepth = searchableDepth(scope);
   const city = customCity ?? (path.length > 0 ? path[path.length - 1] : null);
+  // AI 추천 동선은 드릴다운한 동네(예: "다대포")가 아니라 그 상위 광역시/도
+  // (예: "부산")를 기준으로 검색한다 — 부산에 가면 다대포만 도는 게 아니라
+  // 서면·해운대 등도 오갈 수 있어야 하므로, 하루 코스는 도시 전체에서
+  // 뽑고 자연스러운 동선은 근접도 랭킹(각 스톱이 직전 스톱과 가까운 곳을
+  // 우선하는 로직)이 알아서 잡아준다. 해외는 이미 "도시"(오사카 등) 단위로
+  // 드릴다운이 끝나므로 그대로 둔다.
+  const aiCity = scope === "domestic" && path.length > 0 ? path[0] : city;
 
   const showToast = (m: string) => {
     setToast(m);
@@ -196,11 +203,12 @@ export default function CourseBuilderPage() {
   };
 
   // "AI 추천으로 자동 완성" — pull a full auto-assembled day course for the
-  // city and drop it straight onto the planner timeline.
+  // city (aiCity, not the drilled-down neighborhood) and drop it straight
+  // onto the planner timeline.
   const runAiRecommend = async () => {
-    if (!city) return;
+    if (!aiCity) return;
     setAiLoading(true);
-    const course = await fetchRecommendedCourse(scope, city, aiTheme);
+    const course = await fetchRecommendedCourse(scope, aiCity, aiTheme);
     setAiLoading(false);
     setAiCourse(course);
   };
@@ -212,9 +220,9 @@ export default function CourseBuilderPage() {
 
   // 특정 시간대만 다시 추천받기 — 나머지 동선은 그대로 두고 이 한 곳만 교체.
   const rerollAiStop = async (slotKey: string) => {
-    if (!aiCourse || !city) return;
+    if (!aiCourse || !aiCity) return;
     setRerollingSlot(slotKey);
-    const next = await fetchRerolledStop(scope, city, aiTheme, slotKey, aiCourse);
+    const next = await fetchRerolledStop(scope, aiCity, aiTheme, slotKey, aiCourse);
     setRerollingSlot(null);
     if (!next) {
       showToast("더 추천할 곳을 찾지 못했어요");
@@ -236,7 +244,7 @@ export default function CourseBuilderPage() {
         coordinates: { lat: stop.lat, lng: stop.lng },
       });
     });
-    if (city) setCurrentCity(city);
+    if (aiCity) setCurrentCity(aiCity);
     setAiCourse(null);
     router.push("/planner");
   };
@@ -434,9 +442,13 @@ export default function CourseBuilderPage() {
               <Sparkles size={20} className="shrink-0" />
               <span className="min-w-0 flex-1">
                 <span className="block text-[14px] font-bold">
-                  {aiLoading ? "AI가 코스를 짜는 중…" : `${city} · ${AI_THEMES.find((t) => t.key === aiTheme)?.label} 동선 받기`}
+                  {aiLoading ? "AI가 코스를 짜는 중…" : `${aiCity} · ${AI_THEMES.find((t) => t.key === aiTheme)?.label} 동선 받기`}
                 </span>
-                <span className="block text-[11.5px] text-white/80">테마에 맞춰 평점 높은 실제 장소로 하루 코스를 자동 구성</span>
+                <span className="block text-[11.5px] text-white/80">
+                  {city && city !== aiCity
+                    ? `${city}만이 아니라 ${aiCity} 전역을 오가는 하루 코스로 자동 구성`
+                    : "테마에 맞춰 평점 높은 실제 장소로 하루 코스를 자동 구성"}
+                </span>
               </span>
             </button>
 
@@ -560,7 +572,7 @@ export default function CourseBuilderPage() {
           <div className="relative flex max-h-[85%] w-full max-w-md flex-col rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
             <div className="flex items-center justify-between px-5 pb-2 pt-5">
               <h3 className="flex items-center gap-1.5 text-lg font-bold">
-                <Sparkles size={18} className="text-indigo-500" /> {city} AI 추천 동선
+                <Sparkles size={18} className="text-indigo-500" /> {aiCity} AI 추천 동선
               </h3>
               <button onClick={() => setAiCourse(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
                 <X size={16} />
