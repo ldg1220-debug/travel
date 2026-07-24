@@ -796,3 +796,25 @@ export async function setUserBanned(userId: number, isBanned: boolean): Promise<
   });
   if (!res.ok) throw new Error("계정 상태 변경에 실패했어요");
 }
+
+export interface AdminStats {
+  totalUsers: number;
+  newUsers: { today: number; last7: number; last30: number };
+  activeUsers: { last1: number; last7: number; last30: number };
+  signupTrend: { date: string; count: number }[];
+  engagement: {
+    savedPlans: number;
+    tripPosts: number;
+    reviews: number;
+    messages: number;
+    mateConnections: number;
+  };
+  recentSignups: { id: number; name: string; image: string | null; createdAt: string }[];
+}
+
+/** 관리자 전용 — 가입 추이·활성 사용자·이용량 대시보드 데이터. */
+export async function fetchAdminStats(): Promise<AdminStats | null> {
+  const res = await fetch("/api/admin/stats");
+  if (!res.ok) return null;
+  return (await res.json()) as AdminStats;
+}

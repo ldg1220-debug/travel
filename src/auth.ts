@@ -44,16 +44,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // are our own additions, so they're fetched separately rather than
         // relying on the adapter to surface them.
         const result = await pool.query(
-          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "isAdmin", "isBanned" from users where id = $1`,
+          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "isAdmin", "isBanned", "lastActiveAt" from users where id = $1`,
           [user.id],
         );
-        session.user.nickname = result.rows[0]?.nickname ?? null;
-        session.user.termsAgreed = result.rows[0]?.termsAgreedAt != null;
-        session.user.notifyMateRequests = result.rows[0]?.notifyMateRequests ?? true;
-        session.user.notifyLikes = result.rows[0]?.notifyLikes ?? true;
-        session.user.notifyMessages = result.rows[0]?.notifyMessages ?? true;
-        session.user.isAdmin = result.rows[0]?.isAdmin ?? false;
-        session.user.isBanned = result.rows[0]?.isBanned ?? false;
+        const row = result.rows[0];
+        session.user.nickname = row?.nickname ?? null;
+        session.user.termsAgreed = row?.termsAgreedAt != null;
+        session.user.notifyMateRequests = row?.notifyMateRequests ?? true;
+        session.user.notifyLikes = row?.notifyLikes ?? true;
+        session.user.notifyMessages = row?.notifyMessages ?? true;
+        session.user.isAdmin = row?.isAdmin ?? false;
+        session.user.isBanned = row?.isBanned ?? false;
+
+        // 관리자 대시보드의 활성 사용자 지표용 — 5분 넘게 지났을 때만
+        // 갱신해서 매 세션 조회(=거의 매 요청)마다 쓰기가 발생하지 않게
+        // 한다. 응답을 기다리지 않는 fire-and-forget이라 세션 조회 자체의
+        // 지연에는 영향이 없다.
+        const lastActiveAt = row?.lastActiveAt ? new Date(row.lastActiveAt).getTime() : 0;
+        if (Date.now() - lastActiveAt > 5 * 60 * 1000) {
+          void pool.query(`update users set "lastActiveAt" = now() where id = $1`, [user.id]).catch(() => {});
+        }
       }
       return session;
     },
