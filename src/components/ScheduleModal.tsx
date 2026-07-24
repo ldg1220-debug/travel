@@ -148,21 +148,45 @@ export function ScheduleModal({
   const endHour = Math.floor(endTotalMinutes / 60) % 24;
   const endMinute = endTotalMinutes % 60;
 
-  // Picking a start hour is independent of the minute select next to it, so
-  // checking a conflict against only the *currently* selected minute (still
-  // whatever it was before, often 0) can make a genuinely free hour look
-  // blocked — e.g. an existing 10:00-10:30 stop makes "10 · minute 0"
+  const previewDuration = showDuration ? duration : DEFAULT_DURATION_MINUTES;
+  // 종료 컨트롤은 시작을 고정한 채 길이만 바꾼다(handleEndHourChange 등).
+  // 시작 컨트롤도 대칭으로 종료를 고정한 채 길이를 바꿔야 하는데, 예전엔
+  // 시작을 바꿔도 길이가 그대로라 종료가 같이 밀렸다 — "마감" 판정도 그
+  // 낡은(길게 고정된) 길이로만 계산해서, 실제로는 비어있는 이른 시간대까지
+  // 막아버리는 버그로 이어졌다(예: 종료 09:00을 먼저 정해 9시간짜리 길이가
+  // 됐는데, 그 9시간짜리 길이로 다른 시작 후보를 검사하니 진짜 비어있는
+  // 시간대도 어딘가와 겹쳐 보였음). 종료를 고정했을 때 나오는 길이가
+  // 최소 길이 이상이면 그걸 쓰고, 아니면(후보 시작이 종료보다 늦는 등)
+  // 기존처럼 현재 길이를 유지한 채 미끄러뜨린다.
+  const durationForStartCandidate = (startMinutes: number) => {
+    if (!showDuration) return previewDuration;
+    const keepEndFixed = endTotalMinutes - startMinutes;
+    return keepEndFixed >= MIN_DURATION_MINUTES ? Math.min(keepEndFixed, DAY_MINUTES - startMinutes) : previewDuration;
+  };
+  // Picking a start hour/minute is independent of the other select next to
+  // it, so checking a conflict against only the *currently* selected minute
+  // (still whatever it was before, often 0) can make a genuinely free hour
+  // look blocked — e.g. an existing 10:00-10:30 stop makes "10 · minute 0"
   // conflict, so hour 10 would wrongly disable itself even though 10:30 is
   // open. If the new hour conflicts at the current minute, snap the minute
   // to the first free step within that hour instead of leaving a dead end
   // the user can't click their way out of.
-  const previewDuration = showDuration ? duration : DEFAULT_DURATION_MINUTES;
   const handleStartHourChange = (h: number) => {
-    if (hasConflict(date, h * 60 + minute, previewDuration)) {
-      const freeMinute = MINUTE_STEPS.find((m) => !hasConflict(date, h * 60 + m, previewDuration));
-      if (freeMinute != null) setMinute(freeMinute);
+    if (hasConflict(date, h * 60 + minute, durationForStartCandidate(h * 60 + minute))) {
+      const freeMinute = MINUTE_STEPS.find((m) => !hasConflict(date, h * 60 + m, durationForStartCandidate(h * 60 + m)));
+      if (freeMinute != null) {
+        setMinute(freeMinute);
+        if (showDuration) setDuration(durationForStartCandidate(h * 60 + freeMinute));
+        setHour(h);
+        return;
+      }
     }
+    if (showDuration) setDuration(durationForStartCandidate(h * 60 + minute));
     setHour(h);
+  };
+  const handleStartMinuteChange = (m: number) => {
+    if (showDuration) setDuration(durationForStartCandidate(hour * 60 + m));
+    setMinute(m);
   };
   const handleEndHourChange = (h: number) => {
     const nextDuration = h * 60 + endMinute - startTotalMinutes;
@@ -246,9 +270,9 @@ export function ScheduleModal({
                       hour={hour}
                       minute={minute}
                       onHourChange={handleStartHourChange}
-                      onMinuteChange={setMinute}
-                      disabledHour={(h) => MINUTE_STEPS.every((m) => hasConflict(date, h * 60 + m, previewDuration))}
-                      disabledMinute={(m) => hasConflict(date, hour * 60 + m, previewDuration)}
+                      onMinuteChange={handleStartMinuteChange}
+                      disabledHour={(h) => MINUTE_STEPS.every((m) => hasConflict(date, h * 60 + m, durationForStartCandidate(h * 60 + m)))}
+                      disabledMinute={(m) => hasConflict(date, hour * 60 + m, durationForStartCandidate(hour * 60 + m))}
                       accentColor={place.color}
                     />
                     {showDuration && (
