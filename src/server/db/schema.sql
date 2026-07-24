@@ -331,6 +331,14 @@ CREATE INDEX IF NOT EXISTS notifications_recipient_idx ON notifications ("recipi
 -- 즉시 처리라 큰 테이블에서도 안전하다.
 ALTER TABLE notifications ALTER COLUMN type TYPE VARCHAR(20);
 
+-- 관리자 전체 공지('announcement' type): 특정 상대 행동이 아니라 관리자가
+-- 직접 작성한 문구를 담아야 해서 message 컬럼이 필요하고, 액터도 실제
+-- "나에게 어떤 행동을 한 사람"이 아니라 발송한 관리자일 뿐이라 계정이
+-- 삭제돼도(ON DELETE CASCADE) 이미 보낸 공지까지 전부 사라지면 안 되므로
+-- NOT NULL을 풀어둔다.
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS message TEXT;
+ALTER TABLE notifications ALTER COLUMN "actorId" DROP NOT NULL;
+
 -- 관리자 여부 — 별도 가입 플로우 없이 운영자 이메일로 지정한다. 이메일이
 -- 그대로인 한 재실행해도 안전한 멱등 UPDATE(값이 이미 true여도 no-op).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "isAdmin" BOOLEAN NOT NULL DEFAULT false;

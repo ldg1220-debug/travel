@@ -577,13 +577,15 @@ export async function fetchUserProfile(userId: number): Promise<UserProfile | nu
 
 export interface AppNotification {
   id: number;
-  type: "follow_request" | "follow_accept" | "like";
-  actorId: number;
+  type: "follow_request" | "follow_accept" | "like" | "announcement";
+  actorId: number | null;
   actorName: string | null;
   actorImage: string | null;
   /** "like" 알림에만 있음 — 눌러서 바로 그 후기로 이동할 때 쓴다. */
   postId: number | null;
   postTitle: string | null;
+  /** "announcement" 알림에만 있음 — 관리자가 작성한 공지 본문. */
+  message: string | null;
   /** "follow_request" 알림에만 있음 — 'pending'이면 수락/거절 버튼을 보여준다, 이미 처리됐거나(수락/취소/거절) 지난 신청이면 'accepted'|'none'. */
   requestStatus: "pending" | "accepted" | "none" | null;
   read: boolean;
@@ -599,6 +601,20 @@ export async function fetchNotifications(): Promise<{ notifications: AppNotifica
 /** Marks every notification the current user has as read — called when the bell panel opens. */
 export async function markNotificationsRead(): Promise<void> {
   await fetch("/api/notifications", { method: "PATCH" });
+}
+
+/** 관리자(부관리자 포함) 전체 공지 발송 — 정지되지 않은 모든 사용자의 알림 벨에 쌓인다. */
+export async function sendAnnouncement(message: string): Promise<{ count: number }> {
+  const res = await fetch("/api/admin/announcements", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "공지 발송에 실패했어요");
+  }
+  return res.json();
 }
 
 // ─────────────────────────────────────────────────────────────

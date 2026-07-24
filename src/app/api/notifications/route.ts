@@ -15,13 +15,15 @@ export const GET = withApiErrorHandling(async () => {
   const [listResult, unreadResult] = await Promise.all([
     pool.query(
       `select n.id, n.type, n."actorId", coalesce(u.nickname, '여행자') as "actorName", u.image as "actorImage",
-              n."postId", p.title as "postTitle", n.read, n.created_at as "createdAt",
+              n."postId", p.title as "postTitle", n.message, n.read, n.created_at as "createdAt",
               -- 'follow_request' 알림의 수락/거절 버튼은 실제 신청이 아직 대기 중일
               -- 때만 보여준다 — 이미 처리됐거나(수락/취소·거절로 행이 사라짐) 지난
               -- 알림이면 매번 조회 시점의 실제 상태를 그대로 반영한다.
               case when n.type = 'follow_request' then coalesce(f.status, 'none') else null end as "requestStatus"
        from notifications n
-       join users u on u.id = n."actorId"
+       -- 'announcement'는 actorId가 없을 수 있어(관리자 계정이 나중에 지워져도
+       -- 이미 보낸 공지는 남아야 함) left join.
+       left join users u on u.id = n."actorId"
        left join trip_posts p on p.id = n."postId"
        left join follows f on f."followerId" = n."actorId" and f."followingId" = n."recipientId" and n.type = 'follow_request'
        where n."recipientId" = $1
