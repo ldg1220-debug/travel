@@ -265,19 +265,46 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // window from *outside* this component's own day-header clicks — e.g. the
   // AppBar's "저장된 계획 미리보기" calendar calls the store's setActiveDate
   // directly before routing here, and PlannerBoard doesn't necessarily
-  // remount for that navigation (same route, already mounted) so windowStart
-  // would otherwise be left stuck wherever it was. Re-anchor the window
-  // whenever that happens. A same-window day-header click never trips this
-  // (its date is by definition already inside visibleDates), so the window
-  // still only moves via the prev/next chevrons and month-view jump in that
-  // ordinary case — matching the comment above windowStart's declaration.
-  // Adjusted during render (React's "adjusting state when a prop changes"
-  // pattern) rather than in a useEffect, so the re-anchor lands in the same
-  // commit instead of flashing the stale window for one frame first.
+  // remount for that navigation (same route, already mounted, possibly
+  // already showing this very plan) so windowStart would otherwise be left
+  // stuck wherever it was. Re-anchor the window whenever that happens, and
+  // in the same beat also re-fit the visible day count to that plan's real
+  // span (min~max item date) — a jump-in like this is exactly when "I just
+  // opened/switched to a multi-day plan" is true, whereas re-fitting on
+  // *every* activeDate change (including plain day-header clicks within the
+  // window) would keep stomping on a visibleDays the user deliberately
+  // picked with +/-. A same-window day-header click never trips either of
+  // these (its date is by definition already inside visibleDates), so the
+  // window/day-count still only move via the prev/next chevrons, +/-, and
+  // month-view jump in that ordinary case — matching the comment above
+  // windowStart's declaration.
+  //
+  // `activePlanId` changing is tracked as a second, independent trigger for
+  // the same day-count re-fit: switching to a different saved plan (or the
+  // draft) is always a genuine "just opened this plan" moment even on the
+  // rare occasion its activeDate happens to already equal today's date (the
+  // hydration default), which would otherwise slip through the activeDate
+  // check above with no visible change to react to.
+  //
+  // Both are adjusted during render (React's "adjusting state when a prop
+  // changes" pattern) rather than in a useEffect, so the re-anchor lands in
+  // the same commit instead of flashing the stale window for one frame
+  // first.
   const [lastSyncedActiveDate, setLastSyncedActiveDate] = useState(activeDate);
-  if (activeDate !== lastSyncedActiveDate) {
-    setLastSyncedActiveDate(activeDate);
-    if (!visibleDates.includes(activeDate)) setWindowStart(activeDate);
+  const [lastSyncedPlanId, setLastSyncedPlanId] = useState(activePlanId);
+  const activeDateChanged = activeDate !== lastSyncedActiveDate;
+  const planChanged = activePlanId !== lastSyncedPlanId;
+  if (activeDateChanged || planChanged) {
+    if (activeDateChanged) setLastSyncedActiveDate(activeDate);
+    if (planChanged) setLastSyncedPlanId(activePlanId);
+    if (planChanged || !visibleDates.includes(activeDate)) {
+      setWindowStart(activeDate);
+      const itemDates = [...new Set(items.map((i) => i.date))].sort();
+      if (itemDates.length > 0) {
+        const span = daysBetweenInclusive(itemDates[0], itemDates[itemDates.length - 1]);
+        setVisibleDays(Math.min(MAX_VISIBLE_DAYS, Math.max(MIN_VISIBLE_DAYS, span)));
+      }
+    }
   }
 
   // `activeDate` persists across sessions (see itineraryStore's partialize)
@@ -299,22 +326,6 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
   }, []);
-
-  // 저장된 계획을 열 때(activePlanId가 바뀔 때) 보이는 일수를 그 계획의
-  // 실제 여행 기간에 맞춘다 — 5박 6일 계획을 열었는데 기본 3일 창만
-  // 보이면 뒷부분 일정이 스크롤/화살표 없이는 안 보여서 "일정이 없다"로
-  // 착각하기 쉽다. null(진행 중인 계획, 저장 안 됨)로도 한 번은 실행돼
-  // 첫 로드에도 적용된다. 이후 사용자가 +/- 로 직접 조정하면(같은
-  // activePlanId 안에서는 다시 안 맞춰짐) 그대로 유지된다.
-  const [lastSyncedPlanId, setLastSyncedPlanId] = useState(activePlanId);
-  if (activePlanId !== lastSyncedPlanId) {
-    setLastSyncedPlanId(activePlanId);
-    const dates = [...new Set(items.map((i) => i.date))].sort();
-    if (dates.length > 0) {
-      const span = daysBetweenInclusive(dates[0], dates[dates.length - 1]);
-      setVisibleDays(Math.min(MAX_VISIBLE_DAYS, Math.max(MIN_VISIBLE_DAYS, span)));
-    }
-  }
 
   // Month-grid view toggle — the day-column strip only ever shows a few
   // days at once; this swaps it for a full month at a glance (Notion/Google
