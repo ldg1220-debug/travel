@@ -240,8 +240,10 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
               <p className="mb-1.5 text-[12px] font-semibold text-slate-500">다녀온 장소</p>
               <div className="space-y-3">
                 {placeReviews.map((r) => {
-                  const reviewText = `${r.placeName} (⭐${r.rating.toFixed(1)}) ${r.content}`;
                   const photos = r.images.map((photoUrl, i) => ({ url: toAbsolute(photoUrl), label: `${r.placeName} 사진 ${i + 1}` }));
+                  // 리뷰 글과 그 장소 사진 링크를 한 번에 복사한다 — 따로 눌러 각각 복사하게
+                  // 하면 어차피 블로그에는 같이 붙여넣을 텍스트라 번거롭기만 하다.
+                  const reviewText = [`${r.placeName} (⭐${r.rating.toFixed(1)}) ${r.content}`, ...photos.map((p) => p.url)].join("\n");
                   return (
                     <div key={r.placeId} className="rounded-xl border border-slate-200 p-2.5 dark:border-slate-700">
                       <div className="flex items-start justify-between gap-2">
@@ -250,13 +252,10 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
                           <br />
                           {r.content}
                         </p>
-                        <CopyTextButton text={reviewText} />
+                        <CopyTextButton text={reviewText} label="글+링크 복사" />
                       </div>
                       {photos.length > 0 && (
                         <div className="mt-2">
-                          <div className="mb-1 flex justify-end">
-                            <CopyTextButton text={photos.map((p) => p.url).join("\n")} label="URL 전체 복사" />
-                          </div>
                           <PhotoRow photos={photos} copiedUrl={copiedPhotoUrl} copyMode={photoCopyMode} onCopy={handleCopyPhoto} />
                         </div>
                       )}
