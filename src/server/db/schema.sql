@@ -340,6 +340,18 @@ UPDATE users SET "isAdmin" = true WHERE email = 'ldg1220@naver.com';
 -- signIn 콜백).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "isBanned" BOOLEAN NOT NULL DEFAULT false;
 
+-- 관리자 대시보드(가입 추이·활성 사용자)용. Auth.js 어댑터가 관리하는 원본
+-- users 테이블(맨 위 CREATE TABLE)엔 가입 시각이 없어서 추가했다 — 이
+-- ALTER가 처음 실행되는 시점에 이미 있던 계정은 실제 가입일을 알 방법이
+-- 없으므로 DEFAULT now()로 그 시점 기준으로 채워진다(그 이후 신규가입부터
+-- 정확함). "lastActiveAt"은 NULL 허용 — 세션 콜백(src/auth.ts)이 5분에
+-- 한 번꼴로만 갱신하므로(매 요청 쓰기 방지) "최근 access"가 아니라
+-- "대략 최근 5분 단위 활성" 정도로 해석해야 한다.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "lastActiveAt" TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS users_created_at_idx ON users ("createdAt");
+CREATE INDEX IF NOT EXISTS users_last_active_idx ON users ("lastActiveAt");
+
 -- 신고 접수: 여행 후기(trip_post)·메시지·사용자 프로필을 대상으로 로그인한
 -- 누구나 접수할 수 있다(POST /api/reports). "targetId"는 targetType에 따라
 -- 다른 테이블을 가리키므로(targetType='user'일 땐 그 자체가 대상 유저 id)
