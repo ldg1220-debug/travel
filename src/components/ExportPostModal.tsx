@@ -20,6 +20,21 @@ interface ExportPhoto {
   label: string;
 }
 
+// 클립보드 이미지 쓰기(ClipboardItem)는 브라우저별로 png만 확실히 지원돼서
+// jpeg 원본은 캔버스를 거쳐 png로 바꾼 뒤에 넣는다.
+async function toPngBlob(blob: Blob): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2d context를 만들 수 없어요");
+  ctx.drawImage(bitmap, 0, 0);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("png 변환에 실패했어요"))), "image/png");
+  });
+}
+
 /**
  * "내보내기" — 티스토리는 2024년 Open API를 완전히 종료했고 네이버 블로그
  * 글쓰기 API는 사업자 심사가 필요해서, 둘 다 자동 발행 대신 서식을 갖춘
@@ -36,6 +51,7 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [copiedPhotoIndex, setCopiedPhotoIndex] = useState<number | null>(null);
+  const [photoCopyMode, setPhotoCopyMode] = useState<"image" | "link" | null>(null);
 
   // /api/upload가 돌려주는 사진 URL은 도메인 없는 상대 경로(/api/blob/...)라
   // 우리 앱 안에서는 문제없이 뜨지만, 그대로 텍스트로 복사해 티스토리·네이버
@@ -76,10 +92,26 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
     setTimeout(() => setLinkCopied(false), 1600);
   };
 
-  const handleCopyPhotoLink = async (photoUrl: string, index: number) => {
-    await navigator.clipboard.writeText(photoUrl);
+  // 링크를 텍스트로 복사하면 블로그 에디터가 파란 글자 링크로만 보여주고
+  // 사진으로 삽입해주지 않는다(에디터 자체 동작이라 우리가 바꿀 수 없음).
+  // 대신 이미지 자체를 클립보드에 담아서 Ctrl+V로 바로 삽입되게 한다 —
+  // 지원하지 않는 브라우저에서는 링크 복사로 대체한다.
+  const handleCopyPhoto = async (photoUrl: string, index: number) => {
+    try {
+      if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) {
+        throw new Error("이 브라우저는 이미지 클립보드 복사를 지원하지 않아요");
+      }
+      const res = await fetch(photoUrl);
+      const blob = await res.blob();
+      const pngBlob = blob.type === "image/png" ? blob : await toPngBlob(blob);
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": pngBlob })]);
+      setPhotoCopyMode("image");
+    } catch {
+      await navigator.clipboard.writeText(photoUrl);
+      setPhotoCopyMode("link");
+    }
     setCopiedPhotoIndex(index);
-    setTimeout(() => setCopiedPhotoIndex(null), 1200);
+    setTimeout(() => setCopiedPhotoIndex(null), 1600);
   };
 
   const handleNaver = () => {
@@ -115,14 +147,15 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
             className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12.5px] leading-relaxed text-slate-600 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
           />
           <p className="mt-1.5 text-[11px] text-slate-400">
-            텍스트에는 본문·다녀온 장소 리뷰·해시태그·트레쥴 링크가 포함돼요. 사진은 아래에서 링크를 복사하거나 눌러서
-            본 뒤 저장해주세요.
+            텍스트에는 본문·다녀온 장소 리뷰·해시태그·트레쥴 링크가 포함돼요. 사진은 텍스트에 자동으로 들어가지
+            않으니 아래에서 따로 복사해주세요.
           </p>
 
           {photos.length > 0 && (
             <div className="mt-3">
               <p className="mb-1.5 text-[12px] font-semibold text-slate-500">
-                사진 {photos.length}장 — 눌러서 원본 보기, 아이콘으로 링크 복사
+                사진 {photos.length}장 — 아이콘을 누르면 사진이 복사돼요, 블로그 글쓰기 화면에서 Ctrl+V(붙여넣기)하면 바로
+                삽입돼요
               </p>
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {photos.map((photo, i) => (
@@ -132,8 +165,8 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
                       <img src={photo.url} alt="" className="h-full w-full object-cover" />
                     </a>
                     <button
-                      onClick={() => handleCopyPhotoLink(photo.url, i)}
-                      aria-label={`${photo.label} 링크 복사`}
+                      onClick={() => handleCopyPhoto(photo.url, i)}
+                      aria-label={`${photo.label} 복사`}
                       className="absolute bottom-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-md bg-black/60 text-white transition-colors hover:bg-black/80"
                     >
                       {copiedPhotoIndex === i ? <Check size={11} /> : <Copy size={11} />}
@@ -141,6 +174,11 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
                   </div>
                 ))}
               </div>
+              {copiedPhotoIndex != null && (
+                <p className="mt-1 text-[11px] text-emerald-600">
+                  {photoCopyMode === "image" ? "사진이 복사됐어요 — 블로그 글쓰기 화면에서 Ctrl+V로 붙여넣어주세요" : "이 브라우저는 이미지 복사를 지원하지 않아 링크로 복사했어요"}
+                </p>
+              )}
             </div>
           )}
 
