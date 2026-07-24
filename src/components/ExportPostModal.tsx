@@ -36,7 +36,7 @@ async function toPngBlob(blob: Blob): Promise<Blob> {
 }
 
 /** 섹션별로 따로 복사할 수 있게 하는 작은 텍스트 복사 버튼 — 제목/글/해시태그/장소 리뷰가 각각 블로그의 다른 입력칸(제목 칸, 본문 등)에 들어가야 해서 하나로 뭉쳐 복사하면 오히려 지우고 나눠야 하는 수고가 생긴다. */
-function CopyTextButton({ text }: { text: string }) {
+function CopyTextButton({ text, label = "복사" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   const handle = async () => {
     await navigator.clipboard.writeText(text);
@@ -48,7 +48,7 @@ function CopyTextButton({ text }: { text: string }) {
       onClick={handle}
       className="flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
     >
-      {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? "복사됨" : "복사"}
+      {copied ? <Check size={11} /> : <Copy size={11} />} {copied ? "복사됨" : label}
     </button>
   );
 }
@@ -226,7 +226,10 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
           {/* 대표 사진 */}
           {repPhotos.length > 0 && (
             <div>
-              <p className="mb-1.5 text-[12px] font-semibold text-slate-500">대표 사진 {repPhotos.length}장</p>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <p className="text-[12px] font-semibold text-slate-500">대표 사진 {repPhotos.length}장</p>
+                <CopyTextButton text={repPhotos.map((p) => p.url).join("\n")} label="URL 전체 복사" />
+              </div>
               <PhotoRow photos={repPhotos} copiedUrl={copiedPhotoUrl} copyMode={photoCopyMode} onCopy={handleCopyPhoto} />
             </div>
           )}
@@ -251,6 +254,9 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
                       </div>
                       {photos.length > 0 && (
                         <div className="mt-2">
+                          <div className="mb-1 flex justify-end">
+                            <CopyTextButton text={photos.map((p) => p.url).join("\n")} label="URL 전체 복사" />
+                          </div>
                           <PhotoRow photos={photos} copiedUrl={copiedPhotoUrl} copyMode={photoCopyMode} onCopy={handleCopyPhoto} />
                         </div>
                       )}
