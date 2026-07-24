@@ -121,6 +121,19 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
 
   const hashtags = useMemo(() => Array.from(new Set(content.match(/#\S+/g) ?? [])), [content]);
 
+  // 장소마다 리뷰 글+사진 링크를 한 덩어리로 만들어 두고, 개별 카드의 복사
+  // 버튼과 "다녀온 장소 전체 복사" 버튼이 같은 텍스트를 재사용하게 한다.
+  const placeReviewBlocks = useMemo(
+    () =>
+      placeReviews.map((r) => {
+        const photos = r.images.map((photoUrl, i) => ({ url: toAbsolute(photoUrl), label: `${r.placeName} 사진 ${i + 1}` }));
+        const text = [`${r.placeName} (⭐${r.rating.toFixed(1)}) ${r.content}`, ...photos.map((p) => p.url)].join("\n");
+        return { review: r, photos, text };
+      }),
+    [placeReviews],
+  );
+  const allPlaceReviewsText = placeReviewBlocks.map((b) => b.text).join("\n\n");
+
   const attribution = isOwner
     ? ""
     : `이 글은 ${authorName ?? "여행자"}님이 트레쥴에 작성한 여행 후기를 바탕으로 재구성했습니다. 원문 보기: ${url}\n\n`;
@@ -235,33 +248,30 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
           )}
 
           {/* 다녀온 장소 — 별점 아래에 그 장소 사진을 바로 둬서, 이 항목을 붙여넣은 자리에서 바로 사진도 이어붙일 수 있게 함 */}
-          {placeReviews.length > 0 && (
+          {placeReviewBlocks.length > 0 && (
             <div>
-              <p className="mb-1.5 text-[12px] font-semibold text-slate-500">다녀온 장소</p>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <p className="text-[12px] font-semibold text-slate-500">다녀온 장소</p>
+                {placeReviewBlocks.length > 1 && <CopyTextButton text={allPlaceReviewsText} label="전체 복사" />}
+              </div>
               <div className="space-y-3">
-                {placeReviews.map((r) => {
-                  const photos = r.images.map((photoUrl, i) => ({ url: toAbsolute(photoUrl), label: `${r.placeName} 사진 ${i + 1}` }));
-                  // 리뷰 글과 그 장소 사진 링크를 한 번에 복사한다 — 따로 눌러 각각 복사하게
-                  // 하면 어차피 블로그에는 같이 붙여넣을 텍스트라 번거롭기만 하다.
-                  const reviewText = [`${r.placeName} (⭐${r.rating.toFixed(1)}) ${r.content}`, ...photos.map((p) => p.url)].join("\n");
-                  return (
-                    <div key={r.placeId} className="rounded-xl border border-slate-200 p-2.5 dark:border-slate-700">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-[12.5px] leading-relaxed text-slate-700 dark:text-slate-200">
-                          <span className="font-semibold">{r.placeName}</span> ⭐{r.rating.toFixed(1)}
-                          <br />
-                          {r.content}
-                        </p>
-                        <CopyTextButton text={reviewText} label="글+링크 복사" />
-                      </div>
-                      {photos.length > 0 && (
-                        <div className="mt-2">
-                          <PhotoRow photos={photos} copiedUrl={copiedPhotoUrl} copyMode={photoCopyMode} onCopy={handleCopyPhoto} />
-                        </div>
-                      )}
+                {placeReviewBlocks.map(({ review: r, photos, text }) => (
+                  <div key={r.placeId} className="rounded-xl border border-slate-200 p-2.5 dark:border-slate-700">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-[12.5px] leading-relaxed text-slate-700 dark:text-slate-200">
+                        <span className="font-semibold">{r.placeName}</span> ⭐{r.rating.toFixed(1)}
+                        <br />
+                        {r.content}
+                      </p>
+                      <CopyTextButton text={text} label="글+링크 복사" />
                     </div>
-                  );
-                })}
+                    {photos.length > 0 && (
+                      <div className="mt-2">
+                        <PhotoRow photos={photos} copiedUrl={copiedPhotoUrl} copyMode={photoCopyMode} onCopy={handleCopyPhoto} />
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
