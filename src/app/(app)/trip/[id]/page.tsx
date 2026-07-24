@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Link as LinkIcon, ChevronLeft, Heart } from "lucide-react";
+import { Link as LinkIcon, ChevronLeft, Heart, Download } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import {
   acceptFollowRequest,
@@ -27,6 +27,7 @@ import { VisibilitySelector } from "@/components/VisibilitySelector";
 import { LoginModal } from "@/components/LoginModal";
 import { ReportModal } from "@/components/ReportModal";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
+import { ExportPostModal } from "@/components/ExportPostModal";
 import { TripPostComposer } from "@/components/TripPostComposer";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
 import { useItineraryStore } from "@/store/itineraryStore";
@@ -55,6 +56,7 @@ export default function TripPostDetailPage() {
   const [loginReason, setLoginReason] = useState("트래블 메이트를 맺으려면 로그인해주세요.");
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const reload = () => {
     const id = Number(params.id);
@@ -445,6 +447,13 @@ export default function TripPostDetailPage() {
           >
             <LinkIcon size={15} /> 링크 복사
           </button>
+          <button
+            onClick={() => setExportOpen(true)}
+            aria-label="내보내기"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50"
+          >
+            <Download size={15} />
+          </button>
         </div>
       </div>
 
@@ -472,6 +481,18 @@ export default function TripPostDetailPage() {
             setEditOpen(false);
             reload();
           }}
+        />
+      )}
+
+      {exportOpen && (
+        <ExportPostModal
+          title={post.title}
+          content={post.content}
+          images={post.images}
+          url={`${window.location.origin}/trip/${post.id}`}
+          authorName={post.authorName}
+          isOwner={isOwner}
+          onClose={() => setExportOpen(false)}
         />
       )}
 
