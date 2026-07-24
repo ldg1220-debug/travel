@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { X, Copy, ExternalLink, Download } from "lucide-react";
+import { X, Copy, Check, ExternalLink } from "lucide-react";
 import type { TripPostPlaceReview } from "@/lib/api";
 
 interface ExportPostModalProps {
@@ -26,14 +26,16 @@ interface ExportPhoto {
  * 텍스트를 복사해 직접 붙여넣는 방식으로 대신한다. 본인 글이 아니면 원작자
  * 출처 문구를 본문 앞에 자동으로 붙여 무단 재게시처럼 보이지 않게 한다.
  *
- * 사진은 텍스트에 URL로 끼워 넣어봐야 블로그 에디터가 자동으로 이미지로
- * 바꿔주지 않아서(에디터마다 붙여넣기 동작이 달라 신뢰할 수 없음) 텍스트에서
- * 아예 빼고, 대신 썸네일마다 다운로드 버튼을 둬서 저장 후 에디터에 직접
- * 첨부하도록 안내한다. 해시태그와 다녀온 장소 리뷰는 본문에 자동으로
- * 포함되지 않는 구조 데이터라 별도로 텍스트에 조립해 넣는다.
+ * 사진은 다운로드를 강제하지 않는다 — 새 탭에서 원본을 바로 볼 수 있는
+ * 공개 링크(/api/blob 프록시, 인증 불필요)라서 눌러서 보거나 링크만 복사해
+ * 블로그에 붙여넣을 수 있게 한다. 그리고 본인 글이든 남의 글이든 내보낸
+ * 텍스트 맨 아래에 트레쥴 링크를 항상 붙여, 외부 블로그에 올려도 트레쥴로
+ * 유입될 수 있게 한다.
  */
 export function ExportPostModal({ title, content, images, placeReviews, url, authorName, isOwner, onClose }: ExportPostModalProps) {
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [copiedPhotoIndex, setCopiedPhotoIndex] = useState<number | null>(null);
 
   const photos = useMemo<ExportPhoto[]>(
     () => [
@@ -54,13 +56,26 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
         ? `\n\n다녀온 장소\n${placeReviews.map((r) => `- ${r.placeName} (⭐${r.rating.toFixed(1)}) ${r.content}`).join("\n")}`
         : "";
     const hashtagsBlock = hashtags.length > 0 ? `\n\n${hashtags.join(" ")}` : "";
-    return `${title}\n\n${attribution}${content}${placeReviewsBlock}${hashtagsBlock}`;
+    const footer = `\n\n✈️ 트레쥴(Tradule)에서 계획하고 기록한 여행이에요\n${url}`;
+    return `${title}\n\n${attribution}${content}${placeReviewsBlock}${hashtagsBlock}${footer}`;
   }, [title, content, placeReviews, hashtags, isOwner, authorName, url]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(exportText);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
+  };
+
+  const handleCopyLinkOnly = async () => {
+    await navigator.clipboard.writeText(url);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 1600);
+  };
+
+  const handleCopyPhotoLink = async (photoUrl: string, index: number) => {
+    await navigator.clipboard.writeText(photoUrl);
+    setCopiedPhotoIndex(index);
+    setTimeout(() => setCopiedPhotoIndex(null), 1200);
   };
 
   const handleNaver = () => {
@@ -96,31 +111,30 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
             className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12.5px] leading-relaxed text-slate-600 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
           />
           <p className="mt-1.5 text-[11px] text-slate-400">
-            텍스트에는 본문·다녀온 장소 리뷰·해시태그가 포함돼요. 사진은 아래에서 따로 저장해주세요.
+            텍스트에는 본문·다녀온 장소 리뷰·해시태그·트레쥴 링크가 포함돼요. 사진은 아래에서 링크를 복사하거나 눌러서
+            본 뒤 저장해주세요.
           </p>
 
           {photos.length > 0 && (
             <div className="mt-3">
               <p className="mb-1.5 text-[12px] font-semibold text-slate-500">
-                사진 {photos.length}장 — 눌러서 저장 후 블로그 글쓰기 화면에 직접 첨부해주세요
+                사진 {photos.length}장 — 눌러서 원본 보기, 아이콘으로 링크 복사
               </p>
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {photos.map((photo, i) => (
-                  <a
-                    key={`${photo.url}-${i}`}
-                    href={photo.url}
-                    download
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={`${photo.label} 다운로드`}
-                    className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element -- own blob proxy URL */}
-                    <img src={photo.url} alt="" className="h-full w-full object-cover" />
-                    <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100">
-                      <Download size={16} />
-                    </span>
-                  </a>
+                  <div key={`${photo.url}-${i}`} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+                    <a href={photo.url} target="_blank" rel="noreferrer" aria-label={`${photo.label} 원본 보기`} className="block h-full w-full">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- own blob proxy URL, publicly viewable */}
+                      <img src={photo.url} alt="" className="h-full w-full object-cover" />
+                    </a>
+                    <button
+                      onClick={() => handleCopyPhotoLink(photo.url, i)}
+                      aria-label={`${photo.label} 링크 복사`}
+                      className="absolute bottom-0.5 right-0.5 flex h-5 w-5 items-center justify-center rounded-md bg-black/60 text-white transition-colors hover:bg-black/80"
+                    >
+                      {copiedPhotoIndex === i ? <Check size={11} /> : <Copy size={11} />}
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -133,12 +147,20 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
             >
               <Copy size={15} /> {copied ? "복사됐어요!" : "텍스트 복사하기"}
             </button>
-            <button
-              onClick={handleNaver}
-              className="flex h-11 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-            >
-              <ExternalLink size={15} /> 네이버 블로그 새 글로 열기
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleCopyLinkOnly}
+                className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+              >
+                <Copy size={15} /> {linkCopied ? "복사됐어요!" : "링크만 복사"}
+              </button>
+              <button
+                onClick={handleNaver}
+                className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+              >
+                <ExternalLink size={15} /> 네이버 새 글
+              </button>
+            </div>
           </div>
           <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
             티스토리는 자동 등록 기능이 막혀 있어(2024년 API 종료) 복사한 텍스트를 직접 붙여넣어야 해요. 네이버는
