@@ -2,7 +2,65 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { fetchAdminStats, type AdminStats } from "@/lib/api";
+import { fetchAdminStats, sendAnnouncement, type AdminStats } from "@/lib/api";
+
+const ANNOUNCEMENT_MAX_LENGTH = 300;
+
+/** 관리자/부관리자 전체 공지 발송 — 알림 벨의 "공지" 탭에 쌓인다. */
+function AnnouncementForm() {
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSend = async () => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    if (!window.confirm(`정말 전체 사용자에게 이 공지를 보낼까요?\n\n"${trimmed}"`)) return;
+
+    setSending(true);
+    setError(null);
+    setResult(null);
+    try {
+      const { count } = await sendAnnouncement(trimmed);
+      setMessage("");
+      setResult(`${count.toLocaleString()}명에게 공지를 보냈어요`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "공지 발송에 실패했어요");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section>
+      <h2 className="mb-2 text-[13px] font-semibold text-slate-500">전체 공지 발송</h2>
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value.slice(0, ANNOUNCEMENT_MAX_LENGTH))}
+          placeholder="전체 사용자의 알림 벨에 보낼 공지 내용을 입력하세요"
+          rows={3}
+          className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+        />
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-[11px] text-slate-400">
+            {message.length}/{ANNOUNCEMENT_MAX_LENGTH}
+          </span>
+          <button
+            onClick={handleSend}
+            disabled={sending || !message.trim()}
+            className="rounded-full bg-indigo-600 px-4 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {sending ? "발송 중…" : "전체 발송"}
+          </button>
+        </div>
+        {result && <p className="mt-2 text-[12px] font-medium text-emerald-600">{result}</p>}
+        {error && <p className="mt-2 text-[12px] text-rose-500">{error}</p>}
+      </div>
+    </section>
+  );
+}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
@@ -84,6 +142,8 @@ export default function AdminDashboardPage() {
           <p className="mt-10 text-center text-[13px] text-slate-400">불러오는 중…</p>
         ) : (
           <div className="mt-5 space-y-5">
+            <AnnouncementForm />
+
             {/* 유입 — 가입자 수 */}
             <section>
               <h2 className="mb-2 text-[13px] font-semibold text-slate-500">유입 (가입자)</h2>

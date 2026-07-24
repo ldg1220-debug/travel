@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Bell } from "lucide-react";
+import { Bell, Megaphone } from "lucide-react";
 import { acceptFollowRequest, fetchNotifications, markNotificationsRead, rejectFollowRequest, type AppNotification } from "@/lib/api";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
 
@@ -26,6 +26,7 @@ export function NotificationBell() {
   const { data: session } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState<"all" | "announcement">("all");
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
@@ -76,11 +77,12 @@ export function NotificationBell() {
   const handleItemClick = (n: AppNotification) => {
     setOpen(false);
     if (n.postId != null) router.push(`/trip/${n.postId}`);
-    else setProfileUserId(n.actorId);
+    else if (n.actorId != null) setProfileUserId(n.actorId);
   };
 
   const handleAccept = async (e: React.MouseEvent, n: AppNotification) => {
     e.stopPropagation();
+    if (n.actorId == null) return;
     setRequestBusyId(n.id);
     setActionError(null);
     try {
@@ -95,6 +97,7 @@ export function NotificationBell() {
 
   const handleReject = async (e: React.MouseEvent, n: AppNotification) => {
     e.stopPropagation();
+    if (n.actorId == null) return;
     setRequestBusyId(n.id);
     setActionError(null);
     try {
@@ -108,6 +111,8 @@ export function NotificationBell() {
   };
 
   if (!loggedIn) return null;
+
+  const visibleNotifications = filter === "announcement" ? notifications.filter((n) => n.type === "announcement") : notifications;
 
   return (
     <div ref={ref} className="relative">
@@ -125,11 +130,28 @@ export function NotificationBell() {
       {open && (
         <div className="absolute right-0 top-11 z-[70] max-h-[70vh] w-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl sm:w-80 dark:border-slate-700 dark:bg-slate-900">
           <p className="px-3.5 py-2 text-[13px] font-bold text-slate-800 dark:text-slate-100">알림</p>
+          <div className="flex gap-1 px-3 pb-2">
+            {(["all", "announcement"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition-colors ${
+                  filter === f
+                    ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                    : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400"
+                }`}
+              >
+                {f === "all" ? "전체" : "공지"}
+              </button>
+            ))}
+          </div>
           {actionError && <p className="px-3.5 pb-2 text-[11.5px] text-rose-500">{actionError}</p>}
-          {notifications.length === 0 ? (
-            <p className="px-3.5 py-6 text-center text-[12.5px] text-slate-400">아직 알림이 없어요</p>
+          {visibleNotifications.length === 0 ? (
+            <p className="px-3.5 py-6 text-center text-[12.5px] text-slate-400">
+              {filter === "announcement" ? "받은 공지가 없어요" : "아직 알림이 없어요"}
+            </p>
           ) : (
-            notifications.map((n) => (
+            visibleNotifications.map((n) => (
               <button
                 key={n.id}
                 onClick={() => handleItemClick(n)}
@@ -137,22 +159,37 @@ export function NotificationBell() {
                   n.read ? "" : "bg-indigo-50/60 dark:bg-indigo-500/10"
                 }`}
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-xs font-bold text-white">
-                  {n.actorImage ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
-                    <img src={n.actorImage} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    (n.actorName ?? "?").trim().charAt(0).toUpperCase()
-                  )}
-                </span>
+                {n.type === "announcement" ? (
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white">
+                    <Megaphone size={15} />
+                  </span>
+                ) : (
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-xs font-bold text-white">
+                    {n.actorImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
+                      <img src={n.actorImage} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      (n.actorName ?? "?").trim().charAt(0).toUpperCase()
+                    )}
+                  </span>
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block text-[12.5px] leading-snug text-slate-700 dark:text-slate-200">
-                    <span className="font-semibold">{n.actorName ?? "여행자"}</span>
-                    {n.type === "follow_request"
-                      ? "님이 트래블 메이트를 신청했어요"
-                      : n.type === "follow_accept"
-                        ? "님이 트래블 메이트 신청을 수락했어요"
-                        : "님이 회원님의 후기에 좋아요를 눌렀어요"}
+                    {n.type === "announcement" ? (
+                      <>
+                        <span className="font-semibold text-amber-600 dark:text-amber-400">[공지] </span>
+                        {n.message}
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold">{n.actorName ?? "여행자"}</span>
+                        {n.type === "follow_request"
+                          ? "님이 트래블 메이트를 신청했어요"
+                          : n.type === "follow_accept"
+                            ? "님이 트래블 메이트 신청을 수락했어요"
+                            : "님이 회원님의 후기에 좋아요를 눌렀어요"}
+                      </>
+                    )}
                   </span>
                   <span className="mt-0.5 block text-[11px] text-slate-400">{relativeTime(n.createdAt)}</span>
                   {n.type === "follow_request" && n.requestStatus === "pending" && (
