@@ -14,7 +14,7 @@ export interface RecommendSlot {
   label: string;
   keyword: string;
   hour: number;
-  category?: "attraction" | "restaurant" | "lodging";
+  category?: "attraction" | "restaurant" | "lodging" | "cafe";
   /** Meal slots get a "점심"/"저녁" style marker in the course. */
   meal?: boolean;
 }
@@ -34,10 +34,12 @@ export const THEME_LABELS: Record<CourseTheme, string> = {
 export const THEME_SLOTS: Record<CourseTheme, RecommendSlot[]> = {
   balanced: [
     { key: "am-sight", label: "오전 명소", keyword: "관광지", hour: 10, category: "attraction" },
-    { key: "market", label: "시장·거리", keyword: "시장 거리", hour: 11, category: "attraction" },
+    // "시장 거리"는 부분 문자열 매칭에서 "장거리"(long-distance)와 충돌해
+    // 택시회사 같은 엉뚱한 업체가 섞여 들어온 적이 있어 "전통시장"으로 좁혔다.
+    { key: "market", label: "시장·거리", keyword: "전통시장", hour: 11, category: "attraction" },
     { key: "lunch", label: "점심", keyword: "맛집", hour: 12, category: "restaurant", meal: true },
     { key: "pm-sight", label: "오후 명소", keyword: "가볼만한곳", hour: 14, category: "attraction" },
-    { key: "cafe", label: "카페", keyword: "카페", hour: 16 },
+    { key: "cafe", label: "카페", keyword: "카페", hour: 16, category: "cafe" },
     { key: "night", label: "야경 명소", keyword: "야경", hour: 19, category: "attraction" },
     { key: "dinner", label: "저녁", keyword: "맛집", hour: 20, category: "restaurant", meal: true },
   ],
@@ -45,17 +47,17 @@ export const THEME_SLOTS: Record<CourseTheme, RecommendSlot[]> = {
     { key: "brunch", label: "브런치", keyword: "브런치 카페", hour: 10, category: "restaurant", meal: true },
     { key: "market", label: "먹거리 시장", keyword: "전통시장 먹거리", hour: 11, category: "attraction" },
     { key: "lunch", label: "점심 맛집", keyword: "맛집", hour: 13, category: "restaurant", meal: true },
-    { key: "dessert", label: "디저트 카페", keyword: "디저트 카페", hour: 15 },
+    { key: "dessert", label: "디저트 카페", keyword: "디저트 카페", hour: 15, category: "cafe" },
     { key: "pm-sight", label: "오후 명소", keyword: "가볼만한곳", hour: 16, category: "attraction" },
     { key: "dinner", label: "저녁 맛집", keyword: "맛집", hour: 19, category: "restaurant", meal: true },
     { key: "bar", label: "야식·술집", keyword: "술집 포차", hour: 21, category: "restaurant" },
   ],
   healing: [
-    { key: "cafe-am", label: "감성 카페", keyword: "감성 카페", hour: 10 },
+    { key: "cafe-am", label: "감성 카페", keyword: "감성 카페", hour: 10, category: "cafe" },
     { key: "park", label: "공원 산책", keyword: "공원 산책", hour: 11, category: "attraction" },
     { key: "lunch", label: "점심", keyword: "브런치 맛집", hour: 13, category: "restaurant", meal: true },
     { key: "view", label: "전망 명소", keyword: "전망 좋은 곳", hour: 15, category: "attraction" },
-    { key: "cafe-pm", label: "분위기 카페", keyword: "분위기 좋은 카페", hour: 16 },
+    { key: "cafe-pm", label: "분위기 카페", keyword: "분위기 좋은 카페", hour: 16, category: "cafe" },
     { key: "sunset", label: "노을 명소", keyword: "노을 명소", hour: 18, category: "attraction" },
     { key: "dinner", label: "저녁", keyword: "조용한 맛집", hour: 19, category: "restaurant", meal: true },
   ],
@@ -91,8 +93,20 @@ const CATEGORY_TYPE: Record<string, string> = {
   attraction: "tourist_attraction",
   restaurant: "restaurant",
   lodging: "lodging",
+  cafe: "cafe",
 };
-const CATEGORY_LABEL: Record<string, string> = { attraction: "관광명소", restaurant: "맛집", lodging: "숙소" };
+const CATEGORY_LABEL: Record<string, string> = { attraction: "관광명소", restaurant: "맛집", lodging: "숙소", cafe: "카페" };
+
+// Kakao Local의 category_group_code — 슬롯을 이 코드로 제한해서 검색하면
+// "부산장거리택시"(택시회사)가 "시장 거리" 키워드에 텍스트로 걸려 들어오는
+// 것처럼, 카테고리와 무관한 업체가 섞이는 걸 막을 수 있다. AT4=관광명소,
+// FD6=음식점, CE7=카페, AD5=숙박.
+const KAKAO_CATEGORY_CODE: Record<string, string> = {
+  attraction: "AT4",
+  restaurant: "FD6",
+  cafe: "CE7",
+  lodging: "AD5",
+};
 
 /** How many candidates per slot to keep — bounds LLM token cost and gives the deterministic ranker a few to vary among. */
 export const POOL_SIZE = 6;
@@ -173,8 +187,10 @@ interface KakaoDoc {
   x: string;
   y: string;
 }
-async function kakaoTop(query: string, apiKey: string): Promise<KakaoDoc[]> {
-  const res = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=10`, {
+async function kakaoTop(query: string, apiKey: string, categoryGroupCode?: string): Promise<KakaoDoc[]> {
+  const params = new URLSearchParams({ query, size: "10" });
+  if (categoryGroupCode) params.set("category_group_code", categoryGroupCode);
+  const res = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?${params.toString()}`, {
     cache: "no-store",
     headers: { Authorization: `KakaoAK ${apiKey}` },
   });
@@ -227,7 +243,15 @@ export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: 
   }
   const apiKey = process.env.KAKAO_REST_API_KEY;
   if (!apiKey) return [];
-  const results = await kakaoTop(`${city} ${slot.keyword}`, apiKey);
+  const categoryCode = slot.category ? KAKAO_CATEGORY_CODE[slot.category] : undefined;
+  let results = await kakaoTop(`${city} ${slot.keyword}`, apiKey, categoryCode);
+  // Some real spots (traditional markets, night-view streets, …) aren't
+  // tagged under any of Kakao's category groups, so a strict category
+  // filter can legitimately come back empty — fall back to the unfiltered
+  // keyword search rather than silently returning fewer stops than before.
+  if (results.length === 0 && categoryCode) {
+    results = await kakaoTop(`${city} ${slot.keyword}`, apiKey);
+  }
   return results.map((d) => kakaoToPlace(d, slot.label)).slice(0, POOL_SIZE);
 }
 
