@@ -489,6 +489,7 @@ export default function TripPostDetailPage() {
           title={post.title}
           content={post.content}
           images={post.images}
+          placeReviews={placeReviews}
           url={`${window.location.origin}/trip/${post.id}`}
           authorName={post.authorName}
           isOwner={isOwner}
