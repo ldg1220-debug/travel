@@ -228,8 +228,11 @@ export default function TripPostDetailPage() {
   const handleShare = async () => {
     if (!post) return;
     const url = `${window.location.origin}/trip/${post.id}`;
+    // post.images는 도메인 없는 상대 경로(/api/blob/...)라, 카카오 서버가
+    // 썸네일을 가져가려면 완전한 URL이 필요하다.
+    const imageUrl = post.images[0] ? `${window.location.origin}${post.images[0]}` : undefined;
     try {
-      await shareToKakao({ title: post.title, description: metaLine, url, imageUrl: post.images[0] });
+      await shareToKakao({ title: post.title, description: metaLine, url, imageUrl });
     } catch {
       showToast("카카오톡 공유에 실패했어요");
     }

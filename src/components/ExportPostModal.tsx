@@ -37,13 +37,17 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
   const [linkCopied, setLinkCopied] = useState(false);
   const [copiedPhotoIndex, setCopiedPhotoIndex] = useState<number | null>(null);
 
-  const photos = useMemo<ExportPhoto[]>(
-    () => [
-      ...images.map((photoUrl, i) => ({ url: photoUrl, label: `대표 사진 ${i + 1}` })),
-      ...placeReviews.flatMap((r) => r.images.map((photoUrl, i) => ({ url: photoUrl, label: `${r.placeName} 사진 ${i + 1}` }))),
-    ],
-    [images, placeReviews],
-  );
+  // /api/upload가 돌려주는 사진 URL은 도메인 없는 상대 경로(/api/blob/...)라
+  // 우리 앱 안에서는 문제없이 뜨지만, 그대로 텍스트로 복사해 티스토리·네이버
+  // 같은 외부 사이트에 붙여넣으면 어떤 도메인 것인지 알 수 없어 깨진다 —
+  // 원본 origin을 붙여 완전한 URL로 만들어준다.
+  const photos = useMemo<ExportPhoto[]>(() => {
+    const toAbsolute = (photoUrl: string) => (/^https?:\/\//.test(photoUrl) ? photoUrl : `${window.location.origin}${photoUrl}`);
+    return [
+      ...images.map((photoUrl, i) => ({ url: toAbsolute(photoUrl), label: `대표 사진 ${i + 1}` })),
+      ...placeReviews.flatMap((r) => r.images.map((photoUrl, i) => ({ url: toAbsolute(photoUrl), label: `${r.placeName} 사진 ${i + 1}` }))),
+    ];
+  }, [images, placeReviews]);
 
   const hashtags = useMemo(() => Array.from(new Set(content.match(/#\S+/g) ?? [])), [content]);
 
