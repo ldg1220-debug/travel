@@ -818,3 +818,34 @@ export async function fetchAdminStats(): Promise<AdminStats | null> {
   if (!res.ok) return null;
   return (await res.json()) as AdminStats;
 }
+
+export interface AdminUserRow {
+  id: number;
+  name: string;
+  email: string | null;
+  image: string | null;
+  isAdmin: boolean;
+  isBanned: boolean;
+  createdAt: string;
+}
+
+/** 루트 관리자 전용 — 닉네임으로 사용자 검색(관리자 지정/해제 화면). */
+export async function fetchAdminUsers(query: string): Promise<AdminUserRow[]> {
+  const res = await fetch(`/api/admin/users?query=${encodeURIComponent(query)}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { users: AdminUserRow[] };
+  return data.users;
+}
+
+/** 루트 관리자 전용 — 관리자 권한 부여/회수. */
+export async function setUserAdmin(userId: number, isAdmin: boolean): Promise<void> {
+  const res = await fetch(`/api/admin/users/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isAdmin }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "관리자 권한 변경에 실패했어요");
+  }
+}
