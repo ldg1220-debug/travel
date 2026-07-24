@@ -79,3 +79,12 @@ export function formatDateLabelShort(date: string): string {
 export function dateWindow(date: string, count: number): string[] {
   return Array.from({ length: count }, (_, i) => shiftISODate(date, i));
 }
+
+/** Inclusive day span between two ISO dates — "2026-05-22" ~ "2026-05-26" is 5 (not 4), since both ends count. */
+export function daysBetweenInclusive(startDate: string, endDate: string): number {
+  const [sy, sm, sd] = startDate.split("-").map(Number);
+  const [ey, em, ed] = endDate.split("-").map(Number);
+  const start = new Date(sy, sm - 1, sd);
+  const end = new Date(ey, em - 1, ed);
+  return Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+}

@@ -62,6 +62,7 @@ import {
   todayISODate,
   dateWindow,
   shiftISODate,
+  daysBetweenInclusive,
   TIMELINE_HOURS,
   SLOT_HEIGHT,
   VISIBLE_DAYS,
@@ -257,20 +258,40 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // changed only by the prev/next chevrons and the month-view jump; a day
   // header click only moves `activeDate` (which day's route is shown),
   // leaving the window itself untouched.
+  const [windowStart, setWindowStart] = useState(activeDate);
+  const visibleDates = useMemo(() => dateWindow(windowStart, visibleDays), [windowStart, visibleDays]);
+
+  // `activeDate` can jump to somewhere outside the currently visible column
+  // window from *outside* this component's own day-header clicks — e.g. the
+  // AppBar's "저장된 계획 미리보기" calendar calls the store's setActiveDate
+  // directly before routing here, and PlannerBoard doesn't necessarily
+  // remount for that navigation (same route, already mounted) so windowStart
+  // would otherwise be left stuck wherever it was. Re-anchor the window
+  // whenever that happens. A same-window day-header click never trips this
+  // (its date is by definition already inside visibleDates), so the window
+  // still only moves via the prev/next chevrons and month-view jump in that
+  // ordinary case — matching the comment above windowStart's declaration.
+  // Adjusted during render (React's "adjusting state when a prop changes"
+  // pattern) rather than in a useEffect, so the re-anchor lands in the same
+  // commit instead of flashing the stale window for one frame first.
+  const [lastSyncedActiveDate, setLastSyncedActiveDate] = useState(activeDate);
+  if (activeDate !== lastSyncedActiveDate) {
+    setLastSyncedActiveDate(activeDate);
+    if (!visibleDates.includes(activeDate)) setWindowStart(activeDate);
+  }
+
   // `activeDate` persists across sessions (see itineraryStore's partialize)
   // so someone mid-planning a future trip finds it exactly where they left
   // it — but if it's stuck in the PAST (left the app open on a date that's
   // since gone by), that reads as a bug: the schedule looks empty because
   // the visible window is anchored days behind "today," not because nothing
-  // was ever added. Catch back up to today on first mount in that case only
-  // — a future activeDate (deliberate trip planning) is left untouched.
-  // windowStart's initializer applies the same correction so the two never
-  // disagree about which "today" they opened on.
-  const [windowStart, setWindowStart] = useState(() =>
-    activeDate < todayISODate() && !staleActiveDateCorrectedThisSession ? todayISODate() : activeDate,
-  );
-  const visibleDates = useMemo(() => dateWindow(windowStart, visibleDays), [windowStart, visibleDays]);
-
+  // was ever added. Catch back up to today once per tab session in that case
+  // only (a future activeDate — deliberate trip planning — is left
+  // untouched) — the effect above then re-anchors windowStart to match.
+  // Guarded by a module-scope flag rather than "run once on mount" because
+  // PlannerBoard remounts on every navigation back to /planner; without the
+  // guard, navigating to a deliberately-past-dated saved plan (see above)
+  // would immediately get "corrected" right back to today.
   useEffect(() => {
     if (!staleActiveDateCorrectedThisSession) {
       staleActiveDateCorrectedThisSession = true;
@@ -278,6 +299,22 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
   }, []);
+
+  // 저장된 계획을 열 때(activePlanId가 바뀔 때) 보이는 일수를 그 계획의
+  // 실제 여행 기간에 맞춘다 — 5박 6일 계획을 열었는데 기본 3일 창만
+  // 보이면 뒷부분 일정이 스크롤/화살표 없이는 안 보여서 "일정이 없다"로
+  // 착각하기 쉽다. null(진행 중인 계획, 저장 안 됨)로도 한 번은 실행돼
+  // 첫 로드에도 적용된다. 이후 사용자가 +/- 로 직접 조정하면(같은
+  // activePlanId 안에서는 다시 안 맞춰짐) 그대로 유지된다.
+  const [lastSyncedPlanId, setLastSyncedPlanId] = useState(activePlanId);
+  if (activePlanId !== lastSyncedPlanId) {
+    setLastSyncedPlanId(activePlanId);
+    const dates = [...new Set(items.map((i) => i.date))].sort();
+    if (dates.length > 0) {
+      const span = daysBetweenInclusive(dates[0], dates[dates.length - 1]);
+      setVisibleDays(Math.min(MAX_VISIBLE_DAYS, Math.max(MIN_VISIBLE_DAYS, span)));
+    }
+  }
 
   // Month-grid view toggle — the day-column strip only ever shows a few
   // days at once; this swaps it for a full month at a glance (Notion/Google
