@@ -150,6 +150,14 @@ function inlineComputedColors(root: HTMLElement): () => void {
   };
 }
 
+// 탭이 열려있는 동안(새로고침 전까지) "activeDate가 과거에 멈춰있으면
+// 오늘로 따라잡는다" 보정을 딱 한 번만 적용한다. 컴포넌트 마운트마다
+// 매번 적용하면, AppBar의 "저장된 계획 미리보기"에서 지난 여행의 특정
+// 날짜를 일부러 골라 /planner로 이동해도 그 즉시 오늘로 되돌려버린다 —
+// 의도는 "며칠째 켜둔 채 잊어버린 앱을 열었을 때"의 보정이지 "방금
+// 사용자가 직접 고른 과거 날짜로의 이동"까지 덮어써선 안 된다.
+let staleActiveDateCorrectedThisSession = false;
+
 // ─────────────────────────────────────────────────────────────
 export function PlannerBoard({ shareToken }: PlannerBoardProps) {
   return (
@@ -258,11 +266,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // — a future activeDate (deliberate trip planning) is left untouched.
   // windowStart's initializer applies the same correction so the two never
   // disagree about which "today" they opened on.
-  const [windowStart, setWindowStart] = useState(() => (activeDate < todayISODate() ? todayISODate() : activeDate));
+  const [windowStart, setWindowStart] = useState(() =>
+    activeDate < todayISODate() && !staleActiveDateCorrectedThisSession ? todayISODate() : activeDate,
+  );
   const visibleDates = useMemo(() => dateWindow(windowStart, visibleDays), [windowStart, visibleDays]);
 
   useEffect(() => {
-    if (activeDate < todayISODate()) setActiveDate(todayISODate());
+    if (!staleActiveDateCorrectedThisSession) {
+      staleActiveDateCorrectedThisSession = true;
+      if (activeDate < todayISODate()) setActiveDate(todayISODate());
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only
   }, []);
 
