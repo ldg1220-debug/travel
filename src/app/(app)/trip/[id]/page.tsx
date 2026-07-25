@@ -488,6 +488,7 @@ export default function TripPostDetailPage() {
           plan={null}
           itineraryId={null}
           postId={post.id}
+          snapshotPlan={linkedPlan ?? null}
           onClose={() => {
             setEditOpen(false);
             reload();
