@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X, Loader2, Plus, Hash } from "lucide-react";
+import { X, Loader2, Plus, Hash, ImageDown } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { VisibilitySelector } from "@/components/VisibilitySelector";
 import type { SavedPlan, Region } from "@/lib/types";
 import { fetchMyReviews, fetchMyTripPost, fetchTripPost, saveTripPost, searchPlaces, uploadReviewPhotos, type Review, type Visibility } from "@/lib/api";
 import { PlaceReviewEditSheet, type PlaceStub } from "@/components/PlaceReviewEditSheet";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
+import { ScheduleSnapshotCapture } from "@/components/ScheduleSnapshotCapture";
 import { hashtagSlug } from "@/lib/hashtag";
 import { resizeImageFiles } from "@/lib/imageResize";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
@@ -68,6 +69,10 @@ export function TripPostComposer({
   const [activePlace, setActivePlace] = useState<PlaceStub | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // 일정 이미지 저장 — 렌더 중인 ScheduleSnapshotCapture가 있으면(non-null)
+  // 화면 밖에서 캡처가 진행 중이라는 뜻. 계획은 나중에 삭제될 수 있어도
+  // 이 스냅샷은 일반 사진처럼 업로드돼 글에 영구히 남는다.
+  const [snapshotting, setSnapshotting] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
 
   const planPlaces = useMemo(() => (plan ? uniquePlaces(plan) : []), [plan]);
@@ -165,6 +170,30 @@ export function TripPostComposer({
     } finally {
       setUploading(false);
     }
+  };
+
+  // ScheduleSnapshotCapture가 화면 밖에서 렌더 → PNG로 변환 → onCaptured로
+  // dataURL을 돌려주면, 그걸 File로 바꿔 여느 사진과 똑같이 업로드한다 —
+  // 그래야 이 계획이 나중에 삭제돼도 글에 남은 사진 URL은 그대로 살아있다.
+  const handleSnapshotCaptured = async (dataUrl: string) => {
+    setSnapshotting(false);
+    setUploading(true);
+    setError(null);
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      const file = new File([blob], `${plan?.name ?? "일정"}.png`, { type: "image/png" });
+      const urls = await uploadReviewPhotos([file]);
+      setImages((prev) => [...prev, ...urls].slice(0, MAX_IMAGES));
+    } catch {
+      setError("일정 이미지를 저장하지 못했어요");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleSnapshotError = () => {
+    setSnapshotting(false);
+    setError("일정 이미지를 만들지 못했어요");
   };
 
   const insertAtCursor = (text: string) => {
@@ -287,6 +316,18 @@ export function TripPostComposer({
                 </label>
               )}
             </div>
+
+            {plan && (
+              <button
+                type="button"
+                onClick={() => setSnapshotting(true)}
+                disabled={snapshotting || uploading || images.length >= MAX_IMAGES}
+                className="mb-3 flex items-center gap-1.5 self-start rounded-full border border-indigo-200 bg-indigo-50/60 px-3 py-1.5 text-[12px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {snapshotting ? <Loader2 size={13} className="animate-spin" /> : <ImageDown size={13} />}
+                {snapshotting ? "캡처 중…" : "일정 이미지로 저장"}
+              </button>
+            )}
 
             <textarea
               ref={contentRef}
@@ -418,6 +459,10 @@ export function TripPostComposer({
 
       {lightboxIndex != null && (
         <PhotoLightbox images={images} index={lightboxIndex} onClose={() => setLightboxIndex(null)} onNavigate={setLightboxIndex} />
+      )}
+
+      {snapshotting && plan && (
+        <ScheduleSnapshotCapture plan={plan} onCaptured={handleSnapshotCaptured} onError={handleSnapshotError} />
       )}
     </div>
   );
