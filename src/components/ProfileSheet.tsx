@@ -49,6 +49,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   const [notifyMateRequests, setNotifyMateRequests] = useState(session?.user?.notifyMateRequests ?? true);
   const [notifyLikes, setNotifyLikes] = useState(session?.user?.notifyLikes ?? true);
   const [notifyMessages, setNotifyMessages] = useState(session?.user?.notifyMessages ?? true);
+  const [notifyComments, setNotifyComments] = useState(session?.user?.notifyComments ?? true);
   const [notifyError, setNotifyError] = useState<string | null>(null);
 
   // 이 기기에서 실제 OS 팝업으로 뜨는 푸시 알림(앱 설치 시 특히 유용) — 알림
@@ -222,8 +223,15 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
 
   // 알림 종류별 on/off — 즉시 서버에 반영(별도 저장 버튼 없이 토글=저장),
   // 실패하면 이전 상태로 되돌린다.
-  const handleToggleNotify = async (key: "notifyMateRequests" | "notifyLikes" | "notifyMessages", next: boolean) => {
-    const setter = key === "notifyMateRequests" ? setNotifyMateRequests : key === "notifyLikes" ? setNotifyLikes : setNotifyMessages;
+  const handleToggleNotify = async (key: "notifyMateRequests" | "notifyLikes" | "notifyMessages" | "notifyComments", next: boolean) => {
+    const setter =
+      key === "notifyMateRequests"
+        ? setNotifyMateRequests
+        : key === "notifyLikes"
+          ? setNotifyLikes
+          : key === "notifyMessages"
+            ? setNotifyMessages
+            : setNotifyComments;
     setter(next);
     setNotifyError(null);
     try {
@@ -443,6 +451,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                         onChange={(v) => handleToggleNotify("notifyMateRequests", v)}
                       />
                       <NotifyToggle label="좋아요 알림" checked={notifyLikes} onChange={(v) => handleToggleNotify("notifyLikes", v)} />
+                      <NotifyToggle label="댓글 알림" checked={notifyComments} onChange={(v) => handleToggleNotify("notifyComments", v)} />
                       <NotifyToggle label="새 메시지 알림" checked={notifyMessages} onChange={(v) => handleToggleNotify("notifyMessages", v)} />
                     </div>
                     {notifyError && <p className="mt-2 text-[11.5px] text-rose-500">{notifyError}</p>}

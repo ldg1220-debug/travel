@@ -14,6 +14,8 @@ declare module "next-auth" {
       notifyLikes: boolean;
       /** 새 메시지 알림 on/off — 기본 true. */
       notifyMessages: boolean;
+      /** 내 여행 후기에 달린 댓글 알림 on/off — 기본 true. */
+      notifyComments: boolean;
       /** 신고 관리 화면(/admin/reports) 접근 및 정지 처리 권한. */
       isAdmin: boolean;
       /** 신고 처리로 정지된 계정인지 — true면 로그인 자체가 막힌다. */

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { canViewTripPost } from "@/lib/server/tripPostVisibility";
 
 /**
  * A single trip post with author/trip context plus its author's per-place
@@ -38,20 +39,7 @@ export const GET = withApiErrorHandling(async (_request: NextRequest, { params }
   const row = result.rows[0];
   const isOwner = viewerId != null && viewerId === Number(row.authorId);
 
-  let canView = isOwner || row.visibility === "public";
-  if (!canView && viewerId != null && row.visibility === "friends") {
-    const mutual = await pool.query(
-      `select 1 from follows where "followerId" = $1 and "followingId" = $2 and status = 'accepted'
-       and exists (select 1 from follows where "followerId" = $2 and "followingId" = $1 and status = 'accepted')`,
-      [viewerId, row.authorId],
-    );
-    canView = (mutual.rowCount ?? 0) > 0;
-  }
-  if (!canView && viewerId != null && row.visibility === "custom") {
-    const allowed = await pool.query(`select 1 from trip_post_visible_to where "postId" = $1 and "userId" = $2`, [postId, viewerId]);
-    canView = (allowed.rowCount ?? 0) > 0;
-  }
-  if (!canView) {
+  if (!(await canViewTripPost(postId, viewerId, { authorId: Number(row.authorId), visibility: row.visibility }))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

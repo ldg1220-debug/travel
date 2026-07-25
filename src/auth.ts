@@ -45,7 +45,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // are our own additions, so they're fetched separately rather than
         // relying on the adapter to surface them.
         const result = await pool.query(
-          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "isAdmin", "isBanned", "lastActiveAt", "deletionRequestedAt" from users where id = $1`,
+          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "notifyComments", "isAdmin", "isBanned", "lastActiveAt", "deletionRequestedAt" from users where id = $1`,
           [user.id],
         );
         const row = result.rows[0];
@@ -54,6 +54,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.notifyMateRequests = row?.notifyMateRequests ?? true;
         session.user.notifyLikes = row?.notifyLikes ?? true;
         session.user.notifyMessages = row?.notifyMessages ?? true;
+        session.user.notifyComments = row?.notifyComments ?? true;
         session.user.isAdmin = row?.isAdmin ?? false;
         session.user.isBanned = row?.isBanned ?? false;
         const deletionRequestedAt = row?.deletionRequestedAt ? new Date(row.deletionRequestedAt) : null;

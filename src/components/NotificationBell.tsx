@@ -187,7 +187,9 @@ export function NotificationBell() {
                           ? "님이 트래블 메이트를 신청했어요"
                           : n.type === "follow_accept"
                             ? "님이 트래블 메이트 신청을 수락했어요"
-                            : "님이 회원님의 후기에 좋아요를 눌렀어요"}
+                            : n.type === "comment"
+                              ? "님이 회원님의 후기에 댓글을 남겼어요"
+                              : "님이 회원님의 후기에 좋아요를 눌렀어요"}
                       </>
                     )}
                   </span>

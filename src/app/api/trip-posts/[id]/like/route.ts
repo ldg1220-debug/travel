@@ -3,24 +3,7 @@ import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { sendPushToUser } from "@/lib/server/push";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-
-/** Can `viewerId` see this post? Mirrors the GET /api/trip-posts/[id] visibility gate — liking requires the same access as reading. */
-async function canView(postId: number, viewerId: number, row: { authorId: number; visibility: string }): Promise<boolean> {
-  if (viewerId === row.authorId || row.visibility === "public") return true;
-  if (row.visibility === "friends") {
-    const mutual = await pool.query(
-      `select 1 from follows where "followerId" = $1 and "followingId" = $2 and status = 'accepted'
-       and exists (select 1 from follows where "followerId" = $2 and "followingId" = $1 and status = 'accepted')`,
-      [viewerId, row.authorId],
-    );
-    return (mutual.rowCount ?? 0) > 0;
-  }
-  if (row.visibility === "custom") {
-    const allowed = await pool.query(`select 1 from trip_post_visible_to where "postId" = $1 and "userId" = $2`, [postId, viewerId]);
-    return (allowed.rowCount ?? 0) > 0;
-  }
-  return false;
-}
+import { canViewTripPost } from "@/lib/server/tripPostVisibility";
 
 /** Likes a trip post — idempotent, and notifies the author (unless liking your own post). */
 export const POST = withApiErrorHandling(async (_request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
@@ -39,7 +22,7 @@ export const POST = withApiErrorHandling(async (_request: NextRequest, { params 
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const row = postResult.rows[0];
-  if (!(await canView(postId, viewerId, row))) {
+  if (!(await canViewTripPost(postId, viewerId, row))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

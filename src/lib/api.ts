@@ -252,6 +252,7 @@ export async function updateProfile(input: {
   notifyMateRequests?: boolean;
   notifyLikes?: boolean;
   notifyMessages?: boolean;
+  notifyComments?: boolean;
 }): Promise<void> {
   const res = await fetch("/api/profile", {
     method: "PATCH",
@@ -454,6 +455,43 @@ export async function unlikeTripPost(id: number): Promise<void> {
   if (!res.ok) throw new Error("좋아요를 처리하지 못했어요");
 }
 
+export interface TripPostComment {
+  id: number;
+  postId: number;
+  userId: number;
+  authorName: string | null;
+  authorImage: string | null;
+  content: string;
+  createdAt: string;
+}
+
+/** 이 글의 댓글 목록 — 글을 볼 수 있는 사람만 조회할 수 있고(공개범위 기준 재검증), 그 외에는 빈 목록으로 대체된다. */
+export async function fetchComments(postId: number): Promise<TripPostComment[]> {
+  const res = await fetch(`/api/trip-posts/${postId}/comments`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { comments?: TripPostComment[] };
+  return data.comments ?? [];
+}
+
+export async function postComment(postId: number, content: string): Promise<TripPostComment> {
+  const res = await fetch(`/api/trip-posts/${postId}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "댓글을 남기지 못했어요");
+  }
+  const data = (await res.json()) as { comment: TripPostComment };
+  return data.comment;
+}
+
+export async function deleteComment(postId: number, commentId: number): Promise<void> {
+  const res = await fetch(`/api/trip-posts/${postId}/comments/${commentId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("댓글을 삭제하지 못했어요");
+}
+
 // ─────────────────────────────────────────────────────────────
 // 팔로우 — "트메공개"(맞팔로우)와 "특정인공개"(내 팔로워 중 선택)의 기반이
 // 되는 단방향 팔로우 관계. "트메 신청"은 상대가 수락해야 실제 관계로
@@ -586,11 +624,11 @@ export async function fetchUserProfile(userId: number): Promise<UserProfile | nu
 
 export interface AppNotification {
   id: number;
-  type: "follow_request" | "follow_accept" | "like" | "announcement";
+  type: "follow_request" | "follow_accept" | "like" | "comment" | "announcement";
   actorId: number | null;
   actorName: string | null;
   actorImage: string | null;
-  /** "like" 알림에만 있음 — 눌러서 바로 그 후기로 이동할 때 쓴다. */
+  /** "like"·"comment" 알림에만 있음 — 눌러서 바로 그 후기로 이동할 때 쓴다. */
   postId: number | null;
   postTitle: string | null;
   /** "announcement" 알림에만 있음 — 관리자가 작성한 공지 본문. */

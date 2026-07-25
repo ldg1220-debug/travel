@@ -13,6 +13,7 @@ interface ProfileBody {
   notifyMateRequests?: boolean;
   notifyLikes?: boolean;
   notifyMessages?: boolean;
+  notifyComments?: boolean;
 }
 
 const NICKNAME_PATTERN = /^[가-힣a-zA-Z0-9_]{2,20}$/;
@@ -55,6 +56,10 @@ export const PATCH = withApiErrorHandling(async (request: NextRequest) => {
   if (body.notifyMessages !== undefined) {
     params.push(body.notifyMessages);
     sets.push(`"notifyMessages" = $${params.length}`);
+  }
+  if (body.notifyComments !== undefined) {
+    params.push(body.notifyComments);
+    sets.push(`"notifyComments" = $${params.length}`);
   }
   if (sets.length === 0) {
     return NextResponse.json({ ok: true });

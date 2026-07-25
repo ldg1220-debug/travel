@@ -442,3 +442,19 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS "deletionToken" TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "deletionTokenExpiresAt" TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "deletionRequestedAt" TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS users_deletion_requested_idx ON users ("deletionRequestedAt") WHERE "deletionRequestedAt" IS NOT NULL;
+
+-- 여행 후기(trip_posts) 댓글 — 그 글의 공개범위(visibility)를 볼 수 있는
+-- 사람만 댓글도 보고 남길 수 있다(읽기·쓰기 모두 src/lib/server/
+-- tripPostVisibility.ts의 canViewTripPost로 좋아요/조회와 같은 기준을
+-- 재검증한다). 작성자 본인 또는 그 글의 주인이 지울 수 있다(글 주인에게도
+-- 모더레이션 목적으로 삭제 권한을 준다).
+CREATE TABLE IF NOT EXISTS trip_post_comments (
+  id SERIAL PRIMARY KEY,
+  "postId" INTEGER NOT NULL REFERENCES trip_posts(id) ON DELETE CASCADE,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS trip_post_comments_post_idx ON trip_post_comments ("postId", created_at);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "notifyComments" BOOLEAN NOT NULL DEFAULT true;
