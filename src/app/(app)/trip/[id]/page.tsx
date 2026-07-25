@@ -29,6 +29,7 @@ import { ReportModal } from "@/components/ReportModal";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { ExportPostModal } from "@/components/ExportPostModal";
 import { TripPostComposer } from "@/components/TripPostComposer";
+import { TripPostComments } from "@/components/TripPostComments";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
@@ -471,6 +472,15 @@ export default function TripPostDetailPage() {
             <Download size={15} />
           </button>
         </div>
+
+        <TripPostComments
+          postId={post.id}
+          isOwner={isOwner}
+          onRequireLogin={() => {
+            setLoginReason("댓글을 남기려면 로그인해주세요.");
+            setLoginOpen(true);
+          }}
+        />
       </div>
 
       {toast && (

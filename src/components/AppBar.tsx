@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { Menu, UserPlus, Plus, ChevronDown, LogIn, LogOut, X, Calendar, ShieldAlert, LayoutDashboard, UserCog } from "lucide-react";
-import { isRootAdmin } from "@/lib/server/rootAdmin";
+import { isRootAdmin, ROOT_ADMIN_EMAIL } from "@/lib/server/rootAdmin";
 import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
@@ -17,7 +17,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
-import { fetchUserItineraries } from "@/lib/api";
+import { fetchUserItineraries, fetchAdminContactId, reviveAccount } from "@/lib/api";
 import { syncPlanToServer } from "@/lib/planSync";
 import { formatDateLabel } from "@/lib/timeline";
 import { unsubscribeFromPush } from "@/lib/push";
@@ -102,7 +102,7 @@ const PAGE_TITLES: Record<string, string> = {
 export function AppBar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, update: updateSession } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loginReason, setLoginReason] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -116,7 +116,49 @@ export function AppBar() {
   // "세부일정 보기"를 눌러야 실제로 플래너로 이동하게 한다.
   const [previewPlan, setPreviewPlan] = useState<SavedPlan | null>(null);
   const [previewDate, setPreviewDate] = useState<string>("");
+  const [contactingAdmin, setContactingAdmin] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 문의하기 — 로그인 상태면 쪽지로(트래블 메이트가 아니어도 관리자에게는
+  // 예외로 보낼 수 있게 서버에서 허용해뒀다), 아니면 로그인 없이도 바로
+  // 쓸 수 있는 메일로 대신한다. 관리자 계정 id는 이메일이 아니라 DB의
+  // 실제 userId가 필요해서 한 번 조회한다.
+  const handleContactAdmin = async () => {
+    if (!session?.user) {
+      window.location.href = `mailto:${ROOT_ADMIN_EMAIL}`;
+      return;
+    }
+    setContactingAdmin(true);
+    try {
+      const adminId = await fetchAdminContactId();
+      if (adminId != null) {
+        setMenuOpen(false);
+        router.push(`/messages/${adminId}`);
+      } else {
+        window.location.href = `mailto:${ROOT_ADMIN_EMAIL}`;
+      }
+    } catch {
+      window.location.href = `mailto:${ROOT_ADMIN_EMAIL}`;
+    } finally {
+      setContactingAdmin(false);
+    }
+  };
+
+  // 탈퇴 유예기간 중 "계정 살리기" — 재로그인만으로는 자동 취소되지 않게
+  // 일부러 만든 명시적 진입점이라, 앱 어디서든 보이는 상단 배너에 바로
+  // 버튼을 둔다. 성공하면 세션을 다시 불러와 배너가 즉시 사라지게 한다.
+  const [reviving, setReviving] = useState(false);
+  const handleRevive = async () => {
+    setReviving(true);
+    try {
+      await reviveAccount();
+      await updateSession();
+    } catch {
+      setToast("계정 살리기에 실패했어요. 잠시 후 다시 시도해주세요");
+    } finally {
+      setReviving(false);
+    }
+  };
 
   const activeDate = useItineraryStore((s) => s.activeDate);
   const region = useItineraryStore((s) => s.region);
@@ -476,7 +518,7 @@ export function AppBar() {
               </div>
             )}
 
-            {/* 약관/방침 — 서랍 맨 아래 계정 영역 위에 작게. */}
+            {/* 약관/방침/문의 — 서랍 맨 아래 계정 영역 위에 작게. */}
             <div className="mt-auto flex gap-3 px-3 pb-1 text-[11px] text-slate-400">
               <Link href="/terms" onClick={() => setMenuOpen(false)} className="hover:underline">
                 이용약관
@@ -484,6 +526,9 @@ export function AppBar() {
               <Link href="/privacy" onClick={() => setMenuOpen(false)} className="hover:underline">
                 개인정보처리방침
               </Link>
+              <button onClick={handleContactAdmin} disabled={contactingAdmin} className="hover:underline disabled:opacity-60">
+                {contactingAdmin ? "연결 중…" : "문의하기"}
+              </button>
             </div>
 
             {/* 계정 — 로그아웃 상태면 로그인/회원가입 진입, 로그인 상태면
@@ -586,6 +631,26 @@ export function AppBar() {
           )}
         </div>
       </header>
+
+      {/* 탈퇴 유예기간 중임을 어디서든 바로 알 수 있게 하는 배너 — 로그인만
+          하면 자동으로 취소되지 않고(의도적으로), 여기서 명시적으로 "계정
+          살리기"를 눌러야만 취소된다. */}
+      {session?.user?.deletionRequestedAt && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-rose-200 bg-rose-50 px-3.5 py-2 text-[12px] text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300">
+          <span>
+            {session.user.deletionPurgeAt
+              ? `${formatDateLabel(session.user.deletionPurgeAt.slice(0, 10))}에 계정이 영구 삭제될 예정이에요`
+              : "계정이 삭제 예정이에요"}
+          </span>
+          <button
+            onClick={handleRevive}
+            disabled={reviving}
+            className="shrink-0 rounded-full bg-rose-600 px-3 py-1 font-semibold text-white transition-opacity hover:bg-rose-700 disabled:opacity-60"
+          >
+            {reviving ? "처리 중…" : "계정 살리기"}
+          </button>
+        </div>
+      )}
 
       {loginOpen && <LoginModal reason={loginReason ?? undefined} onClose={() => setLoginOpen(false)} />}
 

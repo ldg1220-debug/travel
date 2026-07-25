@@ -8,7 +8,7 @@
  * 두 곳이 어긋나면 "최초 관리자 계정 자체가 관리자를 못 만드는" 상황이
  * 생기므로 절대 따로 관리하지 않는다.
  */
-const ROOT_ADMIN_EMAIL = "ldg1220@naver.com";
+export const ROOT_ADMIN_EMAIL = "ldg1220@naver.com";
 
 export function isRootAdmin(email: string | null | undefined): boolean {
   return email === ROOT_ADMIN_EMAIL;

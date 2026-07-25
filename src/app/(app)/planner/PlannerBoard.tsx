@@ -371,7 +371,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
   // "이미지로 저장" — captures the schedule panel (day headers + timeline)
   // as a PNG, Notion-screenshot style, so a plan can be shared/glanced at
-  // outside the app without everyone needing to open it here.
+  // outside the app without everyone needing to open it here. Shows a
+  // preview first instead of downloading immediately — if the capture came
+  // out wrong (broken layout, unexpected date range), no file lands on the
+  // device; downloading is a deliberate second step from the preview.
   const scheduleCaptureRef = useRef<HTMLDivElement | null>(null);
   // The 24-hour grid lives inside its own scrollable div (only ~4-5 hours
   // fit on screen at once) — html-to-image renders exactly what's laid out,
@@ -380,6 +383,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // capture is what makes the exported image show the whole day.
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const [capturing, setCapturing] = useState(false);
+  // 캡처가 끝나자마자 바로 다운로드하는 대신, 먼저 미리보기로 보여주고
+  // 필요할 때만 저장하게 한다 — 결과물이 기대와 다르면(레이아웃이 깨졌거나
+  // 원하던 날짜 범위가 아니거나) 원치 않는 파일이 기기에 남지 않는다.
+  const [capturedPreviewUrl, setCapturedPreviewUrl] = useState<string | null>(null);
   const handleCaptureSchedule = async () => {
     const capture = scheduleCaptureRef.current;
     const scroller = timelineScrollRef.current;
@@ -422,15 +429,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       try {
         const { toPng } = await import("html-to-image");
         const dataUrl = await toPng(capture, { backgroundColor: "#ffffff", pixelRatio: 2 });
-        const link = document.createElement("a");
-        link.download = `${currentCity || "일정"}-${activeDate}.png`;
-        link.href = dataUrl;
-        // Some browsers only honor `download` (i.e. keep the suggested
-        // filename instead of falling back to a generic one) when the anchor
-        // is actually attached to the document at click time.
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
+        setCapturedPreviewUrl(dataUrl);
       } finally {
         restoreColors();
       }
@@ -445,6 +444,21 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       });
       setCapturing(false);
     }
+  };
+
+  // 미리보기에서 "저장" 버튼을 눌렀을 때만 실제로 다운로드한다.
+  const handleSaveCapturedPreview = () => {
+    if (!capturedPreviewUrl) return;
+    const link = document.createElement("a");
+    link.download = `${currentCity || "일정"}-${activeDate}.png`;
+    link.href = capturedPreviewUrl;
+    // Some browsers only honor `download` (i.e. keep the suggested filename
+    // instead of falling back to a generic one) when the anchor is actually
+    // attached to the document at click time.
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setCapturedPreviewUrl(null);
   };
 
   // 계획 저장 / 비우기 — the toolbar's quick actions for the whole working
@@ -1856,6 +1870,36 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           </div>
         ) : null}
       </DragOverlay>
+
+      {capturedPreviewUrl && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" onClick={() => setCapturedPreviewUrl(null)} />
+          <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl dark:bg-slate-900">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+              <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-200">일정 이미지 미리보기</p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handleSaveCapturedPreview}
+                  className="flex items-center gap-1 rounded-full bg-slate-900 px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900"
+                >
+                  <ImageDown size={13} /> 저장
+                </button>
+                <button
+                  onClick={() => setCapturedPreviewUrl(null)}
+                  aria-label="닫기"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-auto p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element -- ephemeral local data URL, not a static asset */}
+              <img src={capturedPreviewUrl} alt="일정 미리보기" className="w-full rounded-xl border border-slate-100 dark:border-slate-800" />
+            </div>
+          </div>
+        </div>
+      )}
     </DndContext>
   );
 }
