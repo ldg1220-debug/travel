@@ -79,6 +79,7 @@ import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { nudgeKakaoMapResize, getKakaoMaps, type KakaoMapInstance } from "@/lib/maps/kakao-map";
+import { hasStaleActiveDateCorrectionRun, suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 import { kakaoBoundsFor } from "./KakaoMapPrimitives";
 import type { ItineraryItem, Place } from "@/lib/types";
 import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
@@ -152,12 +153,13 @@ function inlineComputedColors(root: HTMLElement): () => void {
 }
 
 // 탭이 열려있는 동안(새로고침 전까지) "activeDate가 과거에 멈춰있으면
-// 오늘로 따라잡는다" 보정을 딱 한 번만 적용한다. 컴포넌트 마운트마다
-// 매번 적용하면, AppBar의 "저장된 계획 미리보기"에서 지난 여행의 특정
-// 날짜를 일부러 골라 /planner로 이동해도 그 즉시 오늘로 되돌려버린다 —
-// 의도는 "며칠째 켜둔 채 잊어버린 앱을 열었을 때"의 보정이지 "방금
-// 사용자가 직접 고른 과거 날짜로의 이동"까지 덮어써선 안 된다.
-let staleActiveDateCorrectedThisSession = false;
+// 오늘로 따라잡는다" 보정을 딱 한 번만 적용한다 — 자세한 이유는
+// lib/plannerSession.ts 참고. setActiveDate로 의도적인 과거 점프를 하는
+// 외부 진입점(AppBar 미리보기, 여행 후기 "일정 보기", 홈 "진행 중인
+// 계획" 등)은 router.push("/planner") 전에 그 파일의
+// suppressStaleActiveDateCorrection()을 호출해, 이 세션의 보정 기회를
+// "이미 썼다"고 표시해두어야 한다 — 그래야 이 mount effect가 그 점프를
+// 되돌리지 않는다.
 
 // ─────────────────────────────────────────────────────────────
 export function PlannerBoard({ shareToken }: PlannerBoardProps) {
@@ -320,8 +322,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // guard, navigating to a deliberately-past-dated saved plan (see above)
   // would immediately get "corrected" right back to today.
   useEffect(() => {
-    if (!staleActiveDateCorrectedThisSession) {
-      staleActiveDateCorrectedThisSession = true;
+    if (!hasStaleActiveDateCorrectionRun()) {
+      suppressStaleActiveDateCorrection();
       if (activeDate < todayISODate()) setActiveDate(todayISODate());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount only

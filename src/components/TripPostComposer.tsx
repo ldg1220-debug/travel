@@ -11,6 +11,7 @@ import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { ScheduleSnapshotCapture } from "@/components/ScheduleSnapshotCapture";
 import { hashtagSlug } from "@/lib/hashtag";
 import { resizeImageFiles } from "@/lib/imageResize";
+import { dataUrlToBlob } from "@/lib/dataUrl";
 import { EmojiPickerButton } from "@/components/EmojiPicker";
 
 const MAX_IMAGES = 10;
@@ -191,7 +192,7 @@ export function TripPostComposer({
     setUploading(true);
     setError(null);
     try {
-      const blob = await (await fetch(dataUrl)).blob();
+      const blob = dataUrlToBlob(dataUrl);
       const file = new File([blob], `${effectiveSnapshotPlan?.name ?? "일정"}.png`, { type: "image/png" });
       const urls = await uploadReviewPhotos([file]);
       setImages((prev) => [...prev, ...urls].slice(0, MAX_IMAGES));

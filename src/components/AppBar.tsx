@@ -21,6 +21,7 @@ import { fetchUserItineraries } from "@/lib/api";
 import { syncPlanToServer } from "@/lib/planSync";
 import { formatDateLabel } from "@/lib/timeline";
 import { unsubscribeFromPush } from "@/lib/push";
+import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 import type { SavedPlan } from "@/lib/types";
 
 // 일정(계획)과는 완전히 분리된 두 개의 보관함: 다녀온 여행 보관함(지난
@@ -649,6 +650,7 @@ export function AppBar() {
               onClick={() => {
                 loadPlan(previewPlan.id);
                 setActiveDate(previewDate);
+                suppressStaleActiveDateCorrection();
                 setPreviewPlan(null);
                 router.push("/planner");
               }}

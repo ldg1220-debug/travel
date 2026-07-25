@@ -31,6 +31,7 @@ import { ExportPostModal } from "@/components/ExportPostModal";
 import { TripPostComposer } from "@/components/TripPostComposer";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
 import { useItineraryStore } from "@/store/itineraryStore";
+import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 
 /** Standalone public view of one 여행 후기 (blog/Instagram-style trip post) — what a 카카오톡 공유 link or "링크 복사" opens for anyone, logged in or not, if the post was published to the feed (or you're its author). */
 export default function TripPostDetailPage() {
@@ -100,6 +101,10 @@ export default function TripPostDetailPage() {
       linkedPlan.items.length > 0 ? [...linkedPlan.items].map((i) => i.date).sort()[0] : linkedPlan.activeDate;
     loadPlan(linkedPlan.id);
     setActiveDate(firstScheduledDate);
+    // 이 점프가 PlannerBoard의 "activeDate가 과거면 오늘로 되돌린다"는
+    // 세션당 1회 보정에 걸려 되돌아가지 않도록 미리 표시해둔다 — 자세한
+    // 이유는 lib/plannerSession.ts 참고.
+    suppressStaleActiveDateCorrection();
     router.push("/planner");
   };
 
@@ -502,7 +507,7 @@ export default function TripPostDetailPage() {
           content={post.content}
           images={post.images}
           placeReviews={placeReviews}
-          scheduleItems={linkedPlan?.items}
+          linkedPlan={linkedPlan ?? null}
           url={`${window.location.origin}/trip/${post.id}`}
           authorName={post.authorName}
           isOwner={isOwner}
