@@ -39,6 +39,7 @@ export default function TripPostDetailPage() {
   const { data: session } = useSession();
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const loadPlan = useItineraryStore((s) => s.loadPlan);
+  const setActiveDate = useItineraryStore((s) => s.setActiveDate);
   const [post, setPost] = useState<TripPostDetail | null>(null);
   const [placeReviews, setPlaceReviews] = useState<TripPostPlaceReview[]>([]);
   const [isOwner, setIsOwner] = useState(false);
@@ -91,7 +92,14 @@ export default function TripPostDetailPage() {
   const linkedPlan = post?.itineraryId != null ? savedPlans.find((p) => p.remoteId === post.itineraryId) : undefined;
   const openLinkedPlan = () => {
     if (!linkedPlan) return;
+    // plan.activeDate는 마지막으로 보고 있던 날짜일 뿐 여행 시작일이 아닐 수
+    // 있어서(AppBar의 저장된 계획 미리보기와 같은 이유) 그 계획에 실제로
+    // 일정이 잡힌 첫 날짜로 직접 이동시킨다 — 일정이 하나도 없으면
+    // activeDate로 대체한다.
+    const firstScheduledDate =
+      linkedPlan.items.length > 0 ? [...linkedPlan.items].map((i) => i.date).sort()[0] : linkedPlan.activeDate;
     loadPlan(linkedPlan.id);
+    setActiveDate(firstScheduledDate);
     router.push("/planner");
   };
 
