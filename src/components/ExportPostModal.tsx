@@ -20,6 +20,32 @@ interface ExportPhoto {
   label: string;
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// 순수 텍스트로 복사하면 사진 URL이 대상 에디터(구글독스/노션/워드/지메일 등)에서
+// 그냥 파란 글자 링크로만 보이고 사진으로 삽입되지 않는다 — text/html도 함께 담아
+// <img> 태그를 넣어두면, HTML 붙여넣기를 지원하는 에디터는 그 URL의 사진을 그대로
+// 가져와 삽입해준다. text/html을 못 쓰는 환경(구형 브라우저 등)에서는 text/plain
+// 으로만 대체된다.
+async function copyRichText(text: string, html: string): Promise<void> {
+  if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/plain": new Blob([text], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        }),
+      ]);
+      return;
+    } catch {
+      // 아래 텍스트 전용 복사로 대체
+    }
+  }
+  await navigator.clipboard.writeText(text);
+}
+
 // 클립보드 이미지 쓰기(ClipboardItem)는 브라우저별로 png만 확실히 지원돼서
 // jpeg 원본은 캔버스를 거쳐 png로 바꾼 뒤에 넣는다.
 async function toPngBlob(blob: Blob): Promise<Blob> {
@@ -35,11 +61,12 @@ async function toPngBlob(blob: Blob): Promise<Blob> {
   });
 }
 
-/** 섹션별로 따로 복사할 수 있게 하는 작은 텍스트 복사 버튼 — 제목/글/해시태그/장소 리뷰가 각각 블로그의 다른 입력칸(제목 칸, 본문 등)에 들어가야 해서 하나로 뭉쳐 복사하면 오히려 지우고 나눠야 하는 수고가 생긴다. */
-function CopyTextButton({ text, label = "복사" }: { text: string; label?: string }) {
+/** 섹션별로 따로 복사할 수 있게 하는 작은 텍스트 복사 버튼 — 제목/글/해시태그/장소 리뷰가 각각 블로그의 다른 입력칸(제목 칸, 본문 등)에 들어가야 해서 하나로 뭉쳐 복사하면 오히려 지우고 나눠야 하는 수고가 생긴다. `html`을 함께 주면 사진이 실제로 삽입되는 붙여넣기(리치 텍스트 대상)도 같이 지원한다. */
+function CopyTextButton({ text, html, label = "복사" }: { text: string; html?: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   const handle = async () => {
-    await navigator.clipboard.writeText(text);
+    if (html) await copyRichText(text, html);
+    else await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
   };
@@ -99,8 +126,12 @@ function PhotoRow({
  * 제목/본문은 보통 블로그 에디터에서 서로 다른 입력칸이라 "제목 → 글 → 대표
  * 사진 → 다녀온 장소(별점 아래 그 장소 사진) → 해시태그" 순서로 섹션을
  * 나누고 각각 따로 복사할 수 있게 했다 — 통째로 복사하면 제목 줄을 지우고
- * 다시 나누는 수고가 생기기 때문. 사진은 텍스트에 끼워 넣을 수 없어서(에디터가
- * URL을 이미지로 자동 embedding해주지 않음) 클립보드 이미지 복사로 대신한다.
+ * 다시 나누는 수고가 생기기 때문. 개별 사진은 클립보드 이미지 복사(Ctrl+V 삽입)로,
+ * 장소 리뷰 글+사진 묶음은 text/html에 <img>를 담은 리치 텍스트 복사로 실제 사진이
+ * 삽입되게 한다 — 순수 텍스트로만 복사하면 리치 에디터에서도 URL이 파란 글자
+ * 링크로만 보이고 사진으로 렌더링되지 않기 때문(에디터가 URL을 자동으로 이미지
+ * embedding해주지는 않지만, text/html 클립보드 데이터 안의 <img src>는 대부분의
+ * 리치 텍스트 에디터가 그대로 가져와 삽입해준다).
  */
 export function ExportPostModal({ title, content, images, placeReviews, url, authorName, isOwner, onClose }: ExportPostModalProps) {
   const [copied, setCopied] = useState(false);
@@ -121,18 +152,21 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
 
   const hashtags = useMemo(() => Array.from(new Set(content.match(/#\S+/g) ?? [])), [content]);
 
-  // 장소마다 리뷰 글+사진 링크를 한 덩어리로 만들어 두고, 개별 카드의 복사
-  // 버튼과 "다녀온 장소 전체 복사" 버튼이 같은 텍스트를 재사용하게 한다.
+  // 장소마다 리뷰 글+사진을 한 덩어리로 만들어 두고, 개별 카드의 복사 버튼과
+  // "다녀온 장소 전체 복사" 버튼이 같은 텍스트/HTML을 재사용하게 한다. html은
+  // <img> 태그로 사진을 담아 리치 텍스트 붙여넣기 시 실제 사진으로 보이게 한다.
   const placeReviewBlocks = useMemo(
     () =>
       placeReviews.map((r) => {
         const photos = r.images.map((photoUrl, i) => ({ url: toAbsolute(photoUrl), label: `${r.placeName} 사진 ${i + 1}` }));
         const text = [`${r.placeName} (⭐${r.rating.toFixed(1)}) ${r.content}`, ...photos.map((p) => p.url)].join("\n");
-        return { review: r, photos, text };
+        const html = `<p><strong>${escapeHtml(r.placeName)}</strong> ⭐${r.rating.toFixed(1)}<br>${escapeHtml(r.content).replace(/\n/g, "<br>")}</p>${photos.map((p) => `<p><img src="${p.url}" alt="${escapeHtml(r.placeName)}" style="max-width:100%"></p>`).join("")}`;
+        return { review: r, photos, text, html };
       }),
     [placeReviews],
   );
   const allPlaceReviewsText = placeReviewBlocks.map((b) => b.text).join("\n\n");
+  const allPlaceReviewsHtml = placeReviewBlocks.map((b) => b.html).join("");
 
   const attribution = isOwner
     ? ""
@@ -252,10 +286,12 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
             <div>
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <p className="text-[12px] font-semibold text-slate-500">다녀온 장소</p>
-                {placeReviewBlocks.length > 1 && <CopyTextButton text={allPlaceReviewsText} label="전체 복사" />}
+                {placeReviewBlocks.length > 1 && (
+                  <CopyTextButton text={allPlaceReviewsText} html={allPlaceReviewsHtml} label="전체 복사" />
+                )}
               </div>
               <div className="space-y-3">
-                {placeReviewBlocks.map(({ review: r, photos, text }) => (
+                {placeReviewBlocks.map(({ review: r, photos, text, html }) => (
                   <div key={r.placeId} className="rounded-xl border border-slate-200 p-2.5 dark:border-slate-700">
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-[12.5px] leading-relaxed text-slate-700 dark:text-slate-200">
@@ -263,7 +299,7 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
                         <br />
                         {r.content}
                       </p>
-                      <CopyTextButton text={text} label="글+링크 복사" />
+                      <CopyTextButton text={text} html={html} label="글+사진 복사" />
                     </div>
                     {photos.length > 0 && (
                       <div className="mt-2">
