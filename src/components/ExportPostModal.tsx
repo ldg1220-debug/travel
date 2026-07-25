@@ -163,6 +163,8 @@ export function ExportPostModal({
     () => images.map((photoUrl, i) => ({ url: toAbsolute(photoUrl), label: `대표 사진 ${i + 1}` })),
     [images],
   );
+  const repPhotosText = repPhotos.map((p) => p.url).join("\n");
+  const repPhotosHtml = repPhotos.map((p) => `<p><img src="${p.url}" alt="${escapeHtml(p.label)}" style="max-width:100%"></p>`).join("");
 
   const hashtags = useMemo(() => Array.from(new Set(content.match(/#\S+/g) ?? [])), [content]);
 
@@ -328,7 +330,7 @@ export function ExportPostModal({
             <div>
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <p className="text-[12px] font-semibold text-slate-500">대표 사진 {repPhotos.length}장</p>
-                <CopyTextButton text={repPhotos.map((p) => p.url).join("\n")} label="URL 전체 복사" />
+                <CopyTextButton text={repPhotosText} html={repPhotosHtml} label="전체 복사" />
               </div>
               <PhotoRow photos={repPhotos} copiedUrl={copiedPhotoUrl} copyMode={photoCopyMode} onCopy={handleCopyPhoto} />
             </div>
