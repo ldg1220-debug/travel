@@ -4,6 +4,7 @@ import Kakao from "next-auth/providers/kakao";
 import Apple from "next-auth/providers/apple";
 import PostgresAdapter from "@auth/pg-adapter";
 import { pool } from "@/lib/server/db";
+import { DELETION_GRACE_PERIOD_MS } from "@/lib/server/accountDeletion";
 
 // Only register a provider once its credentials are actually configured,
 // so a missing Apple/Kakao/Google setup doesn't break the others.
@@ -44,7 +45,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // are our own additions, so they're fetched separately rather than
         // relying on the adapter to surface them.
         const result = await pool.query(
-          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "isAdmin", "isBanned", "lastActiveAt" from users where id = $1`,
+          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "isAdmin", "isBanned", "lastActiveAt", "deletionRequestedAt" from users where id = $1`,
           [user.id],
         );
         const row = result.rows[0];
@@ -55,6 +56,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.notifyMessages = row?.notifyMessages ?? true;
         session.user.isAdmin = row?.isAdmin ?? false;
         session.user.isBanned = row?.isBanned ?? false;
+        const deletionRequestedAt = row?.deletionRequestedAt ? new Date(row.deletionRequestedAt) : null;
+        session.user.deletionRequestedAt = deletionRequestedAt ? deletionRequestedAt.toISOString() : null;
+        session.user.deletionPurgeAt = deletionRequestedAt
+          ? new Date(deletionRequestedAt.getTime() + DELETION_GRACE_PERIOD_MS).toISOString()
+          : null;
 
         // 관리자 대시보드의 활성 사용자 지표용 — 5분 넘게 지났을 때만
         // 갱신해서 매 세션 조회(=거의 매 요청)마다 쓰기가 발생하지 않게

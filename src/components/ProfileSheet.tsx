@@ -2,21 +2,23 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { X, Loader2 } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import {
   acceptFollowRequest,
-  deleteAccount,
   fetchFollowList,
   fetchMateCount,
   followUser,
   rejectFollowRequest,
+  requestAccountDeletion,
+  reviveAccount,
   unfollowUser,
   updateProfile,
   uploadReviewPhotos,
   type FollowUser,
 } from "@/lib/api";
+import { formatDateLabel } from "@/lib/timeline";
 import { resizeImageFiles } from "@/lib/imageResize";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
@@ -36,7 +38,6 @@ type Tab = "settings" | "mates" | "requests";
  */
 export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => void; mandatory?: boolean }) {
   const { data: session, update } = useSession();
-  const router = useRouter();
   const [nickname, setNickname] = useState(session?.user?.nickname ?? "");
   const [image, setImage] = useState<string | null | undefined>(session?.user?.image);
   const [uploading, setUploading] = useState(false);
@@ -68,6 +69,9 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
   const [deleteConfirming, setDeleteConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletionEmailSent, setDeletionEmailSent] = useState(false);
+  const [reviving, setReviving] = useState(false);
+  const [reviveError, setReviveError] = useState<string | null>(null);
 
   const [tab, setTab] = useState<Tab>("settings");
   // 트래블 메이트는 상호 관계 — 카운트도 목록도 하나뿐이다(팔로워/팔로잉 구분 없음).
@@ -255,18 +259,33 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
     }
   };
 
-  // 회원 탈퇴 — 되돌릴 수 없으므로 두 번째 확인을 거친 뒤에만 실행한다.
+  // 회원 탈퇴 1단계 — 즉시 삭제하지 않고 가입 이메일로 확인 링크를 보낸다.
+  // 그 링크를 눌러야 유예기간(2주)이 시작되고, 유예기간이 지나야 실제로
+  // 영구 삭제된다(그 사이엔 로그인해도 취소되지 않고 "계정 살리기"를
+  // 눌러야 한다).
   const handleDeleteAccount = async () => {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await unsubscribeFromPush().catch(() => {});
-      await deleteAccount();
-      await signOut({ redirect: false });
-      router.push("/");
+      await requestAccountDeletion();
+      setDeletionEmailSent(true);
     } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "탈퇴 처리에 실패했어요");
+      setDeleteError(e instanceof Error ? e.message : "탈퇴 요청에 실패했어요");
+    } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleRevive = async () => {
+    setReviving(true);
+    setReviveError(null);
+    try {
+      await reviveAccount();
+      await update();
+    } catch (e) {
+      setReviveError(e instanceof Error ? e.message : "계정 살리기에 실패했어요");
+    } finally {
+      setReviving(false);
     }
   };
 
@@ -446,13 +465,39 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
 
                   <div className="mt-7 border-t border-slate-100 pt-6 dark:border-slate-800">
                     <p className="mb-3 text-[12.5px] font-bold text-slate-600 dark:text-slate-300">계정</p>
-                    {deleteConfirming ? (
+                    {session?.user?.deletionRequestedAt ? (
+                      <div className="space-y-2.5 rounded-2xl border border-rose-200 bg-rose-50 p-3.5 dark:border-rose-900/60 dark:bg-rose-950/30">
+                        <p className="text-[12.5px] font-semibold text-rose-600 dark:text-rose-400">탈퇴가 진행 중이에요</p>
+                        <p className="text-[11.5px] leading-relaxed text-rose-500/90 dark:text-rose-400/80">
+                          {session.user.deletionPurgeAt
+                            ? `${formatDateLabel(session.user.deletionPurgeAt.slice(0, 10))}에 계정과 모든 데이터가 영구 삭제돼요. 그 전까지는 언제든 아래에서 취소할 수 있어요.`
+                            : "유예기간이 지나면 계정과 모든 데이터가 영구 삭제돼요. 그 전까지는 언제든 아래에서 취소할 수 있어요."}
+                        </p>
+                        {reviveError && <p className="text-[11.5px] text-rose-600 dark:text-rose-400">{reviveError}</p>}
+                        <button
+                          onClick={handleRevive}
+                          disabled={reviving}
+                          className="h-10 w-full rounded-xl bg-rose-600 text-[13px] font-semibold text-white transition-opacity hover:bg-rose-700 disabled:opacity-60"
+                        >
+                          {reviving ? "처리 중…" : "계정 살리기"}
+                        </button>
+                      </div>
+                    ) : deletionEmailSent ? (
+                      <div className="space-y-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-3.5 dark:border-slate-700 dark:bg-slate-800">
+                        <p className="text-[12.5px] font-semibold text-slate-600 dark:text-slate-300">확인 메일을 보냈어요</p>
+                        <p className="text-[11.5px] leading-relaxed text-slate-500 dark:text-slate-400">
+                          가입하신 이메일의 링크를 눌러야 탈퇴가 시작돼요. 누르기 전까지는 아무 변화도 없어요.
+                        </p>
+                      </div>
+                    ) : deleteConfirming ? (
                       <div className="space-y-2.5 rounded-2xl border border-rose-200 bg-rose-50 p-3.5 dark:border-rose-900/60 dark:bg-rose-950/30">
                         <p className="text-[12.5px] font-semibold text-rose-600 dark:text-rose-400">
                           정말 탈퇴하시겠어요?
                         </p>
                         <p className="text-[11.5px] leading-relaxed text-rose-500/90 dark:text-rose-400/80">
-                          계정, 여행 계획, 후기, 트래블 메이트 관계 등 모든 데이터가 즉시 영구 삭제되며 복구할 수 없어요.
+                          가입 이메일로 확인 메일을 보내드려요. 그 메일의 링크를 눌러야 탈퇴가 시작되고, 그때부터 2주
+                          유예기간 동안은 언제든 &quot;계정 살리기&quot;로 취소할 수 있어요. 유예기간이 지나면 계정과
+                          모든 데이터가 영구 삭제되며 복구할 수 없어요.
                         </p>
                         {deleteError && <p className="text-[11.5px] text-rose-600 dark:text-rose-400">{deleteError}</p>}
                         <div className="flex gap-2 pt-1">
@@ -461,7 +506,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                             disabled={deleting}
                             className="h-10 flex-1 rounded-xl bg-rose-600 text-[13px] font-semibold text-white transition-opacity hover:bg-rose-700 disabled:opacity-60"
                           >
-                            {deleting ? "탈퇴 처리 중…" : "탈퇴하기"}
+                            {deleting ? "확인 메일 발송 중…" : "확인 메일 받기"}
                           </button>
                           <button
                             onClick={() => setDeleteConfirming(false)}

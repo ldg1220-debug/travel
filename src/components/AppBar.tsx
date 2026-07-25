@@ -17,7 +17,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
-import { fetchUserItineraries, fetchAdminContactId } from "@/lib/api";
+import { fetchUserItineraries, fetchAdminContactId, reviveAccount } from "@/lib/api";
 import { syncPlanToServer } from "@/lib/planSync";
 import { formatDateLabel } from "@/lib/timeline";
 import { unsubscribeFromPush } from "@/lib/push";
@@ -102,7 +102,7 @@ const PAGE_TITLES: Record<string, string> = {
 export function AppBar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, update: updateSession } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loginReason, setLoginReason] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -141,6 +141,22 @@ export function AppBar() {
       window.location.href = `mailto:${ROOT_ADMIN_EMAIL}`;
     } finally {
       setContactingAdmin(false);
+    }
+  };
+
+  // 탈퇴 유예기간 중 "계정 살리기" — 재로그인만으로는 자동 취소되지 않게
+  // 일부러 만든 명시적 진입점이라, 앱 어디서든 보이는 상단 배너에 바로
+  // 버튼을 둔다. 성공하면 세션을 다시 불러와 배너가 즉시 사라지게 한다.
+  const [reviving, setReviving] = useState(false);
+  const handleRevive = async () => {
+    setReviving(true);
+    try {
+      await reviveAccount();
+      await updateSession();
+    } catch {
+      setToast("계정 살리기에 실패했어요. 잠시 후 다시 시도해주세요");
+    } finally {
+      setReviving(false);
     }
   };
 
@@ -615,6 +631,26 @@ export function AppBar() {
           )}
         </div>
       </header>
+
+      {/* 탈퇴 유예기간 중임을 어디서든 바로 알 수 있게 하는 배너 — 로그인만
+          하면 자동으로 취소되지 않고(의도적으로), 여기서 명시적으로 "계정
+          살리기"를 눌러야만 취소된다. */}
+      {session?.user?.deletionRequestedAt && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-rose-200 bg-rose-50 px-3.5 py-2 text-[12px] text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300">
+          <span>
+            {session.user.deletionPurgeAt
+              ? `${formatDateLabel(session.user.deletionPurgeAt.slice(0, 10))}에 계정이 영구 삭제될 예정이에요`
+              : "계정이 삭제 예정이에요"}
+          </span>
+          <button
+            onClick={handleRevive}
+            disabled={reviving}
+            className="shrink-0 rounded-full bg-rose-600 px-3 py-1 font-semibold text-white transition-opacity hover:bg-rose-700 disabled:opacity-60"
+          >
+            {reviving ? "처리 중…" : "계정 살리기"}
+          </button>
+        </div>
+      )}
 
       {loginOpen && <LoginModal reason={loginReason ?? undefined} onClose={() => setLoginOpen(false)} />}
 

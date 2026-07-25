@@ -430,3 +430,15 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   count INTEGER NOT NULL DEFAULT 1,
   "windowStart" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 회원 탈퇴에 이메일 확인 + 유예기간을 추가한다(src/lib/server/accountDeletion.ts).
+-- "탈퇴하기"를 눌러도 즉시 삭제되지 않고, 가입 이메일로 보낸 확인 링크를
+-- 눌러야만("deletionToken"이 일치 + 미만료) "deletionRequestedAt"이 채워져
+-- 유예기간이 시작된다 — 앱 안에서 버튼만 누르는 것으로는(이메일 소유 확인
+-- 전) 탈퇴가 진행되지 않게 하기 위함. 유예기간 중에는 로그인해도 자동으로
+-- 취소되지 않고(요청자 확인) 명시적으로 "계정 살리기"를 눌러야 취소된다.
+-- 유예기간이 지나면 크론(/api/cron/purge-deleted-accounts)이 영구 삭제한다.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "deletionToken" TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "deletionTokenExpiresAt" TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "deletionRequestedAt" TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS users_deletion_requested_idx ON users ("deletionRequestedAt") WHERE "deletionRequestedAt" IS NOT NULL;

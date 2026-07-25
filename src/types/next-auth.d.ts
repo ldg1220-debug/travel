@@ -18,6 +18,10 @@ declare module "next-auth" {
       isAdmin: boolean;
       /** 신고 처리로 정지된 계정인지 — true면 로그인 자체가 막힌다. */
       isBanned: boolean;
+      /** 탈퇴 확인 이메일까지 완료해 유예기간(2주)이 시작된 시각 — null이면 탈퇴 진행 중이 아니다. */
+      deletionRequestedAt: string | null;
+      /** 유예기간이 끝나 계정이 영구 삭제될 시각(deletionRequestedAt + 2주) — deletionRequestedAt이 null이면 함께 null. */
+      deletionPurgeAt: string | null;
     } & DefaultSession["user"];
   }
 }

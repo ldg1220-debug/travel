@@ -264,12 +264,21 @@ export async function updateProfile(input: {
   }
 }
 
-/** 회원 탈퇴 — 계정과 모든 데이터를 영구 삭제한다. 되돌릴 수 없다. */
-export async function deleteAccount(): Promise<void> {
-  const res = await fetch("/api/account", { method: "DELETE" });
+/** 회원 탈퇴 1단계 — 가입 이메일로 확인 링크를 보낸다. 그 링크를 눌러야 유예기간(2주)이 시작되고, 즉시 삭제되지는 않는다. */
+export async function requestAccountDeletion(): Promise<void> {
+  const res = await fetch("/api/account/deletion-request", { method: "POST" });
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(data?.error ?? "탈퇴 처리에 실패했어요");
+    throw new Error(data?.error ?? "탈퇴 요청에 실패했어요");
+  }
+}
+
+/** "계정 살리기" — 유예기간 중인 탈퇴를 취소한다. */
+export async function reviveAccount(): Promise<void> {
+  const res = await fetch("/api/account/revive", { method: "POST" });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "계정 살리기에 실패했어요");
   }
 }
 
