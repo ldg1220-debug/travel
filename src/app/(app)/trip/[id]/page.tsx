@@ -501,6 +501,7 @@ export default function TripPostDetailPage() {
           content={post.content}
           images={post.images}
           placeReviews={placeReviews}
+          scheduleItems={linkedPlan?.items}
           url={`${window.location.origin}/trip/${post.id}`}
           authorName={post.authorName}
           isOwner={isOwner}

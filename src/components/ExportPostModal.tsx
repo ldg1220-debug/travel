@@ -3,12 +3,16 @@
 import { useMemo, useState } from "react";
 import { X, Copy, Check, ExternalLink } from "lucide-react";
 import type { TripPostPlaceReview } from "@/lib/api";
+import type { ItineraryItem } from "@/lib/types";
+import { formatDateLabel, formatTime, minutesFromTime } from "@/lib/timeline";
 
 interface ExportPostModalProps {
   title: string;
   content: string;
   images: string[];
   placeReviews: TripPostPlaceReview[];
+  /** 이 후기와 연결된 저장 계획의 일정(동선) — 이 기기에 그 계획이 저장돼 있을 때만 넘어온다(없으면 일정 섹션 자체를 숨김). */
+  scheduleItems?: ItineraryItem[];
   url: string;
   authorName: string | null;
   isOwner: boolean;
@@ -123,9 +127,9 @@ function PhotoRow({
  * 텍스트를 복사해 직접 붙여넣는 방식으로 대신한다. 본인 글이 아니면 원작자
  * 출처 문구를 본문 앞에 자동으로 붙여 무단 재게시처럼 보이지 않게 한다.
  *
- * 제목/본문은 보통 블로그 에디터에서 서로 다른 입력칸이라 "제목 → 글 → 대표
- * 사진 → 다녀온 장소(별점 아래 그 장소 사진) → 해시태그" 순서로 섹션을
- * 나누고 각각 따로 복사할 수 있게 했다 — 통째로 복사하면 제목 줄을 지우고
+ * 제목/본문은 보통 블로그 에디터에서 서로 다른 입력칸이라 "제목 → 글 → 일정(동선,
+ * 계획을 불러와 쓴 후기일 때만) → 대표 사진 → 다녀온 장소(별점 아래 그 장소 사진)
+ * → 해시태그" 순서로 섹션을 나누고 각각 따로 복사할 수 있게 했다 — 통째로 복사하면 제목 줄을 지우고
  * 다시 나누는 수고가 생기기 때문. 개별 사진은 클립보드 이미지 복사(Ctrl+V 삽입)로,
  * 장소 리뷰 글+사진 묶음은 text/html에 <img>를 담은 리치 텍스트 복사로 실제 사진이
  * 삽입되게 한다 — 순수 텍스트로만 복사하면 리치 에디터에서도 URL이 파란 글자
@@ -133,7 +137,17 @@ function PhotoRow({
  * embedding해주지는 않지만, text/html 클립보드 데이터 안의 <img src>는 대부분의
  * 리치 텍스트 에디터가 그대로 가져와 삽입해준다).
  */
-export function ExportPostModal({ title, content, images, placeReviews, url, authorName, isOwner, onClose }: ExportPostModalProps) {
+export function ExportPostModal({
+  title,
+  content,
+  images,
+  placeReviews,
+  scheduleItems,
+  url,
+  authorName,
+  isOwner,
+  onClose,
+}: ExportPostModalProps) {
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [copiedPhotoUrl, setCopiedPhotoUrl] = useState<string | null>(null);
@@ -168,6 +182,31 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
   const allPlaceReviewsText = placeReviewBlocks.map((b) => b.text).join("\n\n");
   const allPlaceReviewsHtml = placeReviewBlocks.map((b) => b.html).join("");
 
+  // 계획을 불러와 쓴 후기라면(scheduleItems가 있으면) 그 계획의 날짜별 동선을
+  // "몇 시에 어디" 순서로 정리해 통째로 복사할 수 있게 한다 — 다녀온 장소
+  // 섹션(장소별 별점+리뷰)과 달리 여기는 시간순 이동 경로 자체가 목적.
+  const scheduleText = useMemo(() => {
+    if (!scheduleItems || scheduleItems.length === 0) return "";
+    const byDate = new Map<string, ItineraryItem[]>();
+    for (const item of scheduleItems) {
+      const list = byDate.get(item.date) ?? [];
+      list.push(item);
+      byDate.set(item.date, list);
+    }
+    const dates = [...byDate.keys()].sort();
+    return dates
+      .map((date) => {
+        const dayItems = [...(byDate.get(date) ?? [])].sort((a, b) => minutesFromTime(a.time) - minutesFromTime(b.time));
+        const lines = dayItems.map((item) => {
+          const endMinutes = minutesFromTime(item.time) + item.durationMinutes;
+          const endTime = formatTime(Math.floor(endMinutes / 60) % 24, endMinutes % 60);
+          return `${item.time}~${endTime} ${item.name}`;
+        });
+        return `${formatDateLabel(date)}\n${lines.join("\n")}`;
+      })
+      .join("\n\n");
+  }, [scheduleItems]);
+
   const attribution = isOwner
     ? ""
     : `이 글은 ${authorName ?? "여행자"}님이 트레쥴에 작성한 여행 후기를 바탕으로 재구성했습니다. 원문 보기: ${url}\n\n`;
@@ -176,13 +215,14 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
   const footerText = `✈️ 트레쥴(Tradule)에서 계획하고 기록한 여행이에요\n${url}`;
 
   const exportText = useMemo(() => {
+    const scheduleBlock = scheduleText ? `\n\n일정(동선)\n${scheduleText}` : "";
     const placeReviewsBlock =
       placeReviews.length > 0
         ? `\n\n다녀온 장소\n${placeReviews.map((r) => `- ${r.placeName} (⭐${r.rating.toFixed(1)}) ${r.content}`).join("\n")}`
         : "";
     const hashtagsBlock = hashtags.length > 0 ? `\n\n${hashtagsText}` : "";
-    return `${title}\n\n${bodyText}${placeReviewsBlock}${hashtagsBlock}\n\n${footerText}`;
-  }, [title, bodyText, placeReviews, hashtags, hashtagsText, footerText]);
+    return `${title}\n\n${bodyText}${scheduleBlock}${placeReviewsBlock}${hashtagsBlock}\n\n${footerText}`;
+  }, [title, bodyText, scheduleText, placeReviews, hashtags, hashtagsText, footerText]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(exportText);
@@ -269,6 +309,19 @@ export function ExportPostModal({ title, content, images, placeReviews, url, aut
               className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12.5px] leading-relaxed text-slate-600 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
             />
           </div>
+
+          {/* 일정(동선) — 계획을 불러와 쓴 후기일 때만, 그 계획의 날짜별 이동 순서 */}
+          {scheduleText && (
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <p className="text-[12px] font-semibold text-slate-500">일정(동선)</p>
+                <CopyTextButton text={scheduleText} />
+              </div>
+              <pre className="whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12.5px] leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                {scheduleText}
+              </pre>
+            </div>
+          )}
 
           {/* 대표 사진 */}
           {repPhotos.length > 0 && (
