@@ -4,6 +4,7 @@ import { pool } from "@/lib/server/db";
 import { sendPushToUser } from "@/lib/server/push";
 import { checkRateLimit } from "@/lib/server/rateLimit";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { isRootAdmin } from "@/lib/server/rootAdmin";
 
 const MAX_CONTENT_LENGTH = 2000;
 
@@ -56,7 +57,7 @@ export const GET = withApiErrorHandling(async () => {
   return NextResponse.json({ conversations: result.rows as Conversation[] });
 });
 
-/** Sends a message — only allowed between mutual 트래블 메이트 (both directions accepted). */
+/** Sends a message — allowed between mutual 트래블 메이트 (both directions accepted), or to the root admin (문의하기) regardless of mate status. */
 export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {
@@ -78,13 +79,21 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: `메시지는 ${MAX_CONTENT_LENGTH}자 이하로 보내주세요` }, { status: 400 });
   }
 
-  const mutual = await pool.query(
-    `select 1 from follows where "followerId" = $1 and "followingId" = $2 and status = 'accepted'
-     and exists (select 1 from follows where "followerId" = $2 and "followingId" = $1 and status = 'accepted')`,
-    [session.user.id, recipientId],
-  );
-  if ((mutual.rowCount ?? 0) === 0) {
-    return NextResponse.json({ error: "트래블 메이트에게만 메시지를 보낼 수 있어요" }, { status: 403 });
+  // "관리자에게 문의하기"는 트래블 메이트가 아니어도 보낼 수 있게 예외를 둔다
+  // — 문의하려는 사람에게 먼저 메이트를 맺으라고 요구하는 건 배보다 배꼽이
+  // 크다. 그 외 모든 상대는 기존대로 상호 메이트 관계가 있어야 한다.
+  const recipientRow = await pool.query(`select email from users where id = $1`, [recipientId]);
+  const recipientIsAdmin = isRootAdmin(recipientRow.rows[0]?.email as string | undefined);
+
+  if (!recipientIsAdmin) {
+    const mutual = await pool.query(
+      `select 1 from follows where "followerId" = $1 and "followingId" = $2 and status = 'accepted'
+       and exists (select 1 from follows where "followerId" = $2 and "followingId" = $1 and status = 'accepted')`,
+      [session.user.id, recipientId],
+    );
+    if ((mutual.rowCount ?? 0) === 0) {
+      return NextResponse.json({ error: "트래블 메이트에게만 메시지를 보낼 수 있어요" }, { status: 403 });
+    }
   }
 
   const inserted = await pool.query(

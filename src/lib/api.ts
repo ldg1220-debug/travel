@@ -641,6 +641,14 @@ export interface ChatMessage {
   deleted: boolean;
 }
 
+/** "관리자에게 문의하기" 진입점이 쪽지 대화를 열 대상(root admin)의 userId를 찾는 데 쓴다 — 아직 관리자 계정이 없으면(로컬 개발 등) null. */
+export async function fetchAdminContactId(): Promise<number | null> {
+  const res = await fetch("/api/admin/contact");
+  if (!res.ok) return null;
+  const data = (await res.json()) as { userId: number | null };
+  return data.userId;
+}
+
 export async function fetchConversations(): Promise<Conversation[]> {
   const res = await fetch("/api/messages");
   if (!res.ok) return [];

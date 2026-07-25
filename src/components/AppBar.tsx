@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { Menu, UserPlus, Plus, ChevronDown, LogIn, LogOut, X, Calendar, ShieldAlert, LayoutDashboard, UserCog } from "lucide-react";
-import { isRootAdmin } from "@/lib/server/rootAdmin";
+import { isRootAdmin, ROOT_ADMIN_EMAIL } from "@/lib/server/rootAdmin";
 import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
@@ -17,7 +17,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
-import { fetchUserItineraries } from "@/lib/api";
+import { fetchUserItineraries, fetchAdminContactId } from "@/lib/api";
 import { syncPlanToServer } from "@/lib/planSync";
 import { formatDateLabel } from "@/lib/timeline";
 import { unsubscribeFromPush } from "@/lib/push";
@@ -116,7 +116,33 @@ export function AppBar() {
   // "세부일정 보기"를 눌러야 실제로 플래너로 이동하게 한다.
   const [previewPlan, setPreviewPlan] = useState<SavedPlan | null>(null);
   const [previewDate, setPreviewDate] = useState<string>("");
+  const [contactingAdmin, setContactingAdmin] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 문의하기 — 로그인 상태면 쪽지로(트래블 메이트가 아니어도 관리자에게는
+  // 예외로 보낼 수 있게 서버에서 허용해뒀다), 아니면 로그인 없이도 바로
+  // 쓸 수 있는 메일로 대신한다. 관리자 계정 id는 이메일이 아니라 DB의
+  // 실제 userId가 필요해서 한 번 조회한다.
+  const handleContactAdmin = async () => {
+    if (!session?.user) {
+      window.location.href = `mailto:${ROOT_ADMIN_EMAIL}`;
+      return;
+    }
+    setContactingAdmin(true);
+    try {
+      const adminId = await fetchAdminContactId();
+      if (adminId != null) {
+        setMenuOpen(false);
+        router.push(`/messages/${adminId}`);
+      } else {
+        window.location.href = `mailto:${ROOT_ADMIN_EMAIL}`;
+      }
+    } catch {
+      window.location.href = `mailto:${ROOT_ADMIN_EMAIL}`;
+    } finally {
+      setContactingAdmin(false);
+    }
+  };
 
   const activeDate = useItineraryStore((s) => s.activeDate);
   const region = useItineraryStore((s) => s.region);
@@ -476,7 +502,7 @@ export function AppBar() {
               </div>
             )}
 
-            {/* 약관/방침 — 서랍 맨 아래 계정 영역 위에 작게. */}
+            {/* 약관/방침/문의 — 서랍 맨 아래 계정 영역 위에 작게. */}
             <div className="mt-auto flex gap-3 px-3 pb-1 text-[11px] text-slate-400">
               <Link href="/terms" onClick={() => setMenuOpen(false)} className="hover:underline">
                 이용약관
@@ -484,6 +510,9 @@ export function AppBar() {
               <Link href="/privacy" onClick={() => setMenuOpen(false)} className="hover:underline">
                 개인정보처리방침
               </Link>
+              <button onClick={handleContactAdmin} disabled={contactingAdmin} className="hover:underline disabled:opacity-60">
+                {contactingAdmin ? "연결 중…" : "문의하기"}
+              </button>
             </div>
 
             {/* 계정 — 로그아웃 상태면 로그인/회원가입 진입, 로그인 상태면
