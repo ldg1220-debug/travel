@@ -2,17 +2,19 @@
 
 import { useMemo, useState } from "react";
 import { X, Copy, Check, ExternalLink } from "lucide-react";
-import type { TripPostPlaceReview } from "@/lib/api";
-import type { ItineraryItem } from "@/lib/types";
+import { uploadReviewPhotos, type TripPostPlaceReview } from "@/lib/api";
+import type { ItineraryItem, SavedPlan } from "@/lib/types";
 import { formatDateLabel, formatTime, minutesFromTime } from "@/lib/timeline";
+import { ScheduleSnapshotCapture } from "@/components/ScheduleSnapshotCapture";
+import { dataUrlToBlob } from "@/lib/dataUrl";
 
 interface ExportPostModalProps {
   title: string;
   content: string;
   images: string[];
   placeReviews: TripPostPlaceReview[];
-  /** 이 후기와 연결된 저장 계획의 일정(동선) — 이 기기에 그 계획이 저장돼 있을 때만 넘어온다(없으면 일정 섹션 자체를 숨김). */
-  scheduleItems?: ItineraryItem[];
+  /** 이 후기와 연결된 저장 계획 — 이 기기에 그 계획이 저장돼 있을 때만 넘어온다(없으면 일정 섹션 자체를 숨김). 날짜별 동선 텍스트뿐 아니라, 한눈에 보이는 일정 이미지(스냅샷)를 만들어 URL로도 복사할 수 있게 하는 데 쓰인다. */
+  linkedPlan?: SavedPlan | null;
   url: string;
   authorName: string | null;
   isOwner: boolean;
@@ -142,7 +144,7 @@ export function ExportPostModal({
   content,
   images,
   placeReviews,
-  scheduleItems,
+  linkedPlan,
   url,
   authorName,
   isOwner,
@@ -152,6 +154,19 @@ export function ExportPostModal({
   const [linkCopied, setLinkCopied] = useState(false);
   const [copiedPhotoUrl, setCopiedPhotoUrl] = useState<string | null>(null);
   const [photoCopyMode, setPhotoCopyMode] = useState<"image" | "link" | null>(null);
+  // 일정(동선) 섹션용 스냅샷 이미지 — 플래너의 "이미지로 저장"과 같은 캡처를
+  // 여기서도 한 번 더 만들어(글에 이미 첨부된 사진 중 어느 게 그 스냅샷인지
+  // 구분할 방법이 없어서) URL로 복사할 수 있게 한다. 모달이 열릴 때 한 번만
+  // 만들고, 만드는 동안엔 텍스트만이라도 바로 복사할 수 있게 놔둔다.
+  const [scheduleImageUrl, setScheduleImageUrl] = useState<string | null>(null);
+  // linkedPlan은 이 모달이 열려있는 동안 바뀌지 않으므로(부모가 매번 새로
+  // 여는 값), 지연 초기화로 마운트 시점에 딱 한 번만 판단한다 — 그러면
+  // useEffect 없이도 "모달이 뜨자마자 생성 시작"이 되고, 렌더 중
+  // setState(react-hooks/set-state-in-effect가 막는 패턴)도 필요 없다.
+  const [generatingScheduleImage, setGeneratingScheduleImage] = useState(
+    () => !!linkedPlan && linkedPlan.items.length > 0,
+  );
+  const [scheduleImageFailed, setScheduleImageFailed] = useState(false);
 
   // /api/upload가 돌려주는 사진 URL은 도메인 없는 상대 경로(/api/blob/...)라
   // 우리 앱 안에서는 문제없이 뜨지만, 그대로 텍스트로 복사해 티스토리·네이버
@@ -184,11 +199,12 @@ export function ExportPostModal({
   const allPlaceReviewsText = placeReviewBlocks.map((b) => b.text).join("\n\n");
   const allPlaceReviewsHtml = placeReviewBlocks.map((b) => b.html).join("");
 
-  // 계획을 불러와 쓴 후기라면(scheduleItems가 있으면) 그 계획의 날짜별 동선을
+  // 계획을 불러와 쓴 후기라면(linkedPlan이 있으면) 그 계획의 날짜별 동선을
   // "몇 시에 어디" 순서로 정리해 통째로 복사할 수 있게 한다 — 다녀온 장소
   // 섹션(장소별 별점+리뷰)과 달리 여기는 시간순 이동 경로 자체가 목적.
+  const scheduleItems = useMemo(() => linkedPlan?.items ?? [], [linkedPlan]);
   const scheduleText = useMemo(() => {
-    if (!scheduleItems || scheduleItems.length === 0) return "";
+    if (scheduleItems.length === 0) return "";
     const byDate = new Map<string, ItineraryItem[]>();
     for (const item of scheduleItems) {
       const list = byDate.get(item.date) ?? [];
@@ -209,6 +225,32 @@ export function ExportPostModal({
       .join("\n\n");
   }, [scheduleItems]);
 
+  // 일정(동선) 텍스트만으로는 "이미지보이는 url로 복사"가 안 되니, 모달이
+  // 열리고 linkedPlan이 있으면(위 초기화로 generatingScheduleImage가 이미
+  // true) 한 번 스냅샷을 만들어 업로드해둔다 — 실패해도 scheduleText는
+  // 그대로 복사 가능하니 조용히 넘어간다.
+  const handleScheduleImageCaptured = async (dataUrl: string) => {
+    setGeneratingScheduleImage(false);
+    try {
+      const blob = dataUrlToBlob(dataUrl);
+      const file = new File([blob], `${linkedPlan?.name ?? "일정"}.png`, { type: "image/png" });
+      const [uploadedUrl] = await uploadReviewPhotos([file]);
+      setScheduleImageUrl(toAbsolute(uploadedUrl));
+    } catch {
+      setScheduleImageFailed(true);
+    }
+  };
+
+  const handleScheduleImageError = () => {
+    setGeneratingScheduleImage(false);
+    setScheduleImageFailed(true);
+  };
+
+  const scheduleHtml = scheduleText
+    ? `<p style="white-space:pre-wrap">${escapeHtml(scheduleText)}</p>${scheduleImageUrl ? `<p><img src="${scheduleImageUrl}" alt="일정" style="max-width:100%"></p>` : ""}`
+    : "";
+  const scheduleCopyText = scheduleImageUrl ? `${scheduleText}\n\n${scheduleImageUrl}` : scheduleText;
+
   const attribution = isOwner
     ? ""
     : `이 글은 ${authorName ?? "여행자"}님이 트레쥴에 작성한 여행 후기를 바탕으로 재구성했습니다. 원문 보기: ${url}\n\n`;
@@ -217,14 +259,14 @@ export function ExportPostModal({
   const footerText = `✈️ 트레쥴(Tradule)에서 계획하고 기록한 여행이에요\n${url}`;
 
   const exportText = useMemo(() => {
-    const scheduleBlock = scheduleText ? `\n\n일정(동선)\n${scheduleText}` : "";
+    const scheduleBlock = scheduleCopyText ? `\n\n일정(동선)\n${scheduleCopyText}` : "";
     const placeReviewsBlock =
       placeReviews.length > 0
         ? `\n\n다녀온 장소\n${placeReviews.map((r) => `- ${r.placeName} (⭐${r.rating.toFixed(1)}) ${r.content}`).join("\n")}`
         : "";
     const hashtagsBlock = hashtags.length > 0 ? `\n\n${hashtagsText}` : "";
     return `${title}\n\n${bodyText}${scheduleBlock}${placeReviewsBlock}${hashtagsBlock}\n\n${footerText}`;
-  }, [title, bodyText, scheduleText, placeReviews, hashtags, hashtagsText, footerText]);
+  }, [title, bodyText, scheduleCopyText, placeReviews, hashtags, hashtagsText, footerText]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(exportText);
@@ -312,17 +354,32 @@ export function ExportPostModal({
             />
           </div>
 
-          {/* 일정(동선) — 계획을 불러와 쓴 후기일 때만, 그 계획의 날짜별 이동 순서 */}
+          {/* 일정(동선) — 계획을 불러와 쓴 후기일 때만, 그 계획의 날짜별 이동 순서.
+              텍스트뿐 아니라 한눈에 보이는 스냅샷 이미지도 URL로 함께 복사할 수 있다. */}
           {scheduleText && (
             <div>
               <div className="mb-1 flex items-center justify-between gap-2">
                 <p className="text-[12px] font-semibold text-slate-500">일정(동선)</p>
-                <CopyTextButton text={scheduleText} />
+                <CopyTextButton text={scheduleCopyText} html={scheduleHtml} />
               </div>
-              <pre className="whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12.5px] leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              <pre className="mb-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12.5px] leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                 {scheduleText}
               </pre>
+              {generatingScheduleImage && <p className="text-[11px] text-slate-400">일정 이미지 만드는 중…</p>}
+              {scheduleImageUrl && (
+                <PhotoRow
+                  photos={[{ url: scheduleImageUrl, label: "일정 이미지" }]}
+                  copiedUrl={copiedPhotoUrl}
+                  copyMode={photoCopyMode}
+                  onCopy={handleCopyPhoto}
+                />
+              )}
+              {scheduleImageFailed && <p className="text-[11px] text-slate-400">일정 이미지는 못 만들었어요 — 텍스트는 그대로 복사할 수 있어요</p>}
             </div>
+          )}
+
+          {generatingScheduleImage && scheduleItems.length > 0 && linkedPlan && (
+            <ScheduleSnapshotCapture plan={linkedPlan} onCaptured={handleScheduleImageCaptured} onError={handleScheduleImageError} />
           )}
 
           {/* 대표 사진 */}

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
+import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 
 // 카드 이름은 사이드바 메뉴와 1:1로 맞춘다 (여행 계획짜기/계획/여행 보관함).
 // 코스 만들기는 여행 계획짜기의 하위 플로우라 홈 카드에서는 뺐다.
@@ -204,7 +205,10 @@ function ResumeSection() {
           <Link
             href="/planner"
             onClick={() => {
-              if (earliestItemDate) setActiveDate(earliestItemDate);
+              if (earliestItemDate) {
+                setActiveDate(earliestItemDate);
+                suppressStaleActiveDateCorrection();
+              }
             }}
             className="group rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900"
           >
