@@ -39,6 +39,7 @@ export function TripPostComposer({
   plan,
   itineraryId,
   postId: initialPostId,
+  snapshotPlan,
   onClose,
 }: {
   plan: SavedPlan | null;
@@ -50,6 +51,14 @@ export function TripPostComposer({
    * itineraryId to search by.
    */
   postId?: number;
+  /**
+   * Which plan "일정 이미지로 저장" captures — defaults to `plan` when
+   * omitted. Separate from `plan` because editing an already-published
+   * post always passes `plan={null}` (그 글의 "다녀온 장소" 목록은 이미
+   * 저장된 리뷰에서 오지, 실시간 계획에서 다시 채우지 않음), but a linked
+   * plan may still exist locally and be worth snapshotting.
+   */
+  snapshotPlan?: SavedPlan | null;
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -74,6 +83,8 @@ export function TripPostComposer({
   // 이 스냅샷은 일반 사진처럼 업로드돼 글에 영구히 남는다.
   const [snapshotting, setSnapshotting] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const effectiveSnapshotPlan = snapshotPlan !== undefined ? snapshotPlan : plan;
 
   const planPlaces = useMemo(() => (plan ? uniquePlaces(plan) : []), [plan]);
   const places = useMemo(() => {
@@ -181,7 +192,7 @@ export function TripPostComposer({
     setError(null);
     try {
       const blob = await (await fetch(dataUrl)).blob();
-      const file = new File([blob], `${plan?.name ?? "일정"}.png`, { type: "image/png" });
+      const file = new File([blob], `${effectiveSnapshotPlan?.name ?? "일정"}.png`, { type: "image/png" });
       const urls = await uploadReviewPhotos([file]);
       setImages((prev) => [...prev, ...urls].slice(0, MAX_IMAGES));
     } catch {
@@ -317,7 +328,7 @@ export function TripPostComposer({
               )}
             </div>
 
-            {plan && (
+            {effectiveSnapshotPlan && (
               <button
                 type="button"
                 onClick={() => setSnapshotting(true)}
@@ -461,8 +472,8 @@ export function TripPostComposer({
         <PhotoLightbox images={images} index={lightboxIndex} onClose={() => setLightboxIndex(null)} onNavigate={setLightboxIndex} />
       )}
 
-      {snapshotting && plan && (
-        <ScheduleSnapshotCapture plan={plan} onCaptured={handleSnapshotCaptured} onError={handleSnapshotError} />
+      {snapshotting && effectiveSnapshotPlan && (
+        <ScheduleSnapshotCapture plan={effectiveSnapshotPlan} onCaptured={handleSnapshotCaptured} onError={handleSnapshotError} />
       )}
     </div>
   );
