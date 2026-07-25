@@ -33,6 +33,12 @@ const QUICK_ACCESS: { href: string; title: string; description: string; icon: Co
     description: "다녀온 여행과 저장한 코스를 확인하세요",
     icon: "trip-archive",
   },
+  {
+    href: "/feed",
+    title: "후기 피드",
+    description: "다른 여행자들의 후기를 둘러보세요",
+    icon: "feed-chat",
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -85,7 +91,7 @@ export default function HomePage() {
         </form>
 
         {/* ── QUICK ACCESS ── */}
-        <section className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <section className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {QUICK_ACCESS.map(({ href, title, description, icon }) => (
             <Link
               key={href}
