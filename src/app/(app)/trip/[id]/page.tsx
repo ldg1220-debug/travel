@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Link as LinkIcon, ChevronLeft, Heart, Download } from "lucide-react";
@@ -27,12 +28,17 @@ import { VisibilitySelector } from "@/components/VisibilitySelector";
 import { LoginModal } from "@/components/LoginModal";
 import { ReportModal } from "@/components/ReportModal";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
-import { ExportPostModal } from "@/components/ExportPostModal";
-import { TripPostComposer } from "@/components/TripPostComposer";
 import { TripPostComments } from "@/components/TripPostComments";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
+
+// 카카오톡 공유 링크로 들어오는 첫 진입점(로그인 여부와 무관하게 누구나 열림,
+// 대부분 모바일)이라 초기 JS를 가볍게 유지하는 게 중요하다 — 글쓴이만 쓰는
+// "수정하기"/"내보내기"는 눌렀을 때만 필요한 무거운 컴포넌트라 클릭 시점에
+// 별도 청크로 불러온다(둘 다 상태로 열고 닫는 모달이라 SSR이 필요 없다).
+const ExportPostModal = dynamic(() => import("@/components/ExportPostModal").then((m) => m.ExportPostModal), { ssr: false });
+const TripPostComposer = dynamic(() => import("@/components/TripPostComposer").then((m) => m.TripPostComposer), { ssr: false });
 
 /** Standalone public view of one 여행 후기 (blog/Instagram-style trip post) — what a 카카오톡 공유 link or "링크 복사" opens for anyone, logged in or not, if the post was published to the feed (or you're its author). */
 export default function TripPostDetailPage() {

@@ -23,6 +23,42 @@ const providers = [
   ...(process.env.AUTH_APPLE_ID ? [Apple({ allowDangerousEmailAccountLinking: true })] : []),
 ];
 
+interface SessionProfileRow {
+  nickname: string | null;
+  termsAgreedAt: Date | null;
+  notifyMateRequests: boolean;
+  notifyLikes: boolean;
+  notifyMessages: boolean;
+  notifyComments: boolean;
+  isAdmin: boolean;
+  isBanned: boolean;
+  lastActiveAt: Date | null;
+  deletionRequestedAt: Date | null;
+}
+
+// 페이지 하나를 열 때 AppBar(useSession)·MessageBell·NotificationBell·페이지
+// 자신의 API 호출이 거의 동시에 각자 세션을 필요로 해서, 이 콜백의 프로필
+// 조회가 같은 유저에 대해 짧은 시간 안에 여러 번 중복 실행된다 — 그 순간의
+// 중복만 하나의 쿼리 결과로 묶어 DB 왕복을 줄인다. 세션에 쓰이는 정보라
+// 몇 초 지연은 체감상 문제 되지 않는 안전한 트레이드오프(닉네임 변경 등
+// 자기 자신이 방금 바꾼 값은 그 화면에서 이미 낙관적으로 반영돼 있어
+// 어차피 이 캐시를 거치지 않고도 즉시 보인다).
+const sessionProfileCache = new Map<string, { data: SessionProfileRow; expiresAt: number }>();
+const SESSION_PROFILE_CACHE_TTL_MS = 3000;
+
+async function getSessionProfile(userId: string): Promise<SessionProfileRow | undefined> {
+  const cached = sessionProfileCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+  const result = await pool.query<SessionProfileRow>(
+    `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "notifyComments", "isAdmin", "isBanned", "lastActiveAt", "deletionRequestedAt" from users where id = $1`,
+    [userId],
+  );
+  const row = result.rows[0];
+  if (row) sessionProfileCache.set(userId, { data: row, expiresAt: Date.now() + SESSION_PROFILE_CACHE_TTL_MS });
+  return row;
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PostgresAdapter(pool),
   providers,
@@ -44,11 +80,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // columns (id/name/email/image/emailVerified) — nickname/termsAgreedAt
         // are our own additions, so they're fetched separately rather than
         // relying on the adapter to surface them.
-        const result = await pool.query(
-          `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "notifyComments", "isAdmin", "isBanned", "lastActiveAt", "deletionRequestedAt" from users where id = $1`,
-          [user.id],
-        );
-        const row = result.rows[0];
+        const row = await getSessionProfile(user.id);
         session.user.nickname = row?.nickname ?? null;
         session.user.termsAgreed = row?.termsAgreedAt != null;
         session.user.notifyMateRequests = row?.notifyMateRequests ?? true;

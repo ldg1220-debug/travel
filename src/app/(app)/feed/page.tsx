@@ -221,7 +221,7 @@ function FeedCard({ post, onOpen, onOpenProfile }: { post: FeedPost; onOpen: () 
           >
             {post.authorImage ? (
               // eslint-disable-next-line @next/next/no-img-element -- OAuth profile image URL
-              <img src={post.authorImage} alt="" className="h-5 w-5 shrink-0 rounded-full object-cover" />
+              <img src={post.authorImage} alt="" loading="lazy" className="h-5 w-5 shrink-0 rounded-full object-cover" />
             ) : (
               <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-[10px] font-bold text-white">
                 {(post.authorName ?? "여").trim().charAt(0)}
@@ -234,7 +234,7 @@ function FeedCard({ post, onOpen, onOpenProfile }: { post: FeedPost; onOpen: () 
         </div>
         {post.images[0] && (
           // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
-          <img src={post.images[0]} alt="" className="h-[76px] w-[76px] shrink-0 rounded-2xl object-cover" />
+          <img src={post.images[0]} alt="" loading="lazy" className="h-[76px] w-[76px] shrink-0 rounded-2xl object-cover" />
         )}
       </div>
     </div>
