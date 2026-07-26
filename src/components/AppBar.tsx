@@ -47,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/planner", label: "계획", icon: "plan-check" },
   { href: "/scrapbook", label: "여행 보관함", icon: "trip-archive" },
   { href: "/feed", label: "후기 피드", icon: "feed-chat" },
+  { href: "/community", label: "커뮤니티", icon: "group" },
 ];
 const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", icon: "saved-card-heart" as const };
 
@@ -83,6 +84,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/scrapbook": "여행 보관함",
   "/saved-places": "관심 장소 보관함",
   "/feed": "후기 피드",
+  "/community": "커뮤니티",
   "/messages": "메시지",
   "/terms": "이용약관",
   "/privacy": "개인정보처리방침",

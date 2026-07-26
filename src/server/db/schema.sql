@@ -458,3 +458,47 @@ CREATE TABLE IF NOT EXISTS trip_post_comments (
 CREATE INDEX IF NOT EXISTS trip_post_comments_post_idx ON trip_post_comments ("postId", created_at);
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "notifyComments" BOOLEAN NOT NULL DEFAULT true;
+
+-- 커뮤니티 게시판 — 여행 후기(trip_posts)와는 별개로, 카테고리별로 자유롭게
+-- 정보를 주고받는 게시판(자유수다/질문답변/동행 구해요/여행 꿀팁/국내
+-- 정보공유/해외 정보공유). 카테고리는 운영진이 코드로 관리하는 고정 목록이라
+-- (src/lib/community.ts의 COMMUNITY_CATEGORIES) 별도 테이블로 빼지 않았다.
+-- 글쓰기는 로그인한 회원만 가능하고(비로그인 작성 불가), 열람 범위는
+-- "visibility"로 글마다 고른다:
+--  - "public": 비로그인 포함 누구나
+--  - "members": 로그인한 회원이면 누구나(팔로우 관계 무관 — 여행 후기의
+--    "친구공개(맞팔로우)"보다 넓은 개념이라 트립포스트와는 다른 값 이름을 쓴다)
+--  - "custom": 글쓴이가 지정한 허용 목록(community_post_visible_to)만
+--  - "private": 글쓴이 본인만
+CREATE TABLE IF NOT EXISTS community_posts (
+  id SERIAL PRIMARY KEY,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category VARCHAR(24) NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  content TEXT NOT NULL,
+  images JSONB NOT NULL DEFAULT '[]',
+  visibility VARCHAR(10) NOT NULL DEFAULT 'public',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS community_posts_category_idx ON community_posts (category, created_at DESC);
+CREATE INDEX IF NOT EXISTS community_posts_user_idx ON community_posts ("userId");
+
+-- "특정인 공개" 글의 허용 목록 — 여행 후기의 trip_post_visible_to와 같은 모양.
+CREATE TABLE IF NOT EXISTS community_post_visible_to (
+  "postId" INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY ("postId", "userId")
+);
+
+-- 커뮤니티 글 댓글 — 그 글을 볼 수 있는 사람만 댓글도 보고 남길 수 있다
+-- (src/lib/server/communityVisibility.ts의 canViewCommunityPost로 재검증).
+-- 작성자 본인 또는 글 주인이 지울 수 있다.
+CREATE TABLE IF NOT EXISTS community_post_comments (
+  id SERIAL PRIMARY KEY,
+  "postId" INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS community_post_comments_post_idx ON community_post_comments ("postId", created_at);
