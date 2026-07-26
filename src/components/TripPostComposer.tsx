@@ -16,6 +16,7 @@ import { EmojiPickerButton } from "@/components/EmojiPicker";
 
 const MAX_IMAGES = 10;
 const SEARCH_DEBOUNCE_MS = 400;
+const AUTOSAVE_INTERVAL_MS = 10 * 60 * 1000;
 
 /** Unique places from a trip's schedule, in visiting order. */
 function uniquePlaces(plan: SavedPlan): PlaceStub[] {
@@ -76,6 +77,7 @@ export function TripPostComposer({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [autoSaved, setAutoSaved] = useState(false);
   const [activePlace, setActivePlace] = useState<PlaceStub | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -84,6 +86,12 @@ export function TripPostComposer({
   // 이 스냅샷은 일반 사진처럼 업로드돼 글에 영구히 남는다.
   const [snapshotting, setSnapshotting] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
+  // 10분마다 자동으로 임시저장 — 글을 쓰다가 앱을 닫거나 실수로 벗어나도
+  // 마지막 저장 이후 최대 10분치만 잃게 하려는 안전망. 직전 저장(수동이든
+  // 자동이든) 시점의 스냅샷과 비교해 실제로 바뀐 게 있을 때만 조용히
+  // 저장한다 — 매번 인터벌마다 무의미하게 쓰기를 반복하지 않기 위함.
+  const lastSavedSnapshotRef = useRef<string | null>(null);
+  const autoSaveRef = useRef<() => void>(() => {});
 
   const effectiveSnapshotPlan = snapshotPlan !== undefined ? snapshotPlan : plan;
 
@@ -169,6 +177,52 @@ export function TripPostComposer({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only load once per open, not on every plan/itineraryId/planPlaces identity change
   }, [itineraryId, initialPostId]);
 
+  // 자동저장이 "실제로 바뀐 게 있을 때만" 동작하도록 비교할 스냅샷 —
+  // 전부 원시값/원시값 배열이라 JSON.stringify 비교로 충분하다.
+  const buildSnapshot = () => JSON.stringify({ title, content, images, visibility, visibleToUserIds });
+
+  // 자동저장 로직은 매 렌더마다 최신 title/content/... 를 클로저로 잡아
+  // ref에 새로 담아둔다 — 아래 useEffect의 setInterval은 loading이 false로
+  // 바뀌는 시점에 딱 한 번만 만들고 그 뒤로 다시 만들지 않는데(타이핑할
+  // 때마다 인터벌이 리셋되면 "10분마다"가 지켜지지 않으므로), 실행 시점엔
+  // 항상 최신 상태를 봐야 하니 ref로 우회한다. ref 갱신 자체는 렌더 중이
+  // 아니라 렌더 후(매 렌더마다 도는 이 이펙트)에 이뤄져야 한다.
+  useEffect(() => {
+    autoSaveRef.current = async () => {
+      if (saving) return;
+      if (!title.trim() || !content.trim()) return; // 수동 저장과 달리 에러 표시 없이 조용히 건너뜀
+      const snapshot = buildSnapshot();
+      if (snapshot === lastSavedSnapshotRef.current) return; // 마지막 저장 이후 바뀐 게 없으면 스킵
+      try {
+        const { id } = await saveTripPost({
+          id: postId ?? undefined,
+          itineraryId: resolvedItineraryId ?? undefined,
+          title: title.trim(),
+          content: content.trim(),
+          images,
+          visibility,
+          visibleToUserIds,
+        });
+        setPostId(id);
+        lastSavedSnapshotRef.current = snapshot;
+        setAutoSaved(true);
+        setTimeout(() => setAutoSaved(false), 2000);
+      } catch {
+        // 자동저장 실패는 조용히 넘어간다 — 수동 저장 버튼은 여전히 쓸 수 있고, 10분 뒤 다시 시도된다.
+      }
+    };
+  });
+
+  useEffect(() => {
+    if (loading) return;
+    lastSavedSnapshotRef.current = buildSnapshot();
+    const id = setInterval(() => {
+      void autoSaveRef.current();
+    }, AUTOSAVE_INTERVAL_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 의도적으로 loading에만 반응한다 — 인터벌은 로딩이 끝난 시점에 한 번만 만들고 입력마다 다시 만들지 않아야 "10분마다"가 지켜진다(최신 로직은 autoSaveRef로 참조).
+  }, [loading]);
+
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setUploading(true);
@@ -244,6 +298,7 @@ export function TripPostComposer({
         visibleToUserIds,
       });
       setPostId(id);
+      lastSavedSnapshotRef.current = buildSnapshot();
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
       return id;
@@ -443,6 +498,7 @@ export function TripPostComposer({
             </div>
 
             {error && <p className="mb-3 text-center text-[12px] text-rose-500">{error}</p>}
+            {autoSaved && <p className="mb-3 text-center text-[12px] text-emerald-500">임시 저장됐어요</p>}
 
             <button
               onClick={handleSave}
