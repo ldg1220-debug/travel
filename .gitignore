@@ -40,3 +40,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# android (TWA) - build output + local machine config, never the signing key
+/android/build/
+/android/app/build/
+/android/.gradle/
+/android/local.properties
+/android/*.keystore
+/android/app-release-bundle.aab
+/android/app-release-signed.apk

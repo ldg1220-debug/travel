@@ -1,0 +1,59 @@
+name: Android TWA build
+
+# Builds the signed .aab (Play Store) and .apk (sideload/testing) for the
+# Trusted Web Activity wrapper in android/. Manual only — this isn't part of
+# the web app's deploy loop, it's a separate, infrequent release artifact.
+# Needs three repo secrets set up first (see android/README.md):
+#   ANDROID_KEYSTORE_BASE64  - `base64 -w0 android.keystore`
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_PASSWORD
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Restore signing keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
+
+      - name: Point bubblewrap at this runner's JDK/Android SDK
+        run: |
+          mkdir -p "$HOME/.bubblewrap"
+          cat > "$HOME/.bubblewrap/config.json" <<EOF
+          {"jdkPath":"${JAVA_HOME}","androidSdkPath":"${ANDROID_HOME}"}
+          EOF
+
+      # bubblewrap may need to install a build-tools version this runner's
+      # preinstalled SDK doesn't have yet; that install step needs licenses
+      # pre-accepted or it hangs waiting on a prompt.
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+      - name: bubblewrap build (gradle bundleRelease/assembleRelease + sign)
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: npx --yes @bubblewrap/cli build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradule-android-release
+          path: |
+            android/app-release-bundle.aab
+            android/app-release-signed.apk
+          retention-days: 30
+
+      - name: Remove keystore from the runner's disk
+        if: always()
+        run: rm -f android.keystore
