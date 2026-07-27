@@ -36,3 +36,40 @@ jobs:
       # reachable" — that part is out of scope for this job.
       - name: Build
         run: npx next build
+
+  # main에 push(≈Vercel 자동 배포)될 때만, 이번 push에 담긴 커밋 메시지를
+  # 모아 POST /api/cron/announce-update로 보낸다 — 실제 공지 발송 여부·
+  # 문구는 그 라우트 안의 LLM 요약이 판단한다(사용자 무관 변경이면
+  # 스킵됨). DEPLOY_ANNOUNCE_SECRET 레포 시크릿이 아직 없으면 인증에서
+  # 막혀 조용히 실패하도록 두고(continue-on-error), verify 잡을 막지
+  # 않는다 — 이 기능은 있으면 좋은 부가 채널이지 빌드 게이트가 아니다.
+  announce:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect this push's commit subjects
+        run: |
+          if git cat-file -e "${{ github.event.before }}" 2>/dev/null && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            RANGE="${{ github.event.before }}..${{ github.event.after }}"
+          else
+            RANGE="-1"
+          fi
+          git log $RANGE --pretty=%s > /tmp/commit-subjects.txt
+          node -e '
+            const fs = require("fs");
+            const lines = fs.readFileSync("/tmp/commit-subjects.txt", "utf-8").split("\n").filter(Boolean);
+            fs.writeFileSync("/tmp/announce-payload.json", JSON.stringify({ commits: lines }));
+          '
+
+      - name: Notify production of this update
+        continue-on-error: true
+        run: |
+          curl -sf -X POST "https://www.tradule.co.kr/api/cron/announce-update" \
+            -H "Authorization: Bearer ${{ secrets.DEPLOY_ANNOUNCE_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/announce-payload.json
