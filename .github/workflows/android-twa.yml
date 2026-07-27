@@ -29,14 +29,24 @@ jobs:
 
       - name: Point bubblewrap at this runner's JDK/Android SDK
         run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          # bubblewrap only looks for sdkmanager at <sdk>/tools/bin/sdkmanager
+          # or <sdk>/bin/sdkmanager (both legacy layouts); GitHub-hosted
+          # runners only ship the modern <sdk>/cmdline-tools/latest/bin/,
+          # which fails bubblewrap's SDK validity check even though the SDK
+          # itself is perfectly usable. A symlink at the legacy fallback
+          # path satisfies both that check and bubblewrap's own
+          # `installBuildTools()` invocation.
+          mkdir -p "$ANDROID_HOME/bin"
+          ln -sf "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_HOME/bin/sdkmanager"
           mkdir -p "$HOME/.bubblewrap"
           cat > "$HOME/.bubblewrap/config.json" <<EOF
           {"jdkPath":"${JAVA_HOME}","androidSdkPath":"${ANDROID_HOME}"}
           EOF
 
-      # bubblewrap may need to install a build-tools version this runner's
-      # preinstalled SDK doesn't have yet; that install step needs licenses
-      # pre-accepted or it hangs waiting on a prompt.
+      # bubblewrap installs build-tools;34.0.0 on demand if this runner's
+      # preinstalled SDK doesn't already have that exact version; that
+      # install step needs licenses pre-accepted or it hangs on a prompt.
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
