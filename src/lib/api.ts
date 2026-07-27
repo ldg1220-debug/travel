@@ -1,5 +1,6 @@
 import type { ItineraryItem, Place, Region } from "./types";
 import type { CuisineTag, DiscoverBundle, DiscoverScope, DiscoverSpot, DiscoverRoute, PlaceCategoryTag, RegionNode, Season } from "./discoverData";
+import type { CommunityVisibility } from "./community";
 
 export async function fetchTrendingPlaces(region: Region): Promise<Place[]> {
   const res = await fetch(`/api/trends?region=${region}`);
@@ -493,6 +494,159 @@ export async function deleteComment(postId: number, commentId: number): Promise<
 }
 
 // ─────────────────────────────────────────────────────────────
+// 커뮤니티 게시판 — 여행 후기(trip_posts)와 별개로, 카테고리별로 자유롭게
+// 정보를 주고받는 게시판(src/lib/community.ts에 카테고리/공개범위 정의).
+
+export interface CommunityPostSummary {
+  id: number;
+  category: string;
+  title: string;
+  content: string;
+  images: string[];
+  createdAt: string;
+  authorId: number;
+  authorName: string | null;
+  authorImage: string | null;
+  commentCount: number;
+}
+
+export interface CommunityPostListResponse {
+  posts: CommunityPostSummary[];
+  pagination: { page: number; limit: number; total: number; hasMore: boolean };
+}
+
+export async function fetchCommunityPosts(
+  page = 1,
+  limit = 15,
+  options?: { category?: string; q?: string },
+): Promise<CommunityPostListResponse> {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (options?.category) params.set("category", options.category);
+  if (options?.q?.trim()) params.set("q", options.q.trim());
+  const res = await fetch(`/api/community-posts?${params.toString()}`);
+  if (!res.ok) return { posts: [], pagination: { page, limit, total: 0, hasMore: false } };
+  return res.json();
+}
+
+export interface CommunityPostDetail {
+  id: number;
+  category: string;
+  title: string;
+  content: string;
+  images: string[];
+  visibility: CommunityVisibility;
+  /** Only populated for the owner when visibility is "custom". */
+  visibleToUserIds: number[];
+  createdAt: string;
+  authorId: number;
+  authorName: string | null;
+  authorImage: string | null;
+  likesCount: number;
+  /** Whether the current viewer has liked this post — always false when signed out. */
+  isLiked: boolean;
+}
+
+/** 커뮤니티 글 하나 — null이면 존재하지 않거나 지금 로그인 상태로는 볼 수 없는 글. */
+export async function fetchCommunityPost(id: number): Promise<{ post: CommunityPostDetail; isOwner: boolean } | null> {
+  const res = await fetch(`/api/community-posts/${id}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function likeCommunityPost(id: number): Promise<void> {
+  const res = await fetch(`/api/community-posts/${id}/like`, { method: "POST" });
+  if (!res.ok) throw new Error("좋아요를 처리하지 못했어요");
+}
+
+export async function unlikeCommunityPost(id: number): Promise<void> {
+  const res = await fetch(`/api/community-posts/${id}/like`, { method: "DELETE" });
+  if (!res.ok) throw new Error("좋아요를 처리하지 못했어요");
+}
+
+export async function createCommunityPost(input: {
+  category: string;
+  title: string;
+  content: string;
+  images: string[];
+  visibility: CommunityVisibility;
+  visibleToUserIds?: number[];
+}): Promise<{ id: number }> {
+  const res = await fetch("/api/community-posts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "글을 작성하지 못했어요");
+  }
+  return res.json();
+}
+
+export async function updateCommunityPost(
+  id: number,
+  input: Partial<{
+    category: string;
+    title: string;
+    content: string;
+    images: string[];
+    visibility: CommunityVisibility;
+    visibleToUserIds: number[];
+  }>,
+): Promise<void> {
+  const res = await fetch(`/api/community-posts/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "수정하지 못했어요");
+  }
+}
+
+export async function deleteCommunityPost(id: number): Promise<void> {
+  const res = await fetch(`/api/community-posts/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("삭제하지 못했어요");
+}
+
+export interface CommunityComment {
+  id: number;
+  postId: number;
+  userId: number;
+  authorName: string | null;
+  authorImage: string | null;
+  content: string;
+  createdAt: string;
+}
+
+export async function fetchCommunityComments(postId: number): Promise<CommunityComment[]> {
+  const res = await fetch(`/api/community-posts/${postId}/comments`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { comments?: CommunityComment[] };
+  return data.comments ?? [];
+}
+
+export async function postCommunityComment(postId: number, content: string): Promise<CommunityComment> {
+  const res = await fetch(`/api/community-posts/${postId}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "댓글을 남기지 못했어요");
+  }
+  const data = (await res.json()) as { comment: CommunityComment };
+  return data.comment;
+}
+
+export async function deleteCommunityComment(postId: number, commentId: number): Promise<void> {
+  const res = await fetch(`/api/community-posts/${postId}/comments/${commentId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("댓글을 삭제하지 못했어요");
+}
+
+// ─────────────────────────────────────────────────────────────
 // 팔로우 — "트메공개"(맞팔로우)와 "특정인공개"(내 팔로워 중 선택)의 기반이
 // 되는 단방향 팔로우 관계. "트메 신청"은 상대가 수락해야 실제 관계로
 // 카운트되고, "트메" 판정은 양방향(맞팔로우)이 모두 수락 상태여야 한다.
@@ -631,6 +785,9 @@ export interface AppNotification {
   /** "like"·"comment" 알림에만 있음 — 눌러서 바로 그 후기로 이동할 때 쓴다. */
   postId: number | null;
   postTitle: string | null;
+  /** 후기 대신 커뮤니티 글에 대한 "like"·"comment" 알림일 때만 있음 — postId와 동시에 채워지지 않는다. */
+  communityPostId: number | null;
+  communityPostTitle: string | null;
   /** "announcement" 알림에만 있음 — 관리자가 작성한 공지 본문. */
   message: string | null;
   /** "follow_request" 알림에만 있음 — 'pending'이면 수락/거절 버튼을 보여준다, 이미 처리됐거나(수락/취소/거절) 지난 신청이면 'accepted'|'none'. */
@@ -809,7 +966,7 @@ export async function fetchDiscoverSearch(
   return res.json();
 }
 
-export type ReportTargetType = "trip_post" | "message" | "user";
+export type ReportTargetType = "trip_post" | "community_post" | "message" | "user";
 export type ReportReason = "spam" | "abuse" | "sexual" | "illegal" | "other";
 
 export interface Report {

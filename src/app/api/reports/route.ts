@@ -4,7 +4,7 @@ import { pool } from "@/lib/server/db";
 import { checkRateLimit } from "@/lib/server/rateLimit";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
-const TARGET_TYPES = new Set(["trip_post", "message", "user"]);
+const TARGET_TYPES = new Set(["trip_post", "community_post", "message", "user"]);
 const REASONS = new Set(["spam", "abuse", "sexual", "illegal", "other"]);
 const MAX_DETAIL_LENGTH = 500;
 
@@ -30,6 +30,10 @@ async function resolveReportedUserId(targetType: string, targetId: number): Prom
     const r = await pool.query(`select "userId" from trip_posts where id = $1`, [targetId]);
     return r.rows[0]?.userId ?? null;
   }
+  if (targetType === "community_post") {
+    const r = await pool.query(`select "userId" from community_posts where id = $1`, [targetId]);
+    return r.rows[0]?.userId ?? null;
+  }
   if (targetType === "message") {
     const r = await pool.query(`select "senderId" from messages where id = $1`, [targetId]);
     return r.rows[0]?.senderId ?? null;
@@ -37,7 +41,7 @@ async function resolveReportedUserId(targetType: string, targetId: number): Prom
   return null;
 }
 
-/** 신고 접수 — 로그인한 누구나 여행 후기·메시지·사용자 프로필을 신고할 수 있다. */
+/** 신고 접수 — 로그인한 누구나 여행 후기·커뮤니티 글·메시지·사용자 프로필을 신고할 수 있다. */
 export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
   if (!session?.user?.id) {

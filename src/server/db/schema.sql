@@ -371,7 +371,7 @@ CREATE TABLE IF NOT EXISTS reports (
   id SERIAL PRIMARY KEY,
   "reporterId" INTEGER REFERENCES users(id) ON DELETE SET NULL,
   "reportedUserId" INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  -- 'trip_post' | 'message' | 'user'
+  -- 'trip_post' | 'community_post' | 'message' | 'user'
   "targetType" VARCHAR(20) NOT NULL,
   "targetId" INTEGER NOT NULL,
   -- 'spam' | 'abuse' | 'sexual' | 'illegal' | 'other'
@@ -458,3 +458,62 @@ CREATE TABLE IF NOT EXISTS trip_post_comments (
 CREATE INDEX IF NOT EXISTS trip_post_comments_post_idx ON trip_post_comments ("postId", created_at);
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "notifyComments" BOOLEAN NOT NULL DEFAULT true;
+
+-- 커뮤니티 게시판 — 여행 후기(trip_posts)와는 별개로, 카테고리별로 자유롭게
+-- 정보를 주고받는 게시판(자유수다/질문답변/동행 구해요/여행 꿀팁/국내
+-- 정보공유/해외 정보공유). 카테고리는 운영진이 코드로 관리하는 고정 목록이라
+-- (src/lib/community.ts의 COMMUNITY_CATEGORIES) 별도 테이블로 빼지 않았다.
+-- 글쓰기는 로그인한 회원만 가능하고(비로그인 작성 불가), 열람 범위는
+-- "visibility"로 글마다 고른다:
+--  - "public": 비로그인 포함 누구나
+--  - "members": 로그인한 회원이면 누구나(팔로우 관계 무관 — 여행 후기의
+--    "친구공개(맞팔로우)"보다 넓은 개념이라 트립포스트와는 다른 값 이름을 쓴다)
+--  - "custom": 글쓴이가 지정한 허용 목록(community_post_visible_to)만
+--  - "private": 글쓴이 본인만
+CREATE TABLE IF NOT EXISTS community_posts (
+  id SERIAL PRIMARY KEY,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category VARCHAR(24) NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  content TEXT NOT NULL,
+  images JSONB NOT NULL DEFAULT '[]',
+  visibility VARCHAR(10) NOT NULL DEFAULT 'public',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS community_posts_category_idx ON community_posts (category, created_at DESC);
+CREATE INDEX IF NOT EXISTS community_posts_user_idx ON community_posts ("userId");
+
+-- "특정인 공개" 글의 허용 목록 — 여행 후기의 trip_post_visible_to와 같은 모양.
+CREATE TABLE IF NOT EXISTS community_post_visible_to (
+  "postId" INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY ("postId", "userId")
+);
+
+-- 커뮤니티 글 댓글 — 그 글을 볼 수 있는 사람만 댓글도 보고 남길 수 있다
+-- (src/lib/server/communityVisibility.ts의 canViewCommunityPost로 재검증).
+-- 작성자 본인 또는 글 주인이 지울 수 있다.
+CREATE TABLE IF NOT EXISTS community_post_comments (
+  id SERIAL PRIMARY KEY,
+  "postId" INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS community_post_comments_post_idx ON community_post_comments ("postId", created_at);
+
+-- 커뮤니티 글 좋아요 — 여행 후기의 trip_post_likes와 같은 모양.
+CREATE TABLE IF NOT EXISTS community_post_likes (
+  id SERIAL PRIMARY KEY,
+  "postId" INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS community_post_likes_pair_key ON community_post_likes ("postId", "userId");
+CREATE INDEX IF NOT EXISTS community_post_likes_post_idx ON community_post_likes ("postId");
+
+-- notifications 테이블은 이 파일 위쪽(community_posts보다 먼저)에 정의돼
+-- "postId"가 trip_posts만 가리킬 수 있다 — 커뮤니티 글의 좋아요/댓글
+-- 알림은 별도 컬럼으로 가리킨다. 알림 하나는 둘 중 하나만 채워진다.
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "communityPostId" INTEGER REFERENCES community_posts(id) ON DELETE CASCADE;
