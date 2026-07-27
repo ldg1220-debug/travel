@@ -96,7 +96,7 @@ function PhotoRow({
 }: {
   photos: ExportPhoto[];
   copiedUrl: string | null;
-  copyMode: "image" | "link" | "url" | null;
+  copyMode: "image" | "link" | null;
   onCopy: (photo: ExportPhoto) => void;
   /** 썸네일 한 변 길이(px) — 대표 사진/일정 이미지는 기본값(64)을 쓰고, 장소 리뷰 사진은 더 작게 줄인다. */
   size?: number;
@@ -128,9 +128,7 @@ function PhotoRow({
         <p className="w-full text-[11px] text-emerald-600">
           {copyMode === "image"
             ? "사진이 복사됐어요 — 그 자리에서 Ctrl+V로 붙여넣어주세요"
-            : copyMode === "url"
-              ? "바로 보이는 사진 주소가 복사됐어요"
-              : "이 브라우저는 이미지 복사를 지원하지 않아 링크로 복사했어요"}
+            : "이 브라우저는 이미지 복사를 지원하지 않아 링크로 복사했어요"}
         </p>
       )}
     </div>
@@ -167,7 +165,7 @@ export function ExportPostModal({
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [copiedPhotoUrl, setCopiedPhotoUrl] = useState<string | null>(null);
-  const [photoCopyMode, setPhotoCopyMode] = useState<"image" | "link" | "url" | null>(null);
+  const [photoCopyMode, setPhotoCopyMode] = useState<"image" | "link" | null>(null);
   // 일정(동선) 섹션용 스냅샷 이미지 — 플래너의 "이미지로 저장"과 같은 캡처를
   // 여기서도 한 번 더 만들어(글에 이미 첨부된 사진 중 어느 게 그 스냅샷인지
   // 구분할 방법이 없어서) URL로 복사할 수 있게 한다. 모달이 열릴 때 한 번만
@@ -317,17 +315,6 @@ export function ExportPostModal({
     setTimeout(() => setCopiedPhotoUrl(null), 1600);
   };
 
-  // 일정 이미지는 대표 사진/장소 사진과 달리 "글에 바로 붙여넣을 사진"이
-  // 아니라 "블로그 등 다른 곳에도 그대로 열어볼 수 있는 링크"로 쓰려는
-  // 목적이 커서, 이미지 데이터 자체를 클립보드에 담는 대신 항상 눈에 보이는
-  // URL 텍스트로 복사한다.
-  const handleCopyScheduleImageUrl = async (photo: ExportPhoto) => {
-    await navigator.clipboard.writeText(photo.url);
-    setPhotoCopyMode("url");
-    setCopiedPhotoUrl(photo.url);
-    setTimeout(() => setCopiedPhotoUrl(null), 1600);
-  };
-
   const handleNaver = () => {
     const naverUrl = `https://share.naver.com/web/shareView?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
     window.open(naverUrl, "_blank", "noopener,noreferrer");
@@ -397,7 +384,7 @@ export function ExportPostModal({
                   photos={[{ url: scheduleImageUrl, label: "일정 이미지" }]}
                   copiedUrl={copiedPhotoUrl}
                   copyMode={photoCopyMode}
-                  onCopy={handleCopyScheduleImageUrl}
+                  onCopy={handleCopyPhoto}
                 />
               )}
               {scheduleImageFailed && <p className="text-[11px] text-slate-400">일정 이미지는 못 만들었어요 — 텍스트는 그대로 복사할 수 있어요</p>}
