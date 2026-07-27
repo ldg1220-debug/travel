@@ -81,8 +81,8 @@ import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { nudgeKakaoMapResize, getKakaoMaps, type KakaoMapInstance } from "@/lib/maps/kakao-map";
 import { hasStaleActiveDateCorrectionRun, suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 import { kakaoBoundsFor } from "./KakaoMapPrimitives";
-import { currencySymbolForRegion } from "@/lib/types";
-import type { ItineraryItem, Place } from "@/lib/types";
+import { currencySymbol, groupBudgetByCurrency } from "@/lib/types";
+import type { CurrencyCode, ItineraryItem, Place } from "@/lib/types";
 import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
 
 // Always client-only: the Maps SDK/canvas must never be part of the
@@ -556,8 +556,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // has no items — scheduleMapPlaces (below) depends on it in a useMemo.
   const schedule = scheduleByDate[activeDate] ?? EMPTY_SCHEDULE;
   const orderByPlace = orderByDate[activeDate] ?? {};
-  const totalBudget = items.reduce((sum, s) => sum + (s.budget ?? 0), 0);
-  const currencySymbol = currencySymbolForRegion(region);
+  // 통화별로 각각 더한다(환율 환산 없이) — 같은 여행이라도 항공/숙소는
+  // 원화, 현지 비용은 엔화 등으로 섞여 있을 수 있어서다.
+  const totalBudgetByCurrency = groupBudgetByCurrency(items);
   // 예산 내역 팝업 — "all"이면 계획 전체, 날짜 문자열이면 그 날짜만 골라 보여준다.
   const [budgetBreakdownScope, setBudgetBreakdownScope] = useState<"all" | string | null>(null);
   const budgetBreakdownItems = useMemo(() => {
@@ -568,7 +569,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       .slice()
       .sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
   }, [budgetBreakdownScope, items, scheduleByDate]);
-  const budgetBreakdownTotal = budgetBreakdownItems.reduce((sum, i) => sum + (i.budget ?? 0), 0);
+  const budgetBreakdownByCurrency = groupBudgetByCurrency(budgetBreakdownItems);
 
   const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null);
   // Place waiting on "어떤 계획에 추가할까요?" before its ScheduleModal opens —
@@ -681,7 +682,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const searchParams = useSearchParams();
   const openDetailId = searchParams.get("openDetail");
 
-  const registerAt = (place: Place, date: string, hour: number, minute = 0, budget?: number, durationMinutes?: number) => {
+  const registerAt = (
+    place: Place,
+    date: string,
+    hour: number,
+    minute = 0,
+    budget?: number,
+    durationMinutes?: number,
+    budgetCurrency?: CurrencyCode,
+  ) => {
     addItem({
       placeId: place.id,
       name: place.name,
@@ -689,6 +698,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       time: formatTime(hour, minute),
       coordinates: { lat: place.lat, lng: place.lng },
       budget,
+      budgetCurrency,
       durationMinutes,
     });
   };
@@ -1399,15 +1409,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       <Clock size={16} color="white" />
                     </span>
                     <span className="text-[15px] font-bold text-slate-900">일정</span>
-                    {totalBudget > 0 && (
+                    {totalBudgetByCurrency.length > 0 && (
                       <button
                         onClick={() => setBudgetBreakdownScope("all")}
                         aria-label="총 예산 내역 보기"
                       >
                         <Badge className="gap-1 rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[13px] font-bold tabular-nums text-emerald-700 hover:bg-emerald-100">
                           <Wallet size={13} />
-                          총 예산 {currencySymbol}
-                          {totalBudget.toLocaleString()}
+                          총 예산{" "}
+                          {totalBudgetByCurrency
+                            .map((c) => `${currencySymbol(c.currency)}${c.total.toLocaleString()}`)
+                            .join(" · ")}
                         </Badge>
                       </button>
                     )}
@@ -1563,7 +1575,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 {visibleDates.map((date) => {
                   const dayItems = scheduleByDate[date] ?? [];
                   const count = dayItems.length;
-                  const dayBudget = dayItems.reduce((sum, s) => sum + (s.budget ?? 0), 0);
+                  const dayBudgetByCurrency = groupBudgetByCurrency(dayItems);
                   const isFirst = date === activeDate;
                   return (
                     <div
@@ -1582,7 +1594,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       <div className="text-[10px] text-slate-400 tabular-nums">
                         {count}개 장소
                       </div>
-                      {dayBudget > 0 && (
+                      {dayBudgetByCurrency.length > 0 && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1590,8 +1602,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                           }}
                           className="mt-0.5 truncate text-[11px] font-bold text-emerald-600 hover:underline"
                         >
-                          {currencySymbol}
-                          {dayBudget.toLocaleString()}
+                          {dayBudgetByCurrency.map((c) => `${currencySymbol(c.currency)}${c.total.toLocaleString()}`).join(" · ")}
                         </button>
                       )}
                     </div>
@@ -1764,7 +1775,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             mode={scheduleTarget.mode}
             showBudget
             initialBudget={scheduleTarget.mode === "edit" ? scheduleTarget.item.budget : undefined}
-            currencySymbol={currencySymbol}
+            initialCurrency={scheduleTarget.mode === "edit" ? (scheduleTarget.item.budgetCurrency ?? "KRW") : "KRW"}
             showDuration
             initialDuration={scheduleTarget.mode === "edit" ? scheduleTarget.item.durationMinutes : undefined}
             isHourTaken={(date, hour) => {
@@ -1777,13 +1788,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               hasConflictStore(date, startMinutes, durationMinutes, scheduleTarget.mode === "edit" ? scheduleTarget.item.id : undefined)
             }
             onClose={() => setScheduleTarget(null)}
-            onConfirm={(date, hour, minute, budget, duration) => {
+            onConfirm={(date, hour, minute, budget, duration, currency) => {
               if (scheduleTarget.mode === "create") {
                 addPlaces([scheduleTarget.place]);
-                registerAt(scheduleTarget.place, date, hour, minute, budget, duration);
+                registerAt(scheduleTarget.place, date, hour, minute, budget, duration, currency);
                 if (scheduleTarget.place.id === pendingSearchPlace?.id) setPendingSearchPlace(null);
               } else {
-                moveItem(scheduleTarget.item.id, date, hour, minute, budget);
+                moveItem(scheduleTarget.item.id, date, hour, minute, budget, currency);
                 if (duration != null) resizeItem(scheduleTarget.item.id, duration);
               }
               showToast(`${scheduleTarget.place.name} · ${formatDateLabelShort(date)} ${pad2(hour)}:${pad2(minute)}`);
@@ -1834,18 +1845,22 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                           </p>
                         </div>
                         <span className="shrink-0 text-[13.5px] font-bold tabular-nums text-emerald-700">
-                          {currencySymbol}
+                          {currencySymbol(i.budgetCurrency ?? "KRW")}
                           {(i.budget ?? 0).toLocaleString()}
                         </span>
                       </div>
                     ))}
                   </div>
-                  <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
-                    <span className="text-[13px] font-semibold text-slate-600">합계</span>
-                    <span className="text-[15px] font-bold tabular-nums text-emerald-700">
-                      {currencySymbol}
-                      {budgetBreakdownTotal.toLocaleString()}
-                    </span>
+                  <div className="mt-3 space-y-1 border-t border-slate-100 pt-3">
+                    {budgetBreakdownByCurrency.map((c) => (
+                      <div key={c.currency} className="flex items-center justify-between">
+                        <span className="text-[13px] font-semibold text-slate-600">{c.currency} 합계</span>
+                        <span className="text-[15px] font-bold tabular-nums text-emerald-700">
+                          {currencySymbol(c.currency)}
+                          {c.total.toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </>
               )}
