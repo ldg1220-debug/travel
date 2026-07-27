@@ -25,7 +25,10 @@ jobs:
           java-version: "21"
 
       - name: Restore signing keystore
-        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
+          echo "decoded keystore sha256:"
+          sha256sum android.keystore
 
       - name: Point bubblewrap at this runner's JDK/Android SDK
         run: |
