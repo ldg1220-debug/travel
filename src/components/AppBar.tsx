@@ -313,6 +313,7 @@ export function AppBar() {
                 <ThemeToggle />
               </div>
             </SheetHeader>
+            <div className="flex flex-1 flex-col overflow-y-auto">
             <nav className="flex flex-col gap-1 px-2">
               {NAV_ITEMS.map(({ href, label, icon, sub }) => {
                 const active = pathname?.startsWith(href) ?? false;
@@ -579,6 +580,7 @@ export function AppBar() {
                   로그인 / 회원가입
                 </button>
               )}
+            </div>
             </div>
           </SheetContent>
         </Sheet>
