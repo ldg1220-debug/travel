@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
+import { sendPushToUser } from "@/lib/server/push";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { checkRateLimit } from "@/lib/server/rateLimit";
 import { canViewCommunityPost } from "@/lib/server/communityVisibility";
@@ -81,6 +82,23 @@ export const POST = withApiErrorHandling(async (request: NextRequest, { params }
   ]);
   const comment = inserted.rows[0];
   const authorRow = author.rows[0];
+
+  if (post.authorId !== viewerId) {
+    // 받는 사람이 댓글 알림을 꺼뒀으면 알림 자체를 남기지 않는다.
+    const notified = await pool.query(
+      `insert into notifications ("recipientId", "actorId", type, "communityPostId")
+       select $1, $2, 'comment', $3 where exists (select 1 from users where id = $1 and "notifyComments")
+       returning id`,
+      [post.authorId, viewerId, postId],
+    );
+    if ((notified.rowCount ?? 0) > 0) {
+      void sendPushToUser(post.authorId, {
+        title: "새 댓글",
+        body: `${authorRow?.nickname ?? "여행자"}님이 내 커뮤니티 글에 댓글을 남겼어요`,
+        url: `/community/${postId}`,
+      });
+    }
+  }
 
   return NextResponse.json({
     comment: { ...comment, authorName: authorRow?.nickname ?? "여행자", authorImage: authorRow?.image ?? null },

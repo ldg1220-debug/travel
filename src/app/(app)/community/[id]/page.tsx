@@ -3,11 +3,14 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { ChevronLeft, Heart } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import {
   deleteCommunityPost,
   fetchCommunityPost,
+  likeCommunityPost,
+  unlikeCommunityPost,
   updateCommunityPost,
   type CommunityPostDetail,
 } from "@/lib/api";
@@ -17,6 +20,7 @@ import { CommunityVisibilitySelector } from "@/components/CommunityVisibilitySel
 import { CommunityPostComments } from "@/components/CommunityPostComments";
 import { PhotoLightbox } from "@/components/PhotoLightbox";
 import { LoginModal } from "@/components/LoginModal";
+import { ReportModal } from "@/components/ReportModal";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
 
 // 글쓴이만 쓰는 수정 모달이라, 읽기만 하는 방문자의 초기 번들에 실리지
@@ -27,6 +31,7 @@ const CommunityPostComposer = dynamic(() => import("@/components/CommunityPostCo
 export default function CommunityPostDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { data: session } = useSession();
   const [post, setPost] = useState<CommunityPostDetail | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [togglingVisibility, setTogglingVisibility] = useState(false);
@@ -37,7 +42,10 @@ export default function CommunityPostDetailPage() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [loginReason, setLoginReason] = useState<string | undefined>(undefined);
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const reload = () => {
     const id = Number(params.id);
@@ -63,6 +71,40 @@ export default function CommunityPostDetailPage() {
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 1600);
+  };
+
+  const handleOpenReport = () => {
+    if (!session?.user) {
+      setLoginReason("신고하려면 로그인해주세요.");
+      setLoginOpen(true);
+      return;
+    }
+    setReportOpen(true);
+  };
+
+  const handleToggleLike = async () => {
+    if (!post) return;
+    if (!session?.user) {
+      setLoginReason("좋아요를 누르려면 로그인해주세요.");
+      setLoginOpen(true);
+      return;
+    }
+    const wasLiked = post.isLiked;
+    setLikeBusy(true);
+    // 낙관적 업데이트 — 좋아요는 빈번한 저강도 액션이라 응답을 기다리지 않고 바로 반영한다.
+    setPost((prev) => (prev ? { ...prev, isLiked: !wasLiked, likesCount: prev.likesCount + (wasLiked ? -1 : 1) } : prev));
+    try {
+      if (wasLiked) {
+        await unlikeCommunityPost(post.id);
+      } else {
+        await likeCommunityPost(post.id);
+      }
+    } catch {
+      setPost((prev) => (prev ? { ...prev, isLiked: wasLiked, likesCount: prev.likesCount + (wasLiked ? 1 : -1) } : prev));
+      showToast("좋아요를 처리하지 못했어요");
+    } finally {
+      setLikeBusy(false);
+    }
   };
 
   const handleChangeVisibility = async (visibility: CommunityPostDetail["visibility"], visibleToUserIds: number[]) => {
@@ -149,6 +191,11 @@ export default function CommunityPostDetailPage() {
             </button>
             {` · ${formatDateLabel(post.createdAt.slice(0, 10))}`}
           </p>
+          {!isOwner && (
+            <button onClick={handleOpenReport} aria-label="신고하기" className="shrink-0 text-[11px] text-slate-400 hover:text-slate-500 hover:underline">
+              신고
+            </button>
+          )}
         </div>
         <h1 className="text-xl font-bold tracking-tight">{post.title}</h1>
 
@@ -203,10 +250,26 @@ export default function CommunityPostDetailPage() {
 
         <p className="mt-4 whitespace-pre-wrap text-[14px] leading-relaxed text-slate-700">{post.content}</p>
 
+        <div className="mt-6">
+          <button
+            onClick={handleToggleLike}
+            disabled={likeBusy}
+            aria-label="좋아요"
+            className={`flex h-10 items-center justify-center gap-1.5 rounded-2xl border px-4 text-[13px] font-semibold transition-colors disabled:opacity-60 ${
+              post.isLiked ? "border-rose-200 bg-rose-50 text-rose-500" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+            }`}
+          >
+            <Heart size={14} fill={post.isLiked ? "currentColor" : "none"} /> {post.likesCount}
+          </button>
+        </div>
+
         <CommunityPostComments
           postId={post.id}
           isOwner={isOwner}
-          onRequireLogin={() => setLoginOpen(true)}
+          onRequireLogin={() => {
+            setLoginReason("댓글을 남기려면 로그인해주세요.");
+            setLoginOpen(true);
+          }}
         />
       </div>
 
@@ -229,7 +292,8 @@ export default function CommunityPostDetailPage() {
         />
       )}
 
-      {loginOpen && <LoginModal reason="댓글을 남기려면 로그인해주세요." onClose={() => setLoginOpen(false)} />}
+      {loginOpen && <LoginModal reason={loginReason} onClose={() => setLoginOpen(false)} />}
+      {reportOpen && <ReportModal targetType="community_post" targetId={post.id} onClose={() => setReportOpen(false)} />}
 
       {profileUserId != null && <UserProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} />}
     </div>

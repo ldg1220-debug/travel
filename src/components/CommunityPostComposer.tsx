@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { CommunityVisibilitySelector } from "@/components/CommunityVisibilitySelector";
@@ -9,6 +9,7 @@ import { createCommunityPost, updateCommunityPost, uploadReviewPhotos, type Comm
 import { resizeImageFiles } from "@/lib/imageResize";
 
 const MAX_IMAGES = 5;
+const AUTOSAVE_INTERVAL_MS = 10 * 60 * 1000;
 
 /** 커뮤니티 새 글 작성 / 기존 글 수정 — `existing`을 주면 수정 모드로 연다. */
 export function CommunityPostComposer({
@@ -30,9 +31,16 @@ export function CommunityPostComposer({
   const [images, setImages] = useState<string[]>(existing?.images ?? []);
   const [visibility, setVisibility] = useState<CommunityVisibility>(existing?.visibility ?? "public");
   const [visibleToUserIds, setVisibleToUserIds] = useState<number[]>(existing?.visibleToUserIds ?? []);
+  // 새 글을 쓰는 도중 자동저장이 처음 성공하면 그때 생긴 글 id를 여기 담아,
+  // 그 다음부터는 매번 새 글을 만들지 않고 이 글을 계속 업데이트한다.
+  const [draftId, setDraftId] = useState<number | null>(existing?.id ?? null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoSaved, setAutoSaved] = useState(false);
+  // 10분마다 자동으로 임시저장 — 여행 후기 작성(TripPostComposer)과 같은 안전망.
+  const lastSavedSnapshotRef = useRef<string | null>(null);
+  const autoSaveRef = useRef<() => void>(() => {});
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -49,6 +57,43 @@ export function CommunityPostComposer({
     }
   };
 
+  // 자동저장이 "실제로 바뀐 게 있을 때만" 동작하도록 비교할 스냅샷.
+  const buildSnapshot = () => JSON.stringify({ category, title, content, images, visibility, visibleToUserIds });
+
+  // TripPostComposer와 같은 이유로 ref를 매 렌더마다 최신 클로저로 갱신한다
+  // — 아래 마운트 시점 useEffect가 만드는 setInterval은 딱 한 번만 만들고
+  // 다시 만들지 않으므로, 실행 시점엔 항상 최신 입력값을 봐야 한다.
+  useEffect(() => {
+    autoSaveRef.current = async () => {
+      if (saving) return;
+      if (!title.trim() || !content.trim()) return; // 수동 저장과 달리 에러 표시 없이 조용히 건너뜀
+      const snapshot = buildSnapshot();
+      if (snapshot === lastSavedSnapshotRef.current) return; // 마지막 저장 이후 바뀐 게 없으면 스킵
+      try {
+        if (draftId != null) {
+          await updateCommunityPost(draftId, { category, title: title.trim(), content: content.trim(), images, visibility, visibleToUserIds });
+        } else {
+          const { id } = await createCommunityPost({ category, title: title.trim(), content: content.trim(), images, visibility, visibleToUserIds });
+          setDraftId(id);
+        }
+        lastSavedSnapshotRef.current = snapshot;
+        setAutoSaved(true);
+        setTimeout(() => setAutoSaved(false), 2000);
+      } catch {
+        // 자동저장 실패는 조용히 넘어간다 — 저장 버튼은 여전히 쓸 수 있고, 10분 뒤 다시 시도된다.
+      }
+    };
+  });
+
+  useEffect(() => {
+    lastSavedSnapshotRef.current = buildSnapshot();
+    const id = setInterval(() => {
+      void autoSaveRef.current();
+    }, AUTOSAVE_INTERVAL_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 시 한 번만 인터벌을 만든다 — 최신 로직은 autoSaveRef로 참조한다.
+  }, []);
+
   const handleSave = async () => {
     if (!title.trim() || !content.trim()) {
       setError("제목과 내용을 입력해주세요");
@@ -57,11 +102,14 @@ export function CommunityPostComposer({
     setSaving(true);
     setError(null);
     try {
-      if (existing) {
-        await updateCommunityPost(existing.id, { category, title: title.trim(), content: content.trim(), images, visibility, visibleToUserIds });
-        onSaved(existing.id);
+      if (draftId != null) {
+        await updateCommunityPost(draftId, { category, title: title.trim(), content: content.trim(), images, visibility, visibleToUserIds });
+        lastSavedSnapshotRef.current = buildSnapshot();
+        onSaved(draftId);
       } else {
         const { id } = await createCommunityPost({ category, title: title.trim(), content: content.trim(), images, visibility, visibleToUserIds });
+        setDraftId(id);
+        lastSavedSnapshotRef.current = buildSnapshot();
         onSaved(id);
       }
     } catch (e) {
@@ -148,6 +196,7 @@ export function CommunityPostComposer({
         </div>
 
         {error && <p className="mb-3 text-center text-[12px] text-rose-500">{error}</p>}
+        {autoSaved && <p className="mb-3 text-center text-[12px] text-emerald-500">임시 저장됐어요</p>}
 
         <button
           onClick={handleSave}

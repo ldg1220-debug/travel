@@ -541,6 +541,9 @@ export interface CommunityPostDetail {
   authorId: number;
   authorName: string | null;
   authorImage: string | null;
+  likesCount: number;
+  /** Whether the current viewer has liked this post — always false when signed out. */
+  isLiked: boolean;
 }
 
 /** 커뮤니티 글 하나 — null이면 존재하지 않거나 지금 로그인 상태로는 볼 수 없는 글. */
@@ -548,6 +551,16 @@ export async function fetchCommunityPost(id: number): Promise<{ post: CommunityP
   const res = await fetch(`/api/community-posts/${id}`);
   if (!res.ok) return null;
   return res.json();
+}
+
+export async function likeCommunityPost(id: number): Promise<void> {
+  const res = await fetch(`/api/community-posts/${id}/like`, { method: "POST" });
+  if (!res.ok) throw new Error("좋아요를 처리하지 못했어요");
+}
+
+export async function unlikeCommunityPost(id: number): Promise<void> {
+  const res = await fetch(`/api/community-posts/${id}/like`, { method: "DELETE" });
+  if (!res.ok) throw new Error("좋아요를 처리하지 못했어요");
 }
 
 export async function createCommunityPost(input: {
@@ -772,6 +785,9 @@ export interface AppNotification {
   /** "like"·"comment" 알림에만 있음 — 눌러서 바로 그 후기로 이동할 때 쓴다. */
   postId: number | null;
   postTitle: string | null;
+  /** 후기 대신 커뮤니티 글에 대한 "like"·"comment" 알림일 때만 있음 — postId와 동시에 채워지지 않는다. */
+  communityPostId: number | null;
+  communityPostTitle: string | null;
   /** "announcement" 알림에만 있음 — 관리자가 작성한 공지 본문. */
   message: string | null;
   /** "follow_request" 알림에만 있음 — 'pending'이면 수락/거절 버튼을 보여준다, 이미 처리됐거나(수락/취소/거절) 지난 신청이면 'accepted'|'none'. */
@@ -950,7 +966,7 @@ export async function fetchDiscoverSearch(
   return res.json();
 }
 
-export type ReportTargetType = "trip_post" | "message" | "user";
+export type ReportTargetType = "trip_post" | "community_post" | "message" | "user";
 export type ReportReason = "spam" | "abuse" | "sexual" | "illegal" | "other";
 
 export interface Report {

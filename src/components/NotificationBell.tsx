@@ -77,6 +77,7 @@ export function NotificationBell() {
   const handleItemClick = (n: AppNotification) => {
     setOpen(false);
     if (n.postId != null) router.push(`/trip/${n.postId}`);
+    else if (n.communityPostId != null) router.push(`/community/${n.communityPostId}`);
     else if (n.actorId != null) setProfileUserId(n.actorId);
   };
 
@@ -188,8 +189,12 @@ export function NotificationBell() {
                           : n.type === "follow_accept"
                             ? "님이 트래블 메이트 신청을 수락했어요"
                             : n.type === "comment"
-                              ? "님이 회원님의 후기에 댓글을 남겼어요"
-                              : "님이 회원님의 후기에 좋아요를 눌렀어요"}
+                              ? n.communityPostId != null
+                                ? "님이 회원님의 커뮤니티 글에 댓글을 남겼어요"
+                                : "님이 회원님의 후기에 댓글을 남겼어요"
+                              : n.communityPostId != null
+                                ? "님이 회원님의 커뮤니티 글에 좋아요를 눌렀어요"
+                                : "님이 회원님의 후기에 좋아요를 눌렀어요"}
                       </>
                     )}
                   </span>

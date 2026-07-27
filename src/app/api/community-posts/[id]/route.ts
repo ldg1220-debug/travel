@@ -48,6 +48,15 @@ export const GET = withApiErrorHandling(async (_request: NextRequest, { params }
     row.visibleToUserIds = [];
   }
 
+  const [likesCountRow, likedRow] = await Promise.all([
+    pool.query(`select count(*)::int as count from community_post_likes where "postId" = $1`, [postId]),
+    viewerId != null
+      ? pool.query(`select 1 from community_post_likes where "postId" = $1 and "userId" = $2`, [postId, viewerId])
+      : Promise.resolve({ rowCount: 0 }),
+  ]);
+  row.likesCount = likesCountRow.rows[0]?.count ?? 0;
+  row.isLiked = (likedRow.rowCount ?? 0) > 0;
+
   return NextResponse.json({ post: row, isOwner });
 });
 

@@ -371,7 +371,7 @@ CREATE TABLE IF NOT EXISTS reports (
   id SERIAL PRIMARY KEY,
   "reporterId" INTEGER REFERENCES users(id) ON DELETE SET NULL,
   "reportedUserId" INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  -- 'trip_post' | 'message' | 'user'
+  -- 'trip_post' | 'community_post' | 'message' | 'user'
   "targetType" VARCHAR(20) NOT NULL,
   "targetId" INTEGER NOT NULL,
   -- 'spam' | 'abuse' | 'sexual' | 'illegal' | 'other'
@@ -502,3 +502,18 @@ CREATE TABLE IF NOT EXISTS community_post_comments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS community_post_comments_post_idx ON community_post_comments ("postId", created_at);
+
+-- 커뮤니티 글 좋아요 — 여행 후기의 trip_post_likes와 같은 모양.
+CREATE TABLE IF NOT EXISTS community_post_likes (
+  id SERIAL PRIMARY KEY,
+  "postId" INTEGER NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  "userId" INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS community_post_likes_pair_key ON community_post_likes ("postId", "userId");
+CREATE INDEX IF NOT EXISTS community_post_likes_post_idx ON community_post_likes ("postId");
+
+-- notifications 테이블은 이 파일 위쪽(community_posts보다 먼저)에 정의돼
+-- "postId"가 trip_posts만 가리킬 수 있다 — 커뮤니티 글의 좋아요/댓글
+-- 알림은 별도 컬럼으로 가리킨다. 알림 하나는 둘 중 하나만 채워진다.
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "communityPostId" INTEGER REFERENCES community_posts(id) ON DELETE CASCADE;
