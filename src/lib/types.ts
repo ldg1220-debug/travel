@@ -1,6 +1,44 @@
 /** Which map engine + trend data source is active. */
 export type Region = "domestic" | "international";
 
+/**
+ * 예산 통화 — 같은 여행이라도 항공권·숙소는 한국에서 원화로 결제하고
+ * 현지 식비·입장료 등은 그 나라 통화로 쓰는 경우가 흔해서, 지역(국내/해외)
+ * 단위가 아니라 일정 항목 하나하나에 통화를 붙인다(ItineraryItem.budgetCurrency).
+ * 서로 다른 통화를 환율로 환산해 하나의 합계로 억지로 더치지 않고, 통화별로
+ * 각각의 금액을 그대로 보여준다 — 실시간 환율 없이도 정확하고, 오해의
+ * 소지가 없다.
+ */
+export type CurrencyCode = "KRW" | "JPY" | "USD" | "EUR" | "GBP" | "CNY" | "TWD" | "THB" | "VND" | "AUD";
+
+export const CURRENCY_OPTIONS: { code: CurrencyCode; symbol: string; label: string }[] = [
+  { code: "KRW", symbol: "₩", label: "원 (KRW)" },
+  { code: "JPY", symbol: "¥", label: "엔 (JPY)" },
+  { code: "USD", symbol: "$", label: "달러 (USD)" },
+  { code: "EUR", symbol: "€", label: "유로 (EUR)" },
+  { code: "GBP", symbol: "£", label: "파운드 (GBP)" },
+  { code: "CNY", symbol: "¥", label: "위안 (CNY)" },
+  { code: "TWD", symbol: "NT$", label: "대만달러 (TWD)" },
+  { code: "THB", symbol: "฿", label: "바트 (THB)" },
+  { code: "VND", symbol: "₫", label: "동 (VND)" },
+  { code: "AUD", symbol: "A$", label: "호주달러 (AUD)" },
+];
+
+export function currencySymbol(code: CurrencyCode): string {
+  return CURRENCY_OPTIONS.find((c) => c.code === code)?.symbol ?? "₩";
+}
+
+/** Sums a list of budgeted items' amounts per currency (환율 환산 없이 통화별로 그대로 더한다) — items with no budget are skipped. Result order follows CURRENCY_OPTIONS (KRW 먼저). */
+export function groupBudgetByCurrency(items: { budget?: number; budgetCurrency?: CurrencyCode }[]): { currency: CurrencyCode; total: number }[] {
+  const totals = new Map<CurrencyCode, number>();
+  for (const item of items) {
+    if (!item.budget) continue;
+    const currency = item.budgetCurrency ?? "KRW";
+    totals.set(currency, (totals.get(currency) ?? 0) + item.budget);
+  }
+  return CURRENCY_OPTIONS.filter((c) => totals.has(c.code)).map((c) => ({ currency: c.code, total: totals.get(c.code) as number }));
+}
+
 export type PlaceIcon =
   | "coffee"
   | "museum"
@@ -56,8 +94,10 @@ export interface ItineraryItem {
   /** Length of this stop, in minutes — resizable in 15-minute steps via the timeline's drag handle. */
   durationMinutes: number;
   coordinates: { lat: number; lng: number };
-  /** Estimated cost for this stop, in JPY. */
+  /** Estimated cost for this stop, denominated in `budgetCurrency`. */
   budget?: number;
+  /** Which currency `budget` is in — defaults to "KRW" when a stop has a budget but no currency recorded yet (e.g. items saved before this field existed). */
+  budgetCurrency?: CurrencyCode;
 }
 
 /**

@@ -81,7 +81,8 @@ import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { nudgeKakaoMapResize, getKakaoMaps, type KakaoMapInstance } from "@/lib/maps/kakao-map";
 import { hasStaleActiveDateCorrectionRun, suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 import { kakaoBoundsFor } from "./KakaoMapPrimitives";
-import type { ItineraryItem, Place } from "@/lib/types";
+import { currencySymbol, groupBudgetByCurrency } from "@/lib/types";
+import type { CurrencyCode, ItineraryItem, Place } from "@/lib/types";
 import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
 
 // Always client-only: the Maps SDK/canvas must never be part of the
@@ -555,7 +556,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // has no items — scheduleMapPlaces (below) depends on it in a useMemo.
   const schedule = scheduleByDate[activeDate] ?? EMPTY_SCHEDULE;
   const orderByPlace = orderByDate[activeDate] ?? {};
-  const totalBudget = items.reduce((sum, s) => sum + (s.budget ?? 0), 0);
+  // 통화별로 각각 더한다(환율 환산 없이) — 같은 여행이라도 항공/숙소는
+  // 원화, 현지 비용은 엔화 등으로 섞여 있을 수 있어서다.
+  const totalBudgetByCurrency = groupBudgetByCurrency(items);
+  // 예산 내역 팝업 — "all"이면 계획 전체, 날짜 문자열이면 그 날짜만 골라 보여준다.
+  const [budgetBreakdownScope, setBudgetBreakdownScope] = useState<"all" | string | null>(null);
+  const budgetBreakdownItems = useMemo(() => {
+    if (budgetBreakdownScope == null) return [];
+    const source = budgetBreakdownScope === "all" ? items : (scheduleByDate[budgetBreakdownScope] ?? []);
+    return source
+      .filter((i) => (i.budget ?? 0) > 0)
+      .slice()
+      .sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
+  }, [budgetBreakdownScope, items, scheduleByDate]);
+  const budgetBreakdownByCurrency = groupBudgetByCurrency(budgetBreakdownItems);
 
   const [scheduleTarget, setScheduleTarget] = useState<ScheduleTarget | null>(null);
   // Place waiting on "어떤 계획에 추가할까요?" before its ScheduleModal opens —
@@ -668,7 +682,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const searchParams = useSearchParams();
   const openDetailId = searchParams.get("openDetail");
 
-  const registerAt = (place: Place, date: string, hour: number, minute = 0, budget?: number, durationMinutes?: number) => {
+  const registerAt = (
+    place: Place,
+    date: string,
+    hour: number,
+    minute = 0,
+    budget?: number,
+    durationMinutes?: number,
+    budgetCurrency?: CurrencyCode,
+  ) => {
     addItem({
       placeId: place.id,
       name: place.name,
@@ -676,6 +698,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       time: formatTime(hour, minute),
       coordinates: { lat: place.lat, lng: place.lng },
       budget,
+      budgetCurrency,
       durationMinutes,
     });
   };
@@ -1382,15 +1405,23 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               <div className="px-5 pb-2 pt-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-900">
-                      <Clock size={12} color="white" />
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900">
+                      <Clock size={16} color="white" />
                     </span>
-                    <span className="text-[13px] font-semibold text-slate-900">일정</span>
-                    {totalBudget > 0 && (
-                      <Badge className="gap-1 rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-emerald-700 hover:bg-emerald-50">
-                        <Wallet size={11} />
-                        ¥{totalBudget.toLocaleString()}
-                      </Badge>
+                    <span className="text-[15px] font-bold text-slate-900">일정</span>
+                    {totalBudgetByCurrency.length > 0 && (
+                      <button
+                        onClick={() => setBudgetBreakdownScope("all")}
+                        aria-label="총 예산 내역 보기"
+                      >
+                        <Badge className="gap-1 rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[13px] font-bold tabular-nums text-emerald-700 hover:bg-emerald-100">
+                          <Wallet size={13} />
+                          총 예산{" "}
+                          {totalBudgetByCurrency
+                            .map((c) => `${currencySymbol(c.currency)}${c.total.toLocaleString()}`)
+                            .join(" · ")}
+                        </Badge>
+                      </button>
                     )}
                   </div>
 
@@ -1542,17 +1573,39 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               <div className="flex border-b border-slate-100 px-4">
                 <div className="w-[42px] shrink-0" />
                 {visibleDates.map((date) => {
-                  const count = scheduleByDate[date]?.length ?? 0;
+                  const dayItems = scheduleByDate[date] ?? [];
+                  const count = dayItems.length;
+                  const dayBudgetByCurrency = groupBudgetByCurrency(dayItems);
                   const isFirst = date === activeDate;
                   return (
-                    <button key={date} onClick={() => setActiveDate(date)} className="min-w-0 flex-1 px-1 pb-2 text-center">
+                    <div
+                      key={date}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setActiveDate(date)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") setActiveDate(date);
+                      }}
+                      className="min-w-0 flex-1 cursor-pointer px-1 pb-2 text-center"
+                    >
                       <div className={`text-[12px] font-semibold ${isFirst ? "text-slate-900" : "text-slate-500"}`}>
                         {formatDateLabelShort(date)}
                       </div>
                       <div className="text-[10px] text-slate-400 tabular-nums">
                         {count}개 장소
                       </div>
-                    </button>
+                      {dayBudgetByCurrency.length > 0 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setBudgetBreakdownScope(date);
+                          }}
+                          className="mt-0.5 truncate text-[11px] font-bold text-emerald-600 hover:underline"
+                        >
+                          {dayBudgetByCurrency.map((c) => `${currencySymbol(c.currency)}${c.total.toLocaleString()}`).join(" · ")}
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -1722,6 +1775,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             mode={scheduleTarget.mode}
             showBudget
             initialBudget={scheduleTarget.mode === "edit" ? scheduleTarget.item.budget : undefined}
+            initialCurrency={scheduleTarget.mode === "edit" ? (scheduleTarget.item.budgetCurrency ?? "KRW") : "KRW"}
             showDuration
             initialDuration={scheduleTarget.mode === "edit" ? scheduleTarget.item.durationMinutes : undefined}
             isHourTaken={(date, hour) => {
@@ -1734,13 +1788,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               hasConflictStore(date, startMinutes, durationMinutes, scheduleTarget.mode === "edit" ? scheduleTarget.item.id : undefined)
             }
             onClose={() => setScheduleTarget(null)}
-            onConfirm={(date, hour, minute, budget, duration) => {
+            onConfirm={(date, hour, minute, budget, duration, currency) => {
               if (scheduleTarget.mode === "create") {
                 addPlaces([scheduleTarget.place]);
-                registerAt(scheduleTarget.place, date, hour, minute, budget, duration);
+                registerAt(scheduleTarget.place, date, hour, minute, budget, duration, currency);
                 if (scheduleTarget.place.id === pendingSearchPlace?.id) setPendingSearchPlace(null);
               } else {
-                moveItem(scheduleTarget.item.id, date, hour, minute, budget);
+                moveItem(scheduleTarget.item.id, date, hour, minute, budget, currency);
                 if (duration != null) resizeItem(scheduleTarget.item.id, duration);
               }
               showToast(`${scheduleTarget.place.name} · ${formatDateLabelShort(date)} ${pad2(hour)}:${pad2(minute)}`);
@@ -1755,6 +1809,63 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 : undefined
             }
           />
+        )}
+
+        {/* 예산 내역 팝업 — 상단 총 예산 배지 또는 요일 탭의 일별 예산을 누르면 뜬다 */}
+        {budgetBreakdownScope != null && (
+          <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setBudgetBreakdownScope(null)} />
+            <div className="relative w-full max-w-sm rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="flex items-center gap-1.5 text-[15px] font-bold text-slate-900">
+                  <Wallet size={16} className="text-emerald-600" />
+                  {budgetBreakdownScope === "all" ? "전체 예산 내역" : `${formatDateLabelShort(budgetBreakdownScope)} 예산 내역`}
+                </h3>
+                <button
+                  onClick={() => setBudgetBreakdownScope(null)}
+                  aria-label="닫기"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {budgetBreakdownItems.length === 0 ? (
+                <p className="py-8 text-center text-[13px] text-slate-400">등록된 예산이 없어요</p>
+              ) : (
+                <>
+                  <div className="max-h-[50vh] space-y-2 overflow-y-auto">
+                    {budgetBreakdownItems.map((i) => (
+                      <div key={i.id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2.5">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13.5px] font-semibold text-slate-800">{i.name}</p>
+                          <p className="text-[11.5px] text-slate-400">
+                            {budgetBreakdownScope === "all" ? `${formatDateLabelShort(i.date)} · ` : ""}
+                            {i.time}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-[13.5px] font-bold tabular-nums text-emerald-700">
+                          {currencySymbol(i.budgetCurrency ?? "KRW")}
+                          {(i.budget ?? 0).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 space-y-1 border-t border-slate-100 pt-3">
+                    {budgetBreakdownByCurrency.map((c) => (
+                      <div key={c.currency} className="flex items-center justify-between">
+                        <span className="text-[13px] font-semibold text-slate-600">{c.currency} 합계</span>
+                        <span className="text-[15px] font-bold tabular-nums text-emerald-700">
+                          {currencySymbol(c.currency)}
+                          {c.total.toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         )}
 
         {/* toast */}

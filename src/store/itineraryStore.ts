@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ItineraryItem, Place, Region, SavedPlan, SavedPlaceFolder } from "@/lib/types";
+import type { CurrencyCode, ItineraryItem, Place, Region, SavedPlan, SavedPlaceFolder } from "@/lib/types";
 import {
   DAY_MINUTES,
   DEFAULT_DURATION_MINUTES,
@@ -140,7 +140,7 @@ interface ItineraryState {
    * target slot is already occupied by a *different* item, the two swap
    * times instead of one silently clobbering the other.
    */
-  moveItem: (id: string, date: string, hour: number, minute?: number, budget?: number) => void;
+  moveItem: (id: string, date: string, hour: number, minute?: number, budget?: number, budgetCurrency?: CurrencyCode) => void;
   /**
    * Resizes a stop's length by dragging its bottom handle (15-minute
    * snapping is done by the caller before this is invoked) — clamped here
@@ -347,7 +347,7 @@ export const useItineraryStore = create<ItineraryState>()(
           };
         }),
 
-      moveItem: (id, date, hour, minute = 0, budget) =>
+      moveItem: (id, date, hour, minute = 0, budget, budgetCurrency) =>
         set((state) => {
           const moving = state.items.find((i) => i.id === id);
           if (!moving) return state;
@@ -358,7 +358,14 @@ export const useItineraryStore = create<ItineraryState>()(
           );
 
           const next = state.items.map((i) => {
-            if (i.id === id) return { ...i, date, time, budget: budget !== undefined ? budget : i.budget };
+            if (i.id === id)
+              return {
+                ...i,
+                date,
+                time,
+                budget: budget !== undefined ? budget : i.budget,
+                budgetCurrency: budgetCurrency !== undefined ? budgetCurrency : i.budgetCurrency,
+              };
             if (occupant && i.id === occupant.id) return { ...i, date: moving.date, time: moving.time };
             return i;
           });

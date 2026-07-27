@@ -7,7 +7,7 @@ import { CordixIcon } from "@/components/icons/CordixIcon";
 import { PlaceGlyph } from "@/app/(app)/planner/icons";
 import { Input } from "@/components/ui/input";
 import { MonthCalendar } from "@/components/MonthCalendar";
-import type { Place } from "@/lib/types";
+import { CURRENCY_OPTIONS, currencySymbol, type CurrencyCode, type Place } from "@/lib/types";
 import {
   MINUTE_STEPS,
   TIMELINE_HOURS,
@@ -98,11 +98,13 @@ interface ScheduleModalProps {
   /** Shows an optional estimated-budget input (Planner uses this; Discover doesn't need it). */
   showBudget?: boolean;
   initialBudget?: number;
+  /** Which currency the budget is in — 항공/숙소는 원화, 현지 식비는 그 나라 통화인 식으로 항목마다 다를 수 있어 지역이 아니라 이 필드로 고른다. Defaults to "KRW". */
+  initialCurrency?: CurrencyCode;
   /** Shows the 머무는 시간 (stay-duration) picker (Planner uses this; Discover's quick-add doesn't). */
   showDuration?: boolean;
   initialDuration?: number;
   onClose: () => void;
-  onConfirm: (date: string, hour: number, minute: number, budget?: number, durationMinutes?: number) => void;
+  onConfirm: (date: string, hour: number, minute: number, budget?: number, durationMinutes?: number, currency?: CurrencyCode) => void;
   onDelete?: () => void;
 }
 
@@ -124,6 +126,7 @@ export function ScheduleModal({
   mode = "create",
   showBudget = false,
   initialBudget,
+  initialCurrency = "KRW",
   showDuration = false,
   initialDuration,
   onClose,
@@ -138,6 +141,7 @@ export function ScheduleModal({
   });
   const [minute, setMinute] = useState(initialMinute);
   const [budget, setBudget] = useState(initialBudget != null ? String(initialBudget) : "");
+  const [currency, setCurrency] = useState<CurrencyCode>(initialCurrency);
   const [duration, setDuration] = useState(initialDuration ?? DEFAULT_DURATION_MINUTES);
   // Derived end time, clamped so a stay can't be typed/dragged past midnight
   // (mirrors the same clamp itineraryStore.resizeItem applies on drag).
@@ -317,22 +321,35 @@ export function ScheduleModal({
                   {showBudget && (
                     <>
                       <label className="mb-2 mt-4 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                        <Wallet size={12} /> 예상 예산 (¥)
+                        <Wallet size={12} /> 예상 예산
                       </label>
-                      <div className="relative">
-                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">
-                          ¥
-                        </span>
-                        <Input
-                          type="number"
-                          inputMode="numeric"
-                          min={0}
-                          step={100}
-                          value={budget}
-                          onChange={(e) => setBudget(e.target.value)}
-                          placeholder="0"
-                          className="h-11 rounded-xl pl-7 text-sm font-semibold tabular-nums"
-                        />
+                      <div className="flex gap-2">
+                        <select
+                          value={currency}
+                          onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+                          className="h-11 shrink-0 rounded-xl border border-slate-200 bg-white px-2 text-[13px] font-semibold text-slate-700 outline-none focus:border-indigo-400"
+                        >
+                          {CURRENCY_OPTIONS.map((c) => (
+                            <option key={c.code} value={c.code}>
+                              {c.symbol} {c.code}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="relative flex-1">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">
+                            {currencySymbol(currency)}
+                          </span>
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            step={100}
+                            value={budget}
+                            onChange={(e) => setBudget(e.target.value)}
+                            placeholder="0"
+                            className="h-11 rounded-xl pl-7 text-sm font-semibold tabular-nums"
+                          />
+                        </div>
                       </div>
                     </>
                   )}
@@ -362,7 +379,9 @@ export function ScheduleModal({
                 </button>
               )}
               <button
-                onClick={() => onConfirm(date, hour, minute, budget.trim() ? Number(budget) : undefined, showDuration ? duration : undefined)}
+                onClick={() =>
+                  onConfirm(date, hour, minute, budget.trim() ? Number(budget) : undefined, showDuration ? duration : undefined, currency)
+                }
                 className="h-12 flex-1 rounded-2xl text-sm font-semibold text-white transition-transform active:scale-[0.98]"
                 style={{ background: place.color }}
               >
