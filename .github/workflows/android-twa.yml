@@ -53,6 +53,21 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
+      # Fails fast (before the ~90s gradle build) with a clear error if the
+      # password secrets don't match this keystore, instead of only finding
+      # out at the final apksigner step. Never prints the secret itself —
+      # only its length, which is enough to catch a stray newline/prefix
+      # from a copy-paste mistake without leaking the value.
+      - name: Verify keystore password secrets
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "ANDROID_KEYSTORE_PASSWORD length: $(printf '%s' "$BUBBLEWRAP_KEYSTORE_PASSWORD" | wc -c)"
+          echo "ANDROID_KEY_PASSWORD length: $(printf '%s' "$BUBBLEWRAP_KEY_PASSWORD" | wc -c)"
+          "$JAVA_HOME/bin/keytool" -list -keystore android.keystore -alias android \
+            -storepass "$BUBBLEWRAP_KEYSTORE_PASSWORD"
+
       - name: bubblewrap build (gradle bundleRelease/assembleRelease + sign)
         env:
           BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
