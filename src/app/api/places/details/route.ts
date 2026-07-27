@@ -34,16 +34,68 @@ export interface PlaceDetails {
   openNow: boolean | null;
 }
 
+const EMPTY_DETAILS: PlaceDetails = { photoNames: [], reviews: [], rating: null, reviewCount: null, openNow: null };
+
+/**
+ * New Places API place ids are opaque tokens (commonly "ChIJ…", ~27 chars).
+ * A Kakao Local id (domestic search) or a curated /discover seed id (e.g.
+ * "o-f12") never matches this, which is exactly the signal used below to
+ * fall back to name+coordinate resolution instead of calling Google with an
+ * id it will never recognize.
+ */
+function looksLikeLiveGoogleId(id: string): boolean {
+  return /^[A-Za-z0-9_-]{20,}$/.test(id);
+}
+
+/**
+ * Resolves a non-Google place (Kakao 국내 검색 결과, /discover 큐레이션
+ * 시드) to the nearest real Google place with the same name, so its reviews
+ * and photos can still be fetched — the search is biased tightly (500m)
+ * around the known coordinate so a same-named place elsewhere in the city
+ * doesn't get matched instead. Returns null if nothing close enough matches.
+ */
+async function resolvePlaceId(name: string, lat: number, lng: number, apiKey: string): Promise<string | null> {
+  const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": "places.id",
+    },
+    body: JSON.stringify({
+      textQuery: name,
+      maxResultCount: 1,
+      languageCode: "ko",
+      locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: 500 } },
+    }),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { places?: { id: string }[] };
+  return data.places?.[0]?.id ?? null;
+}
+
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
-  const placeId = (request.nextUrl.searchParams.get("placeId") ?? "").trim();
-  // New Places API place ids are opaque tokens (commonly "ChIJ…") — a
-  // loose allowlist keeps this from being pointed at arbitrary paths.
-  if (!/^[A-Za-z0-9_-]{10,}$/.test(placeId)) {
-    return NextResponse.json({ error: "invalid placeId" }, { status: 400 });
-  }
+  const rawPlaceId = (request.nextUrl.searchParams.get("placeId") ?? "").trim();
+  const name = (request.nextUrl.searchParams.get("name") ?? "").trim();
+  const lat = Number(request.nextUrl.searchParams.get("lat"));
+  const lng = Number(request.nextUrl.searchParams.get("lng"));
 
   const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "no api key" }, { status: 500 });
+
+  let placeId = rawPlaceId;
+  if (!looksLikeLiveGoogleId(placeId)) {
+    // 검색으로 찾은 장소가 아니라 국내(카카오) 결과나 추천 코스 큐레이션
+    // 장소라 구글 place id가 아님 — 이름+좌표로 실제 구글 장소를 찾아본다.
+    // 좌표 정보가 없거나 매칭되는 곳이 없으면 "리뷰 없음"으로 조용히 넘어간다.
+    if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return NextResponse.json(EMPTY_DETAILS);
+    }
+    const resolved = await resolvePlaceId(name, lat, lng, apiKey);
+    if (!resolved) return NextResponse.json(EMPTY_DETAILS);
+    placeId = resolved;
+  }
 
   const res = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
     headers: {

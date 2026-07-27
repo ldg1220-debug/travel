@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, ExternalLink, Maximize2, X } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
@@ -11,7 +12,7 @@ import { useGoogleMapsStatus, useKakaoMapsStatus } from "./MapProvider";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { haversineDistanceMeters } from "@/lib/geo";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
-import { fetchPlaceDetails, type PlaceDetails } from "@/lib/api";
+import { fetchPlaceDetails, fetchTraduleReviews, type PlaceDetails, type TraduleReview } from "@/lib/api";
 import { PlaceGlyph } from "./icons";
 import { Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
@@ -35,9 +36,16 @@ export const CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: "Park", label: "공원" },
 ];
 
-/** A live Google place (has a real place_id / maps link) — only these can fetch reviews+photos. Curated seed spots (ids like "d-f10") and Kakao numeric ids can't. */
-function isLiveGooglePlace(place: Place): boolean {
-  return Boolean(place.googleMapsUri) || /^[A-Za-z0-9_-]{20,}$/.test(place.placeId);
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "방금";
+  if (minutes < 60) return `${minutes}분 전`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}시간 전`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}일 전`;
+  return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric", year: "numeric" });
 }
 
 interface PlaceDetailOverlayProps {
@@ -183,29 +191,33 @@ interface PlaceDetailFormProps {
 }
 
 function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
+  const router = useRouter();
   const [category, setCategory] = useState(place.category);
   const [memo, setMemo] = useState(place.memo ?? "");
   const [folderId, setFolderId] = useState(place.folderId);
   // Which gallery photo is open full-screen — null = lightbox closed.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // Review text is clamped to 4 lines by default; toggled open per-review
-  // by index instead of a single flag, so expanding one doesn't expand all.
-  const [expandedReviews, setExpandedReviews] = useState<Set<number>>(new Set());
-  const toggleReviewExpanded = (i: number) =>
+  // by its merged-list key instead of a single flag, so expanding one
+  // doesn't expand all.
+  const [expandedReviews, setExpandedReviews] = useState<Set<string>>(new Set());
+  const toggleReviewExpanded = (key: string) =>
     setExpandedReviews((prev) => {
       const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
 
-  // Google reviews + photo gallery — the in-app menu-tab substitute. Only
-  // fetched for live Google places; null while loading or when unavailable.
+  // Google reviews + photo gallery — the in-app menu-tab substitute. A
+  // Kakao(국내)/큐레이션 장소 isn't a live Google id, so name+좌표 are also
+  // sent — the server resolves those to the nearest matching real Google
+  // place instead of just skipping the section for anything but a
+  // live-searched place.
   const [details, setDetails] = useState<PlaceDetails | null>(null);
   useEffect(() => {
-    if (!isLiveGooglePlace(place)) return;
     let alive = true;
-    fetchPlaceDetails(place.placeId).then((d) => {
+    fetchPlaceDetails(place.placeId, { name: place.name, lat: place.lat, lng: place.lng }).then((d) => {
       if (alive) setDetails(d);
     });
     return () => {
@@ -213,8 +225,47 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
     };
   }, [place]);
 
+  // 트레쥴 회원들이 이 장소에 남긴 자체 리뷰 — placeId가 같은 걸로 매칭되므로
+  // (구글로 재조회하지 않고 원래 저장된 id 그대로) 검색 경로와 무관하게 뜬다.
+  const [traduleReviews, setTraduleReviews] = useState<TraduleReview[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetchTraduleReviews(place.placeId).then((r) => {
+      if (alive) setTraduleReviews(r);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [place]);
+
   const gallery = details?.photoNames ?? (place.photoName ? [place.photoName] : []);
-  const reviews = details?.reviews ?? [];
+
+  // 트레쥴 리뷰를 먼저 보여준다 — 우리 회원이 남긴 리뷰가 더 신뢰도 높은
+  // 정보라 판단해서다. 각 항목은 출처 태그(트레쥴/구글)를 달아 구분한다.
+  const mergedReviews = [
+    ...traduleReviews.map((r) => ({
+      key: `t-${r.id}`,
+      source: "tradule" as const,
+      author: r.authorName ?? "여행자",
+      authorImage: r.authorImage,
+      rating: r.rating as number | null,
+      text: r.content,
+      when: relativeTime(r.createdAt),
+      images: r.images,
+      tripPostId: r.tripPostId as number | undefined,
+    })),
+    ...(details?.reviews ?? []).map((r, i) => ({
+      key: `g-${i}`,
+      source: "google" as const,
+      author: r.author,
+      authorImage: null as string | null,
+      rating: r.rating,
+      text: r.text,
+      when: r.when,
+      images: [] as string[],
+      tripPostId: undefined as number | undefined,
+    })),
+  ];
 
   return (
     <div className="flex-1 overflow-y-auto px-5 pb-6 pt-4">
@@ -287,16 +338,25 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
         </a>
       )}
 
-      {/* 리뷰 — 구글 리뷰 최대 5개 (앱 안에서 바로 확인) */}
-      {reviews.length > 0 && (
+      {/* 리뷰 — 트레쥴 회원 리뷰(있으면 먼저) + 구글 리뷰 최대 5개, 출처 태그로 구분 */}
+      {mergedReviews.length > 0 && (
         <div className="mt-4">
           <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">리뷰</p>
           <div className="space-y-2.5">
-            {reviews.map((r, i) => (
-              <div key={i} className="rounded-xl bg-slate-50 px-3 py-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[12px] font-semibold text-slate-700">{r.author}</span>
-                  <span className="flex items-center gap-1 text-[11px] text-slate-500">
+            {mergedReviews.map((r) => (
+              <div key={r.key} className="rounded-xl bg-slate-50 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9.5px] font-bold ${
+                        r.source === "tradule" ? "bg-indigo-100 text-indigo-600" : "bg-slate-200 text-slate-600"
+                      }`}
+                    >
+                      {r.source === "tradule" ? "트레쥴" : "구글"}
+                    </span>
+                    <span className="truncate text-[12px] font-semibold text-slate-700">{r.author}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
                     {r.rating != null && <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />}
                     {r.rating != null && r.rating}
                     {r.when && <span className="text-slate-400">· {r.when}</span>}
@@ -305,19 +365,35 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
                 {r.text && (
                   <>
                     <p
-                      className={`mt-1 text-[12px] leading-relaxed text-slate-600 ${expandedReviews.has(i) ? "" : "line-clamp-4"}`}
+                      className={`mt-1 text-[12px] leading-relaxed text-slate-600 ${expandedReviews.has(r.key) ? "" : "line-clamp-4"}`}
                     >
                       {r.text}
                     </p>
                     {r.text.length > 140 && (
                       <button
-                        onClick={() => toggleReviewExpanded(i)}
+                        onClick={() => toggleReviewExpanded(r.key)}
                         className="mt-0.5 text-[11px] font-semibold text-slate-500 hover:text-slate-700"
                       >
-                        {expandedReviews.has(i) ? "접기" : "더보기"}
+                        {expandedReviews.has(r.key) ? "접기" : "더보기"}
                       </button>
                     )}
                   </>
+                )}
+                {r.images.length > 0 && (
+                  <div className="mt-2 flex gap-1.5">
+                    {r.images.slice(0, 3).map((url) => (
+                      // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
+                      <img key={url} src={url} alt="" className="h-14 w-14 rounded-lg object-cover" />
+                    ))}
+                  </div>
+                )}
+                {r.tripPostId != null && (
+                  <button
+                    onClick={() => router.push(`/trip/${r.tripPostId}`)}
+                    className="mt-1.5 text-[11px] font-semibold text-indigo-500 hover:underline"
+                  >
+                    이 후기 보러가기
+                  </button>
                 )}
               </div>
             ))}

@@ -64,16 +64,53 @@ export interface PlaceDetails {
   openNow: boolean | null;
 }
 
-/** Google reviews + photo gallery for the detail popup — the in-app stand-in for the menu tab (Places API exposes no menu data). Returns null on any failure so the caller can just hide the section. */
-export async function fetchPlaceDetails(placeId: string): Promise<PlaceDetails | null> {
-  if (!placeId.trim()) return null;
+/**
+ * Google reviews + photo gallery for the detail popup — the in-app stand-in
+ * for the menu tab (Places API exposes no menu data). `placeId` alone is
+ * enough for a place that came from a live Google search; a Kakao(국내)
+ * result or a /discover 큐레이션 seed spot isn't a real Google id, so
+ * `name`+`lat`+`lng` are also sent — the server resolves those to the
+ * nearest matching real Google place and fetches its reviews/photos instead
+ * of just giving up. Returns null on a hard failure; an empty-but-successful
+ * result (nothing found) still resolves to a valid all-empty PlaceDetails.
+ */
+export async function fetchPlaceDetails(placeId: string, hint?: { name: string; lat: number; lng: number }): Promise<PlaceDetails | null> {
+  if (!placeId.trim() && !hint?.name.trim()) return null;
   try {
-    const res = await fetch(`/api/places/details?placeId=${encodeURIComponent(placeId)}`);
+    const params = new URLSearchParams({ placeId });
+    if (hint?.name.trim()) {
+      params.set("name", hint.name.trim());
+      params.set("lat", String(hint.lat));
+      params.set("lng", String(hint.lng));
+    }
+    const res = await fetch(`/api/places/details?${params.toString()}`);
     if (!res.ok) return null;
     return (await res.json()) as PlaceDetails;
   } catch {
     return null;
   }
+}
+
+export interface TraduleReview {
+  id: number;
+  authorId: number;
+  authorName: string | null;
+  authorImage: string | null;
+  rating: number;
+  content: string;
+  images: string[];
+  createdAt: string;
+  /** 이 리뷰가 담긴 여행 후기로 이동할 때 쓴다("이 후기 보러가기"). */
+  tripPostId: number;
+}
+
+/** 이 장소에 대한 트레쥴 회원들의 리뷰(별점+글) — 글쓴이 본인 것이든, 그 글의 공개범위상 지금 로그인 상태로 볼 수 있는 다른 사람 것이든 전부 모아서 최신순으로 준다. */
+export async function fetchTraduleReviews(placeId: string): Promise<TraduleReview[]> {
+  if (!placeId.trim()) return [];
+  const res = await fetch(`/api/places/tradule-reviews?placeId=${encodeURIComponent(placeId)}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { reviews?: TraduleReview[] };
+  return data.reviews ?? [];
 }
 
 export interface RecommendedStop extends Place {
