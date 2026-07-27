@@ -98,6 +98,8 @@ interface ScheduleModalProps {
   /** Shows an optional estimated-budget input (Planner uses this; Discover doesn't need it). */
   showBudget?: boolean;
   initialBudget?: number;
+  /** Currency symbol shown in the budget label/input — 국내 계획은 "₩", 해외는 "¥"(기본값). */
+  currencySymbol?: string;
   /** Shows the 머무는 시간 (stay-duration) picker (Planner uses this; Discover's quick-add doesn't). */
   showDuration?: boolean;
   initialDuration?: number;
@@ -124,6 +126,7 @@ export function ScheduleModal({
   mode = "create",
   showBudget = false,
   initialBudget,
+  currencySymbol = "¥",
   showDuration = false,
   initialDuration,
   onClose,
@@ -317,11 +320,11 @@ export function ScheduleModal({
                   {showBudget && (
                     <>
                       <label className="mb-2 mt-4 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                        <Wallet size={12} /> 예상 예산 (¥)
+                        <Wallet size={12} /> 예상 예산 ({currencySymbol})
                       </label>
                       <div className="relative">
                         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">
-                          ¥
+                          {currencySymbol}
                         </span>
                         <Input
                           type="number"

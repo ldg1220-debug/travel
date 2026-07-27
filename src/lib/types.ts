@@ -1,6 +1,11 @@
 /** Which map engine + trend data source is active. */
 export type Region = "domestic" | "international";
 
+/** Budget currency symbol for a plan's region — 국내 계획은 원화, 해외는 엔화 기준으로 표시한다. */
+export function currencySymbolForRegion(region: Region): string {
+  return region === "domestic" ? "₩" : "¥";
+}
+
 export type PlaceIcon =
   | "coffee"
   | "museum"
@@ -56,7 +61,7 @@ export interface ItineraryItem {
   /** Length of this stop, in minutes — resizable in 15-minute steps via the timeline's drag handle. */
   durationMinutes: number;
   coordinates: { lat: number; lng: number };
-  /** Estimated cost for this stop, in JPY. */
+  /** Estimated cost for this stop — unit follows the plan's region (₩ domestic, ¥ international; see currencySymbolForRegion). */
   budget?: number;
 }
 
