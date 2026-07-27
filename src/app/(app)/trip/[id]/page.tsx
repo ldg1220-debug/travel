@@ -545,7 +545,7 @@ export default function TripPostDetailPage() {
 // A "#장소이름" mention inside the free-form body — hovering (desktop) or
 // tapping (mobile) it surfaces the author's short per-place review without
 // leaving the post, instead of making readers scroll down to "다녀온 장소".
-const POPOVER_WIDTH = 240; // w-60
+const POPOVER_WIDTH = 320; // w-80
 const POPOVER_MARGIN = 8;
 
 function HashtagMention({ review }: { review: TripPostPlaceReview }) {
@@ -595,22 +595,22 @@ function HashtagMention({ review }: { review: TripPostPlaceReview }) {
       </button>
       {open && (
         <span
-          className="absolute bottom-full left-1/2 z-20 mb-2 w-60 rounded-2xl border border-slate-200 bg-white p-3 text-left text-[13px] normal-case shadow-xl"
+          className="absolute bottom-full left-1/2 z-20 mb-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 text-left text-[13px] normal-case shadow-xl"
           style={{ transform: `translateX(calc(-50% + ${shift}px))` }}
         >
-          <span className="mb-1.5 flex items-center gap-2">
+          <span className="mb-2 flex items-center gap-3">
             {review.images[0] && (
               // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
-              <img src={review.images[0]} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+              <img src={review.images[0]} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />
             )}
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12.5px] font-bold text-slate-800">{review.placeName}</span>
-              <span className="flex items-center gap-0.5 text-[11px] font-semibold text-amber-500">
-                <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" /> {review.rating.toFixed(1)}
+              <span className="block truncate text-[14.5px] font-bold text-slate-800">{review.placeName}</span>
+              <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-amber-500">
+                <CordixIcon name="star" size={12} stroke="#fbbf24" accent="#fbbf24" /> {review.rating.toFixed(1)}
               </span>
             </span>
           </span>
-          <span className="block text-[12px] leading-snug text-slate-600">{review.content}</span>
+          <span className="block text-[13.5px] leading-relaxed text-slate-600">{review.content}</span>
         </span>
       )}
     </span>
