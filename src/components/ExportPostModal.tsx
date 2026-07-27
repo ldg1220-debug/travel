@@ -91,19 +91,29 @@ function PhotoRow({
   copiedUrl,
   copyMode,
   onCopy,
+  size = 64,
+  keepAspect = false,
 }: {
   photos: ExportPhoto[];
   copiedUrl: string | null;
   copyMode: "image" | "link" | "url" | null;
   onCopy: (photo: ExportPhoto) => void;
+  /** 썸네일 한 변 길이(px) — 대표 사진/일정 이미지는 기본값(64)을 쓰고, 장소 리뷰 사진은 더 작게 줄인다. */
+  size?: number;
+  /** true면 정사각형으로 잘라내지 않고(object-cover) 원본 비율 그대로 너비만 size에 맞춘다. */
+  keepAspect?: boolean;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
       {photos.map((photo) => (
-        <div key={photo.url} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
-          <a href={photo.url} target="_blank" rel="noreferrer" aria-label={`${photo.label} 원본 보기`} className="block h-full w-full">
+        <div
+          key={photo.url}
+          className="relative shrink-0 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700"
+          style={keepAspect ? { width: size } : { width: size, height: size }}
+        >
+          <a href={photo.url} target="_blank" rel="noreferrer" aria-label={`${photo.label} 원본 보기`} className="block">
             {/* eslint-disable-next-line @next/next/no-img-element -- own blob proxy URL, publicly viewable */}
-            <img src={photo.url} alt="" className="h-full w-full object-cover" />
+            <img src={photo.url} alt="" className={keepAspect ? "block h-auto w-full object-contain" : "h-full w-full object-cover"} />
           </a>
           <button
             onClick={() => onCopy(photo)}
@@ -263,14 +273,15 @@ export function ExportPostModal({
   const footerText = `✈️ 트레쥴(Tradule)에서 계획하고 기록한 여행이에요\n${url}`;
 
   const exportText = useMemo(() => {
+    // 일정 이미지는 원래부터 scheduleCopyText 끝에 URL로 붙어 함께 복사됐는데,
+    // 대표 사진·다녀온 장소 사진은 이 "전체 한번에 복사"에 아예 빠져 있었다 —
+    // 세 섹션 다 눈에 보이는 사진 URL이 같이 딸려오도록 맞춘다.
     const scheduleBlock = scheduleCopyText ? `\n\n일정(동선)\n${scheduleCopyText}` : "";
-    const placeReviewsBlock =
-      placeReviews.length > 0
-        ? `\n\n다녀온 장소\n${placeReviews.map((r) => `- ${r.placeName} (⭐${r.rating.toFixed(1)}) ${r.content}`).join("\n")}`
-        : "";
+    const repPhotosBlock = repPhotos.length > 0 ? `\n\n대표 사진\n${repPhotosText}` : "";
+    const placeReviewsBlock = placeReviewBlocks.length > 0 ? `\n\n다녀온 장소\n${placeReviewBlocks.map((b) => b.text).join("\n\n")}` : "";
     const hashtagsBlock = hashtags.length > 0 ? `\n\n${hashtagsText}` : "";
-    return `${title}\n\n${bodyText}${scheduleBlock}${placeReviewsBlock}${hashtagsBlock}\n\n${footerText}`;
-  }, [title, bodyText, scheduleCopyText, placeReviews, hashtags, hashtagsText, footerText]);
+    return `${title}\n\n${bodyText}${scheduleBlock}${repPhotosBlock}${placeReviewsBlock}${hashtagsBlock}\n\n${footerText}`;
+  }, [title, bodyText, scheduleCopyText, repPhotos, repPhotosText, placeReviewBlocks, hashtags, hashtagsText, footerText]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(exportText);
@@ -430,7 +441,7 @@ export function ExportPostModal({
                     </div>
                     {photos.length > 0 && (
                       <div className="mt-2">
-                        <PhotoRow photos={photos} copiedUrl={copiedPhotoUrl} copyMode={photoCopyMode} onCopy={handleCopyPhoto} />
+                        <PhotoRow photos={photos} copiedUrl={copiedPhotoUrl} copyMode={photoCopyMode} onCopy={handleCopyPhoto} size={45} keepAspect />
                       </div>
                     )}
                   </div>
