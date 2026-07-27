@@ -1,0 +1,87 @@
+name: Android TWA build
+
+# Builds the signed .aab (Play Store) and .apk (sideload/testing) for the
+# Trusted Web Activity wrapper in android/. Manual only — this isn't part of
+# the web app's deploy loop, it's a separate, infrequent release artifact.
+# Needs three repo secrets set up first (see android/README.md):
+#   ANDROID_KEYSTORE_BASE64  - `base64 -w0 android.keystore`
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_PASSWORD
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Restore signing keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
+          echo "decoded keystore sha256:"
+          sha256sum android.keystore
+
+      - name: Point bubblewrap at this runner's JDK/Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          # bubblewrap only looks for sdkmanager at <sdk>/tools/bin/sdkmanager
+          # or <sdk>/bin/sdkmanager (both legacy layouts); GitHub-hosted
+          # runners only ship the modern <sdk>/cmdline-tools/latest/bin/,
+          # which fails bubblewrap's SDK validity check even though the SDK
+          # itself is perfectly usable. A symlink at the legacy fallback
+          # path satisfies both that check and bubblewrap's own
+          # `installBuildTools()` invocation.
+          mkdir -p "$ANDROID_HOME/bin"
+          ln -sf "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_HOME/bin/sdkmanager"
+          mkdir -p "$HOME/.bubblewrap"
+          cat > "$HOME/.bubblewrap/config.json" <<EOF
+          {"jdkPath":"${JAVA_HOME}","androidSdkPath":"${ANDROID_HOME}"}
+          EOF
+
+      # bubblewrap installs build-tools;34.0.0 on demand if this runner's
+      # preinstalled SDK doesn't already have that exact version; that
+      # install step needs licenses pre-accepted or it hangs on a prompt.
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+      # Fails fast (before the ~90s gradle build) with a clear error if the
+      # password secrets don't match this keystore, instead of only finding
+      # out at the final apksigner step. Never prints the secret itself —
+      # only its length, which is enough to catch a stray newline/prefix
+      # from a copy-paste mistake without leaking the value.
+      - name: Verify keystore password secrets
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "ANDROID_KEYSTORE_PASSWORD length: $(printf '%s' "$BUBBLEWRAP_KEYSTORE_PASSWORD" | wc -c)"
+          echo "ANDROID_KEY_PASSWORD length: $(printf '%s' "$BUBBLEWRAP_KEY_PASSWORD" | wc -c)"
+          "$JAVA_HOME/bin/keytool" -list -keystore android.keystore -alias android \
+            -storepass "$BUBBLEWRAP_KEYSTORE_PASSWORD"
+
+      - name: bubblewrap build (gradle bundleRelease/assembleRelease + sign)
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: npx --yes @bubblewrap/cli build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tradule-android-release
+          path: |
+            android/app-release-bundle.aab
+            android/app-release-signed.apk
+          retention-days: 30
+
+      - name: Remove keystore from the runner's disk
+        if: always()
+        run: rm -f android.keystore

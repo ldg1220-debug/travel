@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "kr.co.tradule.app",
+      "sha256_cert_fingerprints": [
+        "3C:80:F1:C8:90:0F:24:99:3C:3F:B0:30:39:91:9B:83:9C:30:1F:8C:AC:80:65:CA:04:B3:E4:9D:7F:52:FE:0A"
+      ]
+    }
+  }
+]
