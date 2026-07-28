@@ -417,7 +417,7 @@ export default function CourseBuilderPage() {
         {step === "build" && city && (
           <div>
             {/* AI 자동 추천 — 테마를 고르고 한 번에 동선 받기 */}
-            <div className="mb-2 flex flex-wrap gap-1.5">
+            <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {AI_THEMES.map((t) => {
                 const active = aiTheme === t.key;
                 return (
@@ -425,7 +425,7 @@ export default function CourseBuilderPage() {
                     key={t.key}
                     onClick={() => setAiTheme(t.key)}
                     aria-pressed={active}
-                    className={`rounded-full border px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                    className={`shrink-0 rounded-full border px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
                       active ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300"
                     }`}
                   >
@@ -454,7 +454,7 @@ export default function CourseBuilderPage() {
 
             {/* slot tabs with pick count */}
             <p className="mb-2 text-[12px] font-medium text-slate-400">또는 카테고리별로 직접 골라보세요</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {COURSE_SLOTS.map((s) => {
                 const count = (picks[s.key] ?? []).length;
                 const active = activeSlot === s.key;
@@ -462,7 +462,7 @@ export default function CourseBuilderPage() {
                   <button
                     key={s.key}
                     onClick={() => setActiveSlot(s.key)}
-                    className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                    className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                       active ? "border-slate-900 bg-slate-900 text-white" : count > 0 ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600"
                     }`}
                   >
@@ -715,12 +715,12 @@ function SlotResults({
 
   return (
     <div>
-      <div className="mt-4 flex flex-wrap gap-1.5">
+      <div className="mt-4 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {LIVE_SORTS.map((s) => (
           <button
             key={s.key}
             onClick={() => setSort(s.key)}
-            className={`rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
+            className={`shrink-0 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
               sort === s.key ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-indigo-300"
             }`}
           >
