@@ -18,7 +18,7 @@ export function TermsBody() {
   return (
     <>
       <h1 className="text-2xl font-bold tracking-tight">이용약관</h1>
-      <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 20일</p>
+      <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 28일</p>
 
       <div className="mt-6 space-y-7 text-[13.5px] leading-relaxed text-slate-700 dark:text-slate-300 [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-slate-900 dark:[&_h2]:text-slate-100 [&_ul]:mt-1.5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
           <section>
@@ -123,8 +123,10 @@ export function TermsBody() {
           <section>
             <h2>제8조 (계약 해지 · 탈퇴)</h2>
             <p className="mt-1.5">
-              이용자는 언제든지 프로필 설정 화면에서 직접 서비스 탈퇴를 할 수 있으며, 탈퇴 시 계정 및 개인정보는
-              개인정보처리방침에 따라 즉시 파기됩니다. 탈퇴는 되돌릴 수 없습니다.
+              이용자는 언제든지 프로필 설정 화면에서 직접 서비스 탈퇴를 신청할 수 있습니다. 탈퇴 신청 시 발송되는 확인
+              이메일의 링크를 눌러야 탈퇴가 확정되며, 확정 후 14일간의 유예기간 동안은 계정이 유지되어 로그인 후
+              &ldquo;계정 살리기&rdquo;로 탈퇴를 취소할 수 있습니다. 유예기간이 지나면 계정 및 개인정보는 개인정보처리방침에 따라
+              영구 삭제되며 이후에는 복구할 수 없습니다.
             </p>
           </section>
 
