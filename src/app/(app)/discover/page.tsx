@@ -691,7 +691,7 @@ export default function DiscoverPage() {
           </div>
 
           {!isSearching && !expandedSection && (
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            <div className="mt-5 flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {/* 전체 = 모든 필터 해제 */}
               <button
                 onClick={() => {
@@ -700,7 +700,7 @@ export default function DiscoverPage() {
                   setRegionOpen(false);
                   setRegionPath([]);
                 }}
-                className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                   !seasonCheck && !hotCheck && regionPath.length === 0
                     ? "border-slate-900 bg-slate-900 text-white"
                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
@@ -712,7 +712,7 @@ export default function DiscoverPage() {
               <button
                 onClick={() => setSeasonCheck((v) => !v)}
                 aria-pressed={seasonCheck}
-                className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                   seasonCheck ? "border-amber-500 bg-amber-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                 }`}
               >
@@ -726,7 +726,7 @@ export default function DiscoverPage() {
               <button
                 onClick={() => setHotCheck((v) => !v)}
                 aria-pressed={hotCheck}
-                className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                   hotCheck ? "border-rose-500 bg-rose-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                 }`}
               >
@@ -741,7 +741,7 @@ export default function DiscoverPage() {
               <button
                 onClick={() => setRegionOpen((v) => !v)}
                 aria-pressed={regionOpen || regionPath.length > 0}
-                className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                   regionOpen || regionPath.length > 0
                     ? "border-indigo-600 bg-indigo-600 text-white"
                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
@@ -756,15 +756,15 @@ export default function DiscoverPage() {
           {/* 최근 검색어 — 포커스 드롭다운과 별개로, 화면에 항상 보이는
               원탭 재검색 버튼 줄 (검색 전 브라우즈 화면에서만) */}
           {!isSearching && !expandedSection && recentSearches.length > 0 && (
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
-              <span className="flex items-center gap-1 text-[11px] font-medium text-slate-400">
+            <div className="mt-4 flex items-center gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-slate-400">
                 <Clock size={12} /> 최근 검색
               </span>
               {recentSearches.map((r) => (
                 <button
                   key={r.q}
                   onClick={() => runSearch(r.q, r.scope)}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600"
+                  className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600"
                 >
                   {r.scope === "domestic" ? "🇰🇷 " : "🌐 "}
                   {r.q}
@@ -1379,14 +1379,14 @@ function SearchResults({
             title={`"${query}" 카테고리별 장소`}
             caption="원하는 카테고리를 골라 맛집·숙소까지 찾아보세요"
           />
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {SEARCH_CATEGORY_FILTERS.map((c) => {
               const active = categoryFilter === c.key;
               return (
                 <button
                   key={c.key}
                   onClick={() => handleCategoryClick(c.key)}
-                  className={`rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                  className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                     active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                   }`}
                 >
@@ -1398,14 +1398,14 @@ function SearchResults({
 
           {/* 음식점 세부 카테고리 — 일식/한식/양식·아시안/카페·디저트 */}
           {categoryFilter === "음식점" && (
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
+            <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {CUISINE_FILTERS.map((c) => {
                 const active = cuisineFilter === c.key;
                 return (
                   <button
                     key={c.key}
                     onClick={() => handleCuisineClick(c.key)}
-                    className={`rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
+                    className={`shrink-0 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
                       active ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-indigo-300"
                     }`}
                   >
@@ -1513,14 +1513,14 @@ function SearchResults({
             </div>
           </MapProvider>
 
-          <div className="mt-4 flex flex-wrap gap-1.5">
+          <div className="mt-4 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {LIVE_SORTS.map((s) => {
               const active = liveSort === s.key;
               return (
                 <button
                   key={s.key}
                   onClick={() => setLiveSort(s.key)}
-                  className={`rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
+                  className={`shrink-0 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
                     active ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-emerald-300"
                   }`}
                 >
@@ -1532,12 +1532,12 @@ function SearchResults({
 
           {/* 테마 칩 — 페이지 이동이 아니라 아래 해당 테마 섹션으로 스크롤 이동만 한다. */}
           {liveBuckets.length > 1 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {liveBuckets.map((g) => (
                 <button
                   key={g.key}
                   onClick={() => scrollToLiveBucket(g.key)}
-                  className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11.5px] font-medium text-slate-600 transition-colors hover:border-emerald-300 hover:text-emerald-600"
+                  className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11.5px] font-medium text-slate-600 transition-colors hover:border-emerald-300 hover:text-emerald-600"
                 >
                   <g.icon size={12} />
                   {g.label} <span className="text-slate-400">{g.places.length}</span>

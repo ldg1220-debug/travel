@@ -24,6 +24,10 @@ declare module "next-auth" {
       deletionRequestedAt: string | null;
       /** 유예기간이 끝나 계정이 영구 삭제될 시각(deletionRequestedAt + 2주) — deletionRequestedAt이 null이면 함께 null. */
       deletionPurgeAt: string | null;
+      /** 트레쥴 프리미엄 멤버십 활성 여부 — premiumUntil이 지나면 자동으로 false. 결제 연동 전이라 지금은 항상 false. */
+      isPremium: boolean;
+      /** 프리미엄 만료 시각 — 구독 중이 아니면 null. */
+      premiumUntil: string | null;
     } & DefaultSession["user"];
   }
 }

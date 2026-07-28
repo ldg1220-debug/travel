@@ -81,6 +81,7 @@ import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { nudgeKakaoMapResize, getKakaoMaps, type KakaoMapInstance } from "@/lib/maps/kakao-map";
 import { hasStaleActiveDateCorrectionRun, suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 import { kakaoBoundsFor } from "./KakaoMapPrimitives";
+import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { currencySymbol, groupBudgetByCurrency } from "@/lib/types";
 import type { CurrencyCode, ItineraryItem, Place } from "@/lib/types";
 import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
@@ -216,14 +217,30 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const optimizeRoute = useItineraryStore((s) => s.optimizeRoute);
   const region = useItineraryStore((s) => s.region);
-  const isDomestic = region === "domestic";
-  const mapsLoaded = isDomestic ? kakaoMapsLoaded : googleMapsLoaded;
-  const mapsError = isDomestic ? kakaoMapsError : googleMapsError;
   const setRegion = useItineraryStore((s) => s.setRegion);
   const setItems = useItineraryStore((s) => s.setItems);
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
   const removeSavedPlace = useItineraryStore((s) => s.removeSavedPlace);
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
+
+  // Which map SDK to render — derived from the *actual coordinates* on this
+  // plan (majority vote across every scheduled item + saved place) rather
+  // than trusted blindly from the plan's `region` flag. That flag is set
+  // once wherever a place was first added (see discover/page.tsx's
+  // setRegion calls) and never revisited, so an older plan — or one where
+  // that call was skipped — can carry a stale/wrong flag and silently
+  // render the wrong provider (e.g. Kakao for a Fukuoka plan) even though
+  // every place in it is obviously overseas. Falls back to `region` only
+  // when there's nothing yet to sample (a brand new, still-empty plan).
+  const regionSample = [...items.map((it) => places.find((p) => p.id === it.placeId)), ...savedPlaces].filter(
+    (p): p is Place => p != null,
+  );
+  const isDomestic =
+    regionSample.length > 0
+      ? regionSample.filter((p) => isDomesticCoordinate(p.lat, p.lng)).length > regionSample.length / 2
+      : region === "domestic";
+  const mapsLoaded = isDomestic ? kakaoMapsLoaded : googleMapsLoaded;
+  const mapsError = isDomestic ? kakaoMapsError : googleMapsError;
 
   // 일정(schedule) vs 관심 장소(saved) — governs both the lower panel's
   // content and which marker set the map above it renders.

@@ -74,7 +74,7 @@ export default function FeedPage() {
 
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
-      <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6">
+      <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6 lg:max-w-3xl lg:px-8">
         <div className="mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <CordixIcon name="feed-announce" size={20} stroke="#6366f1" />
@@ -149,7 +149,7 @@ export default function FeedPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {posts.map((post) => (
               <FeedCard
                 key={post.id}

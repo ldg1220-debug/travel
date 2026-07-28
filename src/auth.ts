@@ -34,6 +34,8 @@ interface SessionProfileRow {
   isBanned: boolean;
   lastActiveAt: Date | null;
   deletionRequestedAt: Date | null;
+  isPremium: boolean;
+  premiumUntil: Date | null;
 }
 
 // 페이지 하나를 열 때 AppBar(useSession)·MessageBell·NotificationBell·페이지
@@ -51,7 +53,7 @@ async function getSessionProfile(userId: string): Promise<SessionProfileRow | un
   if (cached && cached.expiresAt > Date.now()) return cached.data;
 
   const result = await pool.query<SessionProfileRow>(
-    `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "notifyComments", "isAdmin", "isBanned", "lastActiveAt", "deletionRequestedAt" from users where id = $1`,
+    `select nickname, "termsAgreedAt", "notifyMateRequests", "notifyLikes", "notifyMessages", "notifyComments", "isAdmin", "isBanned", "lastActiveAt", "deletionRequestedAt", "isPremium", "premiumUntil" from users where id = $1`,
     [userId],
   );
   const row = result.rows[0];
@@ -94,6 +96,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.deletionPurgeAt = deletionRequestedAt
           ? new Date(deletionRequestedAt.getTime() + DELETION_GRACE_PERIOD_MS).toISOString()
           : null;
+        // 결제 연동 전이라 오늘은 항상 false로 채워진다 — 실제 결제가
+        // 붙으면 premiumUntil이 미래인지까지 함께 확인해서 만료를 반영한다.
+        const premiumUntil = row?.premiumUntil ? new Date(row.premiumUntil) : null;
+        session.user.isPremium = (row?.isPremium ?? false) && (premiumUntil == null || premiumUntil.getTime() > Date.now());
+        session.user.premiumUntil = premiumUntil ? premiumUntil.toISOString() : null;
 
         // 관리자 대시보드의 활성 사용자 지표용 — 5분 넘게 지났을 때만
         // 갱신해서 매 세션 조회(=거의 매 요청)마다 쓰기가 발생하지 않게
