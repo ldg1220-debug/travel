@@ -178,6 +178,7 @@ export function AppBar() {
   const hydrateDraftFromServer = useItineraryStore((s) => s.hydrateDraftFromServer);
   const setDraftRemoteInfo = useItineraryStore((s) => s.setDraftRemoteInfo);
   const openDraft = useItineraryStore((s) => s.openDraft);
+  const startNewPlan = useItineraryStore((s) => s.startNewPlan);
 
   const previewMarkedDates = useMemo(() => new Set((previewPlan?.items ?? []).map((i) => i.date)), [previewPlan]);
 
@@ -362,6 +363,22 @@ export function AppBar() {
                         수 있는 스위처. 서랍처럼 화살표로 펼치고 접는다. */}
                     {isPlan && plansOpen && (
                       <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 dark:border-slate-800 pl-3">
+                        {/* 새 계획 — 이전에 뭘 만들다 말았는지 몰라도(또는
+                            신경쓰고 싶지 않아도) 항상 빈 화면으로 들어갈 수
+                            있는 명시적인 진입점. 초안(draft)에 뭐가 남아있는지
+                            애매해서 헷갈린다는 피드백에 따라, "지금 작업 중인
+                            일정 보기"(=이어서 하기)와 나란히 둬서 고를 수 있게. */}
+                        <button
+                          onClick={() => {
+                            startNewPlan();
+                            router.push("/planner");
+                            setMenuOpen(false);
+                          }}
+                          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <Plus size={13} />
+                          새 계획 시작하기
+                        </button>
                         {/* 계획을 하나도 안 골라도 지금 작업 중인 일정으로는 항상
                             바로 갈 수 있게 — 서랍이 유일한 진입점이 된 뒤에도
                             막다른 길이 되지 않도록. */}
@@ -672,6 +689,7 @@ export function AppBar() {
         <SavePlanModal
           atCap={savedPlans.length >= MAX_SAVED_PLANS}
           savedPlans={savedPlans}
+          activePlan={activePlan ?? null}
           onClose={() => setSaveModalOpen(false)}
           onSave={(name, overwriteId) => {
             // "계획 저장"이 진행 중인 계획(초안)에서 눌린 거면 그 내용을 새
