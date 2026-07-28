@@ -443,6 +443,34 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
               {!mandatory && (
                 <>
                   <div className="mt-7 border-t border-slate-100 pt-6 dark:border-slate-800">
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="text-[12.5px] font-bold text-slate-600 dark:text-slate-300">멤버십</p>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                          session?.user?.isPremium
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                            : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                        }`}
+                      >
+                        {session?.user?.isPremium ? "트레쥴 프리미엄" : "일반 회원"}
+                      </span>
+                    </div>
+                    <div className="rounded-2xl border border-dashed border-slate-200 p-3.5 dark:border-slate-700">
+                      <p className="mb-2 text-[12px] font-semibold text-slate-600 dark:text-slate-300">프리미엄에서 제공될 기능</p>
+                      <ul className="mb-3 space-y-1 text-[11.5px] text-slate-500 dark:text-slate-400">
+                        <li>· 저장 가능한 계획 개수 확장</li>
+                        <li>· 커뮤니티 글 선택공개 기능</li>
+                      </ul>
+                      <button
+                        disabled
+                        className="h-10 w-full cursor-not-allowed rounded-xl bg-slate-100 text-[12.5px] font-semibold text-slate-400 dark:bg-slate-800 dark:text-slate-500"
+                      >
+                        프리미엄으로 업그레이드 (준비중)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-7 border-t border-slate-100 pt-6 dark:border-slate-800">
                     <p className="mb-3 text-[12.5px] font-bold text-slate-600 dark:text-slate-300">알림</p>
                     <div className="space-y-1">
                       <NotifyToggle

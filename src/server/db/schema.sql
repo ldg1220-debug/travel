@@ -517,3 +517,11 @@ CREATE INDEX IF NOT EXISTS community_post_likes_post_idx ON community_post_likes
 -- "postId"가 trip_posts만 가리킬 수 있다 — 커뮤니티 글의 좋아요/댓글
 -- 알림은 별도 컬럼으로 가리킨다. 알림 하나는 둘 중 하나만 채워진다.
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "communityPostId" INTEGER REFERENCES community_posts(id) ON DELETE CASCADE;
+
+-- "트레쥴 프리미엄" 멤버십 뼈대 — 결제 연동(PG) 전이라 아직 실제로 켤 수
+-- 있는 경로는 없다(설정 화면엔 비활성화된 "준비중" 버튼만 노출). 나중에
+-- 결제가 붙으면 이 두 컬럼만 채우면 되도록 미리 준비해둔다. "premiumUntil"
+-- 이 NULL이면 비회원, 과거 시각이면 만료된 것으로 취급(별도 배치 정리
+-- 없이 조회 시점에 now()와 비교해서 판단).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "isPremium" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "premiumUntil" TIMESTAMPTZ;

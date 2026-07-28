@@ -66,7 +66,7 @@ export default function CommunityPage() {
 
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
-      <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6">
+      <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6 lg:max-w-3xl lg:px-8">
         <div className="mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <CordixIcon name="group" size={20} stroke="#6366f1" />
@@ -123,7 +123,7 @@ export default function CommunityPage() {
             <p className="mt-1 text-[13px] text-slate-400">{query ? "다른 검색어로 찾아보세요." : "가장 먼저 글을 남겨보세요."}</p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {posts.map((post) => (
               <CommunityPostCard
                 key={post.id}
