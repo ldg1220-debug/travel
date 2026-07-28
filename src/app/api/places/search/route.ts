@@ -496,9 +496,26 @@ async function searchDomestic(
       }
     }
     const docs = await kakaoKeywordAll(query, apiKey);
-    if (docs !== null) return { places: docs.map(kakaoDocToPlace), source: "kakao" };
+    if (docs !== null) {
+      if (docs.length > 0) return { places: docs.map(kakaoDocToPlace), source: "kakao" };
+      // Kakao Local doesn't index every small domestic business (independent
+      // pensions/카라반 등) — a genuine zero-hit result is worth one extra
+      // Google Places lookup before giving up, since Google's listing
+      // coverage and Kakao's don't fully overlap.
+      const googleFallback = await domesticGoogleFallback(query);
+      if (googleFallback.length > 0) return { places: googleFallback, source: "google" };
+      return { places: [], source: "kakao" };
+    }
   }
   return { places: filterByName(DOMESTIC_PLACES, query), source: "mock" };
+}
+
+/** Best-effort Google Places lookup for a domestic query Kakao Local came up empty on. Never throws — falls back to no results so the caller's own mock fallback still applies. */
+async function domesticGoogleFallback(query: string): Promise<Place[]> {
+  const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!googleApiKey) return [];
+  const results = await callGoogleSearchText(query, googleApiKey);
+  return results ?? [];
 }
 
 function kakaoDocToPlace(d: KakaoLocalDocument): Place {
