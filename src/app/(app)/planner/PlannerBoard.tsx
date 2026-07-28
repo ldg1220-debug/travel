@@ -753,13 +753,26 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (isDomestic) {
       const map = kakaoMapRef.current;
       if (!map) return;
-      map.panTo(new (getKakaoMaps().LatLng)(place.lat, place.lng));
-      map.setLevel(4);
+      // Re-measure before panning — on the packaged app, picking a search
+      // result closes the on-screen keyboard, which resizes the WebView's
+      // visible viewport (and the map container with it) right around the
+      // same moment. The SDK computed panTo/setLevel against whatever size
+      // it last measured, so panning immediately (before that resize
+      // settles) lands the camera off from the actual place — the "map
+      // shows a spot away from what I searched for on the app" bug. Never
+      // observed on desktop web since nothing resizes the container there
+      // after a search selection. See mapResize.ts.
+      nudgeKakaoMapResize(map, () => {
+        map.panTo(new (getKakaoMaps().LatLng)(place.lat, place.lng));
+        map.setLevel(4);
+      });
     } else {
       const map = googleMapRef.current;
       if (!map) return;
-      map.panTo({ lat: place.lat, lng: place.lng });
-      map.setZoom(15);
+      nudgeGoogleMapResize(map, () => {
+        map.panTo({ lat: place.lat, lng: place.lng });
+        map.setZoom(15);
+      });
     }
   };
 
@@ -1934,6 +1947,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           <SavePlanModal
             atCap={savedPlans.length >= MAX_SAVED_PLANS}
             savedPlans={savedPlans}
+            activePlan={activePlan ?? null}
             onClose={() => setSaveModalOpen(false)}
             onSave={(name, overwriteId) => {
               // "계획 저장"이 진행 중인 계획(초안)에서 눌린 거면 그 내용을

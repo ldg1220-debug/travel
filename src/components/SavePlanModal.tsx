@@ -8,17 +8,26 @@ import type { SavedPlan } from "@/lib/types";
 interface SavePlanModalProps {
   atCap: boolean;
   savedPlans: SavedPlan[];
+  /** The plan currently open, if any — lets this open with a direct
+   * "지금 계획에 저장" shortcut instead of always making the user retype its
+   * name just to update it in place. Null when there's no named plan open
+   * yet (still on the draft), in which case naming one is the only option. */
+  activePlan: SavedPlan | null;
   onClose: () => void;
   onSave: (name: string, overwriteId?: string) => void;
 }
 
 /** Small naming prompt for "현재 계획을 새 이름으로 저장" — opened from the AppBar's 계획 메뉴. */
-export function SavePlanModal({ atCap, savedPlans, onClose, onSave }: SavePlanModalProps) {
+export function SavePlanModal({ atCap, savedPlans, activePlan, onClose, onSave }: SavePlanModalProps) {
   const [name, setName] = useState("");
   // Set once the typed name collides with an existing saved plan — asks
   // whether to overwrite it in place or keep both under the same name,
   // instead of silently stacking a second plan with an identical label.
   const [duplicate, setDuplicate] = useState<SavedPlan | null>(null);
+  // A plan is already open — lead with "지금 계획에 저장" vs "다른 이름으로
+  // 저장" instead of jumping straight to the name input, since retyping the
+  // exact same name just to update it in place was the confusing part.
+  const [choosing, setChoosing] = useState(activePlan != null);
 
   const handleSave = () => {
     const trimmed = name.trim();
@@ -49,6 +58,26 @@ export function SavePlanModal({ atCap, savedPlans, onClose, onSave }: SavePlanMo
           <p className="mt-1 text-[13px] text-slate-500">
             최대 10개까지 저장할 수 있어요. 기존 계획을 삭제한 뒤 다시 저장해주세요.
           </p>
+        ) : choosing && activePlan ? (
+          <>
+            <p className="mt-1 text-[13px] text-slate-500">
+              &ldquo;{activePlan.name}&rdquo; 계획을 지금 상태로 저장할까요, 다른 이름으로 따로 저장할까요?
+            </p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                onClick={() => onSave(activePlan.name, activePlan.id)}
+                className="h-11 w-full rounded-2xl bg-slate-900 text-sm font-semibold text-white transition-transform active:scale-[0.98]"
+              >
+                지금 계획에 저장
+              </button>
+              <button
+                onClick={() => setChoosing(false)}
+                className="h-11 w-full rounded-2xl border border-slate-200 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                다른 이름으로 저장
+              </button>
+            </div>
+          </>
         ) : duplicate ? (
           <>
             <p className="mt-1 text-[13px] text-slate-500">

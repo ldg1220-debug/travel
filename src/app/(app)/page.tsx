@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Calendar, ChevronRight, Heart, FolderOpen, Search, X } from "lucide-react";
+import { Calendar, ChevronRight, Heart, FolderOpen, Search, X, Plus } from "lucide-react";
 import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { Input } from "@/components/ui/input";
 import { useItineraryStore } from "@/store/itineraryStore";
@@ -182,6 +182,7 @@ function OnboardingHint() {
  * 마운트 후에만 읽는다.
  */
 function ResumeSection() {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 0);
@@ -193,6 +194,7 @@ function ResumeSection() {
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
   const setActiveDate = useItineraryStore((s) => s.setActiveDate);
+  const startNewPlan = useItineraryStore((s) => s.startNewPlan);
 
   if (!mounted) return null;
 
@@ -204,11 +206,24 @@ function ResumeSection() {
 
   return (
     <section>
-      <div className="mb-3 flex items-center gap-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-500 dark:bg-slate-800">
-          <CordixIcon name="trip-route" size={17} />
-        </span>
-        <h2 className="text-xl font-bold tracking-tight">내 여행 현황</h2>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-500 dark:bg-slate-800">
+            <CordixIcon name="trip-route" size={17} />
+          </span>
+          <h2 className="text-xl font-bold tracking-tight">내 여행 현황</h2>
+        </div>
+        {hasAnything && (
+          <button
+            onClick={() => {
+              startNewPlan();
+              router.push("/planner");
+            }}
+            className="flex shrink-0 items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700"
+          >
+            <Plus size={13} /> 새 계획
+          </button>
+        )}
       </div>
 
       {hasAnything ? (

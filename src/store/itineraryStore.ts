@@ -237,6 +237,16 @@ interface ItineraryState {
    * silently drops unsaved changes.
    */
   openDraft: () => void;
+  /**
+   * Blanks the working itinerary and drops back onto the (now-empty) draft
+   * slot — for "새 계획 시작하기", so ambiguously resuming whatever the
+   * draft last held is opt-in (지금 작업 중인 일정 보기) rather than the
+   * only way in. Flushes whatever was live first (same as openDraft/
+   * loadPlan) so switching away from a named plan never drops its edits —
+   * only the draft slot itself gets overwritten with the blank state, which
+   * is exactly what "new" means for the one-and-only scratch slot.
+   */
+  startNewPlan: () => void;
   /** Reconciles the local draft against the server's copy on login — same "server wins for anything already synced" rule as hydrateSavedPlansFromServer. `null` means the server has no draft yet, so the local one (if any, not yet synced) is left untouched. */
   hydrateDraftFromServer: (remote: { id: number; title: string; region: Region; placesData: ItineraryItem[]; shareToken: string } | null) => void;
 }
@@ -613,6 +623,19 @@ export const useItineraryStore = create<ItineraryState>()(
           activeDate: d?.activeDate ?? todayISODate(),
           currentCity: d?.currentCity ?? "새 여행",
           region: d?.region ?? state.region,
+          activePlanId: null,
+        });
+      },
+
+      startNewPlan: () => {
+        const state = get();
+        const flushed = flushLiveState(state);
+        set({
+          ...flushed,
+          items: [],
+          places: [],
+          activeDate: todayISODate(),
+          currentCity: "새 여행",
           activePlanId: null,
         });
       },
