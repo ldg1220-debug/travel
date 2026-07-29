@@ -18,7 +18,7 @@ export function PrivacyBody() {
   return (
     <>
       <h1 className="text-2xl font-bold tracking-tight">개인정보처리방침</h1>
-      <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 28일</p>
+      <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 29일</p>
 
       <div className="mt-6 space-y-7 text-[13.5px] leading-relaxed text-slate-700 dark:text-slate-300 [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-slate-900 dark:[&_h2]:text-slate-100 [&_ul]:mt-1.5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_table]:mt-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-200 [&_td]:px-2.5 [&_td]:py-1.5 dark:[&_td]:border-slate-700 [&_th]:border [&_th]:border-slate-200 [&_th]:bg-slate-100 [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:text-left dark:[&_th]:border-slate-700 dark:[&_th]:bg-slate-800">
           <p>
@@ -53,6 +53,11 @@ export function PrivacyBody() {
                   <td>서비스 이용 중 이용자가 직접 입력·업로드</td>
                 </tr>
                 <tr>
+                  <td>선택</td>
+                  <td>실시간 위치정보(GPS 좌표)</td>
+                  <td>이용자가 검색 화면에서 &ldquo;내 주변순&rdquo;을 직접 선택했을 때, 브라우저의 위치 권한 동의 후 1회성으로 수집</td>
+                </tr>
+                <tr>
                   <td>자동</td>
                   <td>접속 기록, 기기·브라우저 정보(서비스 제공·보안 목적의 최소한)</td>
                   <td>서비스 이용 과정에서 자동 생성</td>
@@ -63,8 +68,9 @@ export function PrivacyBody() {
               소셜 계정의 이름·이메일은 다른 이용자에게 공개되지 않으며, 공개 화면에는 이용자가 정한 닉네임만 표시됩니다.
             </p>
             <p className="mt-2">
-              서비스는 이용자의 실시간 위치(GPS)를 수집하지 않습니다. 지도·검색 결과에 표시되는 장소의 위치 정보는
-              구글·카카오 등 외부 지도 서비스가 제공하는 공개 정보를 그대로 보여주는 것입니다.
+              실시간 위치정보는 이용자가 &ldquo;내 주변순&rdquo; 정렬을 선택한 그 검색 요청에만 사용되며, 서버에 저장되거나
+              로그로 남지 않습니다. 이 기능을 사용하지 않으면 위치정보는 전혀 수집되지 않으며, 그 밖의 지도·검색 결과에
+              표시되는 장소의 위치는 구글·카카오 등 외부 지도 서비스가 제공하는 공개 정보를 그대로 보여주는 것입니다.
             </p>
           </section>
 

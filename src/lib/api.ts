@@ -35,13 +35,23 @@ function placesSearchCategory(tag?: string): string | undefined {
  * "no live results this time" rather than breaking the rest of the search
  * page, since /discover's curated results are still shown regardless.
  */
-export async function fetchLivePlaceSearch(scope: DiscoverScope, query: string, tag?: string): Promise<Place[]> {
-  if (!query.trim()) return [];
+export async function fetchLivePlaceSearch(
+  scope: DiscoverScope,
+  query: string,
+  tag?: string,
+  /** Set only when the user explicitly asked for "내 주변순" — resolved client-side via the browser's Geolocation API and forwarded as-is, never stored. */
+  userLocation?: { lat: number; lng: number } | null,
+): Promise<Place[]> {
+  if (!query.trim() && !userLocation) return [];
   try {
     const region: Region = scope === "domestic" ? "domestic" : "international";
     const params = new URLSearchParams({ region, q: query });
     const category = placesSearchCategory(tag);
     if (category) params.set("category", category);
+    if (userLocation) {
+      params.set("lat", String(userLocation.lat));
+      params.set("lng", String(userLocation.lng));
+    }
     const res = await fetch(`/api/places/search?${params.toString()}`);
     if (!res.ok) return [];
     const data = (await res.json()) as { places?: Place[]; source?: "google" | "kakao" | "mock" };

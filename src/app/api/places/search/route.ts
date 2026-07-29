@@ -91,16 +91,24 @@ const NEAR_RADIUS_M = 3000;
 /** Category spread for a bare "X 근처" (no "Y" named) — one query per label, merged, so the grouped live-results UI has something in each theme bucket instead of whatever one generic query happened to surface. */
 const NEAR_FANOUT_LABELS = ["관광명소", "맛집", "카페", "술집", "숙소"];
 
+/** Parses `lat`/`lng` query params into a bias point for "내 주변순" — the coordinate the browser's Geolocation API resolved client-side (never stored; used only for this one request). */
+function parseUserLocation(request: NextRequest): { lat: number; lng: number } | null {
+  const lat = Number(request.nextUrl.searchParams.get("lat"));
+  const lng = Number(request.nextUrl.searchParams.get("lng"));
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+}
+
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
   const rawQuery = (request.nextUrl.searchParams.get("q") ?? "").trim();
   const near = parseNearQuery(rawQuery);
   const query = stripLocalityFillers(rawQuery);
   const category = request.nextUrl.searchParams.get("category") ?? "all";
-  if (!query) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
+  const userLocation = parseUserLocation(request);
+  if (!query && !userLocation) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
 
   if (region === "domestic") {
-    return NextResponse.json(await searchDomestic(query, near));
+    return NextResponse.json(await searchDomestic(query, near, userLocation));
   }
 
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -109,7 +117,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "Google API Key is completely missing" }, { status: 500 });
   }
   const includedType = CATEGORY_TYPE_MAP[category];
-  return NextResponse.json(await searchInternational(query, googleApiKey, includedType, category, near));
+  return NextResponse.json(await searchInternational(query, googleApiKey, includedType, category, near, userLocation));
 });
 
 interface GooglePlaceResult {
@@ -173,7 +181,28 @@ async function searchInternational(
   includedType?: string,
   category?: string,
   near?: { landmark: string; want: string } | null,
+  userLocation?: { lat: number; lng: number } | null,
 ): Promise<{ places: Place[]; source: PlaceSearchSource }> {
+  // ── "내 주변순": the browser's own Geolocation API already resolved a
+  // coordinate — bias directly on it instead of geocoding a landmark
+  // first. A typed query narrows the category ("카페"); an empty query
+  // (bare "내 주변" tap) fans out across the same default categories the
+  // landmark-less `near` case below uses.
+  if (userLocation) {
+    if (query) {
+      const nearby = await callGoogleSearchText(query, apiKey, includedType, userLocation);
+      if (nearby && nearby.length > 0) return { places: nearby.slice(0, FANOUT_TARGET), source: "google" };
+    } else {
+      const nearbyResults = await Promise.all(
+        NEAR_FANOUT_LABELS.map((lbl) => callGoogleSearchText(lbl, apiKey, undefined, userLocation)),
+      );
+      const merged: Place[] = [];
+      for (const nearby of nearbyResults) if (nearby) mergePlaces(merged, nearby);
+      if (merged.length > 0) return { places: merged.slice(0, FANOUT_TARGET), source: "google" };
+    }
+  }
+  if (!query) return { places: [], source: "google" };
+
   // ── "X 근처 Y": geocode the landmark, then search Y with a locationBias
   // circle around it — otherwise the landmark's name-match dominates and
   // every result is the landmark itself. Falls through to the normal text
@@ -479,10 +508,19 @@ async function kakaoKeywordAll(query: string, apiKey: string): Promise<KakaoLoca
 async function searchDomestic(
   query: string,
   near?: { landmark: string; want: string } | null,
+  userLocation?: { lat: number; lng: number } | null,
 ): Promise<{ places: Place[]; source: PlaceSearchSource }> {
   const apiKey = process.env.KAKAO_REST_API_KEY;
   console.log("[places/search] Using Kakao API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
+    // "내 주변순" — the browser's Geolocation API already resolved a
+    // coordinate, so bias directly on it instead of geocoding a landmark.
+    if (userLocation) {
+      const at = { x: String(userLocation.lng), y: String(userLocation.lat) };
+      const nearby = await kakaoKeyword(query || "맛집", apiKey, at);
+      if (nearby && nearby.length > 0) return { places: nearby.map(kakaoDocToPlace), source: "kakao" };
+      if (!query) return { places: [], source: "kakao" };
+    }
     // "X 근처 Y" — resolve the landmark first, then keyword-search Y sorted
     // by distance within a radius of it (Kakao supports x/y/radius natively).
     if (near) {

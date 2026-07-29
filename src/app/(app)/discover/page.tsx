@@ -49,6 +49,7 @@ import { SchedulePlanPickerModal, type SchedulePlanTarget } from "@/components/S
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch } from "@/lib/api";
+import { useUserLocation } from "@/lib/useUserLocation";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
 import { SEASON_LABEL } from "@/lib/discoverData";
@@ -1258,9 +1259,10 @@ function SearchResults({
   // way and should never block or error out the curated section if it
   // fails. `liveResults` is [] (never an error) whenever keys are missing
   // or the call fails, so this section just quietly doesn't render then.
+  const userLoc = useUserLocation();
   const { data: liveResults } = useQuery({
-    queryKey: ["discover-live-search", scope, query, categoryFilter],
-    queryFn: () => fetchLivePlaceSearch(scope, query, categoryFilter === "all" ? undefined : categoryFilter),
+    queryKey: ["discover-live-search", scope, query, categoryFilter, userLoc.location],
+    queryFn: () => fetchLivePlaceSearch(scope, query, categoryFilter === "all" ? undefined : categoryFilter, userLoc.location),
     // Each live call is real (billed) Google/Kakao quota — coming back to
     // the same search within a few minutes must reuse the cached results,
     // not re-bill the API.
@@ -1268,11 +1270,24 @@ function SearchResults({
   });
 
   const [liveSort, setLiveSort] = useState<LiveSortKey>("relevance");
+  // "내 주변순" needs the device's actual position first — tapping it before
+  // we have one kicks off the (permission-gated) browser Geolocation request
+  // and only flips the sort once that resolves, instead of silently no-op'ing.
+  const handleLiveSortClick = (key: LiveSortKey) => {
+    if (key === "distance" && !userLoc.location) {
+      userLoc.request(() => setLiveSort("distance"));
+      return;
+    }
+    setLiveSort(key);
+  };
   // Which flag on the results map is highlighted — set by tapping either
   // the flag itself or a card in the list below, so both always point at
   // the same place.
   const [selectedLiveId, setSelectedLiveId] = useState<string | null>(null);
-  const sortedLiveResults = useMemo(() => sortPlaces(liveResults ?? [], liveSort), [liveResults, liveSort]);
+  const sortedLiveResults = useMemo(
+    () => sortPlaces(liveResults ?? [], liveSort, userLoc.location),
+    [liveResults, liveSort, userLoc.location],
+  );
 
   // 서버가 최대 ~60개까지 한 번에 가져와두므로(재요청 없음), 여기서
   // 페이지 단위로 잘라 보여준다 — 정렬이나 검색어가 바뀌면 1페이지로. 렌더
@@ -1516,19 +1531,23 @@ function SearchResults({
           <div className="mt-4 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {LIVE_SORTS.map((s) => {
               const active = liveSort === s.key;
+              const isDistance = s.key === "distance";
               return (
                 <button
                   key={s.key}
-                  onClick={() => setLiveSort(s.key)}
-                  className={`shrink-0 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
+                  onClick={() => handleLiveSortClick(s.key)}
+                  disabled={isDistance && userLoc.locating}
+                  className={`flex shrink-0 items-center gap-1 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-60 ${
                     active ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-emerald-300"
                   }`}
                 >
-                  {s.label}
+                  {isDistance && <MapPin size={11} />}
+                  {isDistance && userLoc.locating ? "위치 확인 중…" : s.label}
                 </button>
               );
             })}
           </div>
+          {userLoc.error && <p className="mt-1.5 text-[11.5px] text-rose-500">{userLoc.error}</p>}
 
           {/* 테마 칩 — 페이지 이동이 아니라 아래 해당 테마 섹션으로 스크롤 이동만 한다. */}
           {liveBuckets.length > 1 && (

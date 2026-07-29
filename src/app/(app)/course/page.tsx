@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays, RefreshCw } from "lucide-react";
+import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays, RefreshCw, MapPin } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
@@ -12,6 +12,7 @@ import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchLivePlaceSearch, fetchRecommendedCourse, fetchRerolledStop, type RecommendedStop, type CourseTheme } from "@/lib/api";
+import { useUserLocation } from "@/lib/useUserLocation";
 import { COURSE_SLOTS, courseNodesAtPath, courseRegionTree, searchableDepth, type CourseSlot } from "@/lib/courseRegions";
 import { todayISODate, pad2, formatDateLabel } from "@/lib/timeline";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
@@ -689,13 +690,21 @@ function SlotResults({
   onOpenDetail: (place: Place) => void;
 }) {
   const query = useMemo(() => `${city} ${slot.keyword}`, [city, slot.keyword]);
+  const userLoc = useUserLocation();
   const { data, isFetching } = useQuery({
-    queryKey: ["course-slot", scope, query, slot.tag ?? "none"],
-    queryFn: () => fetchLivePlaceSearch(scope, query, slot.tag),
+    queryKey: ["course-slot", scope, query, slot.tag ?? "none", userLoc.location],
+    queryFn: () => fetchLivePlaceSearch(scope, query, slot.tag, userLoc.location),
     staleTime: 5 * 60 * 1000,
   });
   const [sort, setSort] = useState<LiveSortKey>("relevance");
   const [page, setPage] = useState(1);
+  const handleSortClick = (key: LiveSortKey) => {
+    if (key === "distance" && !userLoc.location) {
+      userLoc.request(() => setSort("distance"));
+      return;
+    }
+    setSort(key);
+  };
 
   if (isFetching && !data) {
     return <p className="py-16 text-center text-[13px] text-slate-400">{slot.label} 찾는 중…</p>;
@@ -709,25 +718,31 @@ function SlotResults({
     );
   }
 
-  const sorted = sortPlaces(results, sort);
+  const sorted = sortPlaces(results, sort, userLoc.location);
   const totalPages = Math.max(1, Math.ceil(sorted.length / SLOT_PAGE_SIZE));
   const pageItems = sorted.slice((page - 1) * SLOT_PAGE_SIZE, page * SLOT_PAGE_SIZE);
 
   return (
     <div>
       <div className="mt-4 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {LIVE_SORTS.map((s) => (
-          <button
-            key={s.key}
-            onClick={() => setSort(s.key)}
-            className={`shrink-0 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
-              sort === s.key ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-indigo-300"
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
+        {LIVE_SORTS.map((s) => {
+          const isDistance = s.key === "distance";
+          return (
+            <button
+              key={s.key}
+              onClick={() => handleSortClick(s.key)}
+              disabled={isDistance && userLoc.locating}
+              className={`flex shrink-0 items-center gap-1 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-60 ${
+                sort === s.key ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-indigo-300"
+              }`}
+            >
+              {isDistance && <MapPin size={11} />}
+              {isDistance && userLoc.locating ? "위치 확인 중…" : s.label}
+            </button>
+          );
+        })}
       </div>
+      {userLoc.error && <p className="mt-1.5 text-[11.5px] text-rose-500">{userLoc.error}</p>}
 
       <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-3">
         {pageItems.map((place) => (
