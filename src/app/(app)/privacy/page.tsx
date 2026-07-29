@@ -18,7 +18,7 @@ export function PrivacyBody() {
   return (
     <>
       <h1 className="text-2xl font-bold tracking-tight">개인정보처리방침</h1>
-      <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 20일</p>
+      <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 29일</p>
 
       <div className="mt-6 space-y-7 text-[13.5px] leading-relaxed text-slate-700 dark:text-slate-300 [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-slate-900 dark:[&_h2]:text-slate-100 [&_ul]:mt-1.5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_table]:mt-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-200 [&_td]:px-2.5 [&_td]:py-1.5 dark:[&_td]:border-slate-700 [&_th]:border [&_th]:border-slate-200 [&_th]:bg-slate-100 [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:text-left dark:[&_th]:border-slate-700 dark:[&_th]:bg-slate-800">
           <p>
@@ -53,6 +53,11 @@ export function PrivacyBody() {
                   <td>서비스 이용 중 이용자가 직접 입력·업로드</td>
                 </tr>
                 <tr>
+                  <td>선택</td>
+                  <td>실시간 위치정보(GPS 좌표)</td>
+                  <td>이용자가 검색 화면에서 &ldquo;내 주변순&rdquo;을 직접 선택했을 때, 브라우저의 위치 권한 동의 후 1회성으로 수집</td>
+                </tr>
+                <tr>
                   <td>자동</td>
                   <td>접속 기록, 기기·브라우저 정보(서비스 제공·보안 목적의 최소한)</td>
                   <td>서비스 이용 과정에서 자동 생성</td>
@@ -61,6 +66,11 @@ export function PrivacyBody() {
             </table>
             <p className="mt-2">
               소셜 계정의 이름·이메일은 다른 이용자에게 공개되지 않으며, 공개 화면에는 이용자가 정한 닉네임만 표시됩니다.
+            </p>
+            <p className="mt-2">
+              실시간 위치정보는 이용자가 &ldquo;내 주변순&rdquo; 정렬을 선택한 그 검색 요청에만 사용되며, 서버에 저장되거나
+              로그로 남지 않습니다. 이 기능을 사용하지 않으면 위치정보는 전혀 수집되지 않으며, 그 밖의 지도·검색 결과에
+              표시되는 장소의 위치는 구글·카카오 등 외부 지도 서비스가 제공하는 공개 정보를 그대로 보여주는 것입니다.
             </p>
           </section>
 
@@ -77,7 +87,8 @@ export function PrivacyBody() {
           <section>
             <h2>3. 보유 및 이용 기간</h2>
             <p className="mt-1.5">
-              회원 탈퇴 시 지체 없이 파기합니다. 다만 관련 법령에 따라 보존이 필요한 경우(전자상거래 등에서의 소비자 보호에 관한
+              회원 탈퇴는 이메일 확인 후 14일의 유예기간을 거쳐 확정되며, 유예기간 중 취소하지 않으면 그 종료 시점에 계정 및
+              개인정보를 지체 없이 파기합니다. 다만 관련 법령에 따라 보존이 필요한 경우(전자상거래 등에서의 소비자 보호에 관한
               법률에 따른 거래 기록 등)에는 해당 법령이 정한 기간 동안 보관합니다.
             </p>
           </section>
@@ -103,8 +114,13 @@ export function PrivacyBody() {
               <tbody>
                 <tr>
                   <td>Vercel Inc.</td>
-                  <td>서비스 호스팅, 데이터베이스(Postgres)·파일(사진) 저장</td>
+                  <td>서비스 호스팅, 파일(사진) 저장</td>
                   <td>미국 등</td>
+                </tr>
+                <tr>
+                  <td>Supabase, Inc.</td>
+                  <td>데이터베이스(Postgres) 저장</td>
+                  <td>싱가포르</td>
                 </tr>
                 <tr>
                   <td>Google LLC / 카카오 / Apple Inc.</td>
@@ -119,7 +135,10 @@ export function PrivacyBody() {
             <h2>6. 이용자의 권리</h2>
             <ul>
               <li>이용자는 언제든지 자신의 개인정보를 조회·수정(프로필 설정)할 수 있습니다.</li>
-              <li>이용자는 언제든지 프로필 설정 화면에서 직접 회원 탈퇴(계정·개인정보 삭제)를 할 수 있으며, 탈퇴 즉시 처리됩니다.</li>
+              <li>
+                이용자는 언제든지 프로필 설정 화면에서 직접 회원 탈퇴(계정·개인정보 삭제)를 신청할 수 있습니다. 이메일 확인
+                후 14일의 유예기간 동안은 로그인하여 탈퇴를 취소할 수 있고, 유예기간이 지나면 영구 삭제됩니다.
+              </li>
               <li>만 14세 미만 아동의 개인정보는 수집하지 않습니다.</li>
             </ul>
           </section>
@@ -127,7 +146,9 @@ export function PrivacyBody() {
           <section>
             <h2>7. 개인정보의 파기 절차 및 방법</h2>
             <p className="mt-1.5">
-              보유 기간이 경과하거나 처리 목적이 달성된 개인정보는 전자적 파일 형태의 경우 복구할 수 없는 방법으로 즉시 삭제합니다.
+              회원 탈퇴는 이메일 확인 후 14일의 유예기간을 두며, 유예기간 중 이용자가 취소하지 않으면 그 종료 시점에
+              전자적 파일 형태의 개인정보를 복구할 수 없는 방법으로 삭제합니다. 그 밖에 보유 기간이 경과하거나 처리
+              목적이 달성된 개인정보도 같은 방법으로 지체 없이 삭제합니다.
             </p>
           </section>
 
