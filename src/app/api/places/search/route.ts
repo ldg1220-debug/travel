@@ -175,6 +175,13 @@ function toLocalityBase(q: string): string {
 // list capped at whatever the first handful of queries returned.
 const FANOUT_TARGET = 60;
 
+// Below this many Kakao keyword hits, a domestic search is "thin" enough to
+// top up with a Google Places call (see searchDomestic) — Kakao Local's
+// keyword search is literal token matching, not Kakao Map's own
+// review-driven ranking, so broad "지역 맛집" queries land here even in
+// areas with plenty of real listings.
+const THIN_RESULT_THRESHOLD = 15;
+
 async function searchInternational(
   query: string,
   apiKey: string,
@@ -535,7 +542,19 @@ async function searchDomestic(
     }
     const docs = await kakaoKeywordAll(query, apiKey);
     if (docs !== null) {
-      if (docs.length > 0) return { places: docs.map(kakaoDocToPlace), source: "kakao" };
+      if (docs.length > 0) {
+        const kakaoPlaces = docs.map(kakaoDocToPlace);
+        // Kakao Local's keyword search is literal token matching, not the
+        // review-driven ranking Kakao Map's own app uses — broad "지역
+        // 맛집" queries can come back thin (a dozen hits) even in areas
+        // with far more real listings. Top up anything under a full page
+        // with Google Places instead of only falling back on a hard zero.
+        if (kakaoPlaces.length < THIN_RESULT_THRESHOLD) {
+          const googleFallback = await domesticGoogleFallback(query);
+          if (googleFallback.length > 0) mergePlaces(kakaoPlaces, googleFallback);
+        }
+        return { places: kakaoPlaces, source: "kakao" };
+      }
       // Kakao Local doesn't index every small domestic business (independent
       // pensions/카라반 등) — a genuine zero-hit result is worth one extra
       // Google Places lookup before giving up, since Google's listing

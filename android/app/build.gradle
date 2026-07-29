@@ -56,9 +56,9 @@ android {
     defaultConfig {
         applicationId "kr.co.tradule.app"
         minSdkVersion 21
-        targetSdkVersion 35
-        versionCode 1
-        versionName "1"
+        targetSdkVersion 36
+        versionCode 3
+        versionName "3"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name
@@ -207,7 +207,9 @@ repositories {
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
-    
+
         implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.6.2'
-    
+
+        implementation 'com.google.androidbrowserhelper:locationdelegation:1.1.2'
+
 }
