@@ -5,7 +5,8 @@
       "namespace": "android_app",
       "package_name": "kr.co.tradule.app",
       "sha256_cert_fingerprints": [
-        "3C:80:F1:C8:90:0F:24:99:3C:3F:B0:30:39:91:9B:83:9C:30:1F:8C:AC:80:65:CA:04:B3:E4:9D:7F:52:FE:0A"
+        "3C:80:F1:C8:90:0F:24:99:3C:3F:B0:30:39:91:9B:83:9C:30:1F:8C:AC:80:65:CA:04:B3:E4:9D:7F:52:FE:0A",
+        "0C:A9:CA:47:22:B5:DC:BC:13:DB:74:A7:5F:FA:DD:75:16:14:A1:3F:27:20:11:83:21:D3:51:2D:F5:DF:B4:AC"
       ]
     }
   }
