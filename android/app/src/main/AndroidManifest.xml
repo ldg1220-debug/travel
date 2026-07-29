@@ -193,10 +193,12 @@
             </intent-filter>
         </service>
 
-        
-            <activity android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity" />
-        
 
-        
+            <activity android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity" />
+
+
+
+            <activity android:name="com.google.androidbrowserhelper.locationdelegation.PermissionRequestActivity"/>
+
     </application>
 </manifest>
