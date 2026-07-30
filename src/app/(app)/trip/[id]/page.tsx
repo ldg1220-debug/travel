@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Link as LinkIcon, ChevronLeft, Heart, Download } from "lucide-react";
+import { Link as LinkIcon, ChevronLeft, Heart, Download, X } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import {
   acceptFollowRequest,
@@ -542,10 +542,12 @@ export default function TripPostDetailPage() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// A "#장소이름" mention inside the free-form body — hovering (desktop) or
-// tapping (mobile) it surfaces the author's short per-place review without
-// leaving the post, instead of making readers scroll down to "다녀온 장소".
-const POPOVER_WIDTH = 320; // w-80
+// A "#장소이름" mention inside the free-form body — clicking it surfaces the
+// author's short per-place review without leaving the post, instead of
+// making readers scroll down to "다녀온 장소". Click-only (no hover-open):
+// a hover popover that vanishes the instant the pointer drifts off a small
+// tag read as too fragile/small to actually read.
+const POPOVER_WIDTH = 384; // w-96
 const POPOVER_MARGIN = 8;
 
 function HashtagMention({ review }: { review: TripPostPlaceReview }) {
@@ -580,12 +582,7 @@ function HashtagMention({ review }: { review: TripPostPlaceReview }) {
   }, [open]);
 
   return (
-    <span
-      ref={ref}
-      className="relative inline-block"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
+    <span ref={ref} className="relative inline-block">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -595,22 +592,30 @@ function HashtagMention({ review }: { review: TripPostPlaceReview }) {
       </button>
       {open && (
         <span
-          className="absolute bottom-full left-1/2 z-20 mb-2 w-80 rounded-2xl border border-slate-200 bg-white p-4 text-left text-[13px] normal-case shadow-xl"
+          className="absolute bottom-full left-1/2 z-20 mb-2 w-96 rounded-2xl border border-slate-200 bg-white p-5 text-left text-[13px] normal-case shadow-2xl"
           style={{ transform: `translateX(calc(-50% + ${shift}px))` }}
         >
-          <span className="mb-2 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="닫기"
+            className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X className="h-3.5 w-3.5" strokeWidth={2} />
+          </button>
+          <span className="mb-3 flex items-center gap-3.5 pr-6">
             {review.images[0] && (
               // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
-              <img src={review.images[0]} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />
+              <img src={review.images[0]} alt="" className="h-20 w-20 shrink-0 rounded-xl object-cover" />
             )}
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[14.5px] font-bold text-slate-800">{review.placeName}</span>
-              <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-amber-500">
-                <CordixIcon name="star" size={12} stroke="#fbbf24" accent="#fbbf24" /> {review.rating.toFixed(1)}
+              <span className="block truncate text-[16px] font-bold text-slate-800">{review.placeName}</span>
+              <span className="flex items-center gap-0.5 text-[13.5px] font-semibold text-amber-500">
+                <CordixIcon name="star" size={13} stroke="#fbbf24" accent="#fbbf24" /> {review.rating.toFixed(1)}
               </span>
             </span>
           </span>
-          <span className="block text-[13.5px] leading-relaxed text-slate-600">{review.content}</span>
+          <span className="block text-[14.5px] leading-relaxed text-slate-600">{review.content}</span>
         </span>
       )}
     </span>
