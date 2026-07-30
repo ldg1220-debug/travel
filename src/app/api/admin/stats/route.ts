@@ -10,6 +10,8 @@ export interface AdminStats {
   totalUsers: number;
   newUsers: { today: number; last7: number; last30: number };
   activeUsers: { last1: number; last7: number; last30: number };
+  /** 비로그인 방문(집계, 개인 식별 정보 없음) — src/app/api/track/visit. */
+  anonymousVisits: { today: number; last7: number; last30: number };
   /** 최근 14일간 일별 신규가입자 수 — 가입이 없던 날도 0으로 채워서 넘긴다. */
   signupTrend: { date: string; count: number }[];
   engagement: {
@@ -29,7 +31,7 @@ export const GET = withApiErrorHandling(async () => {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [totalsResult, trendResult, engagementResult, recentResult] = await Promise.all([
+  const [totalsResult, trendResult, engagementResult, recentResult, visitsResult] = await Promise.all([
     pool.query<{
       total: number;
       today: number;
@@ -73,6 +75,13 @@ export const GET = withApiErrorHandling(async () => {
     pool.query<{ id: number; name: string | null; nickname: string | null; image: string | null; createdAt: string }>(
       `select id, name, nickname, image, "createdAt" from users order by "createdAt" desc limit ${RECENT_SIGNUPS_LIMIT}`,
     ),
+    pool.query<{ today: number; last7: number; last30: number }>(
+      `select
+         coalesce(sum(count) filter (where day = current_date), 0)::int as today,
+         coalesce(sum(count) filter (where day >= current_date - interval '6 days'), 0)::int as last7,
+         coalesce(sum(count) filter (where day >= current_date - interval '29 days'), 0)::int as last30
+       from visitor_counts`,
+    ),
   ]);
 
   const totals = totalsResult.rows[0];
@@ -90,11 +99,13 @@ export const GET = withApiErrorHandling(async () => {
   }
 
   const engagementRow = engagementResult.rows[0];
+  const visits = visitsResult.rows[0];
 
   const stats: AdminStats = {
     totalUsers: totals?.total ?? 0,
     newUsers: { today: totals?.today ?? 0, last7: totals?.last7 ?? 0, last30: totals?.last30 ?? 0 },
     activeUsers: { last1: totals?.active1 ?? 0, last7: totals?.active7 ?? 0, last30: totals?.active30 ?? 0 },
+    anonymousVisits: { today: visits?.today ?? 0, last7: visits?.last7 ?? 0, last30: visits?.last30 ?? 0 },
     signupTrend,
     engagement: {
       savedPlans: engagementRow?.savedplans ?? 0,

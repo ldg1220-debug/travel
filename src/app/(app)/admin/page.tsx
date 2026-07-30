@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { fetchAdminStats, sendAnnouncement, type AdminStats } from "@/lib/api";
+import { isRootAdmin } from "@/lib/server/rootAdmin";
+import { AdminUsersSection } from "@/components/admin/AdminUsersSection";
 
 const ANNOUNCEMENT_MAX_LENGTH = 300;
 
@@ -107,11 +110,22 @@ function SignupTrendChart({ trend }: { trend: AdminStats["signupTrend"] }) {
   );
 }
 
-/** 관리자 대시보드 — 가입 추이·활성 사용자·서비스 이용량을 한눈에. */
+/** 관리자 대시보드 — 가입 추이·활성 사용자·서비스 이용량을 한눈에. 루트 관리자는 "관리자 지정" 탭도 여기서 함께 다룬다. */
 export default function AdminDashboardPage() {
+  return (
+    <Suspense fallback={<div className="min-h-full bg-slate-50 dark:bg-slate-950" />}>
+      <AdminDashboardContent />
+    </Suspense>
+  );
+}
+
+function AdminDashboardContent() {
   const { data: session, status } = useSession();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const searchParams = useSearchParams();
+  const isRoot = isRootAdmin(session?.user?.email);
+  const [tab, setTab] = useState<"dashboard" | "users">(searchParams.get("tab") === "users" ? "users" : "dashboard");
 
   useEffect(() => {
     if (session?.user?.isAdmin) {
@@ -134,11 +148,36 @@ export default function AdminDashboardPage() {
       <div className="mx-auto max-w-3xl">
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">관리자 대시보드</h1>
         <p className="mt-0.5 text-[12.5px] text-slate-400">
-          유입(가입)과 활성 사용자, 서비스 이용량을 확인할 수 있어요. 로그인하지 않은 순수 방문자 수는 여기 포함되지
-          않아요 — 그건 Vercel Analytics에서 확인하시는 게 정확해요.
+          유입(가입)과 활성 사용자, 서비스 이용량을 확인할 수 있어요. 비로그인 방문 수는 대략적인 집계치예요(더
+          정확한 수치는 Vercel Analytics에서 확인하실 수 있어요).
         </p>
 
-        {loading || !stats ? (
+        {isRoot && (
+          <div className="mt-4 flex gap-1.5 rounded-xl bg-slate-100 p-1 dark:bg-slate-900">
+            {(
+              [
+                ["dashboard", "대시보드"],
+                ["users", "관리자 지정"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`flex-1 rounded-lg py-2 text-[13px] font-semibold transition-colors ${
+                  tab === key ? "bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:text-slate-400"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {tab === "users" && isRoot ? (
+          <div className="mt-5">
+            <AdminUsersSection />
+          </div>
+        ) : loading || !stats ? (
           <p className="mt-10 text-center text-[13px] text-slate-400">불러오는 중…</p>
         ) : (
           <div className="mt-5 space-y-5">
@@ -170,6 +209,19 @@ export default function AdminDashboardPage() {
                 <StatCard label="최근 24시간" value={stats.activeUsers.last1} />
                 <StatCard label="최근 7일" value={stats.activeUsers.last7} />
                 <StatCard label="최근 30일" value={stats.activeUsers.last30} />
+              </div>
+            </section>
+
+            {/* 방문자 — 비로그인 상태로 앱을 연 횟수. 로그인 사용자는 위 활성 사용자에 이미 잡히므로 겹치지 않는다. */}
+            <section>
+              <h2 className="mb-2 text-[13px] font-semibold text-slate-500">
+                방문자
+                <span className="ml-1.5 font-normal text-slate-400">(비로그인, 개인 식별 정보 없이 조회 수만 집계)</span>
+              </h2>
+              <div className="grid grid-cols-3 gap-2.5">
+                <StatCard label="오늘" value={stats.anonymousVisits.today} />
+                <StatCard label="최근 7일" value={stats.anonymousVisits.last7} />
+                <StatCard label="최근 30일" value={stats.anonymousVisits.last30} />
               </div>
             </section>
 
