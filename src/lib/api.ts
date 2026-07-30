@@ -1076,6 +1076,7 @@ export interface AdminStats {
   totalUsers: number;
   newUsers: { today: number; last7: number; last30: number };
   activeUsers: { last1: number; last7: number; last30: number };
+  anonymousVisits: { today: number; last7: number; last30: number };
   signupTrend: { date: string; count: number }[];
   engagement: {
     savedPlans: number;

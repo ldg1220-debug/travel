@@ -524,4 +524,14 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "communityPostId" INTEGER REF
 -- 이 NULL이면 비회원, 과거 시각이면 만료된 것으로 취급(별도 배치 정리
 -- 없이 조회 시점에 now()와 비교해서 판단).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "isPremium" BOOLEAN NOT NULL DEFAULT false;
+
+-- 비로그인 방문자 집계 (관리자 대시보드) — 로그인한 사용자는 이미
+-- users."lastActiveAt"으로 활동을 추적하므로, 여기는 그 바깥의 비로그인
+-- 방문만 센다. 개인 식별 정보(IP, 쿠키, 기기 등)는 전혀 저장하지 않고
+-- 날짜별 총 조회 수만 누적한다 — src/app/api/track/visit/route.ts가
+-- 비로그인 상태로 앱이 열릴 때마다 오늘 날짜 행을 1씩 증가시킨다.
+CREATE TABLE IF NOT EXISTS visitor_counts (
+  day DATE PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 0
+);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "premiumUntil" TIMESTAMPTZ;
