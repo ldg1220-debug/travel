@@ -586,11 +586,29 @@ export default function DiscoverPage() {
     [bundle],
   );
   const trendingCompact = useMemo(
-    () => (bundle ? shuffled(bundle.trending.filter((s) => !isLodging(s.tag)).slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT) : []),
+    () =>
+      bundle
+        ? shuffled(
+            bundle.trending
+              .filter((s) => !isLodging(s.tag))
+              .slice()
+              .sort((a, b) => b.saves - a.saves)
+              .slice(0, COMPACT_POOL_SIZE),
+          ).slice(0, COMPACT_SPOT_COUNT)
+        : [],
     [bundle],
   );
   const favoritesCompact = useMemo(
-    () => (bundle ? shuffled(bundle.favorites.filter((s) => !isLodging(s.tag)).slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT) : []),
+    () =>
+      bundle
+        ? shuffled(
+            bundle.favorites
+              .filter((s) => !isLodging(s.tag))
+              .slice()
+              .sort((a, b) => b.saves - a.saves)
+              .slice(0, COMPACT_POOL_SIZE),
+          ).slice(0, COMPACT_SPOT_COUNT)
+        : [],
     [bundle],
   );
   // 트렌딩/즐겨찾기와 달리 숙소는 매번 랜덤으로 섞이면 안 된다 — "어디로 갈지

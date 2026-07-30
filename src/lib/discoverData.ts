@@ -158,6 +158,18 @@ const DOMESTIC: DiscoverBundle = {
     { id: "d-t4", name: "익선동 한옥골목", region: "서울 · 종로", tag: "관광지", season: "fall", saves: 640, gradient: "from-amber-400 to-yellow-300", iconKey: "landmark", lat: 37.573, lng: 126.991, color: "#fbbf24" },
     { id: "d-t5", name: "황리단길 포장마차거리", region: "경주 · 황남동", tag: "술집", season: "summer", saves: 1560, gradient: "from-indigo-400 to-purple-300", iconKey: "wine", lat: 35.8345, lng: 129.2115, color: "#818cf8" },
     { id: "d-t6", name: "경주월드 테마파크", region: "경주 · 보문동", tag: "테마파크", season: "summer", saves: 1120, gradient: "from-orange-400 to-amber-300", iconKey: "tent", lat: 35.8215, lng: 129.2695, color: "#fb923c" },
+    // "지금 뜨는 장소"가 위 6개뿐이라 새로고침할 때마다 거의 같은 카드만
+    // 도는 문제가 있었다 — 지역을 넓혀 실제로 순환할 만한 풀을 만든다.
+    { id: "d-t7", name: "강릉 안목해변 카페거리", region: "강릉 · 안목해변", tag: "카페", season: "winter", saves: 1430, gradient: "from-cyan-400 to-sky-300", iconKey: "coffee", lat: 37.7749, lng: 128.9486, color: "#22d3ee" },
+    { id: "d-t8", name: "전주 한옥마을", region: "전주 · 한옥마을", tag: "관광지", season: "fall", saves: 2050, gradient: "from-amber-400 to-orange-300", iconKey: "landmark", lat: 35.8155, lng: 127.1531, color: "#fbbf24" },
+    { id: "d-t9", name: "여수 밤바다 낭만포차거리", region: "여수 · 낭만포차거리", tag: "술집", season: "summer", saves: 1780, gradient: "from-fuchsia-400 to-pink-300", iconKey: "wine", lat: 34.7462, lng: 127.7381, color: "#e879f9" },
+    { id: "d-t10", name: "속초 아바이마을", region: "속초 · 아바이마을", tag: "관광지", season: "winter", saves: 910, gradient: "from-blue-400 to-indigo-300", iconKey: "landmark", lat: 38.2033, lng: 128.5946, color: "#60a5fa" },
+    { id: "d-t11", name: "통영 동피랑 벽화마을", region: "통영 · 동피랑", tag: "관광지", season: "spring", saves: 1340, gradient: "from-teal-400 to-cyan-300", iconKey: "camera", lat: 34.8474, lng: 128.4335, color: "#2dd4bf" },
+    { id: "d-t12", name: "광안리 해수욕장", region: "부산 · 광안리", tag: "자연", season: "summer", saves: 1990, gradient: "from-sky-400 to-blue-300", iconKey: "waves", lat: 35.1532, lng: 129.1186, color: "#38bdf8" },
+    { id: "d-t13", name: "송도 센트럴파크", region: "인천 · 송도", tag: "자연", season: "spring", saves: 760, gradient: "from-emerald-400 to-green-300", iconKey: "waves", lat: 37.3894, lng: 126.6432, color: "#34d399" },
+    { id: "d-t14", name: "김광석다시그리기길", region: "대구 · 방천시장", tag: "관광지", season: "fall", saves: 880, gradient: "from-slate-400 to-zinc-300", iconKey: "camera", lat: 35.8577, lng: 128.5934, color: "#94a3b8" },
+    { id: "d-t15", name: "홍대 걷고싶은거리", region: "서울 · 홍대", tag: "쇼핑", season: "fall", saves: 1610, gradient: "from-rose-400 to-fuchsia-300", iconKey: "camera", lat: 37.5563, lng: 126.9226, color: "#fb7185" },
+    { id: "d-t16", name: "중문 색달해변", region: "제주 · 중문", tag: "자연", season: "summer", saves: 1050, gradient: "from-sky-400 to-cyan-300", iconKey: "waves", lat: 33.2394, lng: 126.4103, color: "#38bdf8" },
   ],
   favorites: [
     { id: "d-f1", name: "경복궁", region: "서울 · 종로", tag: "관광지", season: "spring", saves: 5200, gradient: "from-emerald-400 to-teal-300", iconKey: "landmark", lat: 37.5796, lng: 126.977, color: "#34d399" },
@@ -254,6 +266,15 @@ const OVERSEAS: DiscoverBundle = {
     { id: "o-t2", name: "유후인 플로랄 빌리지", region: "일본 · 오이타", tag: "관광지", season: "spring", saves: 2540, gradient: "from-rose-400 to-amber-300", iconKey: "landmark", lat: 33.2668, lng: 131.3717, color: "#fb7185" },
     { id: "o-t3", name: "하노이 구시가지 나이트", region: "베트남 · 하노이", tag: "술집", season: "summer", saves: 1980, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 21.0343, lng: 105.8508, color: "#fbbf24" },
     { id: "o-t4", name: "캐널시티 하카타", region: "일본 · 후쿠오카", tag: "쇼핑", season: "fall", saves: 1670, gradient: "from-cyan-400 to-blue-300", iconKey: "pin", lat: 33.5898, lng: 130.4103, color: "#22d3ee" },
+    // 국내와 같은 이유 — 4개뿐이던 풀을 넓혀 실제로 순환하게 한다.
+    { id: "o-t5", name: "시부야 스크램블 교차로", region: "일본 · 도쿄", tag: "관광지", season: "fall", saves: 4200, gradient: "from-rose-400 to-red-300", iconKey: "camera", lat: 35.6595, lng: 139.7005, color: "#fb7185" },
+    { id: "o-t6", name: "후시미이나리 신사", region: "일본 · 교토", tag: "관광지", season: "fall", saves: 3600, gradient: "from-orange-400 to-red-300", iconKey: "landmark", lat: 34.9671, lng: 135.7727, color: "#fb923c" },
+    { id: "o-t7", name: "왓아룬 새벽사원", region: "태국 · 방콕", tag: "관광지", season: "winter", saves: 2400, gradient: "from-amber-400 to-yellow-300", iconKey: "landmark", lat: 13.7437, lng: 100.4888, color: "#fbbf24" },
+    { id: "o-t8", name: "타이베이 101", region: "대만 · 타이베이", tag: "관광지", season: "spring", saves: 2900, gradient: "from-sky-400 to-blue-300", iconKey: "landmark", lat: 25.034, lng: 121.5645, color: "#38bdf8" },
+    { id: "o-t9", name: "미케비치", region: "베트남 · 다낭", tag: "자연", season: "summer", saves: 1850, gradient: "from-cyan-400 to-teal-300", iconKey: "waves", lat: 16.0544, lng: 108.25, color: "#22d3ee" },
+    { id: "o-t10", name: "나카스 야타이 포장마차거리", region: "일본 · 후쿠오카", tag: "술집", season: "winter", saves: 2100, gradient: "from-orange-400 to-amber-300", iconKey: "wine", lat: 33.5904, lng: 130.4017, color: "#fb923c" },
+    { id: "o-t11", name: "삿포로 오도리공원", region: "일본 · 삿포로", tag: "자연", season: "winter", saves: 1620, gradient: "from-sky-400 to-indigo-300", iconKey: "waves", lat: 43.0609, lng: 141.3549, color: "#818cf8" },
+    { id: "o-t12", name: "하롱베이", region: "베트남 · 하롱", tag: "자연", season: "spring", saves: 2050, gradient: "from-emerald-400 to-teal-300", iconKey: "waves", lat: 20.9101, lng: 107.1839, color: "#2dd4bf" },
   ],
   favorites: [
     { id: "o-f1", name: "오사카성", region: "일본 · 오사카", tag: "관광지", season: "spring", saves: 8900, gradient: "from-teal-400 to-emerald-300", iconKey: "landmark", lat: 34.6873, lng: 135.5259, color: "#2dd4bf" },
