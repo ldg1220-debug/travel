@@ -552,13 +552,21 @@ const POPOVER_MARGIN = 8;
 
 function HashtagMention({ review }: { review: TripPostPlaceReview }) {
   const [open, setOpen] = useState(false);
+  // Hovering shows a volatile preview that vanishes the moment the pointer
+  // leaves; clicking "pins" it open so it survives the pointer leaving, and
+  // clicking again (while pinned) force-closes it immediately instead of
+  // waiting for a mouseleave that may never come (mobile has none at all).
+  const [pinned, setPinned] = useState(false);
   const [shift, setShift] = useState(0);
   const ref = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const handleOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setPinned(false);
+      }
     };
     document.addEventListener("mousedown", handleOutside);
     return () => document.removeEventListener("mousedown", handleOutside);
@@ -582,10 +590,25 @@ function HashtagMention({ review }: { review: TripPostPlaceReview }) {
   }, [open]);
 
   return (
-    <span ref={ref} className="relative inline-block">
+    <span
+      ref={ref}
+      className="relative inline-block"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => {
+        if (!pinned) setOpen(false);
+      }}
+    >
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (pinned) {
+            setPinned(false);
+            setOpen(false);
+          } else {
+            setPinned(true);
+            setOpen(true);
+          }
+        }}
         className="font-semibold text-indigo-500 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-600"
       >
         #{hashtagSlug(review.placeName)}
