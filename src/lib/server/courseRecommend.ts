@@ -37,6 +37,12 @@ export const TRAVEL_RADIUS_OPTIONS: { minutes: TravelRadius; label: string }[] =
   { minutes: 0, label: "제한없음" },
 ];
 export function parseTravelRadius(raw: string | null): TravelRadius {
+  // `raw` missing/empty must fall through to the 60-minute default, not
+  // "제한없음" — but `Number(null)` and `Number("")` are both `0`, which is
+  // also a legitimate TravelRadius value, so an explicit presence check is
+  // required (a plain `.some(...)` match would silently accept the coerced
+  // 0 as if the caller had asked for "제한없음").
+  if (raw == null || raw === "") return 60;
   const n = Number(raw);
   return TRAVEL_RADIUS_OPTIONS.some((o) => o.minutes === n) ? (n as TravelRadius) : 60;
 }

@@ -342,12 +342,21 @@ export const useItineraryStore = create<ItineraryState>()(
       hasConflict: (date, startMinutes, durationMinutes, excludeId) => {
         const { items } = get();
         const prevDate = shiftISODate(date, -1);
+        // The *candidate* range can itself spill into the next day (an
+        // overnight stop being created/resized) — its tail must also be
+        // checked against that day's items, or two stops can silently
+        // double-book the same next-day early-morning slot.
+        const nextDate = shiftISODate(date, 1);
+        const candidateSpill = startMinutes + durationMinutes - DAY_MINUTES;
         return items.some((item) => {
           if (item.id === excludeId) return false;
           if (item.date === date) return rangesOverlap(minutesFromTime(item.time), item.durationMinutes, startMinutes, durationMinutes);
           if (item.date === prevDate) {
             const spill = minutesFromTime(item.time) + item.durationMinutes - DAY_MINUTES;
             return spill > 0 && rangesOverlap(0, spill, startMinutes, durationMinutes);
+          }
+          if (item.date === nextDate && candidateSpill > 0) {
+            return rangesOverlap(minutesFromTime(item.time), item.durationMinutes, 0, candidateSpill);
           }
           return false;
         });
