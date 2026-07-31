@@ -225,17 +225,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
 
   // Which map SDK to render — derived from the *actual coordinates* on this
-  // plan (majority vote across every scheduled item + saved place) rather
-  // than trusted blindly from the plan's `region` flag. That flag is set
-  // once wherever a place was first added (see discover/page.tsx's
-  // setRegion calls) and never revisited, so an older plan — or one where
-  // that call was skipped — can carry a stale/wrong flag and silently
-  // render the wrong provider (e.g. Kakao for a Fukuoka plan) even though
-  // every place in it is obviously overseas. Falls back to `region` only
-  // when there's nothing yet to sample (a brand new, still-empty plan).
-  const regionSample = [...items.map((it) => places.find((p) => p.id === it.placeId)), ...savedPlaces].filter(
-    (p): p is Place => p != null,
-  );
+  // plan (majority vote) rather than trusted blindly from the `region`
+  // flag. That flag is global and last-write-wins — any /discover browsing
+  // session (even for a totally different plan) overwrites it via its own
+  // setRegion calls — so it can easily be stale by the time this plan is
+  // opened. Scheduled `items` are what's actually being viewed here, so
+  // they alone decide when present. `savedPlaces` (관심 장소) is likewise
+  // global, not scoped to this plan, so it only breaks the tie when there
+  // are no scheduled items yet to sample (a brand new, still-empty plan) —
+  // otherwise a domestic 관심 장소 saved while browsing something unrelated
+  // could outvote every place actually on this plan's itinerary (e.g. Kakao
+  // rendering for a Fukuoka plan because more domestic spots had been
+  // heart-saved elsewhere than there were scheduled Fukuoka stops).
+  const itemPlaces = items.map((it) => places.find((p) => p.id === it.placeId)).filter((p): p is Place => p != null);
+  const regionSample = itemPlaces.length > 0 ? itemPlaces : savedPlaces;
   const isDomestic =
     regionSample.length > 0
       ? regionSample.filter((p) => isDomesticCoordinate(p.lat, p.lng)).length > regionSample.length / 2
