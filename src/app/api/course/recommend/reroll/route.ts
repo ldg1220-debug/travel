@@ -2,7 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Place } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { curateCourseWithLlm } from "@/lib/server/courseLlm";
-import { THEME_LABELS, parseTheme, findSlot, fetchSlotCandidates, pickDeterministic } from "@/lib/server/courseRecommend";
+import {
+  THEME_LABELS,
+  parseTheme,
+  findSlot,
+  fetchSlotCandidates,
+  pickDeterministic,
+  parseTravelRadius,
+  radiusKmFor,
+  isWithinRadius,
+  hasWithinRadiusCandidate,
+} from "@/lib/server/courseRecommend";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +41,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const anchorLat = Number(params.get("anchorLat"));
   const anchorLng = Number(params.get("anchorLng"));
   const anchor = Number.isFinite(anchorLat) && Number.isFinite(anchorLng) && (anchorLat || anchorLng) ? { lat: anchorLat, lng: anchorLng } : null;
+  const maxDistanceKm = radiusKmFor(parseTravelRadius(params.get("radius")));
 
   if (!city) return NextResponse.json({ error: "missing city" }, { status: 400 });
   const slot = findSlot(theme, slotKey);
@@ -54,12 +65,14 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   let reason: string | undefined;
   if (llmPick) {
     const c = candidates.find((cand) => cand.id === llmPick.id && !excludeIds.has(cand.id));
-    if (c) {
+    const acceptable =
+      c && (isWithinRadius(c, anchor, maxDistanceKm) || !hasWithinRadiusCandidate(candidates, excludeIds, excludeNames, anchor, maxDistanceKm));
+    if (acceptable) {
       chosen = c;
       reason = llmPick.reason;
     }
   }
-  if (!chosen) chosen = pickDeterministic(candidates, excludeIds, excludeNames, anchor);
+  if (!chosen) chosen = pickDeterministic(candidates, excludeIds, excludeNames, anchor, maxDistanceKm);
   if (!chosen) return NextResponse.json({ stop: null, source: llmPicks ? "llm" : scope === "overseas" ? "google" : "kakao" });
 
   const stop: FinalStop = {

@@ -11,7 +11,7 @@ import { PlacePager } from "@/components/PlacePager";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { useItineraryStore } from "@/store/itineraryStore";
-import { fetchLivePlaceSearch, fetchRecommendedCourse, fetchRerolledStop, type RecommendedStop, type CourseTheme } from "@/lib/api";
+import { fetchLivePlaceSearch, fetchRecommendedCourse, fetchRerolledStop, type RecommendedStop, type CourseTheme, type CourseTravelRadius } from "@/lib/api";
 import { useUserLocation } from "@/lib/useUserLocation";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { COURSE_SLOTS, courseNodesAtPath, courseRegionTree, searchableDepth, type CourseSlot } from "@/lib/courseRegions";
@@ -30,6 +30,17 @@ const AI_THEMES: { key: CourseTheme; emoji: string; label: string }[] = [
   { key: "healing", emoji: "🌿", label: "힐링·감성" },
   { key: "culture", emoji: "🏛️", label: "역사·문화" },
   { key: "active", emoji: "🎢", label: "액티비티" },
+];
+
+// AI 추천 동선의 스톱 간 이동 시간 상한 — 시골/특정 해외지역은 명소 간
+// 거리가 자연히 멀 수 있어 고정값 대신 선택지로 둔다. server의
+// TRAVEL_RADIUS_OPTIONS와 값이 일치해야 한다.
+const AI_RADIUS_OPTIONS: { minutes: CourseTravelRadius; label: string }[] = [
+  { minutes: 15, label: "15분" },
+  { minutes: 30, label: "30분" },
+  { minutes: 60, label: "1시간" },
+  { minutes: 120, label: "2시간" },
+  { minutes: 0, label: "제한없음" },
 ];
 
 // ── representative photo behind a scope/region tile — live Google Places
@@ -86,6 +97,7 @@ export default function CourseBuilderPage() {
   const [aiCourse, setAiCourse] = useState<RecommendedStop[] | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiTheme, setAiTheme] = useState<CourseTheme>("balanced");
+  const [aiRadius, setAiRadius] = useState<CourseTravelRadius>(60);
   // slotKey of the stop currently being rerolled — null when none in flight.
   const [rerollingSlot, setRerollingSlot] = useState<string | null>(null);
 
@@ -214,7 +226,7 @@ export default function CourseBuilderPage() {
   const runAiRecommend = async () => {
     if (!aiCity) return;
     setAiLoading(true);
-    const course = await fetchRecommendedCourse(scope, aiCity, aiTheme);
+    const course = await fetchRecommendedCourse(scope, aiCity, aiTheme, aiRadius);
     setAiLoading(false);
     setAiCourse(course);
   };
@@ -228,7 +240,7 @@ export default function CourseBuilderPage() {
   const rerollAiStop = async (slotKey: string) => {
     if (!aiCourse || !aiCity) return;
     setRerollingSlot(slotKey);
-    const next = await fetchRerolledStop(scope, aiCity, aiTheme, slotKey, aiCourse);
+    const next = await fetchRerolledStop(scope, aiCity, aiTheme, slotKey, aiCourse, aiRadius);
     setRerollingSlot(null);
     if (!next) {
       showToast("더 추천할 곳을 찾지 못했어요");
@@ -436,6 +448,24 @@ export default function CourseBuilderPage() {
                     }`}
                   >
                     {t.emoji} {t.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <span className="shrink-0 text-[11.5px] font-medium text-slate-400">이동 반경</span>
+              {AI_RADIUS_OPTIONS.map((r) => {
+                const active = aiRadius === r.minutes;
+                return (
+                  <button
+                    key={r.minutes}
+                    onClick={() => setAiRadius(r.minutes)}
+                    aria-pressed={active}
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[11.5px] font-semibold transition-colors ${
+                      active ? "border-slate-800 bg-slate-800 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                    }`}
+                  >
+                    {r.label}
                   </button>
                 );
               })}

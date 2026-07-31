@@ -145,11 +145,19 @@ export interface RecommendedStop extends Place {
 /** 코스 테마 — 하루 골격/키워드를 바꾼다. server의 THEME_SLOTS와 키가 일치해야 함. */
 export type CourseTheme = "balanced" | "foodie" | "healing" | "culture" | "active";
 
+/** 스톱 간 이동 시간 상한(분). 0 = 제한없음. server의 TravelRadius와 값이 일치해야 함. */
+export type CourseTravelRadius = 0 | 15 | 30 | 60 | 120;
+
 /** AI 추천 동선 — a full auto-assembled day course of real top-rated places for a city, shaped by `theme`. Empty array when the live API is unavailable (no key). */
-export async function fetchRecommendedCourse(scope: DiscoverScope, city: string, theme: CourseTheme = "balanced"): Promise<RecommendedStop[]> {
+export async function fetchRecommendedCourse(
+  scope: DiscoverScope,
+  city: string,
+  theme: CourseTheme = "balanced",
+  radius: CourseTravelRadius = 60,
+): Promise<RecommendedStop[]> {
   if (!city.trim()) return [];
   try {
-    const res = await fetch(`/api/course/recommend?scope=${scope}&city=${encodeURIComponent(city)}&theme=${theme}`);
+    const res = await fetch(`/api/course/recommend?scope=${scope}&city=${encodeURIComponent(city)}&theme=${theme}&radius=${radius}`);
     if (!res.ok) return [];
     const data = (await res.json()) as { course?: RecommendedStop[]; source?: string };
     // "llm" = Claude-curated, "google"/"kakao" = deterministic ranker; all are real live results. "mock" = no API key.
@@ -173,6 +181,7 @@ export async function fetchRerolledStop(
   theme: CourseTheme,
   slotKey: string,
   currentCourse: RecommendedStop[],
+  radius: CourseTravelRadius = 60,
 ): Promise<RecommendedStop | null> {
   if (!city.trim()) return null;
   const idx = currentCourse.findIndex((s) => s.slotKey === slotKey);
@@ -182,6 +191,7 @@ export async function fetchRerolledStop(
     city,
     theme,
     slot: slotKey,
+    radius: String(radius),
     excludeIds: currentCourse.map((s) => s.id).join(","),
     excludeNames: currentCourse.map((s) => encodeURIComponent(s.name)).join(","),
   });
