@@ -55,6 +55,7 @@ import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS 
 import { SEASON_LABEL } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
 import { useRecentSearches } from "@/lib/useRecentSearches";
+import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import type {
   CuisineTag,
   DiscoverRoute,
@@ -388,6 +389,10 @@ export default function DiscoverPage() {
   const [addChoiceTarget, setAddChoiceTarget] = useState<{ place: Place; city: string } | null>(null);
   const [choosingFolder, setChoosingFolder] = useState(false);
   const [detailPlace, setDetailPlace] = useState<Place | null>(null);
+  // The overlay opens via local state, not a route change — without this,
+  // the Android back button skips past it (and the search results
+  // underneath) straight to whatever page was open before /discover.
+  useBackButtonClose(detailPlace !== null, () => setDetailPlace(null));
   const [routeTarget, setRouteTarget] = useState<DiscoverRoute | null>(null);
   const [previewRoute, setPreviewRoute] = useState<DiscoverRoute | null>(null);
   const [expandedSection, setExpandedSection] = useState<SectionKind | null>(null);

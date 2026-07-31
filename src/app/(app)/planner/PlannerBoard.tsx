@@ -75,6 +75,7 @@ import {
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
 import { fetchSharedItinerary } from "@/lib/api";
+import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
@@ -256,6 +257,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // "딥 다이브" detail overlay — opened from a saved-list row, a search
   // selection, or a trend card tap while on the 관심 장소 tab.
   const [detailPlace, setDetailPlace] = useState<Place | null>(null);
+  // Opens via local state, not a route change — without this, the Android
+  // back button skips past the overlay straight to whatever page was open
+  // before /planner.
+  useBackButtonClose(detailPlace !== null, () => setDetailPlace(null));
 
   // A place just found via the map's search box, not yet scheduled — shown
   // as a single temporary pin (see scheduleMapPlaces below) so it stays
