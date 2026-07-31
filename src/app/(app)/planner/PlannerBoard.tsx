@@ -1260,10 +1260,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     fitToPlaces(visibleMarkerPlaces);
   }, [visibleMarkerPlaces, fitToPlaces, isDomestic]);
 
+  // Shifts relative to `activeDate` (the day actually being viewed), not
+  // `windowStart` (the window's anchor) — a day-header click can move
+  // activeDate ahead of windowStart without moving the window (see the
+  // comment above), so a chevron press anchored on windowStart could land
+  // on a date at or before what was already on screen, showing that day's
+  // (unexpectedly different) places instead of the next/previous one.
+  // Only re-anchor the window when the new day actually falls outside the
+  // currently visible columns, instead of always sliding it by one.
   const shiftWindow = (days: number) => {
-    const next = shiftISODate(windowStart, days);
-    setWindowStart(next);
+    const next = shiftISODate(activeDate, days);
     setActiveDate(next);
+    if (!visibleDates.includes(next)) setWindowStart(next);
   };
 
   return (
