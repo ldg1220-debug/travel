@@ -13,6 +13,7 @@ import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchLivePlaceSearch, fetchRecommendedCourse, fetchRerolledStop, type RecommendedStop, type CourseTheme } from "@/lib/api";
 import { useUserLocation } from "@/lib/useUserLocation";
+import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { COURSE_SLOTS, courseNodesAtPath, courseRegionTree, searchableDepth, type CourseSlot } from "@/lib/courseRegions";
 import { todayISODate, pad2, formatDateLabel } from "@/lib/timeline";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
@@ -73,6 +74,10 @@ export default function CourseBuilderPage() {
   const [picks, setPicks] = useState<Record<string, Place[]>>({});
   const [activeSlot, setActiveSlot] = useState<string>(COURSE_SLOTS[0].key);
   const [detailPlace, setDetailPlace] = useState<Place | null>(null);
+  // The overlay opens via local state, not a route change — without this,
+  // the Android back button skips past it (and the search results
+  // underneath) straight to whatever page was open before /course.
+  useBackButtonClose(detailPlace !== null, () => setDetailPlace(null));
   const [toast, setToast] = useState<string | null>(null);
   // finish sheet: null = closed; otherwise the mode being configured.
   const [finishOpen, setFinishOpen] = useState(false);
