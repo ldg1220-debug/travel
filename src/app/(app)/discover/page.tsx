@@ -1283,7 +1283,7 @@ function SearchResults({
   // fails. `liveResults` is [] (never an error) whenever keys are missing
   // or the call fails, so this section just quietly doesn't render then.
   const userLoc = useUserLocation();
-  const { data: liveResults } = useQuery({
+  const { data: liveData } = useQuery({
     queryKey: ["discover-live-search", scope, query, categoryFilter, userLoc.location],
     queryFn: () => fetchLivePlaceSearch(scope, query, categoryFilter === "all" ? undefined : categoryFilter, userLoc.location),
     // Each live call is real (billed) Google/Kakao quota — coming back to
@@ -1291,6 +1291,44 @@ function SearchResults({
     // not re-bill the API.
     staleTime: 5 * 60 * 1000,
   });
+  const liveResults = liveData?.places;
+
+  // "더 보기" — additional Google results fetched beyond the initial batch,
+  // only when the server found a real `nextPageToken` (thin domestic
+  // searches, e.g. "내외동 술집" landing at ~15 hits). Kept as separate
+  // local state from the react-query cache above since it's an explicit
+  // user action layered on top of one search, not the search itself.
+  const [moreLivePlaces, setMoreLivePlaces] = useState<Place[]>([]);
+  const [moreLiveToken, setMoreLiveToken] = useState<string | null | undefined>(undefined);
+  const [loadingMoreLive, setLoadingMoreLive] = useState(false);
+  const availableLiveToken = moreLiveToken !== undefined ? moreLiveToken : liveData?.nextPageToken;
+  const liveSearchKeyValue = `${scope}|${query}|${categoryFilter}`;
+  const [liveSearchKey, setLiveSearchKey] = useState(liveSearchKeyValue);
+  if (liveSearchKey !== liveSearchKeyValue) {
+    setLiveSearchKey(liveSearchKeyValue);
+    setMoreLivePlaces([]);
+    setMoreLiveToken(undefined);
+  }
+  const handleLoadMoreLive = async () => {
+    if (!availableLiveToken || loadingMoreLive) return;
+    setLoadingMoreLive(true);
+    try {
+      const more = await fetchLivePlaceSearch(
+        scope,
+        query,
+        categoryFilter === "all" ? undefined : categoryFilter,
+        userLoc.location,
+        availableLiveToken,
+      );
+      setMoreLivePlaces((prev) => {
+        const seenIds = new Set([...(liveResults ?? []), ...prev].map((p) => p.id));
+        return [...prev, ...more.places.filter((p) => !seenIds.has(p.id))];
+      });
+      setMoreLiveToken(more.nextPageToken ?? null);
+    } finally {
+      setLoadingMoreLive(false);
+    }
+  };
 
   const [liveSort, setLiveSort] = useState<LiveSortKey>("relevance");
   // "내 주변순" needs the device's actual position first — tapping it before
@@ -1308,8 +1346,8 @@ function SearchResults({
   // the same place.
   const [selectedLiveId, setSelectedLiveId] = useState<string | null>(null);
   const sortedLiveResults = useMemo(
-    () => sortPlaces(liveResults ?? [], liveSort, userLoc.location),
-    [liveResults, liveSort, userLoc.location],
+    () => sortPlaces([...(liveResults ?? []), ...moreLivePlaces], liveSort, userLoc.location),
+    [liveResults, moreLivePlaces, liveSort, userLoc.location],
   );
 
   // 서버가 최대 ~60개까지 한 번에 가져와두므로(재요청 없음), 여기서
@@ -1615,6 +1653,16 @@ function SearchResults({
           </div>
 
           <PlacePager page={livePage} totalPages={liveTotalPages} onChange={setLivePage} />
+          {livePage === liveTotalPages && availableLiveToken && (
+            <button
+              type="button"
+              onClick={handleLoadMoreLive}
+              disabled={loadingMoreLive}
+              className="mx-auto mt-2 flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-[12.5px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+            >
+              {loadingMoreLive ? "찾는 중…" : "다른 결과 더 찾아보기"}
+            </button>
+          )}
         </section>
       )}
     </div>

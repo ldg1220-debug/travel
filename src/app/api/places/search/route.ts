@@ -105,10 +105,13 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const query = stripLocalityFillers(rawQuery);
   const category = request.nextUrl.searchParams.get("category") ?? "all";
   const userLocation = parseUserLocation(request);
-  if (!query && !userLocation) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
+  // "더 보기" continuation — a Google `nextPageToken` from an earlier
+  // response, only meaningful for the domestic Google-fallback path today.
+  const pageToken = request.nextUrl.searchParams.get("pageToken") ?? undefined;
+  if (!query && !userLocation && !pageToken) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
 
   if (region === "domestic") {
-    return NextResponse.json(await searchDomestic(query, near, userLocation));
+    return NextResponse.json(await searchDomestic(query, near, userLocation, pageToken));
   }
 
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -516,7 +519,16 @@ async function searchDomestic(
   query: string,
   near?: { landmark: string; want: string } | null,
   userLocation?: { lat: number; lng: number } | null,
-): Promise<{ places: Place[]; source: PlaceSearchSource }> {
+  /** Set only on a "더 보기" continuation request — Kakao's own index is
+   * already fully fetched by kakaoKeywordAll, so a continuation just
+   * carries on the Google side (which is where "더 보기" actually finds
+   * something new) instead of re-running Kakao. */
+  pageToken?: string,
+): Promise<{ places: Place[]; source: PlaceSearchSource; nextPageToken?: string }> {
+  if (pageToken) {
+    const page = await domesticGoogleFallback(query, pageToken);
+    return { places: page.places, source: "google", nextPageToken: page.nextPageToken };
+  }
   const apiKey = process.env.KAKAO_REST_API_KEY;
   console.log("[places/search] Using Kakao API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
@@ -546,12 +558,14 @@ async function searchDomestic(
         const kakaoPlaces = docs.map(kakaoDocToPlace);
         // Kakao Local's keyword search is literal token matching, not the
         // review-driven ranking Kakao Map's own app uses — broad "지역
-        // 맛집" queries can come back thin (a dozen hits) even in areas
-        // with far more real listings. Top up anything under a full page
-        // with Google Places instead of only falling back on a hard zero.
-        if (kakaoPlaces.length < THIN_RESULT_THRESHOLD) {
+        // 맛집" queries can come back thin (a dozen hits, sometimes landing
+        // exactly at the threshold) even in areas with far more real
+        // listings. Top up anything at or under a full page with Google
+        // Places instead of only falling back on a hard zero.
+        if (kakaoPlaces.length <= THIN_RESULT_THRESHOLD) {
           const googleFallback = await domesticGoogleFallback(query);
-          if (googleFallback.length > 0) mergePlaces(kakaoPlaces, googleFallback);
+          if (googleFallback.places.length > 0) mergePlaces(kakaoPlaces, googleFallback.places);
+          return { places: kakaoPlaces, source: "kakao", nextPageToken: googleFallback.nextPageToken };
         }
         return { places: kakaoPlaces, source: "kakao" };
       }
@@ -560,19 +574,52 @@ async function searchDomestic(
       // Google Places lookup before giving up, since Google's listing
       // coverage and Kakao's don't fully overlap.
       const googleFallback = await domesticGoogleFallback(query);
-      if (googleFallback.length > 0) return { places: googleFallback, source: "google" };
+      if (googleFallback.places.length > 0) return { places: googleFallback.places, source: "google", nextPageToken: googleFallback.nextPageToken };
       return { places: [], source: "kakao" };
     }
   }
   return { places: filterByName(DOMESTIC_PLACES, query), source: "mock" };
 }
 
-/** Best-effort Google Places lookup for a domestic query Kakao Local came up empty on. Never throws — falls back to no results so the caller's own mock fallback still applies. */
-async function domesticGoogleFallback(query: string): Promise<Place[]> {
+/**
+ * Best-effort Google Places lookup backing the domestic search's Google
+ * fallback/top-up AND its "더 보기" continuation. Kept separate from
+ * callGoogleSearchText (which every other call site in this file uses) so
+ * that if Google's `pageToken` continuation ever turns out unsupported or
+ * behaves unexpectedly, the blast radius is this one function — the
+ * "더 보기" button just quietly stops offering more instead of anything
+ * regressing. Never throws — falls back to no results either way.
+ */
+async function domesticGoogleFallback(query: string, pageToken?: string): Promise<{ places: Place[]; nextPageToken?: string }> {
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  if (!googleApiKey) return [];
-  const results = await callGoogleSearchText(query, googleApiKey);
-  return results ?? [];
+  if (!googleApiKey) return { places: [] };
+  const page = await fetchGooglePlacesPage(
+    googleApiKey,
+    pageToken ? { pageToken } : { textQuery: query, maxResultCount: 20, languageCode: "ko" },
+  );
+  if (!page) return { places: [] };
+  return { places: page.places.map((p) => googlePlaceToPlace(p)), nextPageToken: page.nextPageToken };
+}
+
+/** Raw `places:searchText` fetch used for a fresh query or a `pageToken` continuation — returns null on a non-ok response. */
+async function fetchGooglePlacesPage(apiKey: string, body: Record<string, unknown>): Promise<{ places: GooglePlaceResult[]; nextPageToken?: string } | null> {
+  const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask":
+        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.priceLevel,places.primaryType,places.photos,places.googleMapsUri,nextPageToken",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    console.error("[places/search] Google searchText page error:", res.status, res.statusText, await res.text());
+    return null;
+  }
+  const data = (await res.json()) as { places?: GooglePlaceResult[]; nextPageToken?: string };
+  return { places: data.places ?? [], nextPageToken: data.nextPageToken };
 }
 
 function kakaoDocToPlace(d: KakaoLocalDocument): Place {

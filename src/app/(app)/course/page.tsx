@@ -711,10 +711,38 @@ function SlotResults({
     setSort(key);
   };
 
+  // "더 보기" — same pattern as /discover's live results: extra Google
+  // results fetched beyond the initial batch only when a real
+  // `nextPageToken` came back (thin domestic slot searches).
+  const [morePlaces, setMorePlaces] = useState<Place[]>([]);
+  const [moreToken, setMoreToken] = useState<string | null | undefined>(undefined);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const availableToken = moreToken !== undefined ? moreToken : data?.nextPageToken;
+  const [moreResetKey, setMoreResetKey] = useState(query);
+  if (moreResetKey !== query) {
+    setMoreResetKey(query);
+    setMorePlaces([]);
+    setMoreToken(undefined);
+  }
+  const handleLoadMore = async () => {
+    if (!availableToken || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const more = await fetchLivePlaceSearch(scope, query, slot.tag, userLoc.location, availableToken);
+      setMorePlaces((prev) => {
+        const seenIds = new Set([...(data?.places ?? []), ...prev].map((p) => p.id));
+        return [...prev, ...more.places.filter((p) => !seenIds.has(p.id))];
+      });
+      setMoreToken(more.nextPageToken ?? null);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   if (isFetching && !data) {
     return <p className="py-16 text-center text-[13px] text-slate-400">{slot.label} 찾는 중…</p>;
   }
-  const results = data ?? [];
+  const results = [...(data?.places ?? []), ...morePlaces];
   if (results.length === 0) {
     return (
       <p className="py-16 text-center text-[13px] text-slate-400">
@@ -764,6 +792,16 @@ function SlotResults({
       </div>
 
       <PlacePager page={page} totalPages={totalPages} onChange={setPage} />
+      {page === totalPages && availableToken && (
+        <button
+          type="button"
+          onClick={handleLoadMore}
+          disabled={loadingMore}
+          className="mx-auto mt-2 flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-[12.5px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
+        >
+          {loadingMore ? "찾는 중…" : "다른 결과 더 찾아보기"}
+        </button>
+      )}
     </div>
   );
 }

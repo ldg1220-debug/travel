@@ -35,14 +35,22 @@ function placesSearchCategory(tag?: string): string | undefined {
  * "no live results this time" rather than breaking the rest of the search
  * page, since /discover's curated results are still shown regardless.
  */
+export interface LivePlaceSearchResult {
+  places: Place[];
+  /** Present only when the server found a genuine Google `nextPageToken` — pass it back in to fetch the next batch ("더 보기"). Undefined means there's nothing more to fetch. */
+  nextPageToken?: string;
+}
+
 export async function fetchLivePlaceSearch(
   scope: DiscoverScope,
   query: string,
   tag?: string,
   /** Set only when the user explicitly asked for "내 주변순" — resolved client-side via the browser's Geolocation API and forwarded as-is, never stored. */
   userLocation?: { lat: number; lng: number } | null,
-): Promise<Place[]> {
-  if (!query.trim() && !userLocation) return [];
+  /** Set only for a "더 보기" continuation — the previous response's `nextPageToken`. */
+  pageToken?: string,
+): Promise<LivePlaceSearchResult> {
+  if (!query.trim() && !userLocation && !pageToken) return { places: [] };
   try {
     const region: Region = scope === "domestic" ? "domestic" : "international";
     const params = new URLSearchParams({ region, q: query });
@@ -52,17 +60,18 @@ export async function fetchLivePlaceSearch(
       params.set("lat", String(userLocation.lat));
       params.set("lng", String(userLocation.lng));
     }
+    if (pageToken) params.set("pageToken", pageToken);
     const res = await fetch(`/api/places/search?${params.toString()}`);
-    if (!res.ok) return [];
-    const data = (await res.json()) as { places?: Place[]; source?: "google" | "kakao" | "mock" };
+    if (!res.ok) return { places: [] };
+    const data = (await res.json()) as { places?: Place[]; source?: "google" | "kakao" | "mock"; nextPageToken?: string };
     // "mock" means the route had no real API key (or the live call itself
     // failed) and quietly fell back to a cached/offline place list — showing
     // that under a "실시간 검색 결과 · 실제 장소" heading would be misleading,
     // so only a genuine google/kakao hit counts as a live result here.
-    if (data.source !== "google" && data.source !== "kakao") return [];
-    return data.places ?? [];
+    if (data.source !== "google" && data.source !== "kakao") return { places: [] };
+    return { places: data.places ?? [], nextPageToken: data.nextPageToken };
   } catch {
-    return [];
+    return { places: [] };
   }
 }
 
