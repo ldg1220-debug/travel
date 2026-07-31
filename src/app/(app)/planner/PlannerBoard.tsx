@@ -224,21 +224,35 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const removeSavedPlace = useItineraryStore((s) => s.removeSavedPlace);
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
 
+  // A place just found via the map's search box, not yet scheduled — shown
+  // as a single temporary pin (see scheduleMapPlaces below) so it stays
+  // tappable/draggable onto a slot, without permanently cluttering the map
+  // with every place ever searched for across the whole session (that's
+  // what `places` used to do — see PR history for "맵에 남아있는 스팟포인트").
+  // Declared here (ahead of `isDomestic` below, not at its previous spot
+  // further down) so a still-unscheduled overseas search result — e.g.
+  // picked while only a domestic item like an airport is scheduled so far —
+  // still counts toward which map engine renders, instead of momentarily
+  // being pinned on a Kakao map that has no tiles outside Korea.
+  const [pendingSearchPlace, setPendingSearchPlace] = useState<Place | null>(null);
+
   // Which map SDK to render — derived from the *actual coordinates* on this
   // plan (majority vote) rather than trusted blindly from the `region`
   // flag. That flag is global and last-write-wins — any /discover browsing
   // session (even for a totally different plan) overwrites it via its own
   // setRegion calls — so it can easily be stale by the time this plan is
-  // opened. Scheduled `items` are what's actually being viewed here, so
-  // they alone decide when present. `savedPlaces` (관심 장소) is likewise
-  // global, not scoped to this plan, so it only breaks the tie when there
-  // are no scheduled items yet to sample (a brand new, still-empty plan) —
-  // otherwise a domestic 관심 장소 saved while browsing something unrelated
-  // could outvote every place actually on this plan's itinerary (e.g. Kakao
-  // rendering for a Fukuoka plan because more domestic spots had been
-  // heart-saved elsewhere than there were scheduled Fukuoka stops).
+  // opened. Scheduled `items` + the pending search pin are what's actually
+  // being shown on the map right now, so they alone decide when present.
+  // `savedPlaces` (관심 장소) is likewise global, not scoped to this plan,
+  // so it only breaks the tie when there's nothing else yet to sample (a
+  // brand new, still-empty plan) — otherwise a domestic 관심 장소 saved
+  // while browsing something unrelated could outvote every place actually
+  // on this plan's itinerary (e.g. Kakao rendering for a Fukuoka plan
+  // because more domestic spots had been heart-saved elsewhere than there
+  // were scheduled Fukuoka stops).
   const itemPlaces = items.map((it) => places.find((p) => p.id === it.placeId)).filter((p): p is Place => p != null);
-  const regionSample = itemPlaces.length > 0 ? itemPlaces : savedPlaces;
+  const mapPlaces = pendingSearchPlace ? [...itemPlaces, pendingSearchPlace] : itemPlaces;
+  const regionSample = mapPlaces.length > 0 ? mapPlaces : savedPlaces;
   const isDomestic =
     regionSample.length > 0
       ? regionSample.filter((p) => isDomesticCoordinate(p.lat, p.lng)).length > regionSample.length / 2
@@ -264,13 +278,6 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // back button skips past the overlay straight to whatever page was open
   // before /planner.
   useBackButtonClose(detailPlace !== null, () => setDetailPlace(null));
-
-  // A place just found via the map's search box, not yet scheduled — shown
-  // as a single temporary pin (see scheduleMapPlaces below) so it stays
-  // tappable/draggable onto a slot, without permanently cluttering the map
-  // with every place ever searched for across the whole session (that's
-  // what `places` used to do — see PR history for "맵에 남아있는 스팟포인트").
-  const [pendingSearchPlace, setPendingSearchPlace] = useState<Place | null>(null);
 
   // ── multi-day (Notion-style) timeline window ──
   // Adjustable via the +/- control next to the date nav — clamped to
