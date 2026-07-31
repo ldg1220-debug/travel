@@ -14,6 +14,7 @@ import {
   DURATION_OPTIONS,
   DEFAULT_DURATION_MINUTES,
   MIN_DURATION_MINUTES,
+  MAX_DURATION_MINUTES,
   DAY_MINUTES,
   formatDateLabelShort,
   pad2,
@@ -143,10 +144,13 @@ export function ScheduleModal({
   const [budget, setBudget] = useState(initialBudget != null ? String(initialBudget) : "");
   const [currency, setCurrency] = useState<CurrencyCode>(initialCurrency);
   const [duration, setDuration] = useState(initialDuration ?? DEFAULT_DURATION_MINUTES);
-  // Derived end time, clamped so a stay can't be typed/dragged past midnight
-  // (mirrors the same clamp itineraryStore.resizeItem applies on drag).
+  // Derived end time. A stay can run past midnight (e.g. 22:00 → next-day
+  // 06:00) up to MAX_DURATION_MINUTES — mirrors the same clamp
+  // itineraryStore.resizeItem applies. `endHour`/`endMinute` below are
+  // wrapped (%24) for display only; `endTotalMinutes` itself stays an
+  // absolute past-1440 value when the stay crosses midnight.
   const startTotalMinutes = hour * 60 + minute;
-  const maxDuration = DAY_MINUTES - startTotalMinutes;
+  const maxDuration = MAX_DURATION_MINUTES;
   const clampedDuration = Math.min(duration, maxDuration);
   const endTotalMinutes = startTotalMinutes + clampedDuration;
   const endHour = Math.floor(endTotalMinutes / 60) % 24;
@@ -165,7 +169,7 @@ export function ScheduleModal({
   const durationForStartCandidate = (startMinutes: number) => {
     if (!showDuration) return previewDuration;
     const keepEndFixed = endTotalMinutes - startMinutes;
-    return keepEndFixed >= MIN_DURATION_MINUTES ? Math.min(keepEndFixed, DAY_MINUTES - startMinutes) : previewDuration;
+    return keepEndFixed >= MIN_DURATION_MINUTES ? Math.min(keepEndFixed, MAX_DURATION_MINUTES) : previewDuration;
   };
   // Picking a start hour/minute is independent of the other select next to
   // it, so checking a conflict against only the *currently* selected minute
@@ -192,12 +196,18 @@ export function ScheduleModal({
     if (showDuration) setDuration(durationForStartCandidate(hour * 60 + m));
     setMinute(m);
   };
+  // An end clock-time at or before the start's rolls over to "next day"
+  // (there's no separate end-date picker — only the stay's length implies
+  // it) — e.g. start 22:00, pick end hour "06" → 8-hour overnight stay,
+  // not a rejected negative duration.
   const handleEndHourChange = (h: number) => {
-    const nextDuration = h * 60 + endMinute - startTotalMinutes;
+    let nextDuration = h * 60 + endMinute - startTotalMinutes;
+    if (nextDuration <= 0) nextDuration += DAY_MINUTES;
     if (nextDuration >= MIN_DURATION_MINUTES) setDuration(Math.min(nextDuration, maxDuration));
   };
   const handleEndMinuteChange = (m: number) => {
-    const nextDuration = endHour * 60 + m - startTotalMinutes;
+    let nextDuration = endHour * 60 + m - startTotalMinutes;
+    if (nextDuration <= 0) nextDuration += DAY_MINUTES;
     if (nextDuration >= MIN_DURATION_MINUTES) setDuration(Math.min(nextDuration, maxDuration));
   };
   // Editing an existing stop already has a concrete time to show/change;
@@ -293,6 +303,9 @@ export function ScheduleModal({
                       </>
                     )}
                   </div>
+                  {showDuration && endTotalMinutes >= DAY_MINUTES && (
+                    <p className="mt-1.5 text-[11px] font-medium text-amber-600">🌙 다음날 {pad2(endHour)}:{pad2(endMinute)}까지 이어지는 일정이에요</p>
+                  )}
 
                   {showDuration && (
                     <>

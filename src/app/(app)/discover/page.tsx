@@ -1283,7 +1283,7 @@ function SearchResults({
   // fails. `liveResults` is [] (never an error) whenever keys are missing
   // or the call fails, so this section just quietly doesn't render then.
   const userLoc = useUserLocation();
-  const { data: liveResults } = useQuery({
+  const { data: liveData, isFetching: isLiveFetching } = useQuery({
     queryKey: ["discover-live-search", scope, query, categoryFilter, userLoc.location],
     queryFn: () => fetchLivePlaceSearch(scope, query, categoryFilter === "all" ? undefined : categoryFilter, userLoc.location),
     // Each live call is real (billed) Google/Kakao quota — coming back to
@@ -1291,6 +1291,50 @@ function SearchResults({
     // not re-bill the API.
     staleTime: 5 * 60 * 1000,
   });
+  const liveResults = liveData?.places;
+  // The live call can take a beat (real network round trip, unlike the
+  // curated results which are already in memory) — while it's still in
+  // flight for this exact search, `liveResults` reads as empty just like a
+  // genuine zero-hit search would, so the "결과 없음" state below must wait
+  // for it instead of flashing immediately.
+  const isLiveInitialLoading = isLiveFetching && liveData === undefined;
+
+  // "더 보기" — additional Google results fetched beyond the initial batch,
+  // only when the server found a real `nextPageToken` (thin domestic
+  // searches, e.g. "내외동 술집" landing at ~15 hits). Kept as separate
+  // local state from the react-query cache above since it's an explicit
+  // user action layered on top of one search, not the search itself.
+  const [moreLivePlaces, setMoreLivePlaces] = useState<Place[]>([]);
+  const [moreLiveToken, setMoreLiveToken] = useState<string | null | undefined>(undefined);
+  const [loadingMoreLive, setLoadingMoreLive] = useState(false);
+  const availableLiveToken = moreLiveToken !== undefined ? moreLiveToken : liveData?.nextPageToken;
+  const liveSearchKeyValue = `${scope}|${query}|${categoryFilter}`;
+  const [liveSearchKey, setLiveSearchKey] = useState(liveSearchKeyValue);
+  if (liveSearchKey !== liveSearchKeyValue) {
+    setLiveSearchKey(liveSearchKeyValue);
+    setMoreLivePlaces([]);
+    setMoreLiveToken(undefined);
+  }
+  const handleLoadMoreLive = async () => {
+    if (!availableLiveToken || loadingMoreLive) return;
+    setLoadingMoreLive(true);
+    try {
+      const more = await fetchLivePlaceSearch(
+        scope,
+        query,
+        categoryFilter === "all" ? undefined : categoryFilter,
+        userLoc.location,
+        availableLiveToken,
+      );
+      setMoreLivePlaces((prev) => {
+        const seenIds = new Set([...(liveResults ?? []), ...prev].map((p) => p.id));
+        return [...prev, ...more.places.filter((p) => !seenIds.has(p.id))];
+      });
+      setMoreLiveToken(more.nextPageToken ?? null);
+    } finally {
+      setLoadingMoreLive(false);
+    }
+  };
 
   const [liveSort, setLiveSort] = useState<LiveSortKey>("relevance");
   // "내 주변순" needs the device's actual position first — tapping it before
@@ -1308,8 +1352,8 @@ function SearchResults({
   // the same place.
   const [selectedLiveId, setSelectedLiveId] = useState<string | null>(null);
   const sortedLiveResults = useMemo(
-    () => sortPlaces(liveResults ?? [], liveSort, userLoc.location),
-    [liveResults, liveSort, userLoc.location],
+    () => sortPlaces([...(liveResults ?? []), ...moreLivePlaces], liveSort, userLoc.location),
+    [liveResults, moreLivePlaces, liveSort, userLoc.location],
   );
 
   // 서버가 최대 ~60개까지 한 번에 가져와두므로(재요청 없음), 여기서
@@ -1372,7 +1416,10 @@ function SearchResults({
   const isRefetching = isFetching && Boolean(data);
   const hasLiveResults = Boolean(liveResults && liveResults.length > 0);
 
-  if (routes.length === 0 && total === 0 && !isRefetching && !hasLiveResults) {
+  if (routes.length === 0 && total === 0 && !isRefetching && !hasLiveResults && isLiveInitialLoading) {
+    return <div className="py-20 text-center text-sm text-slate-400">&ldquo;{query}&rdquo; 검색 중…</div>;
+  }
+  if (routes.length === 0 && total === 0 && !isRefetching && !hasLiveResults && !isLiveInitialLoading) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-20 text-center">
         <p className="text-sm text-slate-500">&ldquo;{query}&rdquo;에 대한 결과가 없어요.</p>
@@ -1527,6 +1574,13 @@ function SearchResults({
         </section>
       )}
 
+      {/* 실시간 결과가 아직 안 왔을 뿐인데 큐레이션 결과만 보고 "검색 끝났다"고
+          오해하지 않도록 — 큐레이션 섹션이 이미 그려진 상태(위 초기 로딩
+          가드는 통과)라도 실시간 쪽은 별도로 로딩 중일 수 있다. */}
+      {page === 1 && isLiveInitialLoading && !hasLiveResults && (
+        <p className="py-3 text-center text-[12.5px] text-slate-400">실시간 검색 결과 불러오는 중…</p>
+      )}
+
       {/* ── ③ 그 외 종합 — 실시간(Google/Kakao) 전체 결과, 맨 마지막 ── */}
       {hasLiveResults && page === 1 && (
         <section>
@@ -1615,6 +1669,16 @@ function SearchResults({
           </div>
 
           <PlacePager page={livePage} totalPages={liveTotalPages} onChange={setLivePage} />
+          {livePage === liveTotalPages && availableLiveToken && (
+            <button
+              type="button"
+              onClick={handleLoadMoreLive}
+              disabled={loadingMoreLive}
+              className="mx-auto mt-2 flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 text-[12.5px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+            >
+              {loadingMoreLive ? "찾는 중…" : "다른 결과 더 찾아보기"}
+            </button>
+          )}
         </section>
       )}
     </div>

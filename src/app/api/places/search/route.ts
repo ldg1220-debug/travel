@@ -105,10 +105,13 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const query = stripLocalityFillers(rawQuery);
   const category = request.nextUrl.searchParams.get("category") ?? "all";
   const userLocation = parseUserLocation(request);
-  if (!query && !userLocation) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
+  // "더 보기" continuation — a Google `nextPageToken` from an earlier
+  // response, only meaningful for the domestic Google-fallback path today.
+  const pageToken = request.nextUrl.searchParams.get("pageToken") ?? undefined;
+  if (!query && !userLocation && !pageToken) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
 
   if (region === "domestic") {
-    return NextResponse.json(await searchDomestic(query, near, userLocation));
+    return NextResponse.json(await searchDomestic(query, near, userLocation, pageToken));
   }
 
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -160,13 +163,21 @@ function hasConceptKeyword(q: string): boolean {
 // re-query "{locality} 관광명소 / 맛집 / …". Superset of the concept list.
 const LOCALITY_STRIP_WORDS = [
   ...CONCEPT_ATTRACTION_KEYWORDS,
-  "관광명소", "명소", "맛집", "음식점", "밥집", "숙소", "호텔", "카페", "여행", "가볼만한곳", "가볼만한",
+  "관광명소", "명소", "맛집", "음식점", "밥집", "숙소", "호텔", "카페", "여행", "가볼만한곳", "가볼만한", "술집",
 ];
 function toLocalityBase(q: string): string {
   let out = q;
   for (const w of LOCALITY_STRIP_WORDS) out = out.split(w).join(" ");
   return out.replace(/\s+/g, " ").trim();
 }
+
+/** Whether `q` already names a category/concept ("내외동 술집") rather than being a bare locality/landmark name ("노량진"). */
+function hasCategoryWord(q: string): boolean {
+  return LOCALITY_STRIP_WORDS.some((w) => q.includes(w));
+}
+
+/** Domestic counterpart of the international augLabels fan-out — categories to append to a bare locality name when broadening a Kakao search. */
+const DOMESTIC_FANOUT_LABELS = ["맛집", "카페", "관광명소", "술집", "숙소"];
 
 // Stop firing extra fan-out queries once we have this many merged hits, and
 // the final cap on the response itself. Raised from 20 to 60 so the client
@@ -516,7 +527,16 @@ async function searchDomestic(
   query: string,
   near?: { landmark: string; want: string } | null,
   userLocation?: { lat: number; lng: number } | null,
-): Promise<{ places: Place[]; source: PlaceSearchSource }> {
+  /** Set only on a "더 보기" continuation request — Kakao's own index is
+   * already fully fetched by kakaoKeywordAll, so a continuation just
+   * carries on the Google side (which is where "더 보기" actually finds
+   * something new) instead of re-running Kakao. */
+  pageToken?: string,
+): Promise<{ places: Place[]; source: PlaceSearchSource; nextPageToken?: string }> {
+  if (pageToken) {
+    const page = await domesticGoogleFallback(query, pageToken);
+    return { places: page.places, source: "google", nextPageToken: page.nextPageToken };
+  }
   const apiKey = process.env.KAKAO_REST_API_KEY;
   console.log("[places/search] Using Kakao API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
@@ -540,18 +560,43 @@ async function searchDomestic(
         if (filtered.length > 0) return { places: filtered.map(kakaoDocToPlace), source: "kakao" };
       }
     }
-    const docs = await kakaoKeywordAll(query, apiKey);
+    let docs = await kakaoKeywordAll(query, apiKey);
     if (docs !== null) {
+      // A bare locality/landmark name with no category word ("노량진") only
+      // literal-matches the handful of businesses whose NAME contains that
+      // string (e.g. 사육신묘) — every ordinary restaurant/cafe/attraction
+      // in the area is invisible to Kakao's keyword search since "노량진"
+      // isn't in their name. Fan out into "{query} 맛집/카페/관광명소/…" and
+      // merge whatever that turns up, mirroring the international
+      // bare-locality fan-out (toLocalityBase + augLabels) above.
+      if (docs.length <= THIN_RESULT_THRESHOLD && !hasCategoryWord(query)) {
+        const fanoutPages = await Promise.all(
+          DOMESTIC_FANOUT_LABELS.map((lbl) => kakaoKeyword(`${query} ${lbl}`, apiKey)),
+        );
+        const seen = new Set(docs.map((d) => d.id));
+        const merged = [...docs];
+        for (const page of fanoutPages) {
+          if (!page) continue;
+          for (const d of page) {
+            if (seen.has(d.id)) continue;
+            seen.add(d.id);
+            merged.push(d);
+          }
+        }
+        docs = merged;
+      }
       if (docs.length > 0) {
         const kakaoPlaces = docs.map(kakaoDocToPlace);
         // Kakao Local's keyword search is literal token matching, not the
         // review-driven ranking Kakao Map's own app uses — broad "지역
-        // 맛집" queries can come back thin (a dozen hits) even in areas
-        // with far more real listings. Top up anything under a full page
-        // with Google Places instead of only falling back on a hard zero.
-        if (kakaoPlaces.length < THIN_RESULT_THRESHOLD) {
+        // 맛집" queries can come back thin (a dozen hits, sometimes landing
+        // exactly at the threshold) even in areas with far more real
+        // listings. Top up anything at or under a full page with Google
+        // Places instead of only falling back on a hard zero.
+        if (kakaoPlaces.length <= THIN_RESULT_THRESHOLD) {
           const googleFallback = await domesticGoogleFallback(query);
-          if (googleFallback.length > 0) mergePlaces(kakaoPlaces, googleFallback);
+          if (googleFallback.places.length > 0) mergePlaces(kakaoPlaces, googleFallback.places);
+          return { places: kakaoPlaces, source: "kakao", nextPageToken: googleFallback.nextPageToken };
         }
         return { places: kakaoPlaces, source: "kakao" };
       }
@@ -560,19 +605,52 @@ async function searchDomestic(
       // Google Places lookup before giving up, since Google's listing
       // coverage and Kakao's don't fully overlap.
       const googleFallback = await domesticGoogleFallback(query);
-      if (googleFallback.length > 0) return { places: googleFallback, source: "google" };
+      if (googleFallback.places.length > 0) return { places: googleFallback.places, source: "google", nextPageToken: googleFallback.nextPageToken };
       return { places: [], source: "kakao" };
     }
   }
   return { places: filterByName(DOMESTIC_PLACES, query), source: "mock" };
 }
 
-/** Best-effort Google Places lookup for a domestic query Kakao Local came up empty on. Never throws — falls back to no results so the caller's own mock fallback still applies. */
-async function domesticGoogleFallback(query: string): Promise<Place[]> {
+/**
+ * Best-effort Google Places lookup backing the domestic search's Google
+ * fallback/top-up AND its "더 보기" continuation. Kept separate from
+ * callGoogleSearchText (which every other call site in this file uses) so
+ * that if Google's `pageToken` continuation ever turns out unsupported or
+ * behaves unexpectedly, the blast radius is this one function — the
+ * "더 보기" button just quietly stops offering more instead of anything
+ * regressing. Never throws — falls back to no results either way.
+ */
+async function domesticGoogleFallback(query: string, pageToken?: string): Promise<{ places: Place[]; nextPageToken?: string }> {
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  if (!googleApiKey) return [];
-  const results = await callGoogleSearchText(query, googleApiKey);
-  return results ?? [];
+  if (!googleApiKey) return { places: [] };
+  const page = await fetchGooglePlacesPage(
+    googleApiKey,
+    pageToken ? { pageToken } : { textQuery: query, maxResultCount: 20, languageCode: "ko" },
+  );
+  if (!page) return { places: [] };
+  return { places: page.places.map((p) => googlePlaceToPlace(p)), nextPageToken: page.nextPageToken };
+}
+
+/** Raw `places:searchText` fetch used for a fresh query or a `pageToken` continuation — returns null on a non-ok response. */
+async function fetchGooglePlacesPage(apiKey: string, body: Record<string, unknown>): Promise<{ places: GooglePlaceResult[]; nextPageToken?: string } | null> {
+  const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask":
+        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.priceLevel,places.primaryType,places.photos,places.googleMapsUri,nextPageToken",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    console.error("[places/search] Google searchText page error:", res.status, res.statusText, await res.text());
+    return null;
+  }
+  const data = (await res.json()) as { places?: GooglePlaceResult[]; nextPageToken?: string };
+  return { places: data.places ?? [], nextPageToken: data.nextPageToken };
 }
 
 function kakaoDocToPlace(d: KakaoLocalDocument): Place {

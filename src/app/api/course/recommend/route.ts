@@ -2,7 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Place } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { curateCourseWithLlm, type CourseSlotCandidates } from "@/lib/server/courseLlm";
-import { THEME_SLOTS, THEME_LABELS, parseTheme, fetchSlotCandidates, pickDeterministic, sameShop, type RecommendSlot } from "@/lib/server/courseRecommend";
+import {
+  THEME_SLOTS,
+  THEME_LABELS,
+  parseTheme,
+  fetchSlotCandidates,
+  pickDeterministic,
+  sameShop,
+  parseTravelRadius,
+  radiusKmFor,
+  isWithinRadius,
+  hasWithinRadiusCandidate,
+  type RecommendSlot,
+} from "@/lib/server/courseRecommend";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +45,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const scope = request.nextUrl.searchParams.get("scope") === "domestic" ? "domestic" : "overseas";
   const city = (request.nextUrl.searchParams.get("city") ?? "").trim().slice(0, 40);
   const theme = parseTheme(request.nextUrl.searchParams.get("theme"));
+  const maxDistanceKm = radiusKmFor(parseTravelRadius(request.nextUrl.searchParams.get("radius")));
   if (!city) return NextResponse.json({ error: "missing city" }, { status: 400 });
 
   const slots = THEME_SLOTS[theme];
@@ -60,15 +73,22 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const used = new Set<string>();
   const course: FinalStop[] = [];
   for (const { slot, candidates } of pools) {
+    const anchor = course.length > 0 ? { lat: course[course.length - 1].lat, lng: course[course.length - 1].lng } : null;
     const llmPick = llmPicks?.find((p) => p.slotKey === slot.key);
     let chosen: Place | undefined;
     if (llmPick) {
       const c = candidates.find((cand) => cand.id === llmPick.id);
-      if (c && !used.has(c.id) && !course.some((s) => sameShop(s.name, c.name))) chosen = c;
+      // Reject an LLM pick that lands outside the selected travel radius
+      // when a closer alternative exists — the LLM has no distance
+      // awareness (candidates aren't given lat/lng), so without this the
+      // radius option would only ever apply to the no-LLM-key fallback.
+      const acceptable =
+        c && !used.has(c.id) && !course.some((s) => sameShop(s.name, c.name)) &&
+        (isWithinRadius(c, anchor, maxDistanceKm) || !hasWithinRadiusCandidate(candidates, used, course.map((s) => s.name), anchor, maxDistanceKm));
+      if (acceptable) chosen = c;
     }
     if (!chosen) {
-      const anchor = course.length > 0 ? { lat: course[course.length - 1].lat, lng: course[course.length - 1].lng } : null;
-      chosen = pickDeterministic(candidates, used, course.map((s) => s.name), anchor);
+      chosen = pickDeterministic(candidates, used, course.map((s) => s.name), anchor, maxDistanceKm);
     }
     if (!chosen) continue;
     used.add(chosen.id);

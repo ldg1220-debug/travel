@@ -21,6 +21,35 @@ export interface RecommendSlot {
 
 export type CourseTheme = "balanced" | "foodie" | "healing" | "culture" | "active";
 
+/**
+ * User-selectable cap on travel between consecutive stops, in minutes.
+ * 0 means unlimited (no cap — the old, always-on behavior). Beta feedback:
+ * a hardcoded ~30-min feel was too tight for rural/overseas legs where
+ * real attractions can legitimately be much farther apart, so this is a
+ * pickable option instead of a fixed constant.
+ */
+export type TravelRadius = 0 | 15 | 30 | 60 | 120;
+export const TRAVEL_RADIUS_OPTIONS: { minutes: TravelRadius; label: string }[] = [
+  { minutes: 15, label: "15분" },
+  { minutes: 30, label: "30분" },
+  { minutes: 60, label: "1시간" },
+  { minutes: 120, label: "2시간" },
+  { minutes: 0, label: "제한없음" },
+];
+export function parseTravelRadius(raw: string | null): TravelRadius {
+  const n = Number(raw);
+  return TRAVEL_RADIUS_OPTIONS.some((o) => o.minutes === n) ? (n as TravelRadius) : 60;
+}
+
+// Straight-line (Haversine) distance is always shorter than the real route,
+// so a conservative (slow) blended speed keeps the cap meaningful rather
+// than technically-true-but-useless. 25km/h ≈ city driving/transit mix.
+const AVG_SPEED_KMH = 25;
+/** Minutes → km cap, or null for "제한없음"/no anchor yet. */
+export function radiusKmFor(minutes: TravelRadius): number | null {
+  return minutes ? (minutes / 60) * AVG_SPEED_KMH : null;
+}
+
 export const THEME_LABELS: Record<CourseTheme, string> = {
   balanced: "밸런스 (관광+맛집+야경 골고루)",
   foodie: "미식 위주",
@@ -255,10 +284,35 @@ export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: 
   return results.map((d) => kakaoToPlace(d, slot.label)).slice(0, POOL_SIZE);
 }
 
-/** Best still-unused candidate for a slot, biased toward `anchor` (usually a neighboring stop); random among the top 3 so re-runs vary. */
-export function pickDeterministic(candidates: Place[], excludeIds: Set<string>, excludeNames: string[], anchor: { lat: number; lng: number } | null): Place | undefined {
-  const pool = candidates
-    .filter((p) => !excludeIds.has(p.id) && !excludeNames.some((n) => sameShop(n, p.name)))
+/** Candidates left after the exclude filters, further narrowed to `maxDistanceKm` of `anchor` when that doesn't empty the pool entirely — a sparse area (rural/overseas leg) with nothing that close just falls back to the unfiltered set rather than breaking course generation. */
+function eligiblePool(candidates: Place[], excludeIds: Set<string>, excludeNames: string[], anchor: { lat: number; lng: number } | null, maxDistanceKm: number | null): Place[] {
+  const base = candidates.filter((p) => !excludeIds.has(p.id) && !excludeNames.some((n) => sameShop(n, p.name)));
+  if (!anchor || maxDistanceKm == null) return base;
+  const within = base.filter((p) => p.lat && p.lng && distKm(anchor.lat, anchor.lng, p.lat, p.lng) <= maxDistanceKm);
+  return within.length > 0 ? within : base;
+}
+
+/** Whether a closer alternative exists within `maxDistanceKm` of `anchor` — used to decide whether an LLM pick that lands outside the radius should be overridden. */
+export function hasWithinRadiusCandidate(candidates: Place[], excludeIds: Set<string>, excludeNames: string[], anchor: { lat: number; lng: number } | null, maxDistanceKm: number | null): boolean {
+  if (!anchor || maxDistanceKm == null) return true;
+  return candidates.some((p) => !excludeIds.has(p.id) && !excludeNames.some((n) => sameShop(n, p.name)) && p.lat && p.lng && distKm(anchor.lat, anchor.lng, p.lat, p.lng) <= maxDistanceKm);
+}
+
+/** Whether `place` itself is within `maxDistanceKm` of `anchor` (always true when either is absent — nothing to constrain against). */
+export function isWithinRadius(place: Place, anchor: { lat: number; lng: number } | null, maxDistanceKm: number | null): boolean {
+  if (!anchor || maxDistanceKm == null || !place.lat || !place.lng) return true;
+  return distKm(anchor.lat, anchor.lng, place.lat, place.lng) <= maxDistanceKm;
+}
+
+/** Best still-unused candidate for a slot, biased toward `anchor` (usually a neighboring stop); random among the top 3 so re-runs vary. `maxDistanceKm` hard-caps how far from `anchor` a pick may be, falling back to the unfiltered pool when nothing qualifies. */
+export function pickDeterministic(
+  candidates: Place[],
+  excludeIds: Set<string>,
+  excludeNames: string[],
+  anchor: { lat: number; lng: number } | null,
+  maxDistanceKm: number | null = null,
+): Place | undefined {
+  const pool = eligiblePool(candidates, excludeIds, excludeNames, anchor, maxDistanceKm)
     .sort((a, b) => proximityScore(b.rating, b.reviewCount, b.lat, b.lng, anchor) - proximityScore(a.rating, a.reviewCount, a.lat, a.lng, anchor))
     .slice(0, 3);
   return pool[Math.floor(Math.random() * pool.length)];

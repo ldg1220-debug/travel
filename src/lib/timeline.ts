@@ -10,6 +10,8 @@ export const MAX_VISIBLE_DAYS = 7;
 export const DEFAULT_DURATION_MINUTES = 60;
 /** Shortest a stop can be resized down to. */
 export const MIN_DURATION_MINUTES = 15;
+/** Longest a single stop can run — generous enough for an overnight leg/stay (e.g. 22:00 → next-day 06:00) while still bounding runaway values. A stop's date is its *start* date; running past DAY_MINUTES is what lets it cross into the next calendar day. */
+export const MAX_DURATION_MINUTES = 18 * 60;
 /** Resize-drag snapping granularity. */
 export const RESIZE_STEP_MINUTES = 15;
 /** Preset stay-durations offered in the schedule modal (minutes → Korean label). */

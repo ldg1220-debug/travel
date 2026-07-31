@@ -5,10 +5,12 @@ import {
   DAY_MINUTES,
   DEFAULT_DURATION_MINUTES,
   MIN_DURATION_MINUTES,
+  MAX_DURATION_MINUTES,
   formatTime,
   hourFromTime,
   minutesFromTime,
   rangesOverlap,
+  shiftISODate,
   todayISODate,
 } from "@/lib/timeline";
 import { haversineDistanceMeters } from "@/lib/geo";
@@ -320,21 +322,36 @@ export const useItineraryStore = create<ItineraryState>()(
 
       // An hour is "taken" if any item's [start, start+duration) range
       // overlaps that hour's full [hour*60, hour*60+60) span — not just an
-      // exact start-time match, now that stops can span multiple hours.
-      isHourTaken: (date, hour) =>
-        get().items.some(
-          (item) =>
-            item.date === date &&
-            rangesOverlap(minutesFromTime(item.time), item.durationMinutes, hour * 60, 60),
-        ),
+      // exact start-time match, now that stops can span multiple hours. A
+      // stop can now run past midnight (e.g. 22:00 → next-day 06:00), so
+      // the *previous* day's items can spill into this day's early hours
+      // too — check those the same way, translated into this day's minutes.
+      isHourTaken: (date, hour) => {
+        const { items } = get();
+        const prevDate = shiftISODate(date, -1);
+        return items.some((item) => {
+          if (item.date === date) return rangesOverlap(minutesFromTime(item.time), item.durationMinutes, hour * 60, 60);
+          if (item.date === prevDate) {
+            const spill = minutesFromTime(item.time) + item.durationMinutes - DAY_MINUTES;
+            return spill > 0 && rangesOverlap(0, spill, hour * 60, 60);
+          }
+          return false;
+        });
+      },
 
-      hasConflict: (date, startMinutes, durationMinutes, excludeId) =>
-        get().items.some(
-          (item) =>
-            item.date === date &&
-            item.id !== excludeId &&
-            rangesOverlap(minutesFromTime(item.time), item.durationMinutes, startMinutes, durationMinutes),
-        ),
+      hasConflict: (date, startMinutes, durationMinutes, excludeId) => {
+        const { items } = get();
+        const prevDate = shiftISODate(date, -1);
+        return items.some((item) => {
+          if (item.id === excludeId) return false;
+          if (item.date === date) return rangesOverlap(minutesFromTime(item.time), item.durationMinutes, startMinutes, durationMinutes);
+          if (item.date === prevDate) {
+            const spill = minutesFromTime(item.time) + item.durationMinutes - DAY_MINUTES;
+            return spill > 0 && rangesOverlap(0, spill, startMinutes, durationMinutes);
+          }
+          return false;
+        });
+      },
 
       addItem: (item) =>
         set((state) => {
@@ -391,18 +408,22 @@ export const useItineraryStore = create<ItineraryState>()(
         set((state) => ({
           items: state.items.map((i) => {
             if (i.id !== id) return i;
-            const maxDuration = DAY_MINUTES - minutesFromTime(i.time);
-            const clamped = Math.min(maxDuration, Math.max(MIN_DURATION_MINUTES, durationMinutes));
+            const clamped = Math.min(MAX_DURATION_MINUTES, Math.max(MIN_DURATION_MINUTES, durationMinutes));
             return { ...i, durationMinutes: clamped };
           }),
         })),
 
+      // Drag-resize (top/bottom handles) is confined to one day's on-screen
+      // column, so `startMinutes` — WHERE within the day the stop begins —
+      // stays same-day; only the *duration* is allowed to run past
+      // DAY_MINUTES (see MAX_DURATION_MINUTES) to represent an overnight
+      // stop, same as resizeItem above.
       retimeItem: (id, startMinutes, durationMinutes) =>
         set((state) => ({
           items: state.items.map((i) => {
             if (i.id !== id) return i;
             const clampedStart = Math.max(0, Math.min(DAY_MINUTES - MIN_DURATION_MINUTES, startMinutes));
-            const clampedDuration = Math.min(DAY_MINUTES - clampedStart, Math.max(MIN_DURATION_MINUTES, durationMinutes));
+            const clampedDuration = Math.min(MAX_DURATION_MINUTES, Math.max(MIN_DURATION_MINUTES, durationMinutes));
             return { ...i, time: formatTime(Math.floor(clampedStart / 60), clampedStart % 60), durationMinutes: clampedDuration };
           }),
         })),
