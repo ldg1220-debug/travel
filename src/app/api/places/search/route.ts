@@ -163,13 +163,21 @@ function hasConceptKeyword(q: string): boolean {
 // re-query "{locality} 관광명소 / 맛집 / …". Superset of the concept list.
 const LOCALITY_STRIP_WORDS = [
   ...CONCEPT_ATTRACTION_KEYWORDS,
-  "관광명소", "명소", "맛집", "음식점", "밥집", "숙소", "호텔", "카페", "여행", "가볼만한곳", "가볼만한",
+  "관광명소", "명소", "맛집", "음식점", "밥집", "숙소", "호텔", "카페", "여행", "가볼만한곳", "가볼만한", "술집",
 ];
 function toLocalityBase(q: string): string {
   let out = q;
   for (const w of LOCALITY_STRIP_WORDS) out = out.split(w).join(" ");
   return out.replace(/\s+/g, " ").trim();
 }
+
+/** Whether `q` already names a category/concept ("내외동 술집") rather than being a bare locality/landmark name ("노량진"). */
+function hasCategoryWord(q: string): boolean {
+  return LOCALITY_STRIP_WORDS.some((w) => q.includes(w));
+}
+
+/** Domestic counterpart of the international augLabels fan-out — categories to append to a bare locality name when broadening a Kakao search. */
+const DOMESTIC_FANOUT_LABELS = ["맛집", "카페", "관광명소", "술집", "숙소"];
 
 // Stop firing extra fan-out queries once we have this many merged hits, and
 // the final cap on the response itself. Raised from 20 to 60 so the client
@@ -552,8 +560,31 @@ async function searchDomestic(
         if (filtered.length > 0) return { places: filtered.map(kakaoDocToPlace), source: "kakao" };
       }
     }
-    const docs = await kakaoKeywordAll(query, apiKey);
+    let docs = await kakaoKeywordAll(query, apiKey);
     if (docs !== null) {
+      // A bare locality/landmark name with no category word ("노량진") only
+      // literal-matches the handful of businesses whose NAME contains that
+      // string (e.g. 사육신묘) — every ordinary restaurant/cafe/attraction
+      // in the area is invisible to Kakao's keyword search since "노량진"
+      // isn't in their name. Fan out into "{query} 맛집/카페/관광명소/…" and
+      // merge whatever that turns up, mirroring the international
+      // bare-locality fan-out (toLocalityBase + augLabels) above.
+      if (docs.length <= THIN_RESULT_THRESHOLD && !hasCategoryWord(query)) {
+        const fanoutPages = await Promise.all(
+          DOMESTIC_FANOUT_LABELS.map((lbl) => kakaoKeyword(`${query} ${lbl}`, apiKey)),
+        );
+        const seen = new Set(docs.map((d) => d.id));
+        const merged = [...docs];
+        for (const page of fanoutPages) {
+          if (!page) continue;
+          for (const d of page) {
+            if (seen.has(d.id)) continue;
+            seen.add(d.id);
+            merged.push(d);
+          }
+        }
+        docs = merged;
+      }
       if (docs.length > 0) {
         const kakaoPlaces = docs.map(kakaoDocToPlace);
         // Kakao Local's keyword search is literal token matching, not the
