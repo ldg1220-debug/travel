@@ -552,6 +552,28 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     return map;
   }, [items, visibleDates]);
 
+  // A stop can now run past midnight (e.g. 22:00 → next-day 06:00) — for
+  // each visible date, find the previous day's stop (if any) whose
+  // [start, start+duration) tail spills into this date, and how many
+  // minutes of this date's morning it still occupies. `scheduleByDate` is
+  // only keyed by `visibleDates`, so the previous day's items are read
+  // straight from `items` since that previous date may be scrolled
+  // off-screen (e.g. the leftmost visible column).
+  const spilloverByDate = useMemo(() => {
+    const map: Record<string, { item: ItineraryItem; minutes: number } | null> = {};
+    for (const date of visibleDates) {
+      const prevDate = shiftISODate(date, -1);
+      let found: { item: ItineraryItem; minutes: number } | null = null;
+      for (const it of items) {
+        if (it.date !== prevDate) continue;
+        const minutes = minutesFromTime(it.time) + it.durationMinutes - DAY_MINUTES;
+        if (minutes > 0 && (!found || minutes > found.minutes)) found = { item: it, minutes };
+      }
+      map[date] = found;
+    }
+    return map;
+  }, [items, visibleDates]);
+
   const orderByDate = useMemo(() => {
     const map: Record<string, Record<string, number>> = {};
     for (const date of visibleDates) {
@@ -1673,11 +1695,35 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       top by start-minute/duration instead of one-per-cell */}
                   {visibleDates.map((date) => {
                     const dayItems = scheduleByDate[date] ?? [];
+                    const spillover = spilloverByDate[date];
                     const isCovered = (h: number) =>
-                      dayItems.some((it) => rangesOverlap(minutesFromTime(it.time), it.durationMinutes, h * 60, 60));
+                      dayItems.some((it) => rangesOverlap(minutesFromTime(it.time), it.durationMinutes, h * 60, 60)) ||
+                      (spillover != null && rangesOverlap(0, spillover.minutes, h * 60, 60));
 
                     return (
                       <div key={date} className="relative min-w-0 flex-1 border-l border-slate-100">
+                        {spillover && (() => {
+                          const spillPlace = places.find((p) => p.id === spillover.item.placeId) ?? fallbackDisplay(spillover.item.name);
+                          const spillHeight = (spillover.minutes / 60) * SLOT_HEIGHT;
+                          return (
+                            <button
+                              onClick={() => openEditModal(spillover.item)}
+                              className="absolute inset-x-0.5 top-0 z-10 flex cursor-pointer items-start overflow-hidden rounded-b-lg text-left"
+                              style={{
+                                height: spillHeight,
+                                background: `repeating-linear-gradient(135deg, ${spillPlace.color}1A, ${spillPlace.color}1A 6px, ${spillPlace.color}0D 6px, ${spillPlace.color}0D 12px)`,
+                                borderBottom: `1px solid ${spillPlace.color}40`,
+                              }}
+                              aria-label={`${spillPlace.name} 전날부터 이어지는 일정 수정`}
+                            >
+                              {spillHeight >= 20 && (
+                                <span className="truncate px-1.5 pt-0.5 text-[9px] font-semibold" style={{ color: spillPlace.color }}>
+                                  🌙 {spillPlace.name} 계속
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })()}
                         {TIMELINE_HOURS.map((h) => {
                           const highlighted = hoverSlot?.date === date && hoverSlot?.hour === h;
                           const covered = isCovered(h);
@@ -2221,7 +2267,15 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinut
   const effectiveDuration = liveDuration ?? item.durationMinutes;
   const effectiveTimeLabel = liveStartMinutes != null ? formatTime(Math.floor(effectiveStart / 60), effectiveStart % 60) : item.time;
   const top = (effectiveStart / 60) * SLOT_HEIGHT;
-  const height = (Math.max(MIN_DURATION_MINUTES, effectiveDuration) / 60) * SLOT_HEIGHT;
+  const rawHeight = (Math.max(MIN_DURATION_MINUTES, effectiveDuration) / 60) * SLOT_HEIGHT;
+  // A stop can now run past midnight (see MAX_DURATION_MINUTES) — this
+  // column only renders one day, so clip the visible block at the day
+  // boundary instead of letting it bleed past the bottom of the grid; the
+  // spillover strip in the *next* day's column (see spilloverByDate above)
+  // shows the rest.
+  const dayBottomPx = TIMELINE_HOURS.length * SLOT_HEIGHT;
+  const height = Math.min(rawHeight, dayBottomPx - top);
+  const spillsToNextDay = top + rawHeight > dayBottomPx;
   // Narrow day columns (3+ day view on a phone) leave so little width that
   // icon + name + badge + delete crammed into one row truncates the name to
   // a single character. 45+ minutes is tall enough for two lines, so give
@@ -2258,7 +2312,7 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinut
               <PlaceGlyph icon={display.icon} size={9} color="white" />
             </span>
             <span className="min-w-0 flex-1 truncate text-[9px] tabular-nums leading-tight text-slate-500">
-              {effectiveTimeLabel} · {effectiveDuration}분
+              {effectiveTimeLabel} · {effectiveDuration}분{spillsToNextDay ? " · 🌙다음날" : ""}
             </span>
             {order != null && (
               <span
