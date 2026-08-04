@@ -70,6 +70,7 @@ import {
   MAX_VISIBLE_DAYS,
   DAY_MINUTES,
   MIN_DURATION_MINUTES,
+  DEFAULT_DURATION_MINUTES,
   RESIZE_STEP_MINUTES,
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
@@ -660,6 +661,28 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // first occurrence it happens to share an id with).
   const pressSource = useRef<"trend" | "pin">("trend");
 
+  // ── drag-to-create: press-and-hold then drag across EMPTY grid cells to
+  // pick a [date, startMinutes, durationMinutes) range and create a new
+  // stop there via place search — the reverse of the existing flow, which
+  // always requires picking a place first. Long-press-then-drag (not
+  // drag-from-pointerdown) so an ordinary touch-scroll swipe over the
+  // timeline isn't mistaken for this gesture — mirrors the onDown/onMove/
+  // onUp/startDrag pattern above for map pins (same 500ms/8px thresholds),
+  // kept as separate refs/state since both presses can be in flight
+  // independently (a pin press elsewhere vs. a press on empty grid space).
+  const rangeSelectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rangeSelectFired = useRef(false);
+  const rangeSelectStart = useRef<{ x: number; y: number; date: string; top: number; anchorMinutes: number } | null>(null);
+  const [rangeSelect, setRangeSelect] = useState<{ date: string; startMinutes: number; durationMinutes: number } | null>(null);
+  // Shown right after releasing a range-select, before committing to the
+  // heavier place-search modal.
+  const [rangeSelectConfirm, setRangeSelectConfirm] = useState<{ date: string; startMinutes: number; durationMinutes: number } | null>(null);
+  const [rangeSelectTarget, setRangeSelectTarget] = useState<{ date: string; startMinutes: number; durationMinutes: number } | null>(null);
+  // A back-press from the search step cancels the whole range-select,
+  // matching every other modal here (they close outright on back rather
+  // than stepping back one screen).
+  useBackButtonClose(rangeSelectTarget !== null, () => setRangeSelectTarget(null));
+
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -768,6 +791,109 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (pressTimer.current) clearTimeout(pressTimer.current);
     pressTimer.current = null;
     setPressingId(null);
+  };
+
+  // ── empty-cell range-select (see refs/state above) ──
+  const cancelRangeSelect = () => {
+    if (rangeSelectTimer.current) clearTimeout(rangeSelectTimer.current);
+    rangeSelectTimer.current = null;
+    rangeSelectStart.current = null;
+    rangeSelectFired.current = false;
+    setRangeSelect(null);
+  };
+
+  // Recomputes the live [start, duration) range from the current pointer Y
+  // against the anchor captured at press-start — supports dragging in
+  // either direction from where the press began, same idea as
+  // ScheduledCard's top-resize handle.
+  const updateRangeSelect = (clientY: number) => {
+    const anchor = rangeSelectStart.current;
+    if (!anchor) return;
+    const raw = ((clientY - anchor.top) / SLOT_HEIGHT) * 60;
+    const pointer = Math.max(0, Math.min(DAY_MINUTES, Math.round(raw / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES));
+    const startMinutes = Math.min(anchor.anchorMinutes, pointer);
+    const endMinutes = Math.max(anchor.anchorMinutes, pointer, startMinutes + RESIZE_STEP_MINUTES);
+    setRangeSelect({ date: anchor.date, startMinutes, durationMinutes: endMinutes - startMinutes });
+  };
+
+  // Pointerdown on an empty grid cell arms a 500ms long-press (same delay
+  // as the map-pin drag) before actually engaging drag-select, and — unlike
+  // onDown for pins — never calls preventDefault, so a normal touch-scroll
+  // swipe over the timeline keeps working exactly as before; only a press
+  // held mostly still for the full delay engages pointer capture.
+  const handleGridCellDown = (e: React.PointerEvent<HTMLDivElement>, date: string) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-scheduled-card], [data-spillover-strip]")) return;
+    const el = e.currentTarget;
+    const pointerId = e.pointerId;
+    const top = el.getBoundingClientRect().top;
+    const raw = ((e.clientY - top) / SLOT_HEIGHT) * 60;
+    const anchorMinutes = Math.max(0, Math.min(DAY_MINUTES - RESIZE_STEP_MINUTES, Math.round(raw / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES));
+    rangeSelectFired.current = false;
+    rangeSelectStart.current = { x: e.clientX, y: e.clientY, date, top, anchorMinutes };
+    rangeSelectTimer.current = setTimeout(() => {
+      rangeSelectFired.current = true;
+      try {
+        el.setPointerCapture(pointerId);
+      } catch {
+        // Pointer already released before the timer fired — nothing to capture.
+      }
+      setRangeSelect({ date, startMinutes: anchorMinutes, durationMinutes: RESIZE_STEP_MINUTES });
+    }, 500);
+  };
+
+  const handleGridCellMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const anchor = rangeSelectStart.current;
+    if (!anchor) return;
+    if (!rangeSelectFired.current) {
+      // Still waiting on the long-press — cancel it if this looks like a
+      // scroll/normal gesture instead of a held-still press.
+      if (Math.hypot(e.clientX - anchor.x, e.clientY - anchor.y) > 8) cancelRangeSelect();
+      return;
+    }
+    updateRangeSelect(e.clientY);
+  };
+
+  const handleGridCellUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const anchor = rangeSelectStart.current;
+    const fired = rangeSelectFired.current;
+    if (rangeSelectTimer.current) clearTimeout(rangeSelectTimer.current);
+    rangeSelectTimer.current = null;
+    rangeSelectStart.current = null;
+    rangeSelectFired.current = false;
+    if (!anchor || !fired) {
+      setRangeSelect(null);
+      return;
+    }
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Already released — nothing to do.
+    }
+    setRangeSelect((current) => {
+      // A press that fired the long-press but was released without any
+      // further drag still creates a sensible default-length block instead
+      // of a barely-visible 15-minute sliver.
+      const startMinutes = current?.startMinutes ?? anchor.anchorMinutes;
+      const rawDuration = current?.durationMinutes ?? RESIZE_STEP_MINUTES;
+      const durationMinutes = rawDuration > RESIZE_STEP_MINUTES ? rawDuration : DEFAULT_DURATION_MINUTES;
+      const clampedDuration = Math.min(durationMinutes, DAY_MINUTES - startMinutes);
+      setRangeSelectConfirm({ date: anchor.date, startMinutes, durationMinutes: clampedDuration });
+      return null;
+    });
+  };
+
+  const handleGridCellCancel = () => {
+    cancelRangeSelect();
+  };
+
+  const handleRangeSelectSearchPick = (place: Place) => {
+    if (!rangeSelectTarget) return;
+    const { date, startMinutes, durationMinutes } = rangeSelectTarget;
+    addPlaces([place]);
+    registerAt(place, date, Math.floor(startMinutes / 60), startMinutes % 60, undefined, durationMinutes);
+    setRangeSelectTarget(null);
+    showToast(`${place.name} · ${formatDateLabelShort(date)} ${pad2(Math.floor(startMinutes / 60))}:${pad2(startMinutes % 60)}`);
   };
 
   // Search result / trend-sheet selection adapter target: both land here as
@@ -1711,12 +1837,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       (spillover != null && rangesOverlap(0, spillover.minutes, h * 60, 60));
 
                     return (
-                      <div key={date} className="relative min-w-0 flex-1 border-l border-slate-100">
+                      <div
+                        key={date}
+                        className="relative min-w-0 flex-1 border-l border-slate-100"
+                        onPointerDown={(e) => handleGridCellDown(e, date)}
+                        onPointerMove={handleGridCellMove}
+                        onPointerUp={handleGridCellUp}
+                        onPointerCancel={handleGridCellCancel}
+                      >
                         {spillover && (() => {
                           const spillPlace = places.find((p) => p.id === spillover.item.placeId) ?? fallbackDisplay(spillover.item.name);
                           const spillHeight = (spillover.minutes / 60) * SLOT_HEIGHT;
                           return (
                             <button
+                              data-spillover-strip
                               onClick={() => openEditModal(spillover.item)}
                               className="absolute inset-x-0.5 top-0 z-10 flex cursor-pointer items-start overflow-hidden rounded-b-lg text-left"
                               style={{
@@ -1734,6 +1868,23 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                             </button>
                           );
                         })()}
+                        {/* 빈 시간대를 눌러 잡고(long-press) 드래그하면 그 구간을 바로
+                            일정으로 추가할 수 있다 — 장소부터 고르는 기존 흐름과
+                            반대로, 시간부터 정하고 장소를 검색해 채우는 흐름.
+                            handleGridCellDown/Move/Up/Cancel(위)가 실제 로직. */}
+                        {rangeSelect?.date === date && (
+                          <div
+                            className="pointer-events-none absolute inset-x-0.5 z-20 flex items-start justify-center rounded-lg border-2 border-dashed border-indigo-400 bg-indigo-400/15"
+                            style={{
+                              top: (rangeSelect.startMinutes / 60) * SLOT_HEIGHT,
+                              height: (rangeSelect.durationMinutes / 60) * SLOT_HEIGHT,
+                            }}
+                          >
+                            <span className="mt-1 whitespace-nowrap rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+                              {formatTime(Math.floor(rangeSelect.startMinutes / 60), rangeSelect.startMinutes % 60)} · {rangeSelect.durationMinutes}분
+                            </span>
+                          </div>
+                        )}
                         {TIMELINE_HOURS.map((h) => {
                           const highlighted = hoverSlot?.date === date && hoverSlot?.hour === h;
                           const covered = isCovered(h);
@@ -1908,6 +2059,72 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 : undefined
             }
           />
+        )}
+
+        {/* ── 빈 시간대 드래그 → "이 시간에 추가할까요?" 확인 ── */}
+        {rangeSelectConfirm && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center px-4" onClick={() => setRangeSelectConfirm(null)}>
+            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" />
+            <div
+              className="relative w-full max-w-[300px] rounded-2xl bg-white p-5 text-center shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-[12px] font-medium text-slate-400">{formatDateLabelShort(rangeSelectConfirm.date)}</p>
+              <p className="mt-1 text-lg font-bold tabular-nums text-slate-900">
+                {pad2(Math.floor(rangeSelectConfirm.startMinutes / 60))}:{pad2(rangeSelectConfirm.startMinutes % 60)}
+                {" ~ "}
+                {pad2(Math.floor((rangeSelectConfirm.startMinutes + rangeSelectConfirm.durationMinutes) / 60) % 24)}:
+                {pad2((rangeSelectConfirm.startMinutes + rangeSelectConfirm.durationMinutes) % 60)}
+              </p>
+              <p className="mt-1.5 text-[13px] text-slate-500">이 시간에 일정을 추가할까요?</p>
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={() => setRangeSelectConfirm(null)}
+                  className="h-11 flex-1 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={() => {
+                    setRangeSelectTarget(rangeSelectConfirm);
+                    setRangeSelectConfirm(null);
+                  }}
+                  className="h-11 flex-1 rounded-xl bg-slate-900 text-sm font-semibold text-white"
+                >
+                  추가
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── 확인 후 — 그 시간에 채울 장소를 검색해서 바로 등록 ── */}
+        {rangeSelectTarget && (
+          <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setRangeSelectTarget(null)} />
+            <div className="relative flex max-h-[85vh] w-full max-w-[420px] flex-col rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+              <div className="flex shrink-0 items-center justify-between">
+                <div className="min-w-0">
+                  <p className="truncate text-[11px] font-medium text-slate-400">
+                    {formatDateLabelShort(rangeSelectTarget.date)} ·{" "}
+                    {pad2(Math.floor(rangeSelectTarget.startMinutes / 60))}:{pad2(rangeSelectTarget.startMinutes % 60)} ·{" "}
+                    {rangeSelectTarget.durationMinutes}분
+                  </p>
+                  <p className="text-[15px] font-bold text-slate-900">이 시간에 추가할 장소 검색</p>
+                </div>
+                <button
+                  onClick={() => setRangeSelectTarget(null)}
+                  aria-label="닫기"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
+                >
+                  <X size={14} color="#64748b" />
+                </button>
+              </div>
+              <div className="mt-3 -mr-1 flex-1 overflow-y-auto pr-1">
+                <PlaceSearchPanel region={region} onRegionChange={setRegion} onSelect={handleRangeSelectSearchPick} />
+              </div>
+            </div>
+          </div>
         )}
 
         {/* 예산 내역 팝업 — 상단 총 예산 배지 또는 요일 탭의 일별 예산을 누르면 뜬다 */}
@@ -2298,6 +2515,7 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinut
   return (
     <motion.div
       ref={setNodeRef}
+      data-scheduled-card
       {...listeners}
       {...attributes}
       onClick={() => onOpenEdit(item)}
