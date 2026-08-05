@@ -963,6 +963,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       const clamped = Math.max(RESIZE_STEP_MINUTES, Math.min(DAY_MINUTES - cur.startMinutes, snapped));
       return { ...cur, durationMinutes: clamped };
     });
+    updateAutoScroll(e.clientY);
   };
   const handleDraftResizeUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!draftResizeRef.current) return;
@@ -972,6 +973,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     } catch {
       // Already released — nothing to do.
     }
+    stopAutoScroll();
   };
 
   const draftTopResizeRef = useRef<{ y: number; start: number; duration: number } | null>(null);
@@ -990,6 +992,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const snappedStart = Math.round((anchor.start + deltaMinutes) / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES;
     const clampedStart = Math.max(0, Math.min(snappedStart, end - RESIZE_STEP_MINUTES));
     setRangeSelect((cur) => (cur ? { date: cur.date, startMinutes: clampedStart, durationMinutes: end - clampedStart } : cur));
+    updateAutoScroll(e.clientY);
   };
   const handleDraftTopResizeUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!draftTopResizeRef.current) return;
@@ -999,6 +1002,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     } catch {
       // Already released — nothing to do.
     }
+    stopAutoScroll();
   };
 
   const handleRangeSelectSearchPick = (place: Place) => {
