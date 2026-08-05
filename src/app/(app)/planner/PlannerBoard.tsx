@@ -661,27 +661,28 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const pressSource = useRef<"trend" | "pin">("trend");
 
   // ── drag-to-create: press-and-hold an EMPTY grid cell to drop a
-  // default-length draft stop there, then fine-tune it with the same
-  // top/bottom resize handles ScheduledCard already uses, and finally fill
-  // it via place search — the reverse of the existing flow, which always
+  // 15-minute draft stop there. Two ways to grow it from there, both kept:
+  // (1) keep holding past the long-press and drag — resizes live, with
+  // auto-scroll near the top/bottom edge so the drag can reach hours
+  // currently off-screen; (2) let go, then use the same top/bottom resize
+  // handles ScheduledCard already has for fine adjustment. Finally filled
+  // via place search — the reverse of the existing flow, which always
   // requires picking a place first.
   //
-  // Earlier version tried to let the SAME long-press-then-hold gesture keep
-  // extending the range live (via a delayed setPointerCapture once the
-  // long-press fired). That doesn't hold up on real touch hardware: with no
-  // preventDefault on pointerdown (deliberately, so an ordinary
-  // touch-scroll swipe over the timeline keeps working), the browser's own
-  // native scroll/pan recognizer can claim the touch sequence from the
-  // first bit of movement — calling setPointerCapture *later*, once our own
-  // 500ms timer fires, can't retroactively wrest it back, so drag-to-extend
-  // silently did nothing on mobile even though the long-press itself
-  // worked. Splitting creation (long-press, no capture needed since nothing
-  // is dragged live) from resizing (small dedicated handle elements,
-  // capture set immediately on their own pointerdown, exactly like
-  // ScheduledCard's already-proven-on-touch resize handles) sidesteps the
-  // conflict entirely.
+  // An earlier version tried (1) by calling setPointerCapture only once the
+  // long-press timer fired, with no preventDefault anywhere — that let a
+  // still-in-progress native scroll/pan win the touch sequence before
+  // capture could claim it, so dragging after the box appeared silently did
+  // nothing. Fixed by explicitly preventDefault()-ing every pointermove
+  // once the drag is actually committed (past the long-press), which is
+  // what actually suppresses the browser's own default touch scrolling —
+  // capture alone only redirects *event dispatch*, not default behavior.
   const rangeSelectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rangeSelectStart = useRef<{ x: number; y: number } | null>(null);
+  // Set once the long-press commits and capture is engaged — while this is
+  // non-null, pointermove keeps resizing live (and driving auto-scroll)
+  // instead of watching for the pending-press cancel threshold.
+  const activeRangeDrag = useRef<{ date: string; el: HTMLDivElement; anchorMinutes: number; pointerId: number } | null>(null);
   const [rangeSelect, setRangeSelect] = useState<{ date: string; startMinutes: number; durationMinutes: number } | null>(null);
   const [rangeSelectTarget, setRangeSelectTarget] = useState<{ date: string; startMinutes: number; durationMinutes: number } | null>(null);
   // Shown the instant a press lands (before the 500ms long-press even
@@ -815,25 +816,80 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     setPressIndicator(null);
   };
 
+  // Auto-scroll the board while a committed range-drag's pointer sits near
+  // the top/bottom edge of the visible area, so the drag can reach hours
+  // currently off-screen instead of getting stuck at the viewport edge.
+  const autoScrollFrame = useRef<number | null>(null);
+  const autoScrollSpeed = useRef(0);
+  const AUTO_SCROLL_EDGE_PX = 64;
+  const AUTO_SCROLL_MAX_SPEED = 14;
+  const stopAutoScroll = () => {
+    if (autoScrollFrame.current != null) cancelAnimationFrame(autoScrollFrame.current);
+    autoScrollFrame.current = null;
+    autoScrollSpeed.current = 0;
+  };
+  const runAutoScroll = () => {
+    const el = boardRef.current;
+    if (!el || autoScrollSpeed.current === 0) {
+      autoScrollFrame.current = null;
+      return;
+    }
+    el.scrollTop += autoScrollSpeed.current;
+    autoScrollFrame.current = requestAnimationFrame(runAutoScroll);
+  };
+  const updateAutoScroll = (clientY: number) => {
+    const el = boardRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    let speed = 0;
+    if (clientY > rect.bottom - AUTO_SCROLL_EDGE_PX) {
+      speed = (Math.min(1, (clientY - (rect.bottom - AUTO_SCROLL_EDGE_PX)) / AUTO_SCROLL_EDGE_PX)) * AUTO_SCROLL_MAX_SPEED;
+    } else if (clientY < rect.top + AUTO_SCROLL_EDGE_PX) {
+      speed = -(Math.min(1, (rect.top + AUTO_SCROLL_EDGE_PX - clientY) / AUTO_SCROLL_EDGE_PX)) * AUTO_SCROLL_MAX_SPEED;
+    }
+    autoScrollSpeed.current = speed;
+    if (speed !== 0 && autoScrollFrame.current == null) autoScrollFrame.current = requestAnimationFrame(runAutoScroll);
+    else if (speed === 0) stopAutoScroll();
+  };
+
+  // Recomputes the live duration for a committed range-drag — same anchored
+  // (start fixed, duration grows/shrinks) math as the bottom resize handle
+  // below, just fed by the ongoing grid-cell drag instead of the handle's
+  // own pointer events. Re-reads the day column's rect fresh every call
+  // (rather than a value cached once at press-start) so it stays correct
+  // even as auto-scroll moves the column under the finger.
+  const updateActiveRangeDrag = (clientY: number) => {
+    const active = activeRangeDrag.current;
+    if (!active) return;
+    const top = active.el.getBoundingClientRect().top;
+    const raw = ((clientY - top) / SLOT_HEIGHT) * 60;
+    const pointerMinutes = Math.round(raw / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES;
+    const durationMinutes = Math.max(RESIZE_STEP_MINUTES, Math.min(DAY_MINUTES - active.anchorMinutes, pointerMinutes - active.anchorMinutes));
+    setRangeSelect({ date: active.date, startMinutes: active.anchorMinutes, durationMinutes });
+  };
+
   // Pointerdown on an empty grid cell shows an immediate 15-minute-snapped
   // press indicator (so the tap visibly registers right away) and arms a
   // short long-press — never calls preventDefault/setPointerCapture itself,
   // so an ordinary touch-scroll swipe over the timeline is completely
-  // unaffected; only a press held mostly still for the delay drops a
-  // 15-minute draft at that time (the smallest step, not a 60-minute
-  // default — feedback was that jumping straight to an hour felt like it
-  // skipped past what the user actually wanted), which the user then grows
-  // with the resize handles below (a separate, small-target gesture — see
-  // the comment on the refs above for why this is split out rather than
-  // extending live within the same touch). 280ms rather than the map-pin
-  // drag's 500ms — feedback was that the longer delay felt sluggish here;
-  // the 8px cancel-threshold below still guards against mistaking a scroll
-  // for a hold.
+  // unaffected while we're still waiting to see if this is a hold. Only a
+  // press held mostly still for the delay commits: it drops a 15-minute
+  // draft at that time and, from that point on, keeps tracking the SAME
+  // touch (capture + preventDefault on every subsequent move — see the
+  // comment on the refs above for why plain capture alone wasn't enough)
+  // so continuing to drag without lifting grows the draft live, with
+  // auto-scroll near the viewport edge. Letting go and grabbing the
+  // separate top/bottom resize handles afterward still works too. 280ms
+  // rather than the map-pin drag's 500ms — feedback was that the longer
+  // delay felt sluggish here; the 8px cancel-threshold below still guards
+  // against mistaking a scroll for a hold during the pending phase.
   const RANGE_SELECT_LONG_PRESS_MS = 280;
   const handleGridCellDown = (e: React.PointerEvent<HTMLDivElement>, date: string) => {
     const target = e.target as HTMLElement;
     if (target.closest("[data-scheduled-card], [data-spillover-strip]")) return;
-    const top = e.currentTarget.getBoundingClientRect().top;
+    const el = e.currentTarget;
+    const pointerId = e.pointerId;
+    const top = el.getBoundingClientRect().top;
     const raw = ((e.clientY - top) / SLOT_HEIGHT) * 60;
     const anchorMinutes = Math.max(0, Math.min(DAY_MINUTES - RESIZE_STEP_MINUTES, Math.round(raw / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES));
     rangeSelectStart.current = { x: e.clientX, y: e.clientY };
@@ -841,10 +897,26 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     rangeSelectTimer.current = setTimeout(() => {
       setPressIndicator(null);
       setRangeSelect({ date, startMinutes: anchorMinutes, durationMinutes: RESIZE_STEP_MINUTES });
+      try {
+        el.setPointerCapture(pointerId);
+        activeRangeDrag.current = { date, el, anchorMinutes, pointerId };
+      } catch {
+        // Pointer already released before the timer fired — the draft still
+        // shows (from setRangeSelect above), just without live-drag growth;
+        // the resize handles remain available either way.
+      }
     }, RANGE_SELECT_LONG_PRESS_MS);
   };
 
   const handleGridCellMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (activeRangeDrag.current) {
+      // Committed — suppress native scroll for this pointer (we're driving
+      // our own auto-scroll instead) and resize live.
+      e.preventDefault();
+      updateActiveRangeDrag(e.clientY);
+      updateAutoScroll(e.clientY);
+      return;
+    }
     const anchor = rangeSelectStart.current;
     if (!anchor) return;
     // Still waiting on the long-press — cancel it if this looks like a
@@ -852,7 +924,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (Math.hypot(e.clientX - anchor.x, e.clientY - anchor.y) > 8) cancelPendingRangeSelect();
   };
 
-  const handleGridCellUp = () => {
+  const handleGridCellUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const active = activeRangeDrag.current;
+    if (active) {
+      try {
+        e.currentTarget.releasePointerCapture(active.pointerId);
+      } catch {
+        // Already released — nothing to do.
+      }
+      activeRangeDrag.current = null;
+      stopAutoScroll();
+      return;
+    }
     cancelPendingRangeSelect();
   };
 
