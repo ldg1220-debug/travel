@@ -685,6 +685,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const rangeSelectStart = useRef<{ x: number; y: number } | null>(null);
   const [rangeSelect, setRangeSelect] = useState<{ date: string; startMinutes: number; durationMinutes: number } | null>(null);
   const [rangeSelectTarget, setRangeSelectTarget] = useState<{ date: string; startMinutes: number; durationMinutes: number } | null>(null);
+  // Shown the instant a press lands (before the 500ms long-press even
+  // commits) at the 15-minute-snapped point under the finger, so the press
+  // visibly registers right away instead of the timetable looking
+  // unresponsive for half a second. Purely a paint effect — setting this
+  // state doesn't call preventDefault/setPointerCapture, so it can't
+  // interfere with the scroll-safety the long-press timing relies on.
+  const [pressIndicator, setPressIndicator] = useState<{ date: string; startMinutes: number } | null>(null);
   // A back-press cancels whichever step is active — the draft (still on
   // the grid) or the search modal — rather than stepping back one screen,
   // matching every other modal here.
@@ -806,16 +813,19 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (rangeSelectTimer.current) clearTimeout(rangeSelectTimer.current);
     rangeSelectTimer.current = null;
     rangeSelectStart.current = null;
+    setPressIndicator(null);
   };
 
-  // Pointerdown on an empty grid cell arms a 500ms long-press (same delay
-  // as the map-pin drag) — never calls preventDefault/setPointerCapture
-  // itself, so an ordinary touch-scroll swipe over the timeline is
-  // completely unaffected; only a press held mostly still for the full
-  // delay drops a default-length (60min) draft at that time, which the
-  // user then fine-tunes with the resize handles below (a separate,
-  // small-target gesture — see the comment on the refs above for why this
-  // is split out rather than extending live within the same touch).
+  // Pointerdown on an empty grid cell shows an immediate 15-minute-snapped
+  // press indicator (so the tap visibly registers right away) and arms a
+  // 500ms long-press (same delay as the map-pin drag) — never calls
+  // preventDefault/setPointerCapture itself, so an ordinary touch-scroll
+  // swipe over the timeline is completely unaffected; only a press held
+  // mostly still for the full delay drops a default-length (60min) draft
+  // at that time, which the user then fine-tunes with the resize handles
+  // below (a separate, small-target gesture — see the comment on the refs
+  // above for why this is split out rather than extending live within the
+  // same touch).
   const handleGridCellDown = (e: React.PointerEvent<HTMLDivElement>, date: string) => {
     const target = e.target as HTMLElement;
     if (target.closest("[data-scheduled-card], [data-spillover-strip]")) return;
@@ -823,7 +833,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const raw = ((e.clientY - top) / SLOT_HEIGHT) * 60;
     const anchorMinutes = Math.max(0, Math.min(DAY_MINUTES - DEFAULT_DURATION_MINUTES, Math.round(raw / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES));
     rangeSelectStart.current = { x: e.clientX, y: e.clientY };
+    setPressIndicator({ date, startMinutes: anchorMinutes });
     rangeSelectTimer.current = setTimeout(() => {
+      setPressIndicator(null);
       setRangeSelect({ date, startMinutes: anchorMinutes, durationMinutes: DEFAULT_DURATION_MINUTES });
     }, 500);
   };
@@ -1883,6 +1895,21 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                             </button>
                           );
                         })()}
+                        {/* 누르는 즉시(롱프레스 확정 전) 15분 단위로 스냅된 지점에
+                            바로 뜨는 표시 — "여기를 잡고 있다"는 게 눈에 바로 보이도록. */}
+                        {pressIndicator?.date === date && (
+                          <div
+                            className="pointer-events-none absolute inset-x-0.5 z-20 flex items-center justify-center rounded-md border border-dashed border-indigo-400 bg-indigo-400/25"
+                            style={{
+                              top: (pressIndicator.startMinutes / 60) * SLOT_HEIGHT,
+                              height: (RESIZE_STEP_MINUTES / 60) * SLOT_HEIGHT,
+                            }}
+                          >
+                            <span className="whitespace-nowrap text-[9px] font-semibold text-indigo-600">
+                              {formatTime(Math.floor(pressIndicator.startMinutes / 60), pressIndicator.startMinutes % 60)}
+                            </span>
+                          </div>
+                        )}
                         {/* 빈 시간대를 눌러 잡으면(long-press) 기본 길이의 임시 일정이
                             뜬다 — 장소부터 고르는 기존 흐름과 반대로, 시간부터 정하고
                             장소를 검색해 채우는 흐름. 위/아래 손잡이로 시간을 조절한 뒤
