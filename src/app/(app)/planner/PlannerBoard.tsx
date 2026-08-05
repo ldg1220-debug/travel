@@ -70,7 +70,6 @@ import {
   MAX_VISIBLE_DAYS,
   DAY_MINUTES,
   MIN_DURATION_MINUTES,
-  DEFAULT_DURATION_MINUTES,
   RESIZE_STEP_MINUTES,
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
@@ -818,26 +817,31 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
   // Pointerdown on an empty grid cell shows an immediate 15-minute-snapped
   // press indicator (so the tap visibly registers right away) and arms a
-  // 500ms long-press (same delay as the map-pin drag) — never calls
-  // preventDefault/setPointerCapture itself, so an ordinary touch-scroll
-  // swipe over the timeline is completely unaffected; only a press held
-  // mostly still for the full delay drops a default-length (60min) draft
-  // at that time, which the user then fine-tunes with the resize handles
-  // below (a separate, small-target gesture — see the comment on the refs
-  // above for why this is split out rather than extending live within the
-  // same touch).
+  // short long-press — never calls preventDefault/setPointerCapture itself,
+  // so an ordinary touch-scroll swipe over the timeline is completely
+  // unaffected; only a press held mostly still for the delay drops a
+  // 15-minute draft at that time (the smallest step, not a 60-minute
+  // default — feedback was that jumping straight to an hour felt like it
+  // skipped past what the user actually wanted), which the user then grows
+  // with the resize handles below (a separate, small-target gesture — see
+  // the comment on the refs above for why this is split out rather than
+  // extending live within the same touch). 280ms rather than the map-pin
+  // drag's 500ms — feedback was that the longer delay felt sluggish here;
+  // the 8px cancel-threshold below still guards against mistaking a scroll
+  // for a hold.
+  const RANGE_SELECT_LONG_PRESS_MS = 280;
   const handleGridCellDown = (e: React.PointerEvent<HTMLDivElement>, date: string) => {
     const target = e.target as HTMLElement;
     if (target.closest("[data-scheduled-card], [data-spillover-strip]")) return;
     const top = e.currentTarget.getBoundingClientRect().top;
     const raw = ((e.clientY - top) / SLOT_HEIGHT) * 60;
-    const anchorMinutes = Math.max(0, Math.min(DAY_MINUTES - DEFAULT_DURATION_MINUTES, Math.round(raw / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES));
+    const anchorMinutes = Math.max(0, Math.min(DAY_MINUTES - RESIZE_STEP_MINUTES, Math.round(raw / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES));
     rangeSelectStart.current = { x: e.clientX, y: e.clientY };
     setPressIndicator({ date, startMinutes: anchorMinutes });
     rangeSelectTimer.current = setTimeout(() => {
       setPressIndicator(null);
-      setRangeSelect({ date, startMinutes: anchorMinutes, durationMinutes: DEFAULT_DURATION_MINUTES });
-    }, 500);
+      setRangeSelect({ date, startMinutes: anchorMinutes, durationMinutes: RESIZE_STEP_MINUTES });
+    }, RANGE_SELECT_LONG_PRESS_MS);
   };
 
   const handleGridCellMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1916,32 +1920,36 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                             아래 액션바의 "장소 검색"으로 확정한다. */}
                         {rangeSelect?.date === date && (
                           <div
-                            className="absolute inset-x-0.5 z-20 flex flex-col overflow-hidden rounded-lg border-2 border-dashed border-indigo-400 bg-indigo-400/15"
+                            className="absolute inset-x-0.5 z-20 overflow-hidden rounded-lg border-2 border-dashed border-indigo-400 bg-indigo-400/15"
                             style={{
                               top: (rangeSelect.startMinutes / 60) * SLOT_HEIGHT,
                               height: (rangeSelect.durationMinutes / 60) * SLOT_HEIGHT,
                             }}
                           >
+                            {/* 라벨을 손잡이와 별도 레이어(절대 위치)로 겹쳐 그려서 —
+                                ScheduledCard의 손잡이와 같은 방식 — 15분처럼 아주 짧은
+                                구간에서도 손잡이 높이 때문에 글자가 밀리거나 겹쳐
+                                뭉개지지 않는다. */}
+                            <div className="flex h-full items-center justify-center overflow-hidden px-1.5">
+                              <span className="truncate whitespace-nowrap text-[10px] font-semibold text-indigo-600">
+                                {formatTime(Math.floor(rangeSelect.startMinutes / 60), rangeSelect.startMinutes % 60)} · {rangeSelect.durationMinutes}분
+                              </span>
+                            </div>
                             <div
                               onPointerDown={handleDraftTopResizeDown}
                               onPointerMove={handleDraftTopResizeMove}
                               onPointerUp={handleDraftTopResizeUp}
                               onPointerCancel={handleDraftTopResizeUp}
-                              className="flex h-3 shrink-0 cursor-ns-resize touch-none items-start justify-center"
+                              className="absolute inset-x-0 top-0 flex h-2.5 cursor-ns-resize touch-none items-start justify-center"
                             >
                               <span className="mt-0.5 h-0.5 w-6 rounded-full bg-indigo-500" />
-                            </div>
-                            <div className="flex flex-1 items-center justify-center overflow-hidden px-1">
-                              <span className="truncate whitespace-nowrap text-[10px] font-semibold text-indigo-600">
-                                {formatTime(Math.floor(rangeSelect.startMinutes / 60), rangeSelect.startMinutes % 60)} · {rangeSelect.durationMinutes}분
-                              </span>
                             </div>
                             <div
                               onPointerDown={handleDraftResizeDown}
                               onPointerMove={handleDraftResizeMove}
                               onPointerUp={handleDraftResizeUp}
                               onPointerCancel={handleDraftResizeUp}
-                              className="flex h-3 shrink-0 cursor-ns-resize touch-none items-end justify-center"
+                              className="absolute inset-x-0 bottom-0 flex h-2.5 cursor-ns-resize touch-none items-end justify-center"
                             >
                               <span className="mb-0.5 h-0.5 w-6 rounded-full bg-indigo-500" />
                             </div>
