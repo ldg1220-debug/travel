@@ -1598,10 +1598,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         {/* min-h is a safety floor: h-[45%] depends on the flex ancestor
             chain resolving before the Maps SDK measures the container (it
             only measures once, on mount) — without a concrete fallback
-            size, a layout race could leave the map permanently at 0px. */}
+            size, a layout race could leave the map permanently at 0px.
+            h-[45%] alone made sense for a narrow phone viewport, but this
+            page has no max-width on desktop (see (app)/layout.tsx — `main`
+            is plain flex-1, no centering column), so on a wide browser
+            window the map stretched edge-to-edge while its height stayed
+            pinned to 45% of viewport HEIGHT regardless of width — the
+            wider the window, the flatter/less noticeable it got. A fixed
+            desktop height instead of a percentage keeps the aspect ratio
+            sane no matter how wide the window is. */}
         <div
           className={`relative w-full shrink-0 overflow-hidden bg-[#eef2f4] transition-[height] duration-300 ${
-            mapCollapsed || scheduleExpanded ? "h-14 min-h-14" : "h-[45%] min-h-[260px]"
+            mapCollapsed || scheduleExpanded ? "h-14 min-h-14" : "h-[45%] min-h-[260px] md:h-[480px] md:min-h-[480px]"
           }`}
         >
           {tab === "schedule" && (
