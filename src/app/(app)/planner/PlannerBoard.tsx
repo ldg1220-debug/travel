@@ -230,6 +230,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const timelineZoom = useItineraryStore((s) => s.timelineZoom);
   const setTimelineZoom = useItineraryStore((s) => s.setTimelineZoom);
   const slotHeight = SLOT_HEIGHT * timelineZoom;
+  // Personal desktop map-panel height (px), drag-resizable via a handle at
+  // the map's bottom edge — see the resize handlers and the
+  // --planner-map-h usage further down. Mobile is unaffected (still the
+  // responsive h-[45%]); this only kicks in at the md breakpoint.
+  const plannerMapHeight = useItineraryStore((s) => s.plannerMapHeight);
+  const setPlannerMapHeight = useItineraryStore((s) => s.setPlannerMapHeight);
+  const [liveMapHeight, setLiveMapHeight] = useState<number | null>(null);
+  const mapHeight = liveMapHeight ?? plannerMapHeight;
 
   // A place just found via the map's search box, not yet scheduled — shown
   // as a single temporary pin (see scheduleMapPlaces below) so it stays
@@ -813,6 +821,36 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (pressTimer.current) clearTimeout(pressTimer.current);
     pressTimer.current = null;
     setPressingId(null);
+  };
+
+  // ── desktop map-panel resize handle — same pointer-capture pattern as
+  // ScheduledCard's own resize handles (immediate capture on this small
+  // dedicated element's own pointerdown, live-local-state during drag,
+  // committed to the store on release). ──
+  const mapResizeRef = useRef<{ y: number; height: number } | null>(null);
+  const handleMapResizeDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    mapResizeRef.current = { y: e.clientY, height: plannerMapHeight };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const handleMapResizeMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const anchor = mapResizeRef.current;
+    if (!anchor) return;
+    const next = Math.max(280, Math.min(800, Math.round(anchor.height + (e.clientY - anchor.y))));
+    setLiveMapHeight(next);
+  };
+  const handleMapResizeUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!mapResizeRef.current) return;
+    mapResizeRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Already released — nothing to do.
+    }
+    setLiveMapHeight((h) => {
+      if (h != null) setPlannerMapHeight(h);
+      return null;
+    });
   };
 
   // ── empty-cell range-select (see refs/state above) ──
@@ -1604,14 +1642,31 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             is plain flex-1, no centering column), so on a wide browser
             window the map stretched edge-to-edge while its height stayed
             pinned to 45% of viewport HEIGHT regardless of width — the
-            wider the window, the flatter/less noticeable it got. A fixed
-            desktop height instead of a percentage keeps the aspect ratio
-            sane no matter how wide the window is. */}
+            wider the window, the flatter/less noticeable it got. md+ uses a
+            personal, drag-resizable height instead (--planner-map-h, set
+            below; handle is the strip at the bottom of this container). */}
         <div
           className={`relative w-full shrink-0 overflow-hidden bg-[#eef2f4] transition-[height] duration-300 ${
-            mapCollapsed || scheduleExpanded ? "h-14 min-h-14" : "h-[45%] min-h-[260px] md:h-[480px] md:min-h-[480px]"
+            mapCollapsed || scheduleExpanded ? "h-14 min-h-14" : "h-[45%] min-h-[260px] md:h-[var(--planner-map-h)] md:min-h-[var(--planner-map-h)]"
           }`}
+          style={{ ["--planner-map-h" as string]: `${mapHeight}px` }}
         >
+          {!mapCollapsed && !scheduleExpanded && (
+            <div
+              onPointerDown={handleMapResizeDown}
+              onPointerMove={handleMapResizeMove}
+              onPointerUp={handleMapResizeUp}
+              onPointerCancel={handleMapResizeUp}
+              className="absolute inset-x-0 bottom-0 z-30 hidden h-2.5 cursor-ns-resize touch-none items-center justify-center md:flex"
+              aria-label="지도 높이 조절"
+              role="slider"
+              aria-valuemin={280}
+              aria-valuemax={800}
+              aria-valuenow={mapHeight}
+            >
+              <span className="h-1 w-10 rounded-full bg-slate-900/15" />
+            </div>
+          )}
           {tab === "schedule" && (
             <div className="absolute inset-x-3 top-3 z-20 flex items-center gap-2">
               <div className="min-w-0 flex-1">
