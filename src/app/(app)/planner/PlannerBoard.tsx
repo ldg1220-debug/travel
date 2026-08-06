@@ -223,6 +223,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
   const removeSavedPlace = useItineraryStore((s) => s.removeSavedPlace);
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
+  // Personal hour-grid zoom (1.0–2.0×, default 1.5×) — feedback was that the
+  // stock 56px/hour row felt cramped next to something like Notion
+  // Calendar. Every pixel-based positioning calc below uses this instead of
+  // the bare SLOT_HEIGHT constant, which stays the 1.0× baseline.
+  const timelineZoom = useItineraryStore((s) => s.timelineZoom);
+  const setTimelineZoom = useItineraryStore((s) => s.setTimelineZoom);
+  const slotHeight = SLOT_HEIGHT * timelineZoom;
 
   // A place just found via the map's search box, not yet scheduled — shown
   // as a single temporary pin (see scheduleMapPlaces below) so it stays
@@ -862,7 +869,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const active = activeRangeDrag.current;
     if (!active) return;
     const top = active.el.getBoundingClientRect().top;
-    const raw = ((clientY - top) / SLOT_HEIGHT) * 60;
+    const raw = ((clientY - top) / slotHeight) * 60;
     const pointerMinutes = Math.round(raw / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES;
     const durationMinutes = Math.max(RESIZE_STEP_MINUTES, Math.min(DAY_MINUTES - active.anchorMinutes, pointerMinutes - active.anchorMinutes));
     setRangeSelect({ date: active.date, startMinutes: active.anchorMinutes, durationMinutes });
@@ -890,7 +897,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const el = e.currentTarget;
     const pointerId = e.pointerId;
     const top = el.getBoundingClientRect().top;
-    const raw = ((e.clientY - top) / SLOT_HEIGHT) * 60;
+    const raw = ((e.clientY - top) / slotHeight) * 60;
     const anchorMinutes = Math.max(0, Math.min(DAY_MINUTES - RESIZE_STEP_MINUTES, Math.round(raw / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES));
     rangeSelectStart.current = { x: e.clientX, y: e.clientY };
     setPressIndicator({ date, startMinutes: anchorMinutes });
@@ -899,6 +906,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       setRangeSelect({ date, startMinutes: anchorMinutes, durationMinutes: RESIZE_STEP_MINUTES });
       try {
         el.setPointerCapture(pointerId);
+        // setPointerCapture only redirects *event dispatch* — it doesn't by
+        // itself stop the browser's own default touch scrolling for this
+        // pointer, and calling preventDefault() on the ongoing pointermoves
+        // (handleGridCellMove below) can lose that race if Chrome's own
+        // gesture recognizer already leaned toward "this is a scroll" from
+        // the small pre-commit movement, even though it stayed under our
+        // 8px cancel threshold. Setting touch-action:none directly on the
+        // element right now — synchronously, via the DOM node rather than
+        // waiting on a React re-render — is what actually and reliably
+        // suppresses it; restored on release/cancel below.
+        el.style.touchAction = "none";
         activeRangeDrag.current = { date, el, anchorMinutes, pointerId };
       } catch {
         // Pointer already released before the timer fired — the draft still
@@ -932,6 +950,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       } catch {
         // Already released — nothing to do.
       }
+      active.el.style.touchAction = "";
       activeRangeDrag.current = null;
       stopAutoScroll();
       return;
@@ -956,7 +975,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const handleDraftResizeMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const anchor = draftResizeRef.current;
     if (!anchor) return;
-    const deltaMinutes = ((e.clientY - anchor.y) / SLOT_HEIGHT) * 60;
+    const deltaMinutes = ((e.clientY - anchor.y) / slotHeight) * 60;
     const snapped = Math.round((anchor.duration + deltaMinutes) / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES;
     setRangeSelect((cur) => {
       if (!cur) return cur;
@@ -988,7 +1007,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const anchor = draftTopResizeRef.current;
     if (!anchor) return;
     const end = anchor.start + anchor.duration;
-    const deltaMinutes = ((e.clientY - anchor.y) / SLOT_HEIGHT) * 60;
+    const deltaMinutes = ((e.clientY - anchor.y) / slotHeight) * 60;
     const snappedStart = Math.round((anchor.start + deltaMinutes) / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES;
     const clampedStart = Math.max(0, Math.min(snappedStart, end - RESIZE_STEP_MINUTES));
     setRangeSelect((cur) => (cur ? { date: cur.date, startMinutes: clampedStart, durationMinutes: end - clampedStart } : cur));
@@ -1374,7 +1393,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (!data) return null;
     const dayTop = slotRefs.current[`${data.date}|0`]?.getBoundingClientRect().top;
     const activeTop = active.rect.current.translated?.top ?? over.rect.top;
-    const totalMinutesFromDayTop = dayTop != null ? ((activeTop - dayTop) / SLOT_HEIGHT) * 60 : data.hour * 60;
+    const totalMinutesFromDayTop = dayTop != null ? ((activeTop - dayTop) / slotHeight) * 60 : data.hour * 60;
     const snappedTotalMinutes = Math.max(
       0,
       Math.min(DAY_MINUTES - RESIZE_STEP_MINUTES, Math.round(totalMinutesFromDayTop / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES),
@@ -1579,10 +1598,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         {/* min-h is a safety floor: h-[45%] depends on the flex ancestor
             chain resolving before the Maps SDK measures the container (it
             only measures once, on mount) — without a concrete fallback
-            size, a layout race could leave the map permanently at 0px. */}
+            size, a layout race could leave the map permanently at 0px.
+            h-[45%] alone made sense for a narrow phone viewport, but this
+            page has no max-width on desktop (see (app)/layout.tsx — `main`
+            is plain flex-1, no centering column), so on a wide browser
+            window the map stretched edge-to-edge while its height stayed
+            pinned to 45% of viewport HEIGHT regardless of width — the
+            wider the window, the flatter/less noticeable it got. A fixed
+            desktop height instead of a percentage keeps the aspect ratio
+            sane no matter how wide the window is. */}
         <div
           className={`relative w-full shrink-0 overflow-hidden bg-[#eef2f4] transition-[height] duration-300 ${
-            mapCollapsed || scheduleExpanded ? "h-14 min-h-14" : "h-[45%] min-h-[260px]"
+            mapCollapsed || scheduleExpanded ? "h-14 min-h-14" : "h-[45%] min-h-[260px] md:h-[480px] md:min-h-[480px]"
           }`}
         >
           {tab === "schedule" && (
@@ -1790,6 +1817,29 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         <Plus size={11} />
                       </button>
                     </div>
+                    {/* 시간칸 크기(개인 설정, 1.0~2.0배, 기본 1.5배) — Notion Calendar 등에
+                        비해 56px/시간 기본값이 답답하다는 피드백으로 추가. 0.25배 단위. */}
+                    <div className="ml-1 flex items-center gap-0.5 rounded-full border border-slate-200 px-0.5 py-0.5">
+                      <button
+                        onClick={() => setTimelineZoom(Math.max(1, Math.round((timelineZoom - 0.25) * 100) / 100))}
+                        disabled={timelineZoom <= 1}
+                        aria-label="시간칸 크기 줄이기"
+                        className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <Minus size={11} />
+                      </button>
+                      <span className="min-w-[36px] text-center text-[11px] font-semibold tabular-nums text-slate-600">
+                        {timelineZoom}배
+                      </span>
+                      <button
+                        onClick={() => setTimelineZoom(Math.min(2, Math.round((timelineZoom + 0.25) * 100) / 100))}
+                        disabled={timelineZoom >= 2}
+                        aria-label="시간칸 크기 늘리기"
+                        className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <Plus size={11} />
+                      </button>
+                    </div>
                     <button
                       onClick={() => setScheduleExpanded((v) => !v)}
                       aria-label={scheduleExpanded ? "축소해서 보기" : "일정만 크게 보기"}
@@ -1930,14 +1980,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               </div>
 
               <div ref={timelineScrollRef} className="px-4 pb-6">
-                <div className="flex" style={{ height: TIMELINE_HOURS.length * SLOT_HEIGHT }}>
+                <div className="flex" style={{ height: TIMELINE_HOURS.length * slotHeight }}>
                   {/* hour gutter */}
                   <div className="w-[42px] shrink-0">
                     {TIMELINE_HOURS.map((h) => (
                       <div
                         key={h}
                         className="flex items-start justify-end pr-2 pt-0.5 text-[10.5px] font-semibold tabular-nums text-slate-400"
-                        style={{ height: SLOT_HEIGHT }}
+                        style={{ height: slotHeight }}
                       >
                         {pad2(h)}:00
                       </div>
@@ -1965,7 +2015,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       >
                         {spillover && (() => {
                           const spillPlace = places.find((p) => p.id === spillover.item.placeId) ?? fallbackDisplay(spillover.item.name);
-                          const spillHeight = (spillover.minutes / 60) * SLOT_HEIGHT;
+                          const spillHeight = (spillover.minutes / 60) * slotHeight;
                           return (
                             <button
                               data-spillover-strip
@@ -1992,8 +2042,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                           <div
                             className="pointer-events-none absolute inset-x-0.5 z-20 flex items-center justify-center rounded-md border border-dashed border-indigo-400 bg-indigo-400/25"
                             style={{
-                              top: (pressIndicator.startMinutes / 60) * SLOT_HEIGHT,
-                              height: (RESIZE_STEP_MINUTES / 60) * SLOT_HEIGHT,
+                              top: (pressIndicator.startMinutes / 60) * slotHeight,
+                              height: (RESIZE_STEP_MINUTES / 60) * slotHeight,
                             }}
                           >
                             <span className="whitespace-nowrap text-[9px] font-semibold text-indigo-600">
@@ -2009,8 +2059,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                           <div
                             className="absolute inset-x-0.5 z-20 overflow-hidden rounded-lg border-2 border-dashed border-indigo-400 bg-indigo-400/15"
                             style={{
-                              top: (rangeSelect.startMinutes / 60) * SLOT_HEIGHT,
-                              height: (rangeSelect.durationMinutes / 60) * SLOT_HEIGHT,
+                              top: (rangeSelect.startMinutes / 60) * slotHeight,
+                              height: (rangeSelect.durationMinutes / 60) * slotHeight,
                             }}
                           >
                             {/* 라벨을 손잡이와 별도 레이어(절대 위치)로 겹쳐 그려서 —
@@ -2048,7 +2098,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                           const transit = !covered ? transitByDate[date]?.[h] : undefined;
 
                           return (
-                            <DroppableCell key={h} date={date} hour={h} highlighted={highlighted} registerRef={registerSlotRef}>
+                            <DroppableCell key={h} date={date} hour={h} highlighted={highlighted} registerRef={registerSlotRef} slotHeight={slotHeight}>
                               {highlighted ? (
                                 <div className="flex h-full items-center justify-center">
                                   <span className="text-[10.5px] font-semibold text-[#FF6B6B]">Drop here</span>
@@ -2087,6 +2137,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                               order={order}
                               minStartMinutes={minStartMinutes}
                               maxDurationMinutes={maxDurationMinutes}
+                              slotHeight={slotHeight}
                               onOpenEdit={openEditModal}
                               onRemove={removeItem}
                               onResize={resizeItem}
@@ -2495,10 +2546,11 @@ interface DroppableCellProps {
   hour: number;
   highlighted: boolean;
   registerRef: (date: string, hour: number, el: HTMLDivElement | null) => void;
+  slotHeight: number;
   children: React.ReactNode;
 }
 
-function DroppableCell({ date, hour, highlighted, registerRef, children }: DroppableCellProps) {
+function DroppableCell({ date, hour, highlighted, registerRef, slotHeight, children }: DroppableCellProps) {
   const { setNodeRef, isOver } = useDroppable({ id: `cell-${date}-${hour}`, data: { date, hour } });
   const showHighlight = highlighted || isOver;
   return (
@@ -2510,7 +2562,7 @@ function DroppableCell({ date, hour, highlighted, registerRef, children }: Dropp
       className={`mx-0.5 my-0.5 rounded-lg transition-all ${
         showHighlight ? "border border-dashed border-[#FF6B6B] bg-[#FF6B6B]/10" : "border border-dashed border-transparent"
       }`}
-      style={{ height: SLOT_HEIGHT - 4 }}
+      style={{ height: slotHeight - 4 }}
     >
       {children}
     </div>
@@ -2529,13 +2581,15 @@ interface ScheduledCardProps {
   maxDurationMinutes: number;
   /** Earliest minutes-from-day-start the top resize handle may reach — the previous stop's end, or day start (0). */
   minStartMinutes: number;
+  /** Personal zoom-scaled px-per-hour (see PlannerBoardInner's `slotHeight`) — passed down instead of importing the bare SLOT_HEIGHT constant so this card's own positioning/resize math matches whatever zoom the user has set. */
+  slotHeight: number;
   onOpenEdit: (item: ItineraryItem) => void;
   onRemove: (id: string) => void;
   onResize: (id: string, durationMinutes: number) => void;
   onRetime: (id: string, startMinutes: number, durationMinutes: number) => void;
 }
 
-function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinutes, onOpenEdit, onRemove, onResize, onRetime }: ScheduledCardProps) {
+function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinutes, slotHeight, onOpenEdit, onRemove, onResize, onRetime }: ScheduledCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `sched-${item.id}`,
     data: { itemId: item.id },
@@ -2560,7 +2614,7 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinut
   };
   const handleResizeMove = (e: React.PointerEvent) => {
     if (!resizeStartRef.current) return;
-    const deltaMinutes = ((e.clientY - resizeStartRef.current.y) / SLOT_HEIGHT) * 60;
+    const deltaMinutes = ((e.clientY - resizeStartRef.current.y) / slotHeight) * 60;
     const snapped =
       Math.round((resizeStartRef.current.duration + deltaMinutes) / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES;
     setLiveDuration(Math.max(MIN_DURATION_MINUTES, Math.min(maxDurationMinutes, snapped)));
@@ -2585,7 +2639,7 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinut
     if (!topResizeStartRef.current) return;
     const { y, start, duration } = topResizeStartRef.current;
     const end = start + duration;
-    const deltaMinutes = ((e.clientY - y) / SLOT_HEIGHT) * 60;
+    const deltaMinutes = ((e.clientY - y) / slotHeight) * 60;
     const snappedStart = Math.round((start + deltaMinutes) / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES;
     const clampedStart = Math.max(minStartMinutes, Math.min(snappedStart, end - MIN_DURATION_MINUTES));
     pendingTopRef.current = { start: clampedStart, duration: end - clampedStart };
@@ -2645,14 +2699,14 @@ function ScheduledCard({ item, display, order, maxDurationMinutes, minStartMinut
   const effectiveStart = liveStartMinutes ?? baseStart;
   const effectiveDuration = liveDuration ?? item.durationMinutes;
   const effectiveTimeLabel = liveStartMinutes != null ? formatTime(Math.floor(effectiveStart / 60), effectiveStart % 60) : item.time;
-  const top = (effectiveStart / 60) * SLOT_HEIGHT;
-  const rawHeight = (Math.max(MIN_DURATION_MINUTES, effectiveDuration) / 60) * SLOT_HEIGHT;
+  const top = (effectiveStart / 60) * slotHeight;
+  const rawHeight = (Math.max(MIN_DURATION_MINUTES, effectiveDuration) / 60) * slotHeight;
   // A stop can now run past midnight (see MAX_DURATION_MINUTES) — this
   // column only renders one day, so clip the visible block at the day
   // boundary instead of letting it bleed past the bottom of the grid; the
   // spillover strip in the *next* day's column (see spilloverByDate above)
   // shows the rest.
-  const dayBottomPx = TIMELINE_HOURS.length * SLOT_HEIGHT;
+  const dayBottomPx = TIMELINE_HOURS.length * slotHeight;
   const height = Math.min(rawHeight, dayBottomPx - top);
   const spillsToNextDay = top + rawHeight > dayBottomPx;
   // Narrow day columns (3+ day view on a phone) leave so little width that
