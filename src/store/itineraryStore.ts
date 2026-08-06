@@ -90,6 +90,14 @@ interface ItineraryState {
   currentCity: string;
   setCurrentCity: (city: string) => void;
   /**
+   * Personal zoom level for the planner's hour grid — 1.0 is the original
+   * (56px/hour) size, up to 2.0 (double). Persisted (not a per-session
+   * default like visibleDays) since it's a readability preference someone
+   * sets once and expects to stick, not a transient view state.
+   */
+  timelineZoom: number;
+  setTimelineZoom: (zoom: number) => void;
+  /**
    * Places available to schedule — starts empty and fills in from real
    * user actions (search, trend cards, /discover) rather than a
    * hardcoded seed, so the map only ever shows places someone actually
@@ -260,6 +268,7 @@ export const useItineraryStore = create<ItineraryState>()(
       activeDate: todayISODate(),
       region: "international",
       currentCity: "새 여행",
+      timelineZoom: 1.5,
       places: [],
       savedPlaces: [],
       savedPlaceFolders: [],
@@ -270,6 +279,7 @@ export const useItineraryStore = create<ItineraryState>()(
 
       setActiveDate: (date) => set({ activeDate: date }),
       setRegion: (region) => set({ region }),
+      setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(1, Math.min(2, zoom)) }),
       setPlaces: (places) => set({ places }),
       addPlaces: (newPlaces) =>
         set((state) => {
@@ -716,7 +726,9 @@ export const useItineraryStore = create<ItineraryState>()(
       // v5: add savedPlaceFolders (user-defined 관심 장소 보관함 folders).
       //
       // v6: add draft (진행 중인 계획, structurally separate from savedPlans).
-      version: 6,
+      //
+      // v7: add timelineZoom (개인 시간칸 크기 배율, 기본 1.5).
+      version: 7,
       partialize: (state) => ({
         items: state.items,
         places: state.places,
@@ -728,6 +740,7 @@ export const useItineraryStore = create<ItineraryState>()(
         savedPlans: state.savedPlans,
         activePlanId: state.activePlanId,
         draft: state.draft,
+        timelineZoom: state.timelineZoom,
       }),
       // No explicit migrate needed for v1 -> v2: zustand shallow-merges the
       // persisted slice over the initial state, so v1's { savedPlaces }
@@ -746,6 +759,7 @@ export const useItineraryStore = create<ItineraryState>()(
           savedPlans: state.savedPlans ?? [],
           activePlanId: state.activePlanId ?? null,
           draft: state.draft ?? null,
+          timelineZoom: state.timelineZoom ?? 1.5,
         };
         if (version < 3) {
           migrated.places = stripMockPlaces(migrated.places);
