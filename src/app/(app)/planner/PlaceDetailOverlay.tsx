@@ -13,6 +13,7 @@ import { useItineraryStore } from "@/store/itineraryStore";
 import { haversineDistanceMeters } from "@/lib/geo";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { fetchPlaceDetails, fetchTraduleReviews, type PlaceDetails, type TraduleReview } from "@/lib/api";
+import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { PlaceGlyph } from "./icons";
 import { Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
@@ -79,6 +80,15 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
     setLastPlaceId(place?.id);
     setMapExpanded(false);
   }
+  // The parent that renders this overlay (discover/planner/course pages)
+  // only pushes ONE back-button history entry, tied to whether the overlay
+  // itself is open — expanding the map here was plain local state with no
+  // history entry of its own, so a back-press had nothing to consume but
+  // that single outer entry and closed the whole overlay instead of just
+  // collapsing the map. This pushes a second, nested entry only while the
+  // map is expanded, so back first collapses the map (this hook fires),
+  // and only a second back-press closes the overlay (the parent's hook).
+  useBackButtonClose(mapExpanded, () => setMapExpanded(false));
 
   // Other 관심 장소 within a short walk/ride of the one being viewed — gives
   // the mini map actual geographic context ("what else is around here")

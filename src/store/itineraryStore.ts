@@ -98,6 +98,14 @@ interface ItineraryState {
   timelineZoom: number;
   setTimelineZoom: (zoom: number) => void;
   /**
+   * Personal map panel height (px) on desktop (md+) — drag-resizable via a
+   * handle at the map's bottom edge. Mobile keeps the responsive
+   * height-percent-of-viewport behavior untouched; this only applies above
+   * the md breakpoint (see PlannerBoard's --planner-map-h usage).
+   */
+  plannerMapHeight: number;
+  setPlannerMapHeight: (px: number) => void;
+  /**
    * Places available to schedule — starts empty and fills in from real
    * user actions (search, trend cards, /discover) rather than a
    * hardcoded seed, so the map only ever shows places someone actually
@@ -269,6 +277,7 @@ export const useItineraryStore = create<ItineraryState>()(
       region: "international",
       currentCity: "새 여행",
       timelineZoom: 1.5,
+      plannerMapHeight: 480,
       places: [],
       savedPlaces: [],
       savedPlaceFolders: [],
@@ -280,6 +289,7 @@ export const useItineraryStore = create<ItineraryState>()(
       setActiveDate: (date) => set({ activeDate: date }),
       setRegion: (region) => set({ region }),
       setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(1, Math.min(2, zoom)) }),
+      setPlannerMapHeight: (px) => set({ plannerMapHeight: Math.max(280, Math.min(800, Math.round(px))) }),
       setPlaces: (places) => set({ places }),
       addPlaces: (newPlaces) =>
         set((state) => {
@@ -728,7 +738,9 @@ export const useItineraryStore = create<ItineraryState>()(
       // v6: add draft (진행 중인 계획, structurally separate from savedPlans).
       //
       // v7: add timelineZoom (개인 시간칸 크기 배율, 기본 1.5).
-      version: 7,
+      //
+      // v8: add plannerMapHeight (데스크톱 지도 패널 높이, 기본 480px).
+      version: 8,
       partialize: (state) => ({
         items: state.items,
         places: state.places,
@@ -741,6 +753,7 @@ export const useItineraryStore = create<ItineraryState>()(
         activePlanId: state.activePlanId,
         draft: state.draft,
         timelineZoom: state.timelineZoom,
+        plannerMapHeight: state.plannerMapHeight,
       }),
       // No explicit migrate needed for v1 -> v2: zustand shallow-merges the
       // persisted slice over the initial state, so v1's { savedPlaces }
@@ -760,6 +773,7 @@ export const useItineraryStore = create<ItineraryState>()(
           activePlanId: state.activePlanId ?? null,
           draft: state.draft ?? null,
           timelineZoom: state.timelineZoom ?? 1.5,
+          plannerMapHeight: state.plannerMapHeight ?? 480,
         };
         if (version < 3) {
           migrated.places = stripMockPlaces(migrated.places);
