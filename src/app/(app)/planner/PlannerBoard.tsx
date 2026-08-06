@@ -47,6 +47,7 @@ import { PlaceGlyph } from "./icons";
 import { Pin } from "./MapMarkers";
 import { PlacesSearchInput } from "./PlacesSearchInput";
 import { PlaceSearchPanel } from "./PlaceSearchPanel";
+import { RangeSelectPlaceModal } from "./RangeSelectPlaceModal";
 import { TrendSheet } from "./TrendSheet";
 import { PlaceDetailOverlay } from "./PlaceDetailOverlay";
 import { ScheduleModal } from "@/components/ScheduleModal";
@@ -1062,9 +1063,23 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     stopAutoScroll();
   };
 
-  const handleRangeSelectSearchPick = (place: Place) => {
+  // Approximate coordinates for a manually-typed (unsearched) place — see
+  // RangeSelectPlaceModal. Averages this plan's own scheduled stops so the
+  // marker lands somewhere in the right city, not literally nowhere;
+  // Seoul is the last-resort default already used elsewhere (LiveResultsMap
+  // etc.) whenever there's nothing else to go on.
+  const fallbackCoordsForManualPlace = () => {
+    const sample = itemPlaces.length > 0 ? itemPlaces : savedPlaces;
+    if (sample.length === 0) return { lat: 37.5665, lng: 126.978 };
+    return {
+      lat: sample.reduce((sum, p) => sum + p.lat, 0) / sample.length,
+      lng: sample.reduce((sum, p) => sum + p.lng, 0) / sample.length,
+    };
+  };
+
+  const handleRangeSelectConfirm = (place: Place, startMinutes: number, durationMinutes: number) => {
     if (!rangeSelectTarget) return;
-    const { date, startMinutes, durationMinutes } = rangeSelectTarget;
+    const { date } = rangeSelectTarget;
     addPlaces([place]);
     registerAt(place, date, Math.floor(startMinutes / 60), startMinutes % 60, undefined, durationMinutes);
     setRangeSelectTarget(null);
@@ -2356,33 +2371,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           </div>
         )}
 
-        {/* ── 확인 후 — 그 시간에 채울 장소를 검색해서 바로 등록 ── */}
+        {/* ── 확인 후 — 시간을 다듬으면서 그 자리에 채울 장소를 검색하거나
+             직접 입력해서 등록 ── */}
         {rangeSelectTarget && (
-          <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
-            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setRangeSelectTarget(null)} />
-            <div className="relative flex max-h-[85vh] w-full max-w-[420px] flex-col rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
-              <div className="flex shrink-0 items-center justify-between">
-                <div className="min-w-0">
-                  <p className="truncate text-[11px] font-medium text-slate-400">
-                    {formatDateLabelShort(rangeSelectTarget.date)} ·{" "}
-                    {pad2(Math.floor(rangeSelectTarget.startMinutes / 60))}:{pad2(rangeSelectTarget.startMinutes % 60)} ·{" "}
-                    {rangeSelectTarget.durationMinutes}분
-                  </p>
-                  <p className="text-[15px] font-bold text-slate-900">이 시간에 추가할 장소 검색</p>
-                </div>
-                <button
-                  onClick={() => setRangeSelectTarget(null)}
-                  aria-label="닫기"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
-                >
-                  <X size={14} color="#64748b" />
-                </button>
-              </div>
-              <div className="mt-3 -mr-1 flex-1 overflow-y-auto pr-1">
-                <PlaceSearchPanel region={region} onRegionChange={setRegion} onSelect={handleRangeSelectSearchPick} />
-              </div>
-            </div>
-          </div>
+          <RangeSelectPlaceModal
+            date={rangeSelectTarget.date}
+            startMinutes={rangeSelectTarget.startMinutes}
+            durationMinutes={rangeSelectTarget.durationMinutes}
+            region={region}
+            onRegionChange={setRegion}
+            hasConflict={hasConflictStore}
+            fallbackCoords={fallbackCoordsForManualPlace}
+            onClose={() => setRangeSelectTarget(null)}
+            onConfirm={handleRangeSelectConfirm}
+          />
         )}
 
         {/* 예산 내역 팝업 — 상단 총 예산 배지 또는 요일 탭의 일별 예산을 누르면 뜬다 */}

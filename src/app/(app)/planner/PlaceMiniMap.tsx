@@ -84,6 +84,18 @@ function PlaceMiniMapGoogle({ place, nearbyPlaces, interactive }: { place: Place
           </div>
         </OverlayView>
       ))}
+      {/* The place this whole overlay is about — an actual in-map marker
+          (not just a CSS-positioned graphic drawn over the map container by
+          the caller) so it tracks the real coordinate correctly once panning
+          is allowed (the full-screen `interactive` view), and always paints
+          above the map's own tiles/controls since it lives in the same
+          overlay pane as the nearby pins above. Added last so it draws on
+          top of them too. */}
+      <OverlayView key={place.id} position={{ lat: place.lat, lng: place.lng }} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
+        <div className="-translate-x-1/2 -translate-y-full drop-shadow-lg">
+          <Pin place={place} solid />
+        </div>
+      </OverlayView>
     </GoogleMap>
   );
 }
@@ -108,6 +120,14 @@ function PlaceMiniMapKakao({ place, nearbyPlaces }: { place: Place; nearbyPlaces
           </div>
         </KakaoOverlay>
       ))}
+      {/* Same reasoning as the Google branch above — a real in-map marker
+          for the primary place, not a CSS overlay drawn by the caller, with
+          an explicit zIndex so it always wins over the nearby pins. */}
+      <KakaoOverlay position={{ lat: place.lat, lng: place.lng }} zIndex={10}>
+        <div className="-translate-x-1/2 -translate-y-full drop-shadow-lg">
+          <Pin place={place} solid />
+        </div>
+      </KakaoOverlay>
     </KakaoMapCanvas>
   );
 }

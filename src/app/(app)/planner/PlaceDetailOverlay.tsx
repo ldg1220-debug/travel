@@ -15,7 +15,6 @@ import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { fetchPlaceDetails, fetchTraduleReviews, type PlaceDetails, type TraduleReview } from "@/lib/api";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { PlaceGlyph } from "./icons";
-import { Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
 
 // Always client-only — see PlaceMiniMap.tsx / lib/maps/mapResize.ts.
@@ -140,11 +139,6 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
                 </button>
               ) : (
                 <div className="flex h-full items-center justify-center text-xs text-slate-400">지도 로딩 중…</div>
-              )}
-              {!place.photoName && (
-                <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full drop-shadow-lg">
-                  <Pin place={place} solid />
-                </div>
               )}
               <button
                 onClick={onClose}

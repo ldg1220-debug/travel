@@ -24,7 +24,7 @@ import {
  * 24-hour labels ("00".."23"), so the display never flips to a locale's
  * AM/PM (unlike a native <input type="time">, which renders 12-hour in
  * some browsers regardless of the 24h value it holds). */
-function TimeBox({
+export function TimeBox({
   label,
   hour,
   minute,

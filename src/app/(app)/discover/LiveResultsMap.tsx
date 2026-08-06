@@ -18,6 +18,9 @@ interface LiveResultsMapProps {
   onSelect: (id: string | null) => void;
   /** "상세·저장" in the flag popup — opens the full PlaceDetailOverlay owned by the page. */
   onOpenDetail: (place: Place) => void;
+  /** Controlled hover id, shared with the card list below (hovering a card enlarges its flag here, and vice versa). Optional — falls back to purely-internal hover when omitted. */
+  hoveredId?: string | null;
+  onHoverChange?: (id: string | null) => void;
 }
 
 /** Stable signature of the current result set — the map only re-fits when the actual set of places changes, not on every parent re-render (popup open/close, sort re-order) which would otherwise lurch the camera. */
@@ -54,9 +57,13 @@ export default function LiveResultsMap(props: LiveResultsMapProps) {
   return domestic ? <LiveResultsMapKakao {...props} /> : <LiveResultsMapGoogle {...props} />;
 }
 
-function LiveResultsMapGoogle({ places, selectedId, onSelect, onOpenDetail }: LiveResultsMapProps) {
+function LiveResultsMapGoogle({ places, selectedId, onSelect, onOpenDetail, hoveredId: hoveredIdProp, onHoverChange }: LiveResultsMapProps) {
   const mapRef = useRef<google.maps.Map | null>(null);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // Falls back to purely-internal hover state when the caller doesn't pass
+  // a controlled hoveredId — see LiveResultsMapProps.
+  const [internalHoveredId, setInternalHoveredId] = useState<string | null>(null);
+  const hoveredId = hoveredIdProp !== undefined ? hoveredIdProp : internalHoveredId;
+  const setHoveredId = onHoverChange ?? setInternalHoveredId;
   // What the map is currently framed to — re-fit only when this changes.
   const fittedSigRef = useRef<string>("");
   const sig = idSignature(places);
@@ -137,7 +144,7 @@ function LiveResultsMapGoogle({ places, selectedId, onSelect, onOpenDetail }: Li
               onSelect(p.id);
             }}
             onMouseEnter={() => setHoveredId(p.id)}
-            onMouseLeave={() => setHoveredId((cur) => (cur === p.id ? null : cur))}
+            onMouseLeave={() => { if (hoveredId === p.id) setHoveredId(null); }}
           >
             <Pin place={p} solid={selectedId === p.id} />
           </div>
@@ -207,9 +214,13 @@ function LiveResultsMapGoogle({ places, selectedId, onSelect, onOpenDetail }: Li
   );
 }
 
-function LiveResultsMapKakao({ places, selectedId, onSelect, onOpenDetail }: LiveResultsMapProps) {
+function LiveResultsMapKakao({ places, selectedId, onSelect, onOpenDetail, hoveredId: hoveredIdProp, onHoverChange }: LiveResultsMapProps) {
   const mapRef = useRef<KakaoMapInstance | null>(null);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // Falls back to purely-internal hover state when the caller doesn't pass
+  // a controlled hoveredId — see LiveResultsMapProps.
+  const [internalHoveredId, setInternalHoveredId] = useState<string | null>(null);
+  const hoveredId = hoveredIdProp !== undefined ? hoveredIdProp : internalHoveredId;
+  const setHoveredId = onHoverChange ?? setInternalHoveredId;
   const fittedSigRef = useRef<string>("");
 
   const fitToPlaces = useCallback((map: KakaoMapInstance, list: Place[]) => {
@@ -264,7 +275,7 @@ function LiveResultsMapKakao({ places, selectedId, onSelect, onOpenDetail }: Liv
               onSelect(p.id);
             }}
             onMouseEnter={() => setHoveredId(p.id)}
-            onMouseLeave={() => setHoveredId((cur) => (cur === p.id ? null : cur))}
+            onMouseLeave={() => { if (hoveredId === p.id) setHoveredId(null); }}
           >
             <Pin place={p} solid={selectedId === p.id} />
           </div>

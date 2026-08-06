@@ -1351,6 +1351,11 @@ function SearchResults({
   // the flag itself or a card in the list below, so both always point at
   // the same place.
   const [selectedLiveId, setSelectedLiveId] = useState<string | null>(null);
+  // Hovering a result *card* below should enlarge its flag on the map above
+  // (desktop only — cards have no hover on touch) — lifted up here so both
+  // the map (hovering a flag) and the card list (hovering a card) drive the
+  // same shared highlight instead of each only reacting to its own hover.
+  const [hoveredLiveId, setHoveredLiveId] = useState<string | null>(null);
   const sortedLiveResults = useMemo(
     () => sortPlaces([...(liveResults ?? []), ...moreLivePlaces], liveSort, userLoc.location),
     [liveResults, moreLivePlaces, liveSort, userLoc.location],
@@ -1601,6 +1606,8 @@ function SearchResults({
                 selectedId={selectedLiveId}
                 onSelect={setSelectedLiveId}
                 onOpenDetail={onOpenLiveDetail}
+                hoveredId={hoveredLiveId}
+                onHoverChange={setHoveredLiveId}
               />
             </div>
           </MapProvider>
@@ -1661,6 +1668,7 @@ function SearchResults({
                         setSelectedLiveId(place.id);
                         onOpenLiveDetail(place);
                       }}
+                      onHoverChange={(hovered) => setHoveredLiveId((cur) => (hovered ? place.id : cur === place.id ? null : cur))}
                     />
                   ))}
                 </div>
@@ -1786,11 +1794,14 @@ function LivePlaceCard({
   region,
   onAdd,
   onOpenDetail,
+  onHoverChange,
 }: {
   place: Place;
   region: Region;
   onAdd: () => void;
   onOpenDetail: () => void;
+  /** Drives the matching flag's hover-enlarge on the results map above (desktop only). */
+  onHoverChange?: (hovered: boolean) => void;
 }) {
   const lodging = isLodging(place.category);
   const providers = lodging ? bookingProviders(place.name, region) : [];
@@ -1804,6 +1815,8 @@ function LivePlaceCard({
   return (
     <div
       onClick={onOpenDetail}
+      onMouseEnter={() => onHoverChange?.(true)}
+      onMouseLeave={() => onHoverChange?.(false)}
       className="group cursor-pointer overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200"
     >
       <div className="relative flex h-28 items-center justify-center bg-gradient-to-br from-emerald-400 to-teal-500">
