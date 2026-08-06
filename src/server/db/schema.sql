@@ -534,4 +534,11 @@ CREATE TABLE IF NOT EXISTS visitor_counts (
   day DATE PRIMARY KEY,
   count INTEGER NOT NULL DEFAULT 0
 );
+-- Supabase's Security Advisor flags any public-schema table with RLS off as
+-- exposed to PostgREST. The app itself never touches this table through
+-- PostgREST/supabase-js — every query here goes through the pooled `pg`
+-- connection in src/lib/server/db.ts using DATABASE_URL's own role, which
+-- isn't subject to RLS — so enabling it with no policies just closes off
+-- the (unused) anon/authenticated REST API path with zero effect on the app.
+ALTER TABLE visitor_counts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "premiumUntil" TIMESTAMPTZ;
