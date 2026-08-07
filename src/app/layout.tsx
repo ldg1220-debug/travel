@@ -16,6 +16,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  // Lets every page/route's `metadata`/`generateMetadata` resolve relative
+  // og:image etc. URLs against the real domain instead of Next's
+  // localhost:3000 dev fallback — needed now that individual routes
+  // (trip/[id], community/[id], …) set their own per-page metadata.
+  metadataBase: new URL("https://www.tradule.co.kr"),
   title: "Tradule 트레쥴",
   description: "지도와 타임라인으로 여행 일정을 계획하세요.",
   applicationName: "Tradule",

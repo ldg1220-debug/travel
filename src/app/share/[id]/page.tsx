@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { pool } from "@/lib/server/db";
 import type { ItineraryItem } from "@/lib/types";
@@ -13,6 +14,15 @@ async function getSharedItinerary(id: string): Promise<SharedItineraryRow | null
   if (!/^\d+$/.test(id)) return null;
   const result = await pool.query(`select title, region, "placesData" from itineraries where id = $1`, [id]);
   return result.rows[0] ?? null;
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const itinerary = await getSharedItinerary(id);
+  if (!itinerary) return { title: "공유된 일정 - 트레쥴" };
+  const title = `${itinerary.title} - 트레쥴`;
+  const description = `${itinerary.region === "domestic" ? "국내" : "해외"} 여행 일정 · 트레쥴에서 함께 계획한 여행을 확인하세요.`;
+  return { title, description, openGraph: { title, description } };
 }
 
 export default async function SharePage({ params }: { params: Promise<{ id: string }> }) {
