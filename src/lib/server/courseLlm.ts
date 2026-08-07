@@ -33,7 +33,11 @@ export interface LlmCoursePick {
   reason: string;
 }
 
-const MODEL = "claude-haiku-4-5";
+// 날짜 스냅샷 없는 "claude-haiku-4-5"는 존재하지 않는 모델 id라 매 호출이
+// 즉시 실패했었다(실측으로 확인됨) — 아래 !res.ok가 그 실패를 조용히
+// 삼켜서(return null, 로그 없음) 이 기능이 처음부터 한 번도 실제로 LLM을
+// 탄 적이 없었을 가능성이 크다.
+const MODEL = "claude-haiku-4-5-20251001";
 const MAX_REASON_LENGTH = 40;
 
 function buildPrompt(city: string, themeLabel: string, slots: CourseSlotCandidates[]): string {
@@ -94,15 +98,25 @@ export async function curateCourseWithLlm(
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1024,
+        // 실측(오사카)에서 해외 장소명(영문+현지어 혼용)이 길어 1024로는
+        // 응답이 중간에 잘려 JSON 파싱 자체가 실패하는 사례가 확인됨.
+        max_tokens: 2048,
         messages: [{ role: "user", content: buildPrompt(city, themeLabel, slots) }],
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // 이전엔 여기서 그냥 return null이라 실패가 로그에 전혀 안 남았다
+      // (모델 id 오타를 몇 달째 못 알아챈 원인) — 상태코드+본문을 남긴다.
+      console.error(`[courseLlm] anthropic ${res.status}: ${await res.text().catch(() => "")}`);
+      return null;
+    }
     const data = (await res.json()) as { content?: { text?: string }[] };
     const text = data?.content?.[0]?.text ?? "";
     const parsed = extractJson(text) as { picks?: unknown } | null;
-    if (!parsed || !Array.isArray(parsed.picks)) return null;
+    if (!parsed || !Array.isArray(parsed.picks)) {
+      console.error(`[courseLlm] unparseable/empty picks in response: ${text.slice(0, 200)}`);
+      return null;
+    }
 
     // 각 pick이 실제 존재하는 슬롯 key와 그 슬롯 안의 후보 id를 가리키는지 검증.
     const bySlot = new Map(slots.map((s) => [s.slotKey, new Set(s.candidates.map((c) => c.id))]));
@@ -119,7 +133,8 @@ export async function curateCourseWithLlm(
       });
     }
     return picks.length > 0 ? picks : null;
-  } catch {
+  } catch (err) {
+    console.error("[courseLlm] curateCourseWithLlm threw:", err);
     return null;
   }
 }

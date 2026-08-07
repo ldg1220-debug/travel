@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { checkRateLimit } from "@/lib/server/rateLimit";
-import { isCommunityCategory, type CommunityVisibility } from "@/lib/community";
+import { categorySlugsFor, isCommunityCategory, type CommunityCategory, type CommunityVisibility } from "@/lib/community";
 
 const DEFAULT_LIMIT = 15;
 const VISIBILITIES: CommunityVisibility[] = ["public", "members", "custom", "private"];
@@ -35,7 +35,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const category = request.nextUrl.searchParams.get("category");
   const q = request.nextUrl.searchParams.get("q")?.trim() || null;
 
-  const params: (string | number)[] = [];
+  const params: (string | number | string[])[] = [];
   const visibilityChecks = [`p.visibility = 'public'`];
   if (viewerId != null) {
     params.push(viewerId);
@@ -50,9 +50,11 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   }
   const conditions = [`(${visibilityChecks.join(" or ")})`];
 
-  if (category && category !== "all") {
-    params.push(category);
-    conditions.push(`p.category = $${params.length}`);
+  if (category && category !== "all" && isCommunityCategory(category)) {
+    // 카테고리 통합 이전 레거시 슬러그(예: "qna")로 저장된 옛날 글도 통합된
+    // 카테고리("free")로 필터링했을 때 같이 걸리도록 — src/lib/community.ts.
+    params.push(categorySlugsFor(category as CommunityCategory));
+    conditions.push(`p.category = any($${params.length})`);
   }
   if (q) {
     params.push(`%${q}%`);

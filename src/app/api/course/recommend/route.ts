@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Place } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { curateCourseWithLlm, type CourseSlotCandidates } from "@/lib/server/courseLlm";
+import { generateCourseV2 } from "@/lib/server/courseRecommendV2";
 import {
   THEME_SLOTS,
   THEME_LABELS,
@@ -45,8 +46,17 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const scope = request.nextUrl.searchParams.get("scope") === "domestic" ? "domestic" : "overseas";
   const city = (request.nextUrl.searchParams.get("city") ?? "").trim().slice(0, 40);
   const theme = parseTheme(request.nextUrl.searchParams.get("theme"));
-  const maxDistanceKm = radiusKmFor(parseTravelRadius(request.nextUrl.searchParams.get("radius")));
+  const radius = parseTravelRadius(request.nextUrl.searchParams.get("radius"));
+  const maxDistanceKm = radiusKmFor(radius);
   if (!city) return NextResponse.json({ error: "missing city" }, { status: 400 });
+
+  // v2(courseRoute.ts의 DP 기반 역할 분리 파이프라인) — v1과 나란히 존재,
+  // 비교 테스트 중에는 COURSE_PIPELINE=v2일 때만 탄다. 클라이언트는 아직
+  // courseId를 안 보내므로(리롤 시 필요) 실사용자 트래픽에 이 플래그를
+  // 켜기 전엔 클라이언트도 함께 업데이트해야 한다 — INTEGRATION.md 참고.
+  if (process.env.COURSE_PIPELINE === "v2") {
+    return NextResponse.json(await generateCourseV2(scope, city, theme, radius));
+  }
 
   const slots = THEME_SLOTS[theme];
 

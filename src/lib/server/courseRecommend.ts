@@ -73,10 +73,22 @@ export const THEME_SLOTS: Record<CourseTheme, RecommendSlot[]> = {
     // 택시회사 같은 엉뚱한 업체가 섞여 들어온 적이 있어 "전통시장"으로 좁혔다.
     { key: "market", label: "시장·거리", keyword: "전통시장", hour: 11, category: "attraction" },
     { key: "lunch", label: "점심", keyword: "맛집", hour: 12, category: "restaurant", meal: true },
-    { key: "pm-sight", label: "오후 명소", keyword: "가볼만한곳", hour: 14, category: "attraction" },
+    // "가볼만한곳"도 결국 am-sight와 같은 관광명소 카테고리(AT4/tourist_
+    // attraction) 검색이라 실측에서 같은 도시의 대표 명소(예: 북한산둘레길)
+    // 가 오전·오후 명소 양쪽에 다 뽑혀 나오는 걸 확인했다 — "포토존"으로
+    // 검색 의도 자체를 갈라 원본 후보 풀이 덜 겹치게 했다(그래도 완전히
+    // 안 겹친다는 보장은 없어, 남는 중복은 courseRoute.ts의
+    // resolveDuplicatePicks가 최종 방어선으로 잡는다).
+    { key: "pm-sight", label: "오후 명소", keyword: "포토존", hour: 14, category: "attraction" },
     { key: "cafe", label: "카페", keyword: "카페", hour: 16, category: "cafe" },
-    { key: "night", label: "야경 명소", keyword: "야경", hour: 19, category: "attraction" },
-    { key: "dinner", label: "저녁", keyword: "맛집", hour: 20, category: "restaurant", meal: true },
+    // 마찬가지로 "야경" 단독 키워드는 실측(v2 비교테스트)에서 "다이닝야경
+    // ○○점" 같은 상호명에 그대로 걸려 식당이 야경 명소로 잘못 들어온 사례가
+    // 나와, culture/active 테마가 이미 쓰던 "야경 명소"로 통일했다.
+    { key: "night", label: "야경 명소", keyword: "야경 명소", hour: 19, category: "attraction" },
+    // lunch와 똑같이 "맛집"만 검색하면 원본 후보 풀이 사실상 동일해서(같은
+    // 도시+같은 키워드 검색) 점심에 갔던 식당이 저녁에도 또 뽑히는 사례가
+    // 실측에서 나왔다 — "저녁"을 붙여 검색어 자체를 갈랐다.
+    { key: "dinner", label: "저녁", keyword: "저녁 맛집", hour: 20, category: "restaurant", meal: true },
   ],
   foodie: [
     { key: "brunch", label: "브런치", keyword: "브런치 카페", hour: 10, category: "restaurant", meal: true },
@@ -84,7 +96,8 @@ export const THEME_SLOTS: Record<CourseTheme, RecommendSlot[]> = {
     { key: "lunch", label: "점심 맛집", keyword: "맛집", hour: 13, category: "restaurant", meal: true },
     { key: "dessert", label: "디저트 카페", keyword: "디저트 카페", hour: 15, category: "cafe" },
     { key: "pm-sight", label: "오후 명소", keyword: "가볼만한곳", hour: 16, category: "attraction" },
-    { key: "dinner", label: "저녁 맛집", keyword: "맛집", hour: 19, category: "restaurant", meal: true },
+    // balanced 테마와 같은 이유 — lunch와 같은 "맛집" 검색이라 겹쳤다.
+    { key: "dinner", label: "저녁 맛집", keyword: "저녁 맛집", hour: 19, category: "restaurant", meal: true },
     { key: "bar", label: "야식·술집", keyword: "술집 포차", hour: 21, category: "restaurant" },
   ],
   healing: [
@@ -112,7 +125,8 @@ export const THEME_SLOTS: Record<CourseTheme, RecommendSlot[]> = {
     { key: "outdoor", label: "야외 액티비티", keyword: "야외 액티비티", hour: 15, category: "attraction" },
     { key: "market", label: "거리·쇼핑", keyword: "거리 쇼핑", hour: 17, category: "attraction" },
     { key: "night", label: "야경 명소", keyword: "야경 명소", hour: 19, category: "attraction" },
-    { key: "dinner", label: "저녁", keyword: "맛집", hour: 20, category: "restaurant", meal: true },
+    // balanced/foodie와 같은 이유.
+    { key: "dinner", label: "저녁", keyword: "저녁 맛집", hour: 20, category: "restaurant", meal: true },
   ],
 };
 
@@ -143,8 +157,15 @@ const KAKAO_CATEGORY_CODE: Record<string, string> = {
   lodging: "AD5",
 };
 
-/** How many candidates per slot to keep — bounds LLM token cost and gives the deterministic ranker a few to vary among. */
-export const POOL_SIZE = 6;
+// googleTop()/kakaoTop() below already request 8~10 results per call (same
+// single billed request either way — Places New pricing is per-request by
+// field tier, not per result count) but this used to slice them down to 6,
+// silently discarding 2-4 already-paid-for candidates. Raised to 10 (== the
+// larger of the two providers' own request sizes) — this is v2's main lever
+// for surviving several reroll attempts on one slot without a real second
+// API page (see courseRecommendV2.ts's expandShortlist usage), confirmed by
+// live testing to run out too fast at 6.
+export const POOL_SIZE = 10;
 
 interface GooglePlace {
   id: string;
@@ -206,7 +227,7 @@ async function googleTop(query: string, apiKey: string, includedType?: string): 
       "X-Goog-FieldMask":
         "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryType,places.photos,places.googleMapsUri",
     },
-    body: JSON.stringify({ textQuery: query, maxResultCount: 8, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
+    body: JSON.stringify({ textQuery: query, maxResultCount: 10, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
   });
   if (!res.ok) return [];
   const data = (await res.json()) as { places?: GooglePlace[] };

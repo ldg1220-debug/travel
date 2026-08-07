@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Place } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { curateCourseWithLlm } from "@/lib/server/courseLlm";
+import { rerollSlotV2 } from "@/lib/server/courseRecommendV2";
 import {
   THEME_LABELS,
   parseTheme,
@@ -36,6 +37,20 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const city = (params.get("city") ?? "").trim().slice(0, 40);
   const theme = parseTheme(params.get("theme"));
   const slotKey = params.get("slot") ?? "";
+
+  // v2 — course/recommend가 courseId를 돌려줬을 때만 온다(위 route.ts 참고).
+  // courseId가 있는데 COURSE_PIPELINE=v2가 아니거나, v2인데 courseId가
+  // 없으면 클라이언트-서버 파이프라인 불일치이므로 명확히 에러로 알린다
+  // (v1 폴백으로 조용히 넘기지 않음 — v1은 courseId 개념 자체가 없어 뒤섞이면
+  // 디버깅이 어려워진다).
+  const courseId = params.get("courseId");
+  if (process.env.COURSE_PIPELINE === "v2") {
+    if (!courseId) return NextResponse.json({ error: "courseId required for v2 pipeline" }, { status: 400 });
+    return NextResponse.json(await rerollSlotV2(courseId, slotKey));
+  }
+  if (courseId) {
+    return NextResponse.json({ error: "courseId given but COURSE_PIPELINE is not v2" }, { status: 400 });
+  }
   const excludeIds = new Set((params.get("excludeIds") ?? "").split(",").filter(Boolean));
   const excludeNames = (params.get("excludeNames") ?? "").split(",").filter(Boolean).map((n) => decodeURIComponent(n));
   const anchorLat = Number(params.get("anchorLat"));

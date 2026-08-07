@@ -542,3 +542,19 @@ CREATE TABLE IF NOT EXISTS visitor_counts (
 -- the (unused) anon/authenticated REST API path with zero effect on the app.
 ALTER TABLE visitor_counts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "premiumUntil" TIMESTAMPTZ;
+
+-- AI 추천 코스 v2(src/lib/server/courseRecommendV2.ts, COURSE_PIPELINE=v2)의
+-- courseId -> 슬롯별 쇼트리스트/원본 후보 풀 캐시. 애초엔 프로세스 메모리
+-- Map으로 뒀었는데, 실측(Vercel 프리뷰)에서 리롤 요청이 코스를 생성한
+-- 서버리스 인스턴스와 다른 인스턴스로 갈 때마다 "코스를 찾을 수 없음"이
+-- 재현돼(콜드스타트 포함, 인스턴스 간 메모리 공유 안 됨) 이 테이블로
+-- 옮겼다. payload는 CachedCourse를 그대로 직렬화한 JSONB — 스키마가 아직
+-- v2 자체가 실험 단계라 자주 바뀔 수 있어 컬럼을 쪼개지 않았다.
+CREATE TABLE IF NOT EXISTS course_cache (
+  id UUID PRIMARY KEY,
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS course_cache_created_at_idx ON course_cache (created_at);
+-- visitor_counts와 같은 이유(PostgREST 미사용, pg Pool로만 접근) — RLS만 켜서 정책 없이 막아둔다.
+ALTER TABLE course_cache ENABLE ROW LEVEL SECURITY;
