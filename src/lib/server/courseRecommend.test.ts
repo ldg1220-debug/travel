@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { radiusKmFor, parseTravelMode, parseTimeToMinutes, buildDynamicSlots, isValidPlace, passesQualityGate, THEME_LABELS, type CourseTheme } from "./courseRecommend";
+import {
+  radiusKmFor,
+  parseTravelMode,
+  parseTimeToMinutes,
+  buildDynamicSlots,
+  isValidPlace,
+  passesQualityGate,
+  applyQualityGate,
+  sameShop,
+  THEME_LABELS,
+  type CourseTheme,
+} from "./courseRecommend";
 import type { Place } from "@/lib/types";
 
 function place(overrides: Partial<Place> = {}): Place {
@@ -83,6 +94,30 @@ describe("isValidPlace", () => {
   });
 });
 
+describe("sameShop", () => {
+  it("still matches the original prefix case (single-word brand + branch suffix)", () => {
+    expect(sameShop("우오신", "우오신 우메다점")).toBe(true);
+  });
+
+  // 오사카 3박4일 다일정 2차 실측에서 실제로 새어나간 케이스 — 지점
+  // 접미사가 서로 다른 형태(공백 유무, "분점" vs "점")라 기존 접두
+  // 매칭으로는 안 잡혔다.
+  it("matches 규카츠 모토무라's three branch listings from the Osaka multi-day run", () => {
+    expect(sameShop("규카츠 모토무라 난바 분점", "규카츠 모토무라 도톤보리점")).toBe(true);
+    expect(sameShop("규카츠 모토무라 난바 분점", "규카츠 모토무라 난바점")).toBe(true);
+    expect(sameShop("규카츠 모토무라 도톤보리점", "규카츠 모토무라 난바점")).toBe(true);
+  });
+
+  it("matches 메이드리밍's two branch listings (differing region-name word count)", () => {
+    expect(sameShop("메이드리밍 오사카 닛폰바시 오타로드점", "메이드리밍 오사카 난바점")).toBe(true);
+  });
+
+  it("does not match unrelated places, including ones sharing only their first word", () => {
+    expect(sameShop("오사카 성", "오사카 스테이션 시티")).toBe(false);
+    expect(sameShop("도톤보리", "구로몬 시장")).toBe(false);
+  });
+});
+
 describe("passesQualityGate", () => {
   it("always passes domestic (Kakao Local never provides rating/reviews)", () => {
     expect(passesQualityGate(place({ rating: undefined, reviewCount: undefined }), "domestic")).toBe(true);
@@ -98,17 +133,50 @@ describe("passesQualityGate", () => {
   });
 
   it("accepts an overseas place meeting its category's minimum review count", () => {
-    expect(passesQualityGate(place({ rating: 4.5, reviewCount: 5, category: "restaurant" }), "overseas", "restaurant")).toBe(true);
+    expect(passesQualityGate(place({ rating: 4.5, reviewCount: 20, category: "restaurant" }), "overseas", "restaurant")).toBe(true);
   });
 
-  it("uses a lower bar for attractions than restaurants/cafes", () => {
-    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 2 }), "overseas", "attraction")).toBe(true);
-    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 2 }), "overseas", "restaurant")).toBe(false);
+  // 2차 실측(오사카)에서 평점만 있고 리뷰가 얼마 안 되는 "성합지"류가
+  // 통과한 문제 — attraction 하한을 훨씬 크게(100) 잡았다.
+  it("uses a much higher bar for attractions (real landmarks have thousands+ of reviews) than restaurants/cafes", () => {
+    expect(passesQualityGate(place({ rating: 4.2, reviewCount: 90 }), "overseas", "attraction")).toBe(false);
+    expect(passesQualityGate(place({ rating: 4.2, reviewCount: 150 }), "overseas", "attraction")).toBe(true);
+    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 30 }), "overseas", "restaurant")).toBe(true);
   });
 
   it("falls back to the default threshold when no slot category is given", () => {
-    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 3 }), "overseas")).toBe(true);
+    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 20 }), "overseas")).toBe(true);
     expect(passesQualityGate(place({ rating: 4.0, reviewCount: 2 }), "overseas")).toBe(false);
+  });
+});
+
+describe("applyQualityGate", () => {
+  it("returns only gate-passing candidates when there are enough of them", () => {
+    const good = [
+      place({ id: "a", rating: 4.5, reviewCount: 50000, category: "attraction" }),
+      place({ id: "b", rating: 4.3, reviewCount: 20000, category: "attraction" }),
+      place({ id: "c", rating: 4.1, reviewCount: 500, category: "attraction" }),
+    ];
+    expect(applyQualityGate(good, "overseas", "attraction").map((p) => p.id)).toEqual(["a", "b", "c"]);
+  });
+
+  // 오사카 실측(Day 4) 재현 — 소도시/한산한 지역이라 명소 하한(100)을
+  // 만족하는 후보가 거의 없을 때, 슬롯이 1개짜리로 쪼그라들지 않고
+  // 최소 개수(3)까지 리뷰 수 상위로 채워지는지.
+  it("backfills with the highest-review under-threshold candidates instead of leaving the slot starved", () => {
+    const thin = [
+      place({ id: "only-good", rating: 4.2, reviewCount: 150, category: "attraction" }),
+      place({ id: "weak-1", rating: 4.1, reviewCount: 40, category: "attraction" }),
+      place({ id: "weak-2", rating: 4.0, reviewCount: 90, category: "attraction" }),
+      place({ id: "weak-3", rating: 3.9, reviewCount: 5, category: "attraction" }),
+    ];
+    const result = applyQualityGate(thin, "overseas", "attraction");
+    expect(result.map((p) => p.id)).toEqual(["only-good", "weak-2", "weak-1"]);
+  });
+
+  it("never filters domestic candidates (no rating signal to gate on)", () => {
+    const domestic = [place({ id: "d1", rating: undefined, reviewCount: undefined, category: "attraction" })];
+    expect(applyQualityGate(domestic, "domestic", "attraction")).toHaveLength(1);
   });
 });
 

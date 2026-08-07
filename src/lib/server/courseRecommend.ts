@@ -370,11 +370,41 @@ export function proximityScore(rating: number | undefined, reviews: number | und
 function normName(s: string): string {
   return s.toLowerCase().replace(/[（(【「][^）)】」]*[）)】」]/g, "").replace(/[\s·・,，.\-–—!！?？'"|｜/]/g, "");
 }
+
+// 오사카 3박4일 실측(다일정)에서 위 normName 접두 매칭이 못 잡은 실사례:
+// "규카츠 모토무라 난바 분점" / "…도톤보리점" / "…난바점" — 공백 제거 후
+// 비교해도 지점명 부분에서부터 서로 다른 문자열이라 어느 쪽도 다른 쪽의
+// 접두사가 아니다. 지점 접미사("점"/"분점"/"본점"/"지점", 영문
+// "2nd"/"Branch"/"Store" 류)를 뒤에서부터 반복 제거하고 남은 문자열의
+// 앞 2어절("규카츠 모토무라", "메이드리밍 오사카")을 브랜드 키로 삼아
+// 비교하는 걸 추가했다 — normName 접두 매칭(단일 어절 브랜드명, 예:
+// "우오신"/"우오신 우메다점")은 그대로 두고 보조 신호로 얹는 방식이라
+// 기존에 잡히던 케이스는 그대로 잡히고, 새 케이스만 추가로 잡힌다.
+const BRANCH_SUFFIX_RE = /\s*(분점|본점|지점|점|\d+(st|nd|rd|th)|branch|store)$/iu;
+function stripBranchSuffix(s: string): string {
+  let out = s.trim();
+  for (let i = 0; i < 5; i++) {
+    const next = out.replace(BRANCH_SUFFIX_RE, "").trim();
+    if (next === out || next.length === 0) break;
+    out = next;
+  }
+  return out;
+}
+function brandKey(s: string): string {
+  const words = stripBranchSuffix(s)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.slice(0, 2).join("");
+}
+
 export function sameShop(a: string, b: string): boolean {
   const na = normName(a);
   const nb = normName(b);
-  if (!na || !nb) return false;
-  return na.startsWith(nb) || nb.startsWith(na);
+  if (na && nb && (na.startsWith(nb) || nb.startsWith(na))) return true;
+  const ka = brandKey(a);
+  const kb = brandKey(b);
+  return Boolean(ka) && Boolean(kb) && ka === kb;
 }
 
 async function googleTop(query: string, apiKey: string, includedType?: string): Promise<GooglePlace[]> {
@@ -508,25 +538,32 @@ export function isValidPlace(p: Place): boolean {
   return Boolean(p.id) && Boolean(p.name?.trim()) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0);
 }
 
-// 슬롯 카테고리별 최소 리뷰 수 — 오사카 3박4일 실측에서 "성합지"/
-// "구치나와자카"/"형경" 같은 이름이 부자연스럽고 평점 표시조차 없는
-// 항목이 재발했다. isValidPlace(구조 검증)는 통과하지만 품질이 의심되는
-// 케이스라 하한선을 하나 더 둔다.
+// 슬롯 카테고리별 최소 리뷰 수. 2차 실측(오사카 3박4일)에서 리뷰 수가
+// 붙어 있어도(평점 유무 게이트는 통과) "성합지"(4.2)/"구치나와자카"(4.1)
+// 처럼 오사카 대표 명소로 보기 어려운 항목이 재발했다 — 반면 정상
+// 스팟들은 실측 기준 리뷰 수가 훨씬 많았다(오사카 성 9만+, 도톤보리
+// 8.5만, 우메다 스카이 4.2만). "평점 유무"가 아니라 "리뷰 수 절대량"
+// 기준으로 재조정: 명소(attraction)는 특히 크게 올리고, 나머지도 함께
+// 올렸다. 소도시는 대표 명소도 리뷰가 이만큼 안 쌓였을 수 있어 하드
+// 필터로만 두면 슬롯이 통째로 비는 회귀가 나므로, 아래 fetchSlotCandidates
+// 쪽에서 하한 미달이어도 슬롯이 완전히 비지 않게 상위 몇 개는 되살린다.
 const MIN_REVIEWS_BY_CATEGORY: Partial<Record<NonNullable<RecommendSlot["category"]>, number>> = {
-  restaurant: 5,
-  cafe: 5,
-  attraction: 2,
-  lodging: 2,
+  restaurant: 20,
+  cafe: 15,
+  attraction: 100,
+  lodging: 10,
 };
-const DEFAULT_MIN_REVIEWS = 3;
+const DEFAULT_MIN_REVIEWS = 15;
 
 /**
  * 평점/리뷰 수 기준 최소 품질 하한. 국내(Kakao Local)는 평점 자체를 안
  * 주므로(courseTaste.ts의 deterministicTaste 주석 참고 — 검색 순위를
  * 대신 신호로 씀) 이 검증 대상이 아니다 — 전부 걸러지는 회귀를 막기 위해
  * 항상 통과시킨다. 해외(Google)는 실제 존재하는 업체엔 거의 항상 리뷰가
- * 붙어 있어, 평점·리뷰가 아예 없거나 극히 적은 항목은 저품질/실재하지
- * 않는 장소일 가능성이 높다고 보고 슬롯 카테고리별 하한으로 거른다.
+ * 붙어 있어, 평점·리뷰가 아예 없거나 하한 미만인 항목은 저품질/관광
+ * 관련성이 낮은 장소일 가능성이 높다고 보고 슬롯 카테고리별 하한으로
+ * 거른다. 이 함수 자체는 순수 판정만 하고, "미달이어도 슬롯을 비우지
+ * 않는다"는 정책은 fetchSlotCandidates가 처리한다.
  */
 export function passesQualityGate(p: Place, scope: "overseas" | "domestic", slotCategory?: RecommendSlot["category"]): boolean {
   if (scope === "domestic") return true;
@@ -535,15 +572,36 @@ export function passesQualityGate(p: Place, scope: "overseas" | "domestic", slot
   return p.reviewCount >= min;
 }
 
+/** passesQualityGate 하한을 만족하는 후보가 이보다 적으면(소도시 등 리뷰 자체가 적은 지역), 부족분을 하한 미달 후보 중 리뷰 수 상위로 채운다 — courseRoute.ts의 SHORTLIST_SIZE와 맞춰, DP 레이어가 최소한 이만큼은 고를 게 있게 한다. */
+const MIN_CANDIDATES_AFTER_GATE = 3;
+
+/**
+ * passesQualityGate를 하드 필터가 아니라 "우선순위"로 적용한다 — 통과한
+ * 후보를 앞에, 하한 미달이어도 최소 개수(MIN_CANDIDATES_AFTER_GATE)를
+ * 못 채우면 리뷰 수 상위 미달 후보로 뒷자리를 채운다. 오사카 실측
+ * (Day 4)에서 하드 필터만 있을 때 오전 명소 슬롯이 사실상 1개만 남는
+ * 문제가 나온 데 대한 대응 — 하한을 못 만족하는 지역이라도 슬롯 자체가
+ * 비어버리는 것보다는, 그나마 나은 후보라도 보여주는 게 낫다.
+ */
+export function applyQualityGate(places: Place[], scope: "overseas" | "domestic", slotCategory?: RecommendSlot["category"]): Place[] {
+  const passed = places.filter((p) => passesQualityGate(p, scope, slotCategory));
+  if (passed.length >= MIN_CANDIDATES_AFTER_GATE) return passed;
+  const rest = places
+    .filter((p) => !passesQualityGate(p, scope, slotCategory))
+    .sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0))
+    .slice(0, MIN_CANDIDATES_AFTER_GATE - passed.length);
+  return [...passed, ...rest];
+}
+
 /** Live-searches one slot's candidate pool. Empty array when no API key is configured for the scope. */
 export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: string, slot: RecommendSlot): Promise<Place[]> {
   const cacheKey = candidateCacheKey(scope, city, slot);
-  // passesQualityGate는 캐시에 굽지 않고 읽는 시점에만 적용한다 — 임계값을
-  // 나중에 튜닝해도 캐시 TTL(7일)을 기다리지 않고 바로 반영되게 하기
-  // 위함(경계선 후보를 캐시에서 아예 지워버리면 나중 튜닝으로도 못 살림).
-  // isValidPlace는 반대로 구조 자체가 틀린 항목이라 캐시에 쓰기 전에
-  // 영구히 걸러낸다.
-  const qualityFilter = (places: Place[]) => places.filter((p) => passesQualityGate(p, scope, slot.category));
+  // applyQualityGate(passesQualityGate 기반)는 캐시에 굽지 않고 읽는
+  // 시점에만 적용한다 — 임계값을 나중에 튜닝해도 캐시 TTL(7일)을 기다리지
+  // 않고 바로 반영되게 하기 위함(경계선 후보를 캐시에서 아예 지워버리면
+  // 나중 튜닝으로도 못 살림). isValidPlace는 반대로 구조 자체가 틀린
+  // 항목이라 캐시에 쓰기 전에 영구히 걸러낸다.
+  const qualityFilter = (places: Place[]) => applyQualityGate(places, scope, slot.category);
 
   const cached = await readCandidateCache(cacheKey);
   // 캐시된 값도 isValidPlace로 걸러야 한다 — 이 검증이 추가되기 전에 이미
