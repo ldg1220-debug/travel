@@ -175,6 +175,55 @@ export function rerollSlot(
   return best;
 }
 
+// ---------------------------------------------------------------- post-DP duplicate resolution
+
+/**
+ * Last-line-of-defense safety net, run AFTER the DP produces its final
+ * picks. dedupePoolsByBrand narrows candidates before the DP runs, but its
+ * own "never fully empty a slot" fallback can hand two different slots a
+ * RouteCandidate for the *same place* (real case found in live testing:
+ * lunch/dinner both search "맛집" with near-identical raw results, so when
+ * dinner's pick already claimed lunch's only candidate during dedup, lunch
+ * fell back to restoring that exact same candidate) — the DP itself has no
+ * cross-slot "already used" constraint (adding one would blow up its state
+ * space for little benefit), so nothing upstream catches this. Left
+ * unfixed, the user sees "eat lunch at X, then eat dinner at X again."
+ *
+ * Walks `order` (slot sequence) and, for each pick that collides (by
+ * sameShop) with an earlier slot's already-confirmed pick, swaps in the
+ * next distinct candidate from that slot's own shortlist; if the shortlist
+ * is exhausted too, `rawPoolFor` supplies a same-slot fallback (typically
+ * its full, taste-sorted raw search pool) to draw from instead. A slot with
+ * truly no distinct option left is dropped from the course — better than
+ * showing a duplicate, and no worse than v1's existing "nothing fit this
+ * slot" outcome.
+ */
+export function resolveDuplicatePicks(
+  order: string[],
+  picked: Map<string, RouteCandidate>,
+  pools: SlotPool[],
+  rawPoolFor: (slotKey: string) => RouteCandidate[],
+  sameShop: (a: string, b: string) => boolean,
+): Map<string, RouteCandidate> {
+  const resolved = new Map(picked);
+  const usedNames: string[] = [];
+
+  for (const slotKey of order) {
+    let cand = resolved.get(slotKey);
+    if (cand && usedNames.some((n) => sameShop(n, cand!.name))) {
+      const shortlist = pools.find((p) => p.slotKey === slotKey)?.candidates ?? [];
+      const altFromShortlist = shortlist.find((c) => !usedNames.some((n) => sameShop(n, c.name)));
+      const altFromRaw = altFromShortlist ? undefined : rawPoolFor(slotKey).find((c) => !usedNames.some((n) => sameShop(n, c.name)));
+      cand = altFromShortlist ?? altFromRaw;
+      if (cand) resolved.set(slotKey, cand);
+      else resolved.delete(slotKey);
+    }
+    if (cand) usedNames.push(cand.name);
+  }
+
+  return resolved;
+}
+
 // ---------------------------------------------------------------- dedupe
 
 /**

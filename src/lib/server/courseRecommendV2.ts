@@ -27,8 +27,16 @@ import {
   type TravelRadius,
   type RecommendSlot,
 } from "./courseRecommend";
-import { assembleRouteWithEscalation, dedupePoolsByBrand, rerollSlot, type RouteCandidate, type SlotPool } from "./courseRoute";
-import { curateTaste, deterministicShortlistForSlot, expandShortlist, templateReason, type TasteCandidate, type TasteSlotInput } from "./courseTaste";
+import { assembleRouteWithEscalation, dedupePoolsByBrand, resolveDuplicatePicks, rerollSlot, type RouteCandidate, type SlotPool } from "./courseRoute";
+import {
+  curateTaste,
+  deterministicShortlistForSlot,
+  deterministicTaste,
+  expandShortlist,
+  templateReason,
+  type TasteCandidate,
+  type TasteSlotInput,
+} from "./courseTaste";
 
 export type FinalStop = Place & { slotKey: string; slotLabel: string; hour: number; meal: boolean; reason?: string };
 
@@ -70,6 +78,14 @@ async function callHaiku(prompt: string): Promise<string> {
 
 function placeToTasteCandidate(p: Place): TasteCandidate {
   return { id: p.id, name: p.name, category: p.category, rating: p.rating ?? null, reviews: p.reviewCount ?? null };
+}
+
+/** A slot's full raw pool (not just its SHORTLIST_SIZE shortlist), taste-scored and sorted best-first — resolveDuplicatePicks' same-slot fallback draws from this when even the shortlist has no distinct option left. */
+function scoredRawPool(raw: Place[]): RouteCandidate[] {
+  return raw
+    .map((p, i) => ({ p, taste: deterministicTaste(placeToTasteCandidate(p), i) }))
+    .sort((a, b) => b.taste - a.taste)
+    .map(({ p, taste }) => ({ id: p.id, name: p.name, lat: p.lat, lng: p.lng, taste, reason: templateReason(placeToTasteCandidate(p)) }));
 }
 
 // ---------------------------------------------------------------- cache
@@ -184,12 +200,25 @@ export async function generateCourseV2(
     return { course: [], source: "mock", theme };
   }
 
+  // 4.5. 슬롯 간 동일 장소 중복 배정 정리 — 실측(서울/부산/강릉/오사카)에서
+  // "점심에 간 식당을 저녁에 또" 같은 사례가 실제로 발생해 추가한 사후
+  // 검증. dedupePoolsByBrand의 "슬롯이 통째로 비면 최상위 1개는 되살리기"
+  // 안전장치가 바로 이 중복을 만들 수 있는 원인이라, DP 결과를 최종
+  // 확정하기 전에 한 번 더 슬롯 순서대로 훑어 정리한다.
+  const finalPicked = resolveDuplicatePicks(
+    slots.map((s) => s.key),
+    result.picked,
+    pools,
+    (slotKey) => scoredRawPool(rawBySlot.get(slotKey) ?? []),
+    sameShop,
+  );
+
   // 5. 최종 응답 조립(v1과 같은 FinalStop 형태) + 리롤용 캐시 적재.
   const course: FinalStop[] = [];
   const shownIds = new Set<string>();
   const cachedSlots = new Map<string, CachedSlot>();
   for (const { slot, raw } of rawPools) {
-    const picked = result.picked.get(slot.key);
+    const picked = finalPicked.get(slot.key);
     const pool = pools.find((p) => p.slotKey === slot.key);
     cachedSlots.set(slot.key, { slotKey: slot.key, slotLabel: slot.label, raw, shortlist: pool?.candidates ?? [], confirmed: picked });
     if (!picked) continue;

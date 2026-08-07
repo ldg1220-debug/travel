@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { assembleRoute, assembleRouteWithEscalation, dedupePoolsByBrand, haversineKm, rerollSlot, type RouteCandidate, type SlotPool } from "./courseRoute";
+import {
+  assembleRoute,
+  assembleRouteWithEscalation,
+  dedupePoolsByBrand,
+  haversineKm,
+  resolveDuplicatePicks,
+  rerollSlot,
+  type RouteCandidate,
+  type SlotPool,
+} from "./courseRoute";
 
 function cand(id: string, lat: number, lng: number, taste: number): RouteCandidate {
   return { id, name: id, lat, lng, taste };
@@ -182,5 +191,73 @@ describe("dedupePoolsByBrand", () => {
     const result = dedupePoolsByBrand(pools, sameShop);
     expect(result.find((p) => p.slotKey === "lunch")?.candidates).toHaveLength(1);
     expect(result.find((p) => p.slotKey === "dinner")?.candidates).toHaveLength(1);
+  });
+});
+
+describe("resolveDuplicatePicks", () => {
+  const sameShop = (a: string, b: string) => a === b;
+  const order = ["lunch", "dinner"];
+
+  it("leaves picks untouched when nothing collides", () => {
+    const picked = new Map<string, RouteCandidate>([
+      ["lunch", cand("우오신", 34.7, 135.5, 6)],
+      ["dinner", cand("규카츠 모토무라", 34.7, 135.5, 7)],
+    ]);
+    const result = resolveDuplicatePicks(order, picked, [], () => [], sameShop);
+    expect(result.get("lunch")?.id).toBe("우오신");
+    expect(result.get("dinner")?.id).toBe("규카츠 모토무라");
+  });
+
+  it("swaps the later slot's pick for a distinct candidate still in its own shortlist", () => {
+    // dedupePoolsByBrand's own-slot-restore safety net handed dinner the
+    // exact same place lunch already confirmed — its shortlist has another option.
+    const picked = new Map<string, RouteCandidate>([
+      ["lunch", cand("우오신", 34.7, 135.5, 6)],
+      ["dinner", cand("우오신", 34.7, 135.5, 6)],
+    ]);
+    const pools: SlotPool[] = [{ slotKey: "dinner", candidates: [cand("우오신", 34.7, 135.5, 6), cand("규카츠 모토무라", 34.7, 135.5, 5)] }];
+    const result = resolveDuplicatePicks(order, picked, pools, () => [], sameShop);
+    expect(result.get("lunch")?.id).toBe("우오신");
+    expect(result.get("dinner")?.id).toBe("규카츠 모토무라");
+  });
+
+  it("falls back to the slot's full raw pool when its shortlist has no distinct option left (real case: lunch/dinner both searched the identical '맛집' keyword)", () => {
+    const picked = new Map<string, RouteCandidate>([
+      ["lunch", cand("우오신", 34.7, 135.5, 6)],
+      ["dinner", cand("우오신", 34.7, 135.5, 6)],
+    ]);
+    // dinner's shortlist only ever had this one (identical) candidate.
+    const pools: SlotPool[] = [{ slotKey: "dinner", candidates: [cand("우오신", 34.7, 135.5, 6)] }];
+    const rawPoolFor = (slotKey: string) => (slotKey === "dinner" ? [cand("우오신", 34.7, 135.5, 6), cand("규카츠 모토무라", 34.7, 135.5, 4)] : []);
+    const result = resolveDuplicatePicks(order, picked, pools, rawPoolFor, sameShop);
+    expect(result.get("dinner")?.id).toBe("규카츠 모토무라");
+  });
+
+  it("drops the later slot entirely when truly nothing distinct is left anywhere, rather than showing the duplicate", () => {
+    const picked = new Map<string, RouteCandidate>([
+      ["lunch", cand("우오신", 34.7, 135.5, 6)],
+      ["dinner", cand("우오신", 34.7, 135.5, 6)],
+    ]);
+    const pools: SlotPool[] = [{ slotKey: "dinner", candidates: [cand("우오신", 34.7, 135.5, 6)] }];
+    const result = resolveDuplicatePicks(order, picked, pools, () => [], sameShop);
+    expect(result.has("dinner")).toBe(false);
+    expect(result.get("lunch")?.id).toBe("우오신");
+  });
+
+  it("chains correctly across 3+ slots — a third slot must also avoid whatever the (now-swapped) second slot ended up with", () => {
+    const threeOrder = ["a", "b", "c"];
+    const picked = new Map<string, RouteCandidate>([
+      ["a", cand("X", 0, 0, 9)],
+      ["b", cand("X", 0, 0, 9)], // collides with a, will swap to Y
+      ["c", cand("Y", 0, 0, 9)], // would then collide with b's swapped-in Y
+    ]);
+    const pools: SlotPool[] = [
+      { slotKey: "b", candidates: [cand("X", 0, 0, 9), cand("Y", 0, 0, 8)] },
+      { slotKey: "c", candidates: [cand("Y", 0, 0, 9), cand("Z", 0, 0, 3)] },
+    ];
+    const result = resolveDuplicatePicks(threeOrder, picked, pools, () => [], sameShop);
+    expect(result.get("a")?.id).toBe("X");
+    expect(result.get("b")?.id).toBe("Y");
+    expect(result.get("c")?.id).toBe("Z");
   });
 });
