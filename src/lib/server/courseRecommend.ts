@@ -492,13 +492,31 @@ async function writeCandidateCache(key: string, places: Place[]): Promise<void> 
   }
 }
 
+/**
+ * 실제 장소 API 결과인지 최소한의 구조 검증 — id/name이 비어있거나
+ * 좌표가 없는(0,0 포함) 항목은 최종 코스에 절대 들어가면 안 된다. 실측
+ * (프리뷰)에서 "조용한저녁"(설명이 "저녁 정취에 맞는 감성 식당명" — 실제
+ * 장소가 아니라 이름 자체를 설명하는 문구)이라는 스팟이 나온 적이 있는데,
+ * v1(courseLlm.ts)·v2(courseTaste.ts) 둘 다 이미 LLM pick의 id를 실제
+ * 후보 풀에 있는 id인지 검증하고 name/lat/lng는 항상 그 실제 후보 객체에서
+ * 가져오므로(코드 상 LLM이 준 텍스트를 name으로 직접 쓰는 경로가 없음)
+ * 정확한 재현 경로는 못 찾았다 — 그래도 구조적으로 잘못된 항목이 어떤
+ * 경로로든(캐시에 남은 과거 데이터, API 자체의 이상 응답 등) 섞여 들어올
+ * 가능성에 대비해 후보 풀에 들어오는 시점에 한 번 걸러낸다.
+ */
+export function isValidPlace(p: Place): boolean {
+  return Boolean(p.id) && Boolean(p.name?.trim()) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0);
+}
+
 /** Live-searches one slot's candidate pool. Empty array when no API key is configured for the scope. */
 export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: string, slot: RecommendSlot): Promise<Place[]> {
   const cacheKey = candidateCacheKey(scope, city, slot);
   const cached = await readCandidateCache(cacheKey);
-  if (cached) return cached;
+  // 캐시된 값도 걸러야 한다 — 이 검증(isValidPlace)이 추가되기 전에 이미
+  // 써진 캐시 행이 place_candidate_cache의 TTL(7일) 동안 남아있을 수 있다.
+  if (cached) return cached.filter(isValidPlace);
 
-  const fresh = await fetchSlotCandidatesLive(scope, city, slot);
+  const fresh = (await fetchSlotCandidatesLive(scope, city, slot)).filter(isValidPlace);
   // 빈 결과는 캐시하지 않는다 — 진짜 "이 검색은 결과가 없다"인지, API가
   // 일시적으로 실패해 빈 배열이 온 건지(googleTop/kakaoTop 둘 다 !res.ok면
   // 조용히 []을 반환) 구분할 수 없어, 다음 요청은 항상 다시 라이브로

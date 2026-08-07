@@ -289,6 +289,8 @@ export interface GenerateCourseOptions {
   /** 시작·종료 위치 고정(DP 앵커). startAnchor와 endAnchor가 좌표까지 같으면(예: "숙소로 복귀") 자연히 순환 경로가 된다 — DP 자체엔 원형/직선을 구분하는 별도 코드가 없고, 마지막 실제 슬롯 → endAnchor 간 이동 페널티가 기존 인접-레이어 로직 그대로 적용되어 복귀 동선까지 최적화에 포함된다. */
   startAnchor?: GenerateCourseAnchor;
   endAnchor?: GenerateCourseAnchor;
+  /** 다일정(멀티데이) — 이전 날짜에 이미 배정된 장소 id. 이번 날의 후보 풀에서 아예 제외해, 같은 여행에서 하루 걸러 같은 곳이 또 뽑히는 걸 막는다(generateMultiDayCourse 참고). 하루짜리 호출에선 항상 비어있다. */
+  excludeIds?: Set<string>;
 }
 
 export async function generateCourseV2(
@@ -308,8 +310,15 @@ export async function generateCourseV2(
     options.startMinutes != null && options.endMinutes != null ? buildDynamicSlots(theme, options.startMinutes, options.endMinutes) : null;
   const slots = dynamicSlots && dynamicSlots.length > 0 ? dynamicSlots : THEME_SLOTS[theme];
 
-  // 1. 후보 수집 — v1과 동일한 fetchSlotCandidates(POOL_SIZE=6까지).
-  const rawPools = await Promise.all(slots.map(async (slot) => ({ slot, raw: await fetchSlotCandidates(scope, city, slot) })));
+  // 1. 후보 수집 — v1과 동일한 fetchSlotCandidates(POOL_SIZE=6까지). excludeIds가
+  // 있으면(다일정에서 이전 날짜가 이미 쓴 장소) 여기서 바로 걸러내 이후
+  // 단계(LLM 큐레이션·DP)가 애초에 그 장소를 볼 일이 없게 한다.
+  const rawPools = await Promise.all(
+    slots.map(async (slot) => {
+      const raw = await fetchSlotCandidates(scope, city, slot);
+      return { slot, raw: options.excludeIds ? raw.filter((p) => !options.excludeIds!.has(p.id)) : raw };
+    }),
+  );
   if (rawPools.every((p) => p.raw.length === 0)) {
     return { course: [], source: "mock", theme };
   }
@@ -450,7 +459,7 @@ export interface RerollResultV2 {
  * 호출이 없다(POOL_SIZE=6개 중 처음에 안 쓰인 나머지). 그래도 없으면
  * "exhausted".
  */
-export async function rerollSlotV2(courseId: string, slotKey: string): Promise<RerollResultV2> {
+export async function rerollSlotV2(courseId: string, slotKey: string, extraExcludeIds?: Set<string>): Promise<RerollResultV2> {
   const course = await getCourse(courseId);
   if (!course) return { stop: null, source: "course-not-found" };
 
@@ -462,6 +471,13 @@ export async function rerollSlotV2(courseId: string, slotKey: string): Promise<R
   const cachedSlot = course.slots.get(slotKey);
   if (!slot || !cachedSlot) return { stop: null, source: "course-not-found" };
 
+  // course.shownIds는 이 코스(하루)만 안다 — 다일정(멀티데이) 호출은
+  // 다른 날짜가 이미 쓴 id를 extraExcludeIds로 넘겨 이 판단에만 합쳐 쓴다
+  // (course.shownIds 자체엔 안 넣는다: 그건 이 날짜만의 이력이어야
+  // 정확하고, 아래에서 course.shownIds.add(next1.id)로 매 리롤마다
+  // 갱신·저장되는 대상이 계속 "이 날짜"로 유지돼야 한다).
+  const excludeIds = extraExcludeIds && extraExcludeIds.size > 0 ? new Set([...course.shownIds, ...extraExcludeIds]) : course.shownIds;
+
   const radiusKm = radiusStepsKmFor(course.mode)[course.radiusStepIndex] ?? null;
   const idx = course.order.indexOf(slotKey);
   const prevKey = idx > 0 ? course.order[idx - 1] : undefined;
@@ -472,17 +488,17 @@ export async function rerollSlotV2(courseId: string, slotKey: string): Promise<R
   const next = nextKey ? course.slots.get(nextKey)?.confirmed : course.endAnchor;
 
   const slotPool: SlotPool = { slotKey, candidates: cachedSlot.shortlist };
-  let next1 = rerollSlot(slotPool, { prev, next, excludeIds: course.shownIds, radiusKm });
+  let next1 = rerollSlot(slotPool, { prev, next, excludeIds, radiusKm });
   let source: RerollResultV2["source"] = "shortlist";
 
   if (!next1) {
     // 쇼트리스트 고갈 — 같은 슬롯 raw 풀에서 아직 안 쓰인 나머지로 보충(추가 API 호출 없음).
     const resolve = (_sk: string, id: string) => resolveIn(cachedSlot.raw, id);
     const fresh = cachedSlot.raw.map(placeToTasteCandidate);
-    const expanded = expandShortlist(slotPool, fresh, resolve, course.shownIds, sameShop);
+    const expanded = expandShortlist(slotPool, fresh, resolve, excludeIds, sameShop);
     if (expanded.candidates.length > cachedSlot.shortlist.length) {
       cachedSlot.shortlist = expanded.candidates;
-      next1 = rerollSlot({ slotKey, candidates: expanded.candidates }, { prev, next, excludeIds: course.shownIds, radiusKm });
+      next1 = rerollSlot({ slotKey, candidates: expanded.candidates }, { prev, next, excludeIds, radiusKm });
       source = "expanded";
     }
   }

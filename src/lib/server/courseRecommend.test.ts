@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { radiusKmFor, parseTravelMode, parseTimeToMinutes, buildDynamicSlots, THEME_LABELS, type CourseTheme } from "./courseRecommend";
+import { radiusKmFor, parseTravelMode, parseTimeToMinutes, buildDynamicSlots, isValidPlace, THEME_LABELS, type CourseTheme } from "./courseRecommend";
+import type { Place } from "@/lib/types";
+
+function place(overrides: Partial<Place> = {}): Place {
+  return { id: "p1", placeId: "p1", name: "실제 장소", category: "restaurant", color: "#000", lat: 37.5, lng: 127.0, icon: "pin", ...overrides };
+}
 
 describe("radiusKmFor", () => {
   it("defaults to car speed (25km/h) when mode is omitted — unchanged behavior for every pre-existing caller", () => {
@@ -49,6 +54,32 @@ describe("parseTimeToMinutes", () => {
     expect(parseTimeToMinutes("not-a-time")).toBeNull();
     expect(parseTimeToMinutes("24:00")).toBeNull();
     expect(parseTimeToMinutes("12:60")).toBeNull();
+  });
+});
+
+describe("isValidPlace", () => {
+  it("accepts a normal, real-looking place", () => {
+    expect(isValidPlace(place())).toBe(true);
+  });
+
+  it("rejects an empty id or name", () => {
+    expect(isValidPlace(place({ id: "" }))).toBe(false);
+    expect(isValidPlace(place({ name: "" }))).toBe(false);
+    expect(isValidPlace(place({ name: "   " }))).toBe(false);
+  });
+
+  it("rejects missing/non-finite coordinates", () => {
+    expect(isValidPlace(place({ lat: NaN }))).toBe(false);
+    expect(isValidPlace(place({ lng: Infinity }))).toBe(false);
+  });
+
+  it("rejects the (0,0) 'null island' coordinate — the value a mistakenly-empty location field would silently carry", () => {
+    expect(isValidPlace(place({ lat: 0, lng: 0 }))).toBe(false);
+  });
+
+  it("accepts a legitimate place that happens to sit exactly on the equator or prime meridian (only true (0,0) is rejected)", () => {
+    expect(isValidPlace(place({ lat: 0, lng: 127.0 }))).toBe(true);
+    expect(isValidPlace(place({ lat: 37.5, lng: 0 }))).toBe(true);
   });
 });
 

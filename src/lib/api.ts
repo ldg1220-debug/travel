@@ -167,6 +167,8 @@ export interface RecommendedCourseOptions {
   endTime?: string;
   startAnchor?: CourseAnchor;
   endAnchor?: CourseAnchor;
+  /** 다일정(멀티데이) — 이전 날짜에 이미 배정된 place id들. 이번 날 후보에서 제외해 같은 장소가 이틀 걸러 또 뽑히는 걸 막는다. */
+  excludeIds?: string[];
 }
 
 export interface RecommendedCourseResult {
@@ -208,6 +210,7 @@ export async function fetchRecommendedCourse(
       params.set("endLat", String(options.endAnchor.lat));
       params.set("endLng", String(options.endAnchor.lng));
     }
+    if (options.excludeIds && options.excludeIds.length > 0) params.set("excludeIds", options.excludeIds.join(","));
     const res = await fetch(`/api/course/recommend?${params.toString()}`);
     if (!res.ok) return empty;
     const data = (await res.json()) as { course?: RecommendedStop[]; source?: string; courseId?: string };
@@ -220,6 +223,76 @@ export async function fetchRecommendedCourse(
   } catch {
     return empty;
   }
+}
+
+/** 하루짜리 코스 하나 + 그 날짜 번호(1부터). fetchMultiDayCourse가 반환하는 배열의 원소. */
+export interface RecommendedDayCourse {
+  day: number;
+  stops: RecommendedStop[];
+  courseId: string | null;
+}
+
+/** 다일정(멀티데이) "세부 설정"에서 입력하는 공통 지점들 — 전부 선택 사항. */
+export interface MultiDayAnchors {
+  /** 매일 아침 출발·저녁 복귀하는 공통 지점(보통 숙소) — 중간 날짜의 시작·종료 둘 다로, 그리고 도착/출발 지점을 안 정했을 때 첫날/마지막날의 나머지 한쪽으로도 쓰인다. */
+  lodging?: CourseAnchor;
+  /** 첫날 시작 지점(공항·기차역 등). 없으면 lodging으로 대체. */
+  arrival?: CourseAnchor;
+  arrivalTime?: string;
+  /** 마지막날 종료 지점(공항 등). 없으면 lodging으로 대체. */
+  departure?: CourseAnchor;
+  departureTime?: string;
+}
+
+/**
+ * 여러 날짜의 코스를 순차 생성한다 — 하루 개념만 아는 기존
+ * generateCourseV2(=/api/course/recommend)를 day 수만큼 그대로 반복
+ * 호출하는 것뿐이라 서버에 새 엔드포인트/함수를 두지 않았다. 앵커는 날짜별로:
+ *
+ *   Day 1(첫날):    시작=도착 지점(없으면 숙소), 종료=숙소
+ *   중간 날짜:      시작=종료=숙소 (기존 순환 경로 그대로)
+ *   마지막 날:      시작=숙소, 종료=출발 지점(없으면 숙소)
+ *
+ * 이전 날짜에서 이미 나온 장소 id를 다음 날짜의 excludeIds로 넘겨 같은
+ * 여행 안에서 같은 곳이 또 뽑히지 않게 한다(하드 개런티). 지리적
+ * 군집화(예: "시내 → 근교 당일치기"처럼 날짜별 방향을 다르게)는 하지
+ * 않는다 — 각 날의 시작·종료 앵커가 이미 DP의 거리 페널티로 그날의 앵커
+ * 주변에 자연히 모이도록 유도하고, 앵커가 똑같은(숙소 순환) 중간
+ * 날짜들끼리는 위 dedup + assembleRoute의 기존 재추천 노이즈(jitter)로
+ * 최소한의 다양성을 얻는 선에서 그쳤다 — 진짜 지리 군집화는 Directions
+ * API 연동과 같은 이유(범위 대비 이득 불확실)로 후속 과제로 남긴다.
+ *
+ * 순차 실행(day를 병렬로 안 돌림) — 다음 날짜의 excludeIds가 이전 날짜
+ * 결과에 의존하므로 병렬화할 수 없다.
+ */
+export async function fetchMultiDayCourse(
+  scope: DiscoverScope,
+  city: string,
+  theme: CourseTheme,
+  radius: CourseTravelRadius,
+  days: number,
+  mode: CourseTravelMode,
+  anchors: MultiDayAnchors,
+): Promise<RecommendedDayCourse[]> {
+  const result: RecommendedDayCourse[] = [];
+  const seenIds = new Set<string>();
+  for (let day = 1; day <= days; day++) {
+    const isFirst = day === 1;
+    const isLast = day === days;
+    const startAnchor = isFirst ? (anchors.arrival ?? anchors.lodging) : anchors.lodging;
+    const endAnchor = isLast ? (anchors.departure ?? anchors.lodging) : anchors.lodging;
+    const { stops, courseId } = await fetchRecommendedCourse(scope, city, theme, radius, {
+      mode,
+      startTime: isFirst ? anchors.arrivalTime : undefined,
+      endTime: isLast ? anchors.departureTime : undefined,
+      startAnchor,
+      endAnchor,
+      excludeIds: [...seenIds],
+    });
+    stops.forEach((s) => seenIds.add(s.id));
+    result.push({ day, stops, courseId });
+  }
+  return result;
 }
 
 /**
@@ -236,6 +309,11 @@ export async function fetchRecommendedCourse(
  *  - v1: stateless per-request — `currentCourse` supplies the exclude-list
  *    (never repeat a place already shown) and an anchor point (the
  *    previous stop, if any) for proximity ranking.
+ *
+ * `extraExcludeIds` only matters on the v2/courseId path — the server's
+ * course state only knows this one day's history, so a multi-day caller
+ * (fetchMultiDayCourse) passes every OTHER day's stop ids here to stop a
+ * reroll from re-suggesting a place already used on a different day.
  */
 export async function fetchRerolledStop(
   scope: DiscoverScope,
@@ -245,11 +323,13 @@ export async function fetchRerolledStop(
   currentCourse: RecommendedStop[],
   radius: CourseTravelRadius = 60,
   courseId?: string | null,
+  extraExcludeIds?: string[],
 ): Promise<RecommendedStop | null> {
   if (!city.trim()) return null;
   const params = new URLSearchParams({ scope, city, theme, slot: slotKey, radius: String(radius) });
   if (courseId) {
     params.set("courseId", courseId);
+    if (extraExcludeIds && extraExcludeIds.length > 0) params.set("excludeIds", extraExcludeIds.join(","));
   } else {
     const idx = currentCourse.findIndex((s) => s.slotKey === slotKey);
     const anchor = idx > 0 ? currentCourse[idx - 1] : null;

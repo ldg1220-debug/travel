@@ -46,7 +46,12 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const courseId = params.get("courseId");
   if (process.env.COURSE_PIPELINE === "v2") {
     if (!courseId) return NextResponse.json({ error: "courseId required for v2 pipeline" }, { status: 400 });
-    return NextResponse.json(await rerollSlotV2(courseId, slotKey));
+    // 다일정(멀티데이) — 이 코스(day)의 서버 상태는 자기 날짜 안에서
+    // 이미 보여준 곳만 알아서, 다른 날짜가 쓴 장소는 여기로 따로 넘겨야
+    // 같은 여행에서 리롤이 그 장소를 또 꺼내지 않는다.
+    const extraExcludeIdsParam = params.get("excludeIds");
+    const extraExcludeIds = extraExcludeIdsParam ? new Set(extraExcludeIdsParam.split(",").filter(Boolean)) : undefined;
+    return NextResponse.json(await rerollSlotV2(courseId, slotKey, extraExcludeIds));
   }
   if (courseId) {
     return NextResponse.json({ error: "courseId given but COURSE_PIPELINE is not v2" }, { status: 400 });

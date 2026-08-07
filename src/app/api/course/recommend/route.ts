@@ -72,12 +72,17 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     const endMinutes = parseTimeToMinutes(request.nextUrl.searchParams.get("endTime"));
     const startAnchor = parseAnchorParam(request.nextUrl.searchParams, "start");
     const endAnchor = parseAnchorParam(request.nextUrl.searchParams, "end");
+    // 다일정(멀티데이) 클라이언트가 이전 날짜에 이미 쓴 장소 id를 여기로
+    // 넘긴다 — reroll route의 excludeIds와 같은 형식(콤마 구분).
+    const excludeIdsParam = request.nextUrl.searchParams.get("excludeIds");
+    const excludeIds = excludeIdsParam ? new Set(excludeIdsParam.split(",").filter(Boolean)) : undefined;
     return NextResponse.json(
       await generateCourseV2(scope, city, theme, radius, {
         mode,
         ...(startMinutes != null && endMinutes != null && endMinutes > startMinutes ? { startMinutes, endMinutes } : {}),
         startAnchor,
         endAnchor,
+        excludeIds,
       }),
     );
   }
