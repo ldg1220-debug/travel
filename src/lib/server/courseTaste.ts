@@ -91,7 +91,11 @@ export async function curateTaste(
   let raw: string;
   try {
     raw = await callLlm(buildPrompt(city, theme, slots));
-  } catch {
+  } catch (err) {
+    // callLlm(=courseRecommendV2.ts의 callHaiku)이 이미 상세를 로그로
+    // 남기지만, 이 함수만 따로 단위테스트되기도 하므로 여기서도 한 번 더
+    // 남겨 어느 단계에서 null로 떨어졌는지 항상 알 수 있게 한다.
+    console.error("[courseTaste] callLlm failed:", err);
     return null;
   }
 
@@ -99,9 +103,13 @@ export async function curateTaste(
   try {
     parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
   } catch {
+    console.error(`[courseTaste] unparseable LLM response: ${raw.slice(0, 200)}`);
     return null;
   }
-  if (!Array.isArray(parsed.slots)) return null;
+  if (!Array.isArray(parsed.slots)) {
+    console.error(`[courseTaste] response has no "slots" array: ${raw.slice(0, 200)}`);
+    return null;
+  }
 
   const bySlot = new Map<string, RawPick[]>();
   for (const s of parsed.slots) {

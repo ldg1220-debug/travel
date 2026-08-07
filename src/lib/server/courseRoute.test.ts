@@ -136,14 +136,42 @@ describe("rerollSlot", () => {
 describe("dedupePoolsByBrand", () => {
   const sameShop = (a: string, b: string) => a === b;
 
-  it("keeps only the higher-taste occurrence across slots and drops the rest", () => {
+  it("assigns a duplicate to whichever slot scored it higher when the loser slot has other candidates left over", () => {
+    const pools: SlotPool[] = [
+      { slotKey: "lunch", candidates: [cand("우오신 우메다점", 34.7, 135.5, 6), cand("다른집", 34.7, 135.5, 5)] },
+      { slotKey: "dinner", candidates: [cand("우오신 우메다점", 34.7, 135.5, 9)] },
+    ];
+    const result = dedupePoolsByBrand(pools, sameShop);
+    expect(result.find((p) => p.slotKey === "lunch")?.candidates.map((c) => c.id)).toEqual(["다른집"]);
+    expect(result.find((p) => p.slotKey === "dinner")?.candidates).toHaveLength(1);
+  });
+
+  it("never fully empties a slot that started with candidates, even if every one of them loses to a duplicate elsewhere — a vanished slot (e.g. lunch/dinner both searching the same '맛집' keyword and returning identical results) is worse than an occasional repeated place", () => {
     const pools: SlotPool[] = [
       { slotKey: "lunch", candidates: [cand("우오신 우메다점", 34.7, 135.5, 6)] },
       { slotKey: "dinner", candidates: [cand("우오신 우메다점", 34.7, 135.5, 9)] },
     ];
     const result = dedupePoolsByBrand(pools, sameShop);
-    expect(result.find((p) => p.slotKey === "lunch")?.candidates).toHaveLength(0);
+    // lunch's only candidate lost the dedup entirely (dinner scored it
+    // higher), but lunch must still surface *something* rather than vanish.
+    expect(result.find((p) => p.slotKey === "lunch")?.candidates).toHaveLength(1);
     expect(result.find((p) => p.slotKey === "dinner")?.candidates).toHaveLength(1);
+  });
+
+  it("restores each emptied slot's own best candidate (own taste score), not a copy of the slot that won the duplicates", () => {
+    const pools: SlotPool[] = [
+      { slotKey: "am-sight", candidates: [cand("경복궁", 37.58, 126.98, 7), cand("남산타워", 37.55, 126.99, 6)] },
+      { slotKey: "pm-sight", candidates: [cand("경복궁", 37.58, 126.98, 9), cand("남산타워", 37.55, 126.99, 8)] },
+    ];
+    const result = dedupePoolsByBrand(pools, sameShop);
+    // pm-sight outscores am-sight on both shared names, so am-sight loses
+    // everything to the dedup pass and must fall back to its own highest-
+    // taste candidate (경복궁 @ 7 — its own score, not pm-sight's 9).
+    const amSight = result.find((p) => p.slotKey === "am-sight")!.candidates;
+    expect(amSight).toHaveLength(1);
+    expect(amSight[0].id).toBe("경복궁");
+    expect(amSight[0].taste).toBe(7);
+    expect(result.find((p) => p.slotKey === "pm-sight")?.candidates).toHaveLength(2);
   });
 
   it("leaves distinct names untouched", () => {

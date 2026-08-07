@@ -201,8 +201,25 @@ export function dedupePoolsByBrand(pools: SlotPool[], sameShop: (a: string, b: s
     }
   }
 
-  return pools.map((p, pi) => ({
+  const result = pools.map((p, pi) => ({
     slotKey: p.slotKey,
     candidates: kept.filter((e) => e.poolIdx === pi).map((e) => e.cand),
   }));
+
+  // 실측(서울/부산/강릉/오사카)에서 확인된 버그: 두 슬롯의 원본 후보 풀이
+  // 거의/완전히 겹치면(예: lunch·dinner가 똑같이 "맛집" 키워드로 검색,
+  // am-sight·pm-sight가 둘 다 일반 관광명소 검색) 나중 슬롯의 후보 전부가
+  // "중복"으로 판정돼 그 슬롯이 통째로 사라졌다(같은 장소 두 번 추천되는
+  // 것보다 슬롯 자체가 없어지는 게 훨씬 나쁜 결과). 원래 후보가 있던
+  // 슬롯은 dedupe 이후에도 최소 1개(자기 풀에서 가장 taste 높은 것)는
+  // 반드시 남긴다 — 드물게 같은 장소가 두 슬롯에 겹쳐 보일 수는 있지만,
+  // 슬롯이 통째로 빠지는 것보다는 훨씬 안전하다.
+  for (let pi = 0; pi < pools.length; pi++) {
+    if (pools[pi].candidates.length > 0 && result[pi].candidates.length === 0) {
+      const best = pools[pi].candidates.reduce((a, b) => (b.taste > a.taste ? b : a));
+      result[pi].candidates.push(best);
+    }
+  }
+
+  return result;
 }

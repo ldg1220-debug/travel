@@ -35,7 +35,11 @@ export type FinalStop = Place & { slotKey: string; slotLabel: string; hour: numb
 /** 15/30/60/120분/무제한 각각의 실제 km 반경 — radiusKmFor()를 그대로 계단으로 사용. 임의 값을 넣지 말 것(회귀 유발, 이전 리뷰에서 지적된 지점). */
 const RADIUS_STEPS_KM: (number | null)[] = [15, 30, 60, 120, 0].map((m) => radiusKmFor(m as TravelRadius));
 
-const MODEL = "claude-haiku-4-5";
+// 실측(서울/부산/강릉/오사카)에서 v1/v2 둘 다 LLM 큐레이션이 한 번도 안
+// 타고 매번 결정론 폴백으로 떨어지는 게 확인됐다 — 날짜 스냅샷 없는
+// "claude-haiku-4-5"는 존재하지 않는 모델 id라 매 호출이 즉시 실패(<1초)
+// 하고 있었다(courseLlm.ts도 동일 문제, 같이 고침).
+const MODEL = "claude-haiku-4-5-20251001";
 
 async function callHaiku(prompt: string): Promise<string> {
   if (!process.env.LLM_API_KEY) throw new Error("no LLM_API_KEY");
@@ -53,7 +57,13 @@ async function callHaiku(prompt: string): Promise<string> {
       messages: [{ role: "user", content: prompt }],
     }),
   });
-  if (!res.ok) throw new Error(`anthropic ${res.status}`);
+  if (!res.ok) {
+    // v1의 curateCourseWithLlm과 같은 문제(실패가 조용히 폴백돼 로그에
+    // 안 남음)를 반복하지 않도록 던지기 전에 상태코드+본문을 남긴다.
+    const body = await res.text().catch(() => "");
+    console.error(`[courseRecommendV2] anthropic ${res.status}: ${body}`);
+    throw new Error(`anthropic ${res.status}`);
+  }
   const data = (await res.json()) as { content?: { text?: string }[] };
   return data?.content?.[0]?.text ?? "";
 }
@@ -158,7 +168,10 @@ export async function generateCourseV2(
     slotLabel: `${slot.label} · ${String(slot.hour).padStart(2, "0")}:00`,
     candidates: raw.map(placeToTasteCandidate),
   }));
-  const llmShortlists = await curateTaste(city, THEME_LABELS[theme], tasteInputs, resolve, callHaiku).catch(() => null);
+  const llmShortlists = await curateTaste(city, THEME_LABELS[theme], tasteInputs, resolve, callHaiku).catch((err) => {
+    console.error("[courseRecommendV2] curateTaste threw:", err);
+    return null;
+  });
   const shortlists = llmShortlists ?? tasteInputs.map((s) => deterministicShortlistForSlot(s, resolve));
 
   // 3. 브랜드 중복 사전 제거.

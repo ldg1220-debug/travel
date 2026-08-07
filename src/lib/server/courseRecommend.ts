@@ -75,7 +75,10 @@ export const THEME_SLOTS: Record<CourseTheme, RecommendSlot[]> = {
     { key: "lunch", label: "점심", keyword: "맛집", hour: 12, category: "restaurant", meal: true },
     { key: "pm-sight", label: "오후 명소", keyword: "가볼만한곳", hour: 14, category: "attraction" },
     { key: "cafe", label: "카페", keyword: "카페", hour: 16, category: "cafe" },
-    { key: "night", label: "야경 명소", keyword: "야경", hour: 19, category: "attraction" },
+    // 마찬가지로 "야경" 단독 키워드는 실측(v2 비교테스트)에서 "다이닝야경
+    // ○○점" 같은 상호명에 그대로 걸려 식당이 야경 명소로 잘못 들어온 사례가
+    // 나와, culture/active 테마가 이미 쓰던 "야경 명소"로 통일했다.
+    { key: "night", label: "야경 명소", keyword: "야경 명소", hour: 19, category: "attraction" },
     { key: "dinner", label: "저녁", keyword: "맛집", hour: 20, category: "restaurant", meal: true },
   ],
   foodie: [
