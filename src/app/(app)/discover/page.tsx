@@ -865,7 +865,11 @@ export default function DiscoverPage() {
                     icon={hotCheck ? Flame : seasonCheck ? Sparkles : Flame}
                     iconClass="text-rose-500"
                     title={hotCheck ? "지금 가장 핫한 장소" : seasonCheck ? "이 계절 추천" : "지금 뜨는 장소"}
-                    caption="지금 가장 많이 담긴 실시간 핫플"
+                    // 이 섹션은 실시간 집계가 아니라 트레쥴이 미리 골라둔
+                    // 큐레이션 목록(순위는 saves 필드 기준 정렬) — "지금 담긴
+                    // 실시간 핫플"이라는 문구는 실제로 존재하지 않는 실시간
+                    // 신호를 있는 것처럼 말해 신뢰를 깎을 수 있어 표현을 바꿈.
+                    caption="여행자들이 많이 찾는 인기 스팟"
                     onSeeAll={bundle.trending.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("trending") : undefined}
                   />
                   <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -1452,7 +1456,10 @@ function SearchResults({
       {/* ── ① 관련 지역 인기 루트 ── */}
       {routes.length > 0 && page === 1 && (
         <section>
-          <SectionHeader icon={Crown} iconClass="text-amber-500" title={`"${query}" 인기 루트`} caption="좋아요 · 조회수가 높은 여행자들의 루트" />
+          {/* "여행자들의 루트"는 실제 유저가 만든 게 아니라 트레쥴 큐레이션
+              템플릿이라 route.author 배지를 "트레쥴 큐레이션"으로 바꾼
+              것과 같은 이유로 문구를 맞춤. */}
+          <SectionHeader icon={Crown} iconClass="text-amber-500" title={`"${query}" 인기 루트`} caption="좋아요 · 조회수가 높은 트레쥴 큐레이션 루트" />
           <div className="-mt-6 mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
             {routes.map((route) => (
               <RouteTemplateCard key={route.id} route={route} onAdd={() => onPreviewRoute(route)} onPreview={() => onPreviewRoute(route)} />
@@ -1962,7 +1969,12 @@ function RouteTemplateCard({ route, onAdd, onPreview }: { route: DiscoverRoute; 
           <span className="flex items-center gap-1">
             <Eye size={12} /> {fmt(route.views)}
           </span>
-          <span className="text-white/70">by {route.author}</span>
+          {/* route.author was previously shown as "by 방콕러버" — these
+              routes are hand-curated by 트레쥴, not submitted by that named
+              person, so a fabricated username there reads as fake social
+              proof once you notice it. A plain curation badge says the same
+              "someone put thought into this" without inventing a person. */}
+          <span className="text-white/70">트레쥴 큐레이션</span>
         </div>
       </div>
 

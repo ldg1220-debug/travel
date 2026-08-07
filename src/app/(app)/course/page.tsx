@@ -46,11 +46,19 @@ const AI_RADIUS_OPTIONS: { minutes: CourseTravelRadius; label: string }[] = [
 // ── representative photo behind a scope/region tile — live Google Places
 // lookup by name (same /api/discover/spot-photo proxy CourseSpotCard's
 // no-photoName fallback already uses), gracefully falling back to a plain
-// gradient if the API has no key or no match for that query. ──
+// gradient if the API has no key or no match for that query. A bare
+// gradient with nothing else on it reads as a failed image load rather
+// than a deliberate placeholder (same issue discover's SpotCard had), so a
+// centered pin watermark goes on top — same fallback language as
+// CourseSpotCard/discover's SpotCard use elsewhere in the app. ──
 function TilePhoto({ query, className }: { query: string; className?: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
-    return <div className={`bg-gradient-to-br from-indigo-400 to-violet-500 ${className ?? ""}`} />;
+    return (
+      <div className={`flex items-center justify-center bg-gradient-to-br from-indigo-400 to-violet-500 ${className ?? ""}`}>
+        <MapPin size={28} className="text-white/40" />
+      </div>
+    );
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element -- /api/discover/spot-photo proxy
