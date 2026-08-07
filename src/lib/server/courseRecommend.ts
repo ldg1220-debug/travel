@@ -306,6 +306,21 @@ const CATEGORY_TYPE: Record<string, string> = {
 };
 const CATEGORY_LABEL: Record<string, string> = { attraction: "관광명소", restaurant: "맛집", lodging: "숙소", cafe: "카페" };
 
+// 다일정(멀티데이) 4차 실측에서 확인된 원인: 슬롯별 raw 후보 풀은
+// candidateCacheKey(scope+city+slot)로 캐시되는데, 같은 도시를 여러 날
+// 순회하는 다일정 요청은 매일 "같은 슬롯"(예: pm-sight, 키워드 "포토존")을
+// 똑같이 조회한다 — 즉 4일 내내 사실상 동일한 고정 후보 풀에서 매일
+// excludeIds/excludeNames로 걸러내며 나눠 쓰는 구조라, POOL_SIZE를
+// 아무리 키워도 결국 유한한 한 풀을 여러 날이 나눠 먹으면 뒤쪽 날짜(3·4일차)
+// 에서 고갈된다(실측: Day1·2는 정상, Day3·4에서만 슬롯 공백 발생 — 정확히
+// 이 패턴과 일치). 해법은 "더 큰 풀"이 아니라 "다른 풀" — 같은 카테고리의
+// 동의어 키워드로 별도 검색을 한 번 더 돌려(전혀 다른 검색어라 Google/
+// Kakao 랭킹이 실제로 다른 결과를 준다) 합치면, 날짜마다 물리적으로 겹치지
+// 않는 후보군을 얻을 수 있다. widenPool(=extraQuery)이 켜졌을 때만 이
+// 추가 조회가 붙는다(courseRecommendV2.ts가 3일차부터 켬 — 비용은 그
+// 시점부터만 늘어남).
+const CATEGORY_SYNONYM_LABEL: Record<string, string> = { attraction: "가볼만한곳", restaurant: "인기 맛집", lodging: "호텔", cafe: "핫플레이스" };
+
 // Kakao Local의 category_group_code — 슬롯을 이 코드로 제한해서 검색하면
 // "부산장거리택시"(택시회사)가 "시장 거리" 키워드에 텍스트로 걸려 들어오는
 // 것처럼, 카테고리와 무관한 업체가 섞이는 걸 막을 수 있다. AT4=관광명소,
@@ -521,8 +536,12 @@ function kakaoToPlace(d: KakaoDoc, fallbackCategory: string): Place {
 // 사이에 크게 안 바뀌므로 TTL을 넉넉히(7일) 잡았다.
 const CANDIDATE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function candidateCacheKey(scope: "overseas" | "domestic", city: string, slot: RecommendSlot): string {
-  return `${scope}:${city.trim().toLowerCase()}:${slot.keyword}:${slot.category ?? ""}`;
+function candidateCacheKey(scope: "overseas" | "domestic", city: string, slot: RecommendSlot, extraQuery: boolean): string {
+  // extraQuery(동의어 2차 검색 포함 여부)에 따라 결과 집합 자체가 다르므로
+  // (기본 풀의 상위집합이 아니라 별개의, 겹치지만 다른 풀) 별도 캐시 키를
+  // 쓴다 — 안 그러면 먼저 캐시를 채운 쪽(둘 중 아무거나)이 다른 쪽 요청에
+  // 잘못된 크기의 풀을 돌려주게 된다.
+  return `${scope}:${city.trim().toLowerCase()}:${slot.keyword}:${slot.category ?? ""}${extraQuery ? ":x2" : ""}`;
 }
 
 async function readCandidateCache(key: string): Promise<Place[] | null> {
@@ -624,9 +643,15 @@ export function applyQualityGate(places: Place[], scope: "overseas" | "domestic"
   return places.filter((p) => passesQualityGate(p, scope, slotCategory));
 }
 
-/** Live-searches one slot's candidate pool. Empty array when no API key is configured for the scope. */
-export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: string, slot: RecommendSlot): Promise<Place[]> {
-  const cacheKey = candidateCacheKey(scope, city, slot);
+/**
+ * Live-searches one slot's candidate pool. Empty array when no API key is
+ * configured for the scope.
+ *
+ * `extraQuery`(다일정 후반 날짜용, CATEGORY_SYNONYM_LABEL 참고) — 동의어로
+ * 한 번 더 검색해 합친, 기본 풀과 "겹치지만 다른" 더 큰 풀을 쓴다.
+ */
+export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: string, slot: RecommendSlot, extraQuery = false): Promise<Place[]> {
+  const cacheKey = candidateCacheKey(scope, city, slot, extraQuery);
   // applyQualityGate(passesQualityGate 기반)는 캐시에 굽지 않고 읽는
   // 시점에만 적용한다 — 임계값을 나중에 튜닝해도 캐시 TTL(7일)을 기다리지
   // 않고 바로 반영되게 하기 위함(경계선 후보를 캐시에서 아예 지워버리면
@@ -639,7 +664,7 @@ export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: 
   // 써진 캐시 행이 TTL 동안 남아있을 수 있다.
   if (cached) return qualityFilter(cached.filter(isValidPlace));
 
-  const fresh = (await fetchSlotCandidatesLive(scope, city, slot)).filter(isValidPlace);
+  const fresh = (await fetchSlotCandidatesLive(scope, city, slot, extraQuery)).filter(isValidPlace);
   // 빈 결과는 캐시하지 않는다 — 진짜 "이 검색은 결과가 없다"인지, API가
   // 일시적으로 실패해 빈 배열이 온 건지(googleTop/kakaoTop 둘 다 !res.ok면
   // 조용히 []을 반환) 구분할 수 없어, 다음 요청은 항상 다시 라이브로
@@ -648,14 +673,21 @@ export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: 
   return qualityFilter(fresh);
 }
 
-async function fetchSlotCandidatesLive(scope: "overseas" | "domestic", city: string, slot: RecommendSlot): Promise<Place[]> {
+async function fetchSlotCandidatesLive(scope: "overseas" | "domestic", city: string, slot: RecommendSlot, extraQuery = false): Promise<Place[]> {
   if (scope === "overseas") {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!apiKey) return [];
     const type = slot.category ? CATEGORY_TYPE[slot.category] : undefined;
     const label = slot.category ? CATEGORY_LABEL[slot.category] : "";
     const results = await googleTop(`${city} ${slot.keyword}${label ? " " + label : ""}`, apiKey, type);
-    return results.map((p) => googleToPlace(p, slot.label)).slice(0, POOL_SIZE);
+    let all = results;
+    if (extraQuery) {
+      const synonym = slot.category ? CATEGORY_SYNONYM_LABEL[slot.category] : undefined;
+      const extra = await googleTop(`${city} ${slot.keyword}${synonym ? " " + synonym : ""}`, apiKey, type);
+      const seenIds = new Set(all.map((p) => p.id));
+      all = [...all, ...extra.filter((p) => !seenIds.has(p.id))];
+    }
+    return all.map((p) => googleToPlace(p, slot.label)).slice(0, extraQuery ? POOL_SIZE * 2 : POOL_SIZE);
   }
   const apiKey = process.env.KAKAO_REST_API_KEY;
   if (!apiKey) return [];
@@ -668,7 +700,13 @@ async function fetchSlotCandidatesLive(scope: "overseas" | "domestic", city: str
   if (results.length === 0 && categoryCode) {
     results = await kakaoTop(`${city} ${slot.keyword}`, apiKey);
   }
-  return results.map((d) => kakaoToPlace(d, slot.label)).slice(0, POOL_SIZE);
+  if (extraQuery) {
+    const synonym = slot.category ? CATEGORY_SYNONYM_LABEL[slot.category] : undefined;
+    const extra = await kakaoTop(`${city} ${slot.keyword}${synonym ? " " + synonym : ""}`, apiKey, categoryCode);
+    const seenIds = new Set(results.map((d) => d.id));
+    results = [...results, ...extra.filter((d) => !seenIds.has(d.id))];
+  }
+  return results.map((d) => kakaoToPlace(d, slot.label)).slice(0, extraQuery ? POOL_SIZE * 2 : POOL_SIZE);
 }
 
 /** Candidates left after the exclude filters, further narrowed to `maxDistanceKm` of `anchor` when that doesn't empty the pool entirely — a sparse area (rural/overseas leg) with nothing that close just falls back to the unfiltered set rather than breaking course generation. */

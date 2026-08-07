@@ -82,6 +82,10 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     const avoidLat = Number(request.nextUrl.searchParams.get("avoidLat"));
     const avoidLng = Number(request.nextUrl.searchParams.get("avoidLng"));
     const avoidCentroid = Number.isFinite(avoidLat) && Number.isFinite(avoidLng) && (avoidLat || avoidLng) ? { lat: avoidLat, lng: avoidLng } : undefined;
+    // 0부터 시작하는 날짜 인덱스 — dayIndex가 클수록(4차 실측: 3일차부터)
+    // 후보 풀을 넓혀 쓴다(generateCourseV2의 widenPool 참고).
+    const dayIndexParam = request.nextUrl.searchParams.get("dayIndex");
+    const dayIndex = dayIndexParam != null && Number.isFinite(Number(dayIndexParam)) ? Number(dayIndexParam) : undefined;
     return NextResponse.json(
       await generateCourseV2(scope, city, theme, radius, {
         mode,
@@ -91,6 +95,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
         excludeIds,
         excludeNames,
         avoidCentroid,
+        dayIndex,
       }),
     );
   }

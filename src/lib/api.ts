@@ -173,6 +173,15 @@ export interface RecommendedCourseOptions {
   excludeNames?: string[];
   /** 다일정 — 지금까지 배정된 스팟들의 좌표 중심. 있으면 그 근처 후보에 소폭 감점을 줘 날짜마다 같은 동네로 쏠리는 걸 완화한다. */
   avoidCentroid?: { lat: number; lng: number };
+  /** 다일정 — 0부터 시작하는 날짜 인덱스. 뒤쪽 날짜(서버 기준 3일차부터)일수록 excludeIds/excludeNames 누적으로 후보 풀이 마르기 쉬워, 서버가 이 값을 보고 후보 풀을 넓혀 쓴다. */
+  dayIndex?: number;
+}
+
+/** 조건(품질 게이트·중복 제외·반경)에 맞는 곳을 못 찾아 빈 채로 남은 슬롯 — UI가 "이 시간대엔 조건에 맞는 곳을 못 찾았어요" 안내를 띄울 때 쓴다. */
+export interface EmptyStopSlot {
+  slotKey: string;
+  slotLabel: string;
+  hour: number;
 }
 
 export interface RecommendedCourseResult {
@@ -185,6 +194,8 @@ export interface RecommendedCourseResult {
    * exclude-list+anchor-from-client).
    */
   courseId: string | null;
+  /** v2 전용(v1은 항상 빈 배열) — 조건에 맞는 곳을 못 찾아 빈 채로 남은 시간대들. */
+  emptySlots: EmptyStopSlot[];
 }
 
 /** AI 추천 동선 — a full auto-assembled day course of real top-rated places for a city, shaped by `theme`. Empty when the live API is unavailable (no key). */
@@ -195,7 +206,7 @@ export async function fetchRecommendedCourse(
   radius: CourseTravelRadius = 60,
   options: RecommendedCourseOptions = {},
 ): Promise<RecommendedCourseResult> {
-  const empty: RecommendedCourseResult = { stops: [], courseId: null };
+  const empty: RecommendedCourseResult = { stops: [], courseId: null, emptySlots: [] };
   if (!city.trim()) return empty;
   try {
     const params = new URLSearchParams({ scope, city, theme, radius: String(radius) });
@@ -220,15 +231,16 @@ export async function fetchRecommendedCourse(
       params.set("avoidLat", String(options.avoidCentroid.lat));
       params.set("avoidLng", String(options.avoidCentroid.lng));
     }
+    if (options.dayIndex != null) params.set("dayIndex", String(options.dayIndex));
     const res = await fetch(`/api/course/recommend?${params.toString()}`);
     if (!res.ok) return empty;
-    const data = (await res.json()) as { course?: RecommendedStop[]; source?: string; courseId?: string };
+    const data = (await res.json()) as { course?: RecommendedStop[]; source?: string; courseId?: string; emptySlots?: EmptyStopSlot[] };
     // "llm"/"google"/"kakao" = v1 (Claude-curated or deterministic ranker).
     // "llm-v2"/"deterministic-v2" = v2 (COURSE_PIPELINE=v2). All are real
     // live results either way. "mock" = no API key configured.
     const REAL_SOURCES = new Set(["google", "kakao", "llm", "llm-v2", "deterministic-v2"]);
     if (!data.source || !REAL_SOURCES.has(data.source)) return empty;
-    return { stops: data.course ?? [], courseId: data.courseId ?? null };
+    return { stops: data.course ?? [], courseId: data.courseId ?? null, emptySlots: data.emptySlots ?? [] };
   } catch {
     return empty;
   }
@@ -239,6 +251,7 @@ export interface RecommendedDayCourse {
   day: number;
   stops: RecommendedStop[];
   courseId: string | null;
+  emptySlots: EmptyStopSlot[];
 }
 
 /** 다일정(멀티데이) "세부 설정"에서 입력하는 공통 지점들 — 전부 선택 사항. */
@@ -338,7 +351,7 @@ export async function fetchMultiDayCourse(
       startTime = startTime ?? DEFAULT_DAY_START_TIME;
     }
 
-    const { stops, courseId } = await fetchRecommendedCourse(scope, city, theme, radius, {
+    const { stops, courseId, emptySlots } = await fetchRecommendedCourse(scope, city, theme, radius, {
       mode,
       startTime,
       endTime,
@@ -347,6 +360,7 @@ export async function fetchMultiDayCourse(
       excludeIds: [...seenIds],
       excludeNames: [...seenNames],
       avoidCentroid: centroidCount > 0 ? { lat: centroidLatSum / centroidCount, lng: centroidLngSum / centroidCount } : undefined,
+      dayIndex: day - 1,
     });
     stops.forEach((s) => {
       seenIds.add(s.id);
@@ -357,7 +371,7 @@ export async function fetchMultiDayCourse(
         centroidCount++;
       }
     });
-    result.push({ day, stops, courseId });
+    result.push({ day, stops, courseId, emptySlots });
   }
   return result;
 }

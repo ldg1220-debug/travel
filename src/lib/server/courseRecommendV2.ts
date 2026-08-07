@@ -279,6 +279,16 @@ export interface GenerateResultV2 {
   theme: CourseTheme;
   /** 요청한 반경에서 못 찾아 단계를 넓혀 찾았을 때만 true. */
   radiusExpanded: boolean;
+  /**
+   * 이번 코스에서 이 슬롯 시간대엔 조건(품질 게이트·중복 제외·반경)에 맞는
+   * 곳을 하나도 못 찾아 빈 채로 남은 슬롯들 — 실측(오사카 3박4일 다일정)
+   * 에서 "12시 점심 다음이 바로 16시 카페"처럼 이유 없이 시간대가 비어
+   * 보인다는 피드백을 반영, UI가 "이 시간대엔 조건에 맞는 곳을 못
+   * 찾았어요" 안내를 띄울 수 있게 슬롯 정의를 그대로 넘긴다. 애초에
+   * 시간 예산과 안 겹쳐 슬롯 목록에서 빠진 끼니(buildDynamicSlots)는
+   * 여기 안 들어간다 — 그건 "못 찾음"이 아니라 "처음부터 대상이 아님".
+   */
+  emptySlots: { slotKey: string; slotLabel: string; hour: number }[];
 }
 
 export interface GenerateCourseAnchor {
@@ -303,7 +313,21 @@ export interface GenerateCourseOptions {
   excludeNames?: string[];
   /** 다일정 — 지금까지(이전 날짜들) 배정된 스팟들의 좌표 중심. 있으면 그 중심에 가까운 후보에 소폭 감점을 줘, 여러 날짜가 전부 같은 동네(예: 도톤보리)로 쏠리는 걸 완화한다. 완전한 지리 군집화는 아니고 스코어링 단계의 가벼운 넛지 — 자세한 트레이드오프는 clusterPenalty 주석 참고. */
   avoidCentroid?: { lat: number; lng: number };
+  /**
+   * 다일정 — 0부터 시작하는 날짜 인덱스(1일차=0). 4차 실측(오사카
+   * 3박4일)에서 확인된 원인: 슬롯별 raw 후보 풀이 도시+슬롯 키로
+   * 캐시되므로 여러 날짜가 사실상 같은 고정 풀을 excludeIds/excludeNames로
+   * 나눠 쓰는 구조라, 뒤쪽 날짜(3·4일차)에서 풀이 고갈돼 슬롯이 통째로
+   * 빈다 — Day1·2는 정상, Day3·4에서만 발생한 패턴과 정확히 일치.
+   * dayIndex >= WIDEN_POOL_FROM_DAY_INDEX부터 fetchSlotCandidates를
+   * extraQuery(동의어 2차 검색 포함)로 호출해 겹치지만 다른 더 큰 풀을
+   * 쓴다 — 비용 증가(추가 검색 요청)를 실제로 필요한 뒷날짜에만 국한.
+   */
+  dayIndex?: number;
 }
+
+/** dayIndex가 이 값 이상이면 fetchSlotCandidates에 extraQuery(동의어 2차 검색)를 켠다 — 실측(오사카 3박4일)에서 정확히 3일차부터 슬롯 공백이 나 이 값으로 잡았다. */
+const WIDEN_POOL_FROM_DAY_INDEX = 2;
 
 // 이미 배정된 스팟들의 중심에서 이 반경(km) 안이면 감점, 밖이면 0 —
 // 가까울수록 감점이 커진다(선형). "브랜드 중복"과 별개로, 같은 브랜드가
@@ -341,13 +365,15 @@ export async function generateCourseV2(
     options.startMinutes != null && options.endMinutes != null ? buildDynamicSlots(theme, options.startMinutes, options.endMinutes) : null;
   const slots = dynamicSlots && dynamicSlots.length > 0 ? dynamicSlots : THEME_SLOTS[theme];
 
-  // 1. 후보 수집 — v1과 동일한 fetchSlotCandidates(POOL_SIZE=6까지). excludeIds
-  // (다일정에서 이전 날짜가 이미 쓴 정확히 같은 장소)와 excludeNames(같은
-  // 브랜드의 다른 지점 — sameShop 기준)를 여기서 바로 걸러내 이후 단계
-  // (LLM 큐레이션·DP)가 애초에 그 장소/브랜드를 볼 일이 없게 한다.
+  // 1. 후보 수집 — v1과 동일한 fetchSlotCandidates(POOL_SIZE=20까지, 뒷날짜는
+  // extraQuery로 더 큼). excludeIds(다일정에서 이전 날짜가 이미 쓴 정확히
+  // 같은 장소)와 excludeNames(같은 브랜드의 다른 지점 — sameShop 기준)를
+  // 여기서 바로 걸러내 이후 단계(LLM 큐레이션·DP)가 애초에 그 장소/브랜드를
+  // 볼 일이 없게 한다.
+  const widenPool = (options.dayIndex ?? 0) >= WIDEN_POOL_FROM_DAY_INDEX;
   const rawPools = await Promise.all(
     slots.map(async (slot) => {
-      let raw = await fetchSlotCandidates(scope, city, slot);
+      let raw = await fetchSlotCandidates(scope, city, slot, widenPool);
       if (options.excludeIds) raw = raw.filter((p) => !options.excludeIds!.has(p.id));
       if (options.excludeNames && options.excludeNames.length > 0) raw = raw.filter((p) => !options.excludeNames!.some((n) => sameShop(n, p.name)));
       return { slot, raw };
@@ -440,6 +466,7 @@ export async function generateCourseV2(
     shownIds.add(startAnchor.id);
   }
 
+  const emptySlots: GenerateResultV2["emptySlots"] = [];
   for (const { slot, raw } of rawPools) {
     const picked = finalPicked.get(slot.key);
     // "pool" 이름은 위쪽에서 이미 Postgres pool import로 쓰고 있어(파일
@@ -447,9 +474,11 @@ export async function generateCourseV2(
     const slotPool = pools.find((p) => p.slotKey === slot.key);
     cachedSlots.set(slot.key, { slotKey: slot.key, slotLabel: slot.label, raw, shortlist: slotPool?.candidates ?? [], confirmed: picked });
     slotDefs.set(slot.key, slot);
-    if (!picked) continue;
-    const place = raw.find((p) => p.id === picked.id);
-    if (!place) continue;
+    const place = picked ? raw.find((p) => p.id === picked.id) : undefined;
+    if (!picked || !place) {
+      emptySlots.push({ slotKey: slot.key, slotLabel: slot.label, hour: slot.hour });
+      continue;
+    }
     course.push(toFinalStop(place, slot, picked));
     shownIds.add(picked.id);
   }
@@ -480,6 +509,7 @@ export async function generateCourseV2(
     source: llmShortlists ? "llm-v2" : "deterministic-v2",
     theme,
     radiusExpanded: result.usedStep > (requestedStepIndex === -1 ? 0 : requestedStepIndex),
+    emptySlots,
   };
 }
 

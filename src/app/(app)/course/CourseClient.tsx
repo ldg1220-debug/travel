@@ -20,6 +20,7 @@ import {
   logLodgingCtaEvent,
   type RecommendedStop,
   type RecommendedDayCourse,
+  type EmptyStopSlot,
   type CourseTheme,
   type CourseTravelRadius,
   type CourseTravelMode,
@@ -138,6 +139,11 @@ export function CourseBuilderPage() {
   const [finishDate, setFinishDate] = useState(todayISODate());
   // AI 추천 동선 (auto-assembled full-day course).
   const [aiCourse, setAiCourse] = useState<RecommendedStop[] | null>(null);
+  // 조건에 맞는 곳을 못 찾아 빈 채로 남은 시간대들 — 타임라인에 "이
+  // 시간대엔 조건에 맞는 곳을 못 찾았어요" 안내 행으로 보여준다(다일정
+  // 실측에서 "12시 점심 다음 바로 16시 카페"처럼 이유 없이 몇 시간이
+  // 비어 보인다는 피드백 반영).
+  const [aiEmptySlots, setAiEmptySlots] = useState<EmptyStopSlot[]>([]);
   // v2 파이프라인(COURSE_PIPELINE=v2)일 때만 서버가 내려주는 값 — 리롤이
   // 이 코스의 서버 쪽 상태(쇼트리스트·원본 후보 풀·이미 보여준 곳 목록)를
   // 다시 찾는 열쇠. v1일 땐 계속 null이고, 리롤은 그때그때 클라이언트가
@@ -348,7 +354,7 @@ export function CourseBuilderPage() {
     }
     setAiLoading(true);
     const effectiveEndAnchor = endSameAsStart ? aiStartAnchor : aiEndAnchor;
-    const { stops, courseId } = await fetchRecommendedCourse(scope, aiCity, aiTheme, aiRadius, {
+    const { stops, courseId, emptySlots } = await fetchRecommendedCourse(scope, aiCity, aiTheme, aiRadius, {
       mode: aiMode,
       startTime: aiStartTime || undefined,
       endTime: aiEndTime || undefined,
@@ -358,6 +364,7 @@ export function CourseBuilderPage() {
     setAiLoading(false);
     setAiCourse(stops);
     setAiCourseId(courseId);
+    setAiEmptySlots(emptySlots);
   };
 
   // 특정 시간대(슬롯)를 코스에서 빼기 — 그 시간은 빈 채로 남는다.
@@ -986,6 +993,7 @@ export function CourseBuilderPage() {
                 <div className="flex-1 overflow-y-auto px-5 py-2">
                   <CourseTimelineList
                     stops={aiCourse}
+                    emptySlots={aiEmptySlots}
                     isRerolling={(slotKey) => rerollingSlot === slotKey}
                     onReroll={rerollAiStop}
                     onRemove={removeAiStop}
@@ -1048,6 +1056,7 @@ export function CourseBuilderPage() {
                 <div className="flex-1 overflow-y-auto px-5 py-2">
                   <CourseTimelineList
                     stops={aiMultiCourse[activeDayTab]?.stops ?? []}
+                    emptySlots={aiMultiCourse[activeDayTab]?.emptySlots ?? []}
                     isRerolling={(slotKey) => multiRerolling?.day === activeDayTab + 1 && multiRerolling.slotKey === slotKey}
                     onReroll={(slotKey) => rerollMultiDayStop(activeDayTab + 1, slotKey)}
                     onRemove={(slotKey) => removeMultiDayStop(activeDayTab + 1, slotKey)}
@@ -1404,22 +1413,45 @@ function CourseSpotCard({
 // ── AI 추천 동선 미리보기의 스톱 목록 — 단일 코스 모달과 다일정 모달의
 // 활성 Day 탭 양쪽에서 그대로 재사용한다(내용은 완전히 같고, 리롤/빼기
 // 콜백과 "지금 리롤 중인 슬롯인지" 판정만 호출부마다 다르다). ──
+// stop과 emptySlot을 hour 순으로 합쳐 렌더링할 수 있게 태그를 붙인 공용 항목.
+type TimelineItem = { kind: "stop"; hour: number; stop: RecommendedStop } | { kind: "empty"; hour: number; slot: EmptyStopSlot };
+
 function CourseTimelineList({
   stops,
+  emptySlots = [],
   isRerolling,
   onReroll,
   onRemove,
 }: {
   stops: RecommendedStop[];
+  /** 조건에 맞는 곳을 못 찾아 빈 채로 남은 시간대 — "이 시간대엔 조건에 맞는 곳을 못 찾았어요" 안내 행으로 stops 사이에 시간순으로 끼워 넣는다. */
+  emptySlots?: EmptyStopSlot[];
   isRerolling: (slotKey: string) => boolean;
   onReroll: (slotKey: string) => void;
   onRemove: (slotKey: string) => void;
 }) {
+  const items: TimelineItem[] = [
+    ...stops.map((stop): TimelineItem => ({ kind: "stop", hour: stop.hour, stop })),
+    ...emptySlots.map((slot): TimelineItem => ({ kind: "empty", hour: slot.hour, slot })),
+  ].sort((a, b) => a.hour - b.hour);
+
   return (
     <div className="relative space-y-1 pl-4">
       {/* vertical line */}
       <span className="absolute bottom-2 left-[7px] top-2 w-px bg-slate-200" />
-      {stops.map((stop) => {
+      {items.map((item) => {
+        if (item.kind === "empty") {
+          return (
+            <div key={`empty-${item.slot.slotKey}`} className="relative flex items-center gap-3 py-2">
+              <span className="absolute -left-4 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white border-dashed bg-slate-200" />
+              <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-slate-300">{pad2(item.slot.hour)}:00</span>
+              <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">
+                {item.slot.slotLabel} · 조건에 맞는 곳을 못 찾았어요
+              </p>
+            </div>
+          );
+        }
+        const stop = item.stop;
         const rerolling = isRerolling(stop.slotKey);
         // 사용자가 "세부 설정"에서 직접 고정한 시작·종료 위치 — 서버에
         // 리롤 가능한 슬롯 상태가 없으므로(courseRecommendV2.ts의
