@@ -36,6 +36,7 @@ import {
   assembleRouteWithEscalation,
   dedupePoolsByBrand,
   resolveDuplicatePicks,
+  resolveMealCuisineRepeat,
   rerollSlot,
   haversineKm,
   type RouteCandidate,
@@ -479,12 +480,30 @@ export async function generateCourseV2(
   // 검증. dedupePoolsByBrand의 "슬롯이 통째로 비면 최상위 1개는 되살리기"
   // 안전장치가 바로 이 중복을 만들 수 있는 원인이라, DP 결과를 최종
   // 확정하기 전에 한 번 더 슬롯 순서대로 훑어 정리한다.
-  const finalPicked = resolveDuplicatePicks(
+  const dedupedPicked = resolveDuplicatePicks(
     slots.map((s) => s.key),
     result.picked,
     pools,
     (slotKey) => scoredRawPool(rawBySlot.get(slotKey) ?? []),
     sameShop,
+  );
+
+  // 4.6. 같은 날 점심·저녁 cuisine 중복 정리(GitHub issue #157 후속) —
+  // cuisinePenalty는 이전 "날짜들"의 cuisine만 보고(avoidCuisines가
+  // fetchMultiDayCourse에서 그 날 시작 전 스냅샷돼 넘어옴), 같은 날 안의
+  // 점심·저녁은 이 한 번의 호출 안에서 서로를 모른 채 각자 스코어링된다
+  // — 실측(오사카 3박4일)에서 Day 1 점심·저녁이 둘 다 규카츠(서로 다른
+  // 브랜드라 sameShop 기반 resolveDuplicatePicks는 못 잡음)로 확인된
+  // 원인. 이 한 번의 호출(=하루)이 다루는 식사 슬롯끼리만 비교하므로
+  // cross-day 하드 제외처럼 후보 풀이 통째로 마르는 부작용은 없다.
+  const mealSlotKeys = new Set(slots.filter((s) => s.meal).map((s) => s.key));
+  const finalPicked = resolveMealCuisineRepeat(
+    slots.map((s) => s.key),
+    dedupedPicked,
+    mealSlotKeys,
+    pools,
+    (slotKey) => scoredRawPool(rawBySlot.get(slotKey) ?? []),
+    cuisineKeyword,
   );
 
   // 5. 최종 응답 조립(v1과 같은 FinalStop 형태) + 리롤용 캐시 적재.

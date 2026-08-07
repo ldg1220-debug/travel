@@ -5,6 +5,7 @@ import {
   dedupePoolsByBrand,
   haversineKm,
   resolveDuplicatePicks,
+  resolveMealCuisineRepeat,
   rerollSlot,
   type RouteCandidate,
   type SlotPool,
@@ -259,6 +260,88 @@ describe("resolveDuplicatePicks", () => {
     expect(result.get("a")?.id).toBe("X");
     expect(result.get("b")?.id).toBe("Y");
     expect(result.get("c")?.id).toBe("Z");
+  });
+});
+
+describe("resolveMealCuisineRepeat", () => {
+  // 실제 cuisineKeyword(courseRecommend.ts)의 축소판 — 이름에 키워드가
+  // 포함돼 있으면 그 종류, 아니면 undefined.
+  const cuisineOf = (name: string): string | undefined => {
+    if (name.includes("규카츠")) return "규카츠";
+    if (name.includes("라멘")) return "라멘";
+    return undefined;
+  };
+  const order = ["lunch", "dinner"];
+
+  it("leaves picks untouched when meals have different cuisines", () => {
+    const picked = new Map<string, RouteCandidate>([
+      ["lunch", cand("규카츠 모토무라", 34.7, 135.5, 6)],
+      ["dinner", cand("라멘 이치란", 34.7, 135.5, 6)],
+    ]);
+    const result = resolveMealCuisineRepeat(order, picked, new Set(order), [], () => [], cuisineOf);
+    expect(result.get("lunch")?.id).toBe("규카츠 모토무라");
+    expect(result.get("dinner")?.id).toBe("라멘 이치란");
+  });
+
+  it("leaves picks untouched when a candidate's cuisine can't be classified (undefined never counts as a repeat)", () => {
+    const picked = new Map<string, RouteCandidate>([
+      ["lunch", cand("우오신", 34.7, 135.5, 6)],
+      ["dinner", cand("긴자 우오신", 34.7, 135.5, 6)],
+    ]);
+    const result = resolveMealCuisineRepeat(order, picked, new Set(order), [], () => [], cuisineOf);
+    expect(result.get("lunch")?.id).toBe("우오신");
+    expect(result.get("dinner")?.id).toBe("긴자 우오신");
+  });
+
+  it("swaps the later meal for a distinct-cuisine candidate still in its own shortlist (real case: Day 1 lunch+dinner both 규카츠)", () => {
+    const picked = new Map<string, RouteCandidate>([
+      ["lunch", cand("규카츠 모토무라", 34.7, 135.5, 6)],
+      ["dinner", cand("규카츠 교토가츠규", 34.7, 135.5, 6)],
+    ]);
+    const pools: SlotPool[] = [
+      { slotKey: "dinner", candidates: [cand("규카츠 교토가츠규", 34.7, 135.5, 6), cand("라멘 이치란", 34.7, 135.5, 5)] },
+    ];
+    const result = resolveMealCuisineRepeat(order, picked, new Set(order), pools, () => [], cuisineOf);
+    expect(result.get("lunch")?.id).toBe("규카츠 모토무라");
+    expect(result.get("dinner")?.id).toBe("라멘 이치란");
+  });
+
+  it("falls back to the slot's full raw pool when its shortlist has no distinct-cuisine option left", () => {
+    const picked = new Map<string, RouteCandidate>([
+      ["lunch", cand("규카츠 모토무라", 34.7, 135.5, 6)],
+      ["dinner", cand("규카츠 교토가츠규", 34.7, 135.5, 6)],
+    ]);
+    const pools: SlotPool[] = [{ slotKey: "dinner", candidates: [cand("규카츠 교토가츠규", 34.7, 135.5, 6)] }];
+    const rawPoolFor = (slotKey: string) =>
+      slotKey === "dinner" ? [cand("규카츠 교토가츠규", 34.7, 135.5, 6), cand("라멘 이치란", 34.7, 135.5, 4)] : [];
+    const result = resolveMealCuisineRepeat(order, picked, new Set(order), pools, rawPoolFor, cuisineOf);
+    expect(result.get("dinner")?.id).toBe("라멘 이치란");
+  });
+
+  it("keeps the original repeat (does not drop the slot) when no distinct-cuisine alternative exists anywhere", () => {
+    const picked = new Map<string, RouteCandidate>([
+      ["lunch", cand("규카츠 모토무라", 34.7, 135.5, 6)],
+      ["dinner", cand("규카츠 교토가츠규", 34.7, 135.5, 6)],
+    ]);
+    const pools: SlotPool[] = [{ slotKey: "dinner", candidates: [cand("규카츠 교토가츠규", 34.7, 135.5, 6)] }];
+    const result = resolveMealCuisineRepeat(order, picked, new Set(order), pools, () => [], cuisineOf);
+    expect(result.get("lunch")?.id).toBe("규카츠 모토무라");
+    expect(result.get("dinner")?.id).toBe("규카츠 교토가츠규");
+  });
+
+  it("ignores non-meal slots even if their cuisine repeats a meal's", () => {
+    const order3 = ["morning", "lunch", "dinner"];
+    const picked = new Map<string, RouteCandidate>([
+      ["morning", cand("규카츠 박물관", 34.7, 135.5, 6)], // not a meal slot — never touched
+      ["lunch", cand("규카츠 모토무라", 34.7, 135.5, 6)],
+      ["dinner", cand("규카츠 교토가츠규", 34.7, 135.5, 6)],
+    ]);
+    const pools: SlotPool[] = [
+      { slotKey: "dinner", candidates: [cand("규카츠 교토가츠규", 34.7, 135.5, 6), cand("라멘 이치란", 34.7, 135.5, 5)] },
+    ];
+    const result = resolveMealCuisineRepeat(order3, picked, new Set(["lunch", "dinner"]), pools, () => [], cuisineOf);
+    expect(result.get("morning")?.id).toBe("규카츠 박물관");
+    expect(result.get("dinner")?.id).toBe("라멘 이치란");
   });
 });
 
