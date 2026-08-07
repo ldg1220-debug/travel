@@ -3,22 +3,48 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays, RefreshCw, MapPin } from "lucide-react";
+import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays, RefreshCw, MapPin, Settings2, ChevronDown, BedDouble, ExternalLink, Pin } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { PlacePager } from "@/components/PlacePager";
 import { MapProvider } from "@/app/(app)/planner/MapProvider";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
+import { PlacesSearchInput } from "@/app/(app)/planner/PlacesSearchInput";
 import { useItineraryStore } from "@/store/itineraryStore";
-import { fetchLivePlaceSearch, fetchRecommendedCourse, fetchRerolledStop, type RecommendedStop, type CourseTheme, type CourseTravelRadius } from "@/lib/api";
+import {
+  fetchLivePlaceSearch,
+  fetchRecommendedCourse,
+  fetchRerolledStop,
+  logLodgingCtaEvent,
+  type RecommendedStop,
+  type CourseTheme,
+  type CourseTravelRadius,
+  type CourseTravelMode,
+  type CourseAnchor,
+} from "@/lib/api";
+import { bookingProviders, hasAffiliateLink } from "@/lib/affiliates";
 import { useUserLocation } from "@/lib/useUserLocation";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { COURSE_SLOTS, courseNodesAtPath, courseRegionTree, searchableDepth, type CourseSlot } from "@/lib/courseRegions";
 import { todayISODate, pad2, formatDateLabel } from "@/lib/timeline";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import type { DiscoverScope } from "@/lib/discoverData";
-import type { Place } from "@/lib/types";
+import type { Place, Region } from "@/lib/types";
+
+// server(courseRecommendV2.ts)의 START_ANCHOR_KEY/END_ANCHOR_KEY와 반드시 같은
+// 문자열이어야 한다 — 서버 전용 파일이라 공유 모듈로 뽑는 대신 리터럴을
+// 그대로 미러링했다. 이 두 슬롯 키는 사용자가 "세부 설정"에서 직접 고정한
+// 시작·종료 위치라 리롤/빼기 대상이 아니다(리롤은 서버에 이 키로 된
+// course.slots 항목이 없어 항상 "course-not-found"가 난다).
+const START_ANCHOR_SLOT_KEY = "__start__";
+const END_ANCHOR_SLOT_KEY = "__end__";
+
+const AI_TRAVEL_MODES: { key: CourseTravelMode; emoji: string; label: string }[] = [
+  { key: "walk", emoji: "🚶", label: "도보" },
+  { key: "transit", emoji: "🚇", label: "대중교통" },
+  { key: "car", emoji: "🚗", label: "자동차" },
+];
 
 type Step = "scope" | "drill" | "build";
 
@@ -122,6 +148,21 @@ export function CourseBuilderPage() {
   // slotKey of the stop currently being rerolled — null when none in flight.
   const [rerollingSlot, setRerollingSlot] = useState<string | null>(null);
 
+  // "세부 설정" — 한 탭으로 끝나는 기본 흐름(테마+반경)은 그대로 두고,
+  // 이동 방법·시간 예산·시작/종료 위치 고정은 전부 접힌 패널 뒤로 미룬다.
+  // 기본값(mode="car", 시간/위치 비어있음)일 땐 서버로 아무 것도 안 보내
+  // (options 필드가 undefined) v2의 기존 동작과 완전히 같다.
+  const [aiAdvancedOpen, setAiAdvancedOpen] = useState(false);
+  const [aiMode, setAiMode] = useState<CourseTravelMode>("car");
+  const [aiStartTime, setAiStartTime] = useState("");
+  const [aiEndTime, setAiEndTime] = useState("");
+  const [aiStartAnchor, setAiStartAnchor] = useState<CourseAnchor | null>(null);
+  const [aiEndAnchor, setAiEndAnchor] = useState<CourseAnchor | null>(null);
+  // 순환 경로("숙소로 복귀") — 종료 위치를 시작 위치와 같은 곳으로 강제.
+  const [endSameAsStart, setEndSameAsStart] = useState(false);
+  const [anchorPickerOpen, setAnchorPickerOpen] = useState<"start" | "end" | null>(null);
+  const [lodgingOpen, setLodgingOpen] = useState(false);
+
   const tree = courseRegionTree(scope);
   const options = courseNodesAtPath(tree, path);
   const maxDepth = searchableDepth(scope);
@@ -133,6 +174,11 @@ export function CourseBuilderPage() {
   // 우선하는 로직)이 알아서 잡아준다. 해외는 이미 "도시"(오사카 등) 단위로
   // 드릴다운이 끝나므로 그대로 둔다.
   const aiCity = scope === "domestic" && path.length > 0 ? path[0] : city;
+  // affiliates.ts/PlacesSearchInput은 "international"/"domestic"(Region)을
+  // 쓰고, 코스 만들기 쪽은 처음부터 "overseas"/"domestic"(DiscoverScope)을
+  // 써왔다 — 이름만 다를 뿐 같은 이분법이라 여기서 한 번만 변환한다.
+  const region: Region = scope === "overseas" ? "international" : "domestic";
+  const lodgingProviders = useMemo(() => (aiCity ? bookingProviders(aiCity, region) : []), [aiCity, region]);
 
   const showToast = (m: string) => {
     setToast(m);
@@ -247,7 +293,14 @@ export function CourseBuilderPage() {
   const runAiRecommend = async () => {
     if (!aiCity) return;
     setAiLoading(true);
-    const { stops, courseId } = await fetchRecommendedCourse(scope, aiCity, aiTheme, aiRadius);
+    const effectiveEndAnchor = endSameAsStart ? aiStartAnchor : aiEndAnchor;
+    const { stops, courseId } = await fetchRecommendedCourse(scope, aiCity, aiTheme, aiRadius, {
+      mode: aiMode,
+      startTime: aiStartTime || undefined,
+      endTime: aiEndTime || undefined,
+      startAnchor: aiStartAnchor ?? undefined,
+      endAnchor: effectiveEndAnchor ?? undefined,
+    });
     setAiLoading(false);
     setAiCourse(stops);
     setAiCourseId(courseId);
@@ -502,6 +555,100 @@ export function CourseBuilderPage() {
                 );
               })}
             </div>
+
+            {/* 세부 설정 — 이동 방법·시간 예산·시작/종료 위치 고정. 기본
+                한 탭 흐름을 안 건드리려고 기본은 접혀 있다. */}
+            <button
+              type="button"
+              onClick={() => setAiAdvancedOpen((v) => !v)}
+              aria-expanded={aiAdvancedOpen}
+              className="mb-2 flex items-center gap-1 text-[11.5px] font-semibold text-slate-500 hover:text-indigo-600"
+            >
+              <Settings2 size={12} />
+              세부 설정
+              {(aiStartAnchor || aiEndAnchor || aiStartTime || aiEndTime || aiMode !== "car") && (
+                <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-600">적용됨</span>
+              )}
+              <ChevronDown size={12} className={`transition-transform ${aiAdvancedOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {aiAdvancedOpen && (
+              <div className="mb-3 space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5">
+                <div>
+                  <p className="mb-1.5 text-[11px] font-semibold text-slate-500">이동 방법</p>
+                  <div className="flex gap-1.5">
+                    {AI_TRAVEL_MODES.map((m) => (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => setAiMode(m.key)}
+                        aria-pressed={aiMode === m.key}
+                        className={`flex-1 rounded-xl border px-2 py-1.5 text-[12px] font-semibold transition-colors ${
+                          aiMode === m.key ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-600"
+                        }`}
+                      >
+                        {m.emoji} {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[10.5px] text-slate-400">위 &ldquo;이동 반경&rdquo;이 실제로 얼마나 먼 거리인지는 이동 방법에 따라 달라져요.</p>
+                </div>
+
+                <div>
+                  <p className="mb-1.5 text-[11px] font-semibold text-slate-500">시간 예산 (선택)</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="time"
+                      value={aiStartTime}
+                      onChange={(e) => setAiStartTime(e.target.value)}
+                      aria-label="시작 시각"
+                      className="w-full min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-indigo-400"
+                    />
+                    <span className="self-center text-slate-300">–</span>
+                    <input
+                      type="time"
+                      value={aiEndTime}
+                      onChange={(e) => setAiEndTime(e.target.value)}
+                      aria-label="종료 시각"
+                      className="w-full min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-indigo-400"
+                    />
+                  </div>
+                  <p className="mt-1 text-[10.5px] text-slate-400">
+                    둘 다 입력하면 그 시간 안에서 코스를 짜요. 비워두면 기본 골격(오전~밤)을 써요.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-semibold text-slate-500">시작·종료 위치 (선택)</p>
+                  <AnchorRow label="시작" anchor={aiStartAnchor} onPick={() => setAnchorPickerOpen("start")} onClear={() => setAiStartAnchor(null)} />
+                  <label className="flex items-center gap-1.5 pl-0.5 text-[11px] text-slate-500">
+                    <input type="checkbox" checked={endSameAsStart} onChange={(e) => setEndSameAsStart(e.target.checked)} className="accent-indigo-500" />
+                    도착지를 시작 위치와 동일하게 (숙소로 복귀)
+                  </label>
+                  {!endSameAsStart && (
+                    <AnchorRow label="종료" anchor={aiEndAnchor} onPick={() => setAnchorPickerOpen("end")} onClear={() => setAiEndAnchor(null)} />
+                  )}
+                </div>
+
+                {aiCity && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLodgingOpen(true);
+                      logLodgingCtaEvent("open", "course", aiCity, region);
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-left transition-colors hover:border-indigo-300"
+                  >
+                    <BedDouble size={17} className="shrink-0 text-indigo-500" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12.5px] font-bold text-indigo-700">숙소 정하셨나요?</span>
+                      <span className="block text-[10.5px] text-indigo-500">먼저 정하면 시작·종료 위치로 바로 쓸 수 있어요</span>
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <button
               onClick={runAiRecommend}
               disabled={aiLoading}
@@ -663,9 +810,14 @@ export function CourseBuilderPage() {
                     <span className="absolute bottom-2 left-[7px] top-2 w-px bg-slate-200" />
                     {aiCourse.map((stop) => {
                       const isRerolling = rerollingSlot === stop.slotKey;
+                      // 사용자가 "세부 설정"에서 직접 고정한 시작·종료 위치 —
+                      // 서버에 리롤 가능한 슬롯 상태가 없으므로(courseRecommendV2.ts의
+                      // START_ANCHOR_KEY/END_ANCHOR_KEY 주석 참고) 다른 스톱과 달리
+                      // 다시 추천/빼기 버튼 대신 고정 배지만 보여준다.
+                      const isAnchor = stop.slotKey === START_ANCHOR_SLOT_KEY || stop.slotKey === END_ANCHOR_SLOT_KEY;
                       return (
                         <div key={stop.slotKey} className="relative flex items-center gap-3 py-2">
-                          <span className={`absolute -left-4 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white ${stop.meal ? "bg-amber-400" : "bg-indigo-500"}`} />
+                          <span className={`absolute -left-4 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white ${isAnchor ? "bg-slate-700" : stop.meal ? "bg-amber-400" : "bg-indigo-500"}`} />
                           <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-slate-400">{pad2(stop.hour)}:00</span>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-[13.5px] font-semibold text-slate-800">
@@ -678,24 +830,30 @@ export function CourseBuilderPage() {
                             </p>
                             {stop.reason && !isRerolling && <p className="mt-0.5 truncate text-[11px] text-indigo-500">💬 {stop.reason}</p>}
                           </div>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <button
-                              onClick={() => rerollAiStop(stop.slotKey)}
-                              disabled={isRerolling}
-                              aria-label={`${stop.slotLabel} 다른 곳 추천`}
-                              className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-indigo-500 disabled:opacity-40"
-                            >
-                              <RefreshCw size={14} className={isRerolling ? "animate-spin" : ""} />
-                            </button>
-                            <button
-                              onClick={() => removeAiStop(stop.slotKey)}
-                              disabled={isRerolling}
-                              aria-label={`${stop.slotLabel} 빼기`}
-                              className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-red-500 disabled:opacity-40"
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
+                          {isAnchor ? (
+                            <span className="flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10.5px] font-semibold text-slate-500">
+                              <Pin size={11} /> 고정
+                            </span>
+                          ) : (
+                            <div className="flex shrink-0 items-center gap-1">
+                              <button
+                                onClick={() => rerollAiStop(stop.slotKey)}
+                                disabled={isRerolling}
+                                aria-label={`${stop.slotLabel} 다른 곳 추천`}
+                                className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-indigo-500 disabled:opacity-40"
+                              >
+                                <RefreshCw size={14} className={isRerolling ? "animate-spin" : ""} />
+                              </button>
+                              <button
+                                onClick={() => removeAiStop(stop.slotKey)}
+                                disabled={isRerolling}
+                                aria-label={`${stop.slotLabel} 빼기`}
+                                className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-red-500 disabled:opacity-40"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -711,6 +869,69 @@ export function CourseBuilderPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 시작·종료 위치 검색 — "세부 설정"의 DP 앵커 입력. */}
+      {anchorPickerOpen && (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center px-4 pb-4 sm:items-center sm:pb-0" onClick={() => setAnchorPickerOpen(null)}>
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" />
+          <div className="relative w-full max-w-[360px] rounded-3xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-slate-900">{anchorPickerOpen === "start" ? "시작 위치" : "종료 위치"} 검색</h3>
+              <button onClick={() => setAnchorPickerOpen(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+                <X size={16} />
+              </button>
+            </div>
+            <PlacesSearchInput
+              region={region}
+              onSelect={(place) => {
+                const anchor: CourseAnchor = { id: place.id, name: place.name, lat: place.lat, lng: place.lng };
+                if (anchorPickerOpen === "start") setAiStartAnchor(anchor);
+                else setAiEndAnchor(anchor);
+                setAnchorPickerOpen(null);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 숙소 예약 CTA — "세부 설정" 안내에서 열림. 플래너의 같은 팝업과
+          같은 패턴(제휴 있으면 배지, 없으면 그냥 일반 검색 링크). */}
+      {lodgingOpen && aiCity && (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center" onClick={() => setLodgingOpen(false)}>
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+          <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-slate-900">{aiCity} 숙소 예약</h3>
+              <button onClick={() => setLodgingOpen(false)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+                <X size={16} />
+              </button>
+            </div>
+            {hasAffiliateLink(lodgingProviders) && <p className="mb-3 text-[11px] text-slate-400">일부 링크는 제휴 링크로, 예약 시 트레쥴에 수수료가 지급될 수 있어요.</p>}
+            <div className="mt-3 space-y-2">
+              {lodgingProviders.map((p) => (
+                <a
+                  key={p.key}
+                  href={p.url}
+                  target="_blank"
+                  rel={p.isAffiliate ? "sponsored noopener noreferrer" : "noopener noreferrer"}
+                  onClick={() => {
+                    logLodgingCtaEvent("click", "course", aiCity, region, p.label, p.isAffiliate);
+                    setLodgingOpen(false);
+                  }}
+                  className="flex items-center justify-between rounded-2xl border px-4 py-3 text-[13.5px] font-semibold transition-colors hover:bg-slate-50"
+                  style={{ borderColor: p.brand, color: p.brand }}
+                >
+                  <span className="flex items-center gap-1.5">
+                    {p.label}
+                    {p.isAffiliate && <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9.5px] font-bold text-slate-500">제휴</span>}
+                  </span>
+                  <ExternalLink size={14} />
+                </a>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -942,6 +1163,42 @@ function CourseSpotCard({
           {picked ? <><Check size={13} /> 담김 · 빼기</> : <><Plus size={13} /> 코스에 담기</>}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── "세부 설정"의 시작/종료 위치 한 줄 — 비어있으면 검색 버튼, 골랐으면
+// 이름 + 지우기. ──
+function AnchorRow({
+  label,
+  anchor,
+  onPick,
+  onClear,
+}: {
+  label: string;
+  anchor: CourseAnchor | null;
+  onPick: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-9 shrink-0 text-[11px] font-semibold text-slate-500">{label}</span>
+      {anchor ? (
+        <>
+          <span className="min-w-0 flex-1 truncate rounded-lg bg-white px-2.5 py-1.5 text-[12.5px] font-medium text-slate-700 ring-1 ring-slate-200">{anchor.name}</span>
+          <button onClick={onClear} aria-label={`${label} 위치 지우기`} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200">
+            <X size={13} />
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={onPick}
+          className="flex-1 rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-left text-[12px] text-slate-400 hover:border-indigo-300 hover:text-indigo-500"
+        >
+          장소 검색…
+        </button>
+      )}
     </div>
   );
 }

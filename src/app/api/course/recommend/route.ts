@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Place } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { curateCourseWithLlm, type CourseSlotCandidates } from "@/lib/server/courseLlm";
-import { generateCourseV2 } from "@/lib/server/courseRecommendV2";
+import { generateCourseV2, type GenerateCourseAnchor } from "@/lib/server/courseRecommendV2";
 import {
   THEME_SLOTS,
   THEME_LABELS,
@@ -11,11 +11,23 @@ import {
   pickDeterministic,
   sameShop,
   parseTravelRadius,
+  parseTravelMode,
+  parseTimeToMinutes,
   radiusKmFor,
   isWithinRadius,
   hasWithinRadiusCandidate,
   type RecommendSlot,
 } from "@/lib/server/courseRecommend";
+
+/** `{start,end}Id`/`Name`/`Lat`/`Lng` 4개가 모두 유효할 때만 앵커로 인정 — 하나라도 빠지면(예: 이름은 있는데 좌표가 안 실림) 조용히 무시하고 기존(앵커 없음) 동작으로 폴백한다. */
+function parseAnchorParam(params: URLSearchParams, prefix: "start" | "end"): GenerateCourseAnchor | undefined {
+  const id = params.get(`${prefix}Id`);
+  const name = params.get(`${prefix}Name`);
+  const lat = Number(params.get(`${prefix}Lat`));
+  const lng = Number(params.get(`${prefix}Lng`));
+  if (!id || !name || !Number.isFinite(lat) || !Number.isFinite(lng)) return undefined;
+  return { id: id.slice(0, 200), name: name.slice(0, 100), lat, lng };
+}
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +67,19 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // courseId를 안 보내므로(리롤 시 필요) 실사용자 트래픽에 이 플래그를
   // 켜기 전엔 클라이언트도 함께 업데이트해야 한다 — INTEGRATION.md 참고.
   if (process.env.COURSE_PIPELINE === "v2") {
-    return NextResponse.json(await generateCourseV2(scope, city, theme, radius));
+    const mode = parseTravelMode(request.nextUrl.searchParams.get("mode"));
+    const startMinutes = parseTimeToMinutes(request.nextUrl.searchParams.get("startTime"));
+    const endMinutes = parseTimeToMinutes(request.nextUrl.searchParams.get("endTime"));
+    const startAnchor = parseAnchorParam(request.nextUrl.searchParams, "start");
+    const endAnchor = parseAnchorParam(request.nextUrl.searchParams, "end");
+    return NextResponse.json(
+      await generateCourseV2(scope, city, theme, radius, {
+        mode,
+        ...(startMinutes != null && endMinutes != null && endMinutes > startMinutes ? { startMinutes, endMinutes } : {}),
+        startAnchor,
+        endAnchor,
+      }),
+    );
   }
 
   const slots = THEME_SLOTS[theme];

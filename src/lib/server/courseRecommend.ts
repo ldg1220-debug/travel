@@ -48,13 +48,50 @@ export function parseTravelRadius(raw: string | null): TravelRadius {
   return TRAVEL_RADIUS_OPTIONS.some((o) => o.minutes === n) ? (n as TravelRadius) : 60;
 }
 
+/**
+ * 이동 수단 — 반경(radiusKmFor)이 가정하는 이동 속도를 결정한다. 기존엔
+ * "15분 = 6.25km"처럼 항상 자동차 속도(25km/h)를 가정했는데, 실제로는
+ * 사용자가 도보/대중교통으로 다닐 수도 있어 "15분"이 의미하는 실제 거리가
+ * 크게 달라진다(도보 15분 ≈ 1.2km, 자동차 15분 ≈ 6.25km) — 그대로 두면
+ * 도보 여행자에게 "15분 반경"이 실제론 도보로 1시간 넘게 걸리는 곳까지
+ * 포함되는 식으로 라벨과 실제 소요시간이 어긋난다.
+ */
+export type TravelMode = "walk" | "transit" | "car";
+export const TRAVEL_MODE_OPTIONS: { mode: TravelMode; label: string }[] = [
+  { mode: "walk", label: "도보" },
+  { mode: "transit", label: "대중교통" },
+  { mode: "car", label: "자동차" },
+];
+export function parseTravelMode(raw: string | null): TravelMode {
+  return TRAVEL_MODE_OPTIONS.some((o) => o.mode === raw) ? (raw as TravelMode) : "car";
+}
+
 // Straight-line (Haversine) distance is always shorter than the real route,
-// so a conservative (slow) blended speed keeps the cap meaningful rather
-// than technically-true-but-useless. 25km/h ≈ city driving/transit mix.
-const AVG_SPEED_KMH = 25;
-/** Minutes → km cap, or null for "제한없음"/no anchor yet. */
-export function radiusKmFor(minutes: TravelRadius): number | null {
-  return minutes ? (minutes / 60) * AVG_SPEED_KMH : null;
+// so each speed is a conservative (slow) blended estimate rather than a
+// theoretical max — keeps the cap meaningful rather than technically-true-
+// but-useless. Google Directions API 연동은 코스 조립 한 번에 스팟 수만큼
+// 경로 요청이 쌓여 방금 줄인 Places 비용을 상쇄할 수 있어 지금은 미룬다
+// (계수 기반 근사로 충분히 실용적) — INTEGRATION.md 참고.
+const MODE_SPEED_KMH: Record<TravelMode, number> = {
+  walk: 4.8, // 성인 평균 도보 속도(4~5km/h)에서 신호 대기 등을 감안해 살짝 보수적으로.
+  transit: 18, // 정차·환승 대기까지 뭉뚱그린 체감 속도 — 실제 주행 구간보다 낮게.
+  car: 25, // 기존 AVG_SPEED_KMH 그대로 — 도심 주행/택시 체감 속도.
+};
+
+/** Minutes → km cap, or null for "제한없음"/no anchor yet. `mode` defaults to "car" so every existing caller (반경 선택지가 있던 시절부터의 호출부) keeps its old behavior unchanged. */
+export function radiusKmFor(minutes: TravelRadius, mode: TravelMode = "car"): number | null {
+  return minutes ? (minutes / 60) * MODE_SPEED_KMH[mode] : null;
+}
+
+/** "HH:MM" → minutes since midnight, or null if missing/malformed. Used for the optional time-budget-driven dynamic slot schedule (buildDynamicSlots). */
+export function parseTimeToMinutes(raw: string | null): number | null {
+  if (!raw) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(raw.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
 }
 
 export const THEME_LABELS: Record<CourseTheme, string> = {
@@ -133,6 +170,128 @@ export const THEME_SLOTS: Record<CourseTheme, RecommendSlot[]> = {
 
 export function parseTheme(raw: string | null): CourseTheme {
   return raw && raw in THEME_SLOTS ? (raw as CourseTheme) : "balanced";
+}
+
+// ── 시간 예산 기반 동적 슬롯 ──────────────────────────────────────────
+//
+// 위 THEME_SLOTS는 고정 7슬롯·고정 hour(오전 10시~밤 9시대)를 가정한다 —
+// "오후 2시에 김포 도착, 저녁엔 홍대 숙소"처럼 실제 가용 시간이 짧거나
+// 늦게 시작하는 경우엔 안 맞는다(도착 전 시간대 슬롯이 그대로 끼어들거나,
+// 밤늦게까지 슬롯이 이어짐). 그렇다고 THEME_SLOTS 자체를 바꾸면 시간 입력
+// 없이 쓰는 기존(v1 포함) 기본 흐름까지 건드리게 되므로, 별도의 "템플릿"
+// (고정 hour 대신 durationMinutes)을 두고 시작·종료 시각이 둘 다 주어졌을
+// 때만 buildDynamicSlots()가 이를 실제 슬롯으로 편성한다. 시간 미입력 시
+// (둘 중 하나라도 없음) 기존 THEME_SLOTS가 그대로 기본값이다.
+interface SlotTemplate {
+  key: string;
+  label: string;
+  keyword: string;
+  category?: RecommendSlot["category"];
+  /** 식사 슬롯이면 어느 끼니인지 — MEAL_WINDOWS와 대조해 예산에 그 끼니 시간대가 아예 안 걸치면 슬롯 자체를 뺀다(예: 15시~18시 예산엔 점심 슬롯이 없다). */
+  mealWindow?: "lunch" | "dinner";
+  /** 이 슬롯에 배정할 대략적인 체류 시간(분) — 슬롯들을 예산 안에 비례 배분하는 가중치로도 쓰인다. */
+  durationMinutes: number;
+}
+
+const MEAL_WINDOWS: Record<"lunch" | "dinner", [number, number]> = {
+  lunch: [11 * 60, 14 * 60 + 30],
+  dinner: [17 * 60 + 30, 20 * 60 + 30],
+};
+
+function overlaps(a: readonly [number, number], b: readonly [number, number]): boolean {
+  return a[0] < b[1] && b[0] < a[1];
+}
+
+// THEME_SLOTS와 같은 키/라벨/키워드/카테고리 — hour 대신 durationMinutes,
+// meal:boolean 대신 mealWindow로 바뀐 것만 다르다(위 주석 참고).
+const THEME_SLOT_TEMPLATES: Record<CourseTheme, SlotTemplate[]> = {
+  balanced: [
+    { key: "am-sight", label: "오전 명소", keyword: "관광지", category: "attraction", durationMinutes: 90 },
+    { key: "market", label: "시장·거리", keyword: "전통시장", category: "attraction", durationMinutes: 60 },
+    { key: "lunch", label: "점심", keyword: "맛집", category: "restaurant", mealWindow: "lunch", durationMinutes: 75 },
+    { key: "pm-sight", label: "오후 명소", keyword: "포토존", category: "attraction", durationMinutes: 90 },
+    { key: "cafe", label: "카페", keyword: "카페", category: "cafe", durationMinutes: 60 },
+    { key: "night", label: "야경 명소", keyword: "야경 명소", category: "attraction", durationMinutes: 60 },
+    { key: "dinner", label: "저녁", keyword: "저녁 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
+  ],
+  foodie: [
+    { key: "brunch", label: "브런치", keyword: "브런치 카페", category: "restaurant", mealWindow: "lunch", durationMinutes: 75 },
+    { key: "market", label: "먹거리 시장", keyword: "전통시장 먹거리", category: "attraction", durationMinutes: 60 },
+    { key: "lunch", label: "점심 맛집", keyword: "맛집", category: "restaurant", mealWindow: "lunch", durationMinutes: 75 },
+    { key: "dessert", label: "디저트 카페", keyword: "디저트 카페", category: "cafe", durationMinutes: 60 },
+    { key: "pm-sight", label: "오후 명소", keyword: "가볼만한곳", category: "attraction", durationMinutes: 75 },
+    { key: "dinner", label: "저녁 맛집", keyword: "저녁 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
+    { key: "bar", label: "야식·술집", keyword: "술집 포차", category: "restaurant", durationMinutes: 75 },
+  ],
+  healing: [
+    { key: "cafe-am", label: "감성 카페", keyword: "감성 카페", category: "cafe", durationMinutes: 60 },
+    { key: "park", label: "공원 산책", keyword: "공원 산책", category: "attraction", durationMinutes: 90 },
+    { key: "lunch", label: "점심", keyword: "브런치 맛집", category: "restaurant", mealWindow: "lunch", durationMinutes: 75 },
+    { key: "view", label: "전망 명소", keyword: "전망 좋은 곳", category: "attraction", durationMinutes: 75 },
+    { key: "cafe-pm", label: "분위기 카페", keyword: "분위기 좋은 카페", category: "cafe", durationMinutes: 60 },
+    { key: "sunset", label: "노을 명소", keyword: "노을 명소", category: "attraction", durationMinutes: 60 },
+    { key: "dinner", label: "저녁", keyword: "조용한 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
+  ],
+  culture: [
+    { key: "palace", label: "고궁·유적", keyword: "고궁 유적", category: "attraction", durationMinutes: 90 },
+    { key: "museum", label: "박물관·미술관", keyword: "박물관 미술관", category: "attraction", durationMinutes: 90 },
+    { key: "lunch", label: "점심", keyword: "맛집", category: "restaurant", mealWindow: "lunch", durationMinutes: 75 },
+    { key: "oldtown", label: "근대·한옥거리", keyword: "근대거리 한옥마을", category: "attraction", durationMinutes: 90 },
+    { key: "gallery", label: "갤러리·전시", keyword: "갤러리 전시", category: "attraction", durationMinutes: 75 },
+    { key: "night", label: "야경 명소", keyword: "야경 명소", category: "attraction", durationMinutes: 60 },
+    { key: "dinner", label: "저녁", keyword: "전통 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
+  ],
+  active: [
+    { key: "activity", label: "액티비티", keyword: "액티비티 체험", category: "attraction", durationMinutes: 120 },
+    { key: "landmark", label: "랜드마크·전망대", keyword: "랜드마크 전망대", category: "attraction", durationMinutes: 75 },
+    { key: "lunch", label: "점심", keyword: "맛집", category: "restaurant", mealWindow: "lunch", durationMinutes: 75 },
+    { key: "outdoor", label: "야외 액티비티", keyword: "야외 액티비티", category: "attraction", durationMinutes: 120 },
+    { key: "market", label: "거리·쇼핑", keyword: "거리 쇼핑", category: "attraction", durationMinutes: 60 },
+    { key: "night", label: "야경 명소", keyword: "야경 명소", category: "attraction", durationMinutes: 60 },
+    { key: "dinner", label: "저녁", keyword: "저녁 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
+  ],
+};
+
+/**
+ * 시작·종료 시각(분 단위, 자정 기준) 예산에 맞춰 그 테마의 슬롯을 편성한다.
+ * 각 템플릿의 durationMinutes 비율대로 예산을 나눠 배정 시각을 정하고,
+ * 식사 슬롯은 그 끼니 시간대(MEAL_WINDOWS)와 예산이 아예 안 겹치면 통째로
+ * 빼며, 겹치면 배정 시각을 그 창 안으로 당기거나 미룬다(정오에 "저녁"이
+ * 뜨는 것 같은 일을 막기 위함) — 슬롯 순서(=DP 레이어 순서) 자체는 항상
+ * 템플릿 원래 순서를 그대로 따른다. 예산이 비정상적으로 짧아 슬롯이 하나도
+ * 안 남으면 빈 배열을 돌려주고, 호출부(courseRecommendV2.ts)가 기존
+ * THEME_SLOTS로 폴백한다.
+ */
+export function buildDynamicSlots(theme: CourseTheme, startMinutes: number, endMinutes: number): RecommendSlot[] {
+  if (endMinutes <= startMinutes) return [];
+  const budget: [number, number] = [startMinutes, endMinutes];
+  const templates = THEME_SLOT_TEMPLATES[theme].filter((t) => !t.mealWindow || overlaps(MEAL_WINDOWS[t.mealWindow], budget));
+  if (templates.length === 0) return [];
+
+  const totalDuration = templates.reduce((sum, t) => sum + t.durationMinutes, 0);
+  const totalBudget = endMinutes - startMinutes;
+  const scale = totalDuration > 0 ? totalBudget / totalDuration : 1;
+
+  let cursor = startMinutes;
+  return templates.map((t) => {
+    let atMinutes = cursor;
+    if (t.mealWindow) {
+      const [wStart, wEnd] = MEAL_WINDOWS[t.mealWindow];
+      atMinutes = Math.min(Math.max(cursor, wStart), wEnd);
+    }
+    cursor += t.durationMinutes * scale;
+    return {
+      key: t.key,
+      label: t.label,
+      keyword: t.keyword,
+      category: t.category,
+      meal: Boolean(t.mealWindow),
+      // hour는 정수 표시 라벨("14:00")로만 쓰이고 DP 레이어 순서엔 관여하지
+      // 않는다(courseRecommendV2.ts가 배열 순서 그대로 슬롯을 조립) —
+      // 반올림으로 여러 슬롯이 같은 시(hour)에 몰려도 동작엔 영향 없다.
+      hour: Math.min(23, Math.max(0, Math.round(atMinutes / 60))),
+    };
+  });
 }
 
 export function findSlot(theme: CourseTheme, slotKey: string): RecommendSlot | undefined {

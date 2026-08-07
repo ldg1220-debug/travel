@@ -148,6 +148,27 @@ export type CourseTheme = "balanced" | "foodie" | "healing" | "culture" | "activ
 /** 스톱 간 이동 시간 상한(분). 0 = 제한없음. server의 TravelRadius와 값이 일치해야 함. */
 export type CourseTravelRadius = 0 | 15 | 30 | 60 | 120;
 
+/** 이동 수단 — 위 반경이 가정하는 이동 속도를 바꾼다. server의 TravelMode와 값이 일치해야 함. */
+export type CourseTravelMode = "walk" | "transit" | "car";
+
+/** 시작·종료 위치 고정(DP 앵커)에 쓰는 사용자가 직접 고른 실제 장소. */
+export interface CourseAnchor {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+/** "세부 설정" 패널에서만 채워지는 선택 옵션들 — 전부 생략하면 기존(v2 기본) 동작과 동일하다. */
+export interface RecommendedCourseOptions {
+  mode?: CourseTravelMode;
+  /** "HH:MM" — 시작·종료 둘 다 있어야 서버가 시간 예산 기반 동적 슬롯을 켠다. */
+  startTime?: string;
+  endTime?: string;
+  startAnchor?: CourseAnchor;
+  endAnchor?: CourseAnchor;
+}
+
 export interface RecommendedCourseResult {
   stops: RecommendedStop[];
   /**
@@ -166,11 +187,28 @@ export async function fetchRecommendedCourse(
   city: string,
   theme: CourseTheme = "balanced",
   radius: CourseTravelRadius = 60,
+  options: RecommendedCourseOptions = {},
 ): Promise<RecommendedCourseResult> {
   const empty: RecommendedCourseResult = { stops: [], courseId: null };
   if (!city.trim()) return empty;
   try {
-    const res = await fetch(`/api/course/recommend?scope=${scope}&city=${encodeURIComponent(city)}&theme=${theme}&radius=${radius}`);
+    const params = new URLSearchParams({ scope, city, theme, radius: String(radius) });
+    if (options.mode) params.set("mode", options.mode);
+    if (options.startTime) params.set("startTime", options.startTime);
+    if (options.endTime) params.set("endTime", options.endTime);
+    if (options.startAnchor) {
+      params.set("startId", options.startAnchor.id);
+      params.set("startName", options.startAnchor.name);
+      params.set("startLat", String(options.startAnchor.lat));
+      params.set("startLng", String(options.startAnchor.lng));
+    }
+    if (options.endAnchor) {
+      params.set("endId", options.endAnchor.id);
+      params.set("endName", options.endAnchor.name);
+      params.set("endLat", String(options.endAnchor.lat));
+      params.set("endLng", String(options.endAnchor.lng));
+    }
+    const res = await fetch(`/api/course/recommend?${params.toString()}`);
     if (!res.ok) return empty;
     const data = (await res.json()) as { course?: RecommendedStop[]; source?: string; courseId?: string };
     // "llm"/"google"/"kakao" = v1 (Claude-curated or deterministic ranker).
@@ -1176,7 +1214,11 @@ export async function setUserAdmin(userId: number, isAdmin: boolean): Promise<vo
  */
 export function logLodgingCtaEvent(
   kind: "open" | "click",
-  placement: "header" | "timeline",
+  // "course" = 코스 만들기의 "세부 설정" 시작·종료 위치 입력란에 붙은
+  // "숙소 정하셨나요?" CTA — 아직 숙소를 안 정한 사용자가 동선을 짜기
+  // *직전*에 뜨는 지점이라 플래너의 header/timeline보다도 의도가 높을
+  // 것으로 보고 별도 placement로 남겨 비교한다.
+  placement: "header" | "timeline" | "course",
   city: string,
   region: Region,
   provider?: string,

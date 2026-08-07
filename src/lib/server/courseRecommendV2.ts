@@ -16,16 +16,18 @@
 
 import { randomUUID } from "node:crypto";
 import { pool } from "@/lib/server/db";
+import { styleForCategory } from "@/lib/placeStyle";
 import type { Place } from "@/lib/types";
 import {
   THEME_SLOTS,
   THEME_LABELS,
-  findSlot,
   fetchSlotCandidates,
   sameShop,
   radiusKmFor,
+  buildDynamicSlots,
   type CourseTheme,
   type TravelRadius,
+  type TravelMode,
   type RecommendSlot,
 } from "./courseRecommend";
 import { assembleRouteWithEscalation, dedupePoolsByBrand, resolveDuplicatePicks, rerollSlot, type RouteCandidate, type SlotPool } from "./courseRoute";
@@ -41,8 +43,14 @@ import {
 
 export type FinalStop = Place & { slotKey: string; slotLabel: string; hour: number; meal: boolean; reason?: string };
 
-/** 15/30/60/120분/무제한 각각의 실제 km 반경 — radiusKmFor()를 그대로 계단으로 사용. 임의 값을 넣지 말 것(회귀 유발, 이전 리뷰에서 지적된 지점). */
-const RADIUS_STEPS_KM: (number | null)[] = [15, 30, 60, 120, 0].map((m) => radiusKmFor(m as TravelRadius));
+/** 15/30/60/120분/무제한 각각의 실제 km 반경 — radiusKmFor()를 그대로 계단으로 사용. 임의 값을 넣지 말 것(회귀 유발, 이전 리뷰에서 지적된 지점). mode별로 속도가 달라(radiusKmFor 참고) 매 요청 계산해야 해서 모듈 상수가 아니라 함수다. */
+function radiusStepsKmFor(mode: TravelMode): (number | null)[] {
+  return [15, 30, 60, 120, 0].map((m) => radiusKmFor(m as TravelRadius, mode));
+}
+
+/** 시작·종료 위치 고정(DP 앵커) 시 pools 배열 맨 앞/뒤에 붙이는 합성 레이어의 슬롯 키 — 후보가 정확히 1개뿐이라 DP가 "공짜로" 그 지점을 반드시 거치게 만든다(courseRoute.ts는 이 목적을 위해 전혀 손대지 않았다: 후보가 하나뿐인 레이어는 기존 인접-레이어 페널티 로직만으로 이미 고정점 역할을 한다). dedupePoolsByBrand/resolveDuplicatePicks 둘 다 이 키들을 절대 건드리지 않는다 — 사용자가 고른 시작·종료 장소를 "중복"이라고 지우거나 바꿔치기하면 안 되므로. */
+const START_ANCHOR_KEY = "__start__";
+const END_ANCHOR_KEY = "__end__";
 
 /** LLM 프롬프트에 슬롯당 넣는 후보 수 — POOL_SIZE(10)보다 작게 잡아 토큰/응답시간을 줄인다. 리롤은 POOL_SIZE 전체를 그대로 쓰므로 영향 없음. */
 const LLM_CANDIDATE_LIMIT = 6;
@@ -112,15 +120,21 @@ interface CachedSlot {
   confirmed?: RouteCandidate;
 }
 
-/** 메모리에서 다루는 형태 — slots/shownIds가 Map/Set이라 나머지 코드(course.slots.get(...), course.shownIds.add(...))가 그대로 자연스럽다. */
+/** 메모리에서 다루는 형태 — slots/slotDefs/shownIds가 Map/Set이라 나머지 코드(course.slots.get(...), course.shownIds.add(...))가 그대로 자연스럽다. */
 interface CachedCourse {
   city: string;
   theme: CourseTheme;
-  order: string[]; // 슬롯 순서(THEME_SLOTS 순서 그대로) — 리롤 시 직전/직후 이웃을 찾는 데 씀
+  order: string[]; // 슬롯 순서(실제 사용된 THEME_SLOTS 또는 buildDynamicSlots 결과 순서) — 리롤 시 직전/직후 이웃을 찾는 데 씀. 앵커 키(__start__/__end__)는 절대 포함하지 않는다 — 아래 startAnchor/endAnchor가 그 역할을 대신한다.
   radiusStepIndex: number; // 실제 사용된(단계 확장된) 반경 인덱스
+  mode: TravelMode; // 반경 단계를 다시 계산할 때(리롤 시) 필요 — radiusKmFor가 mode별로 다른 속도를 쓰므로 저장해둬야 한다.
   slots: Map<string, CachedSlot>;
+  /** 이 코스를 만들 때 실제로 쓰인 슬롯 정의(라벨/시각/카테고리/식사여부) — 동적 슬롯(buildDynamicSlots)일 땐 THEME_SLOTS의 고정값과 다를 수 있어, 리롤 시 findSlot()으로 다시 찾지 않고 코스별로 그대로 들고 있는다. */
+  slotDefs: Map<string, RecommendSlot>;
   /** 지금까지 이 코스에 등장한(확정 또는 리롤로 보여준) 모든 id — 중복 재추천 방지. */
   shownIds: Set<string>;
+  /** 시작·종료 위치 고정(DP 핀) — 있으면 order[0]/order[last] 리롤 시 이웃(prev/next)으로 취급된다. 리롤 대상이 아니므로 slots 맵엔 안 넣는다. */
+  startAnchor?: RouteCandidate;
+  endAnchor?: RouteCandidate;
 }
 
 /** JSONB로 저장 가능한 형태 — Map/Set은 JSON.stringify로 안 살아남아 별도 직렬화가 필요하다. */
@@ -129,8 +143,12 @@ interface SerializedCachedCourse {
   theme: CourseTheme;
   order: string[];
   radiusStepIndex: number;
+  mode: TravelMode;
   slots: Record<string, CachedSlot>;
+  slotDefs: Record<string, RecommendSlot>;
   shownIds: string[];
+  startAnchor?: RouteCandidate;
+  endAnchor?: RouteCandidate;
 }
 
 function serializeCourse(course: CachedCourse): SerializedCachedCourse {
@@ -139,8 +157,12 @@ function serializeCourse(course: CachedCourse): SerializedCachedCourse {
     theme: course.theme,
     order: course.order,
     radiusStepIndex: course.radiusStepIndex,
+    mode: course.mode,
     slots: Object.fromEntries(course.slots),
+    slotDefs: Object.fromEntries(course.slotDefs),
     shownIds: [...course.shownIds],
+    startAnchor: course.startAnchor,
+    endAnchor: course.endAnchor,
   };
 }
 
@@ -150,8 +172,15 @@ function deserializeCourse(raw: SerializedCachedCourse): CachedCourse {
     theme: raw.theme,
     order: raw.order,
     radiusStepIndex: raw.radiusStepIndex,
+    // 이 코스 캐시 도입(v2) 이후 새로 추가된 필드라 이전에 저장된 행엔 없을
+    // 수 있다 — TTL이 1시간이라 실질적으로는 거의 안 남지만, undefined로
+    // radiusStepsKmFor(undefined)를 부르면 에러이므로 안전한 기본값을 둔다.
+    mode: raw.mode ?? "car",
     slots: new Map(Object.entries(raw.slots)),
+    slotDefs: new Map(Object.entries(raw.slotDefs ?? {})),
     shownIds: new Set(raw.shownIds),
+    startAnchor: raw.startAnchor,
+    endAnchor: raw.endAnchor,
   };
 }
 
@@ -209,6 +238,30 @@ function toFinalStop(place: Place, slot: RecommendSlot, taste: RouteCandidate): 
   };
 }
 
+/** 사용자가 직접 고른 시작/종료 장소(클라이언트가 PlacesSearchInput 등으로 이미 검색·확정한 실제 Place)를 DP 앵커 후보로 변환. */
+function anchorToRouteCandidate(anchor: GenerateCourseAnchor): RouteCandidate {
+  return { id: anchor.id, name: anchor.name, lat: anchor.lat, lng: anchor.lng, taste: 0 };
+}
+
+/** 앵커를 코스 응답의 bookend 스톱으로 변환 — RangeSelectPlaceModal.tsx의 수동 입력 장소와 같은 패턴(styleForCategory("Place", id))으로 색/아이콘을 부여한다. */
+function anchorToFinalStop(anchor: RouteCandidate, slotKey: string, label: string, hour: number): FinalStop {
+  const { color, icon } = styleForCategory("Place", anchor.id);
+  return {
+    id: anchor.id,
+    placeId: anchor.id,
+    name: anchor.name,
+    category: "Place",
+    color,
+    icon,
+    lat: anchor.lat,
+    lng: anchor.lng,
+    slotKey,
+    slotLabel: label,
+    hour: Math.min(23, Math.max(0, hour)),
+    meal: false,
+  };
+}
+
 // ---------------------------------------------------------------- generate
 
 export interface GenerateResultV2 {
@@ -220,13 +273,40 @@ export interface GenerateResultV2 {
   radiusExpanded: boolean;
 }
 
+export interface GenerateCourseAnchor {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+export interface GenerateCourseOptions {
+  /** 스팟 간 이동 수단 — radiusKmFor의 속도 계수를 바꾼다. 기본 "car"(기존 동작 그대로). */
+  mode?: TravelMode;
+  /** 자정 기준 분. 시작·종료 둘 다 있어야 buildDynamicSlots()가 켜진다 — 하나만 오면 기존 고정 THEME_SLOTS로 폴백(둘 중 하나만 있는 시간 예산은 애매해서 안전하게 무시). */
+  startMinutes?: number;
+  endMinutes?: number;
+  /** 시작·종료 위치 고정(DP 앵커). startAnchor와 endAnchor가 좌표까지 같으면(예: "숙소로 복귀") 자연히 순환 경로가 된다 — DP 자체엔 원형/직선을 구분하는 별도 코드가 없고, 마지막 실제 슬롯 → endAnchor 간 이동 페널티가 기존 인접-레이어 로직 그대로 적용되어 복귀 동선까지 최적화에 포함된다. */
+  startAnchor?: GenerateCourseAnchor;
+  endAnchor?: GenerateCourseAnchor;
+}
+
 export async function generateCourseV2(
   scope: "overseas" | "domestic",
   city: string,
   theme: CourseTheme,
   requestedRadius: TravelRadius,
+  options: GenerateCourseOptions = {},
 ): Promise<GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme }> {
-  const slots = THEME_SLOTS[theme];
+  const mode: TravelMode = options.mode ?? "car";
+  const radiusStepsKm = radiusStepsKmFor(mode);
+
+  // 시작·종료 시각이 둘 다 있으면 시간 예산 기반 동적 슬롯, 아니면(기본)
+  // 기존 고정 THEME_SLOTS — buildDynamicSlots가 예산이 비정상적으로 짧아
+  // 빈 배열을 돌려주는 경우도 마찬가지로 THEME_SLOTS 폴백.
+  const dynamicSlots =
+    options.startMinutes != null && options.endMinutes != null ? buildDynamicSlots(theme, options.startMinutes, options.endMinutes) : null;
+  const slots = dynamicSlots && dynamicSlots.length > 0 ? dynamicSlots : THEME_SLOTS[theme];
 
   // 1. 후보 수집 — v1과 동일한 fetchSlotCandidates(POOL_SIZE=6까지).
   const rawPools = await Promise.all(slots.map(async (slot) => ({ slot, raw: await fetchSlotCandidates(scope, city, slot) })));
@@ -259,12 +339,27 @@ export async function generateCourseV2(
   });
   const shortlists = llmShortlists ?? tasteInputs.map((s) => deterministicShortlistForSlot(s, resolve));
 
-  // 3. 브랜드 중복 사전 제거.
+  // 3. 브랜드 중복 사전 제거 — 앵커는 여기 절대 안 들어간다(브랜드 중복
+  // 판정 대상이 아니다. 사용자가 고른 시작·종료 장소가 어느 슬롯 후보와
+  // 이름이 겹친다고 해서 지워지거나 슬롯 쪽이 밀려나면 안 된다).
   const pools: SlotPool[] = dedupePoolsByBrand(shortlists, sameShop);
+
+  // 3.5. 시작·종료 위치 고정 — pools 맨 앞/뒤에 후보 1개짜리 합성 레이어를
+  // 붙인다. courseRoute.ts의 DP는 이 목적을 위해 전혀 수정하지 않았다:
+  // 후보가 하나뿐인 레이어는 기존 인접-레이어 이동 페널티 로직만으로 이미
+  // "반드시 이 지점을 거침" 제약이 된다(자세한 설계 근거는 START_ANCHOR_KEY
+  // 주석 참고).
+  const startAnchor = options.startAnchor ? anchorToRouteCandidate(options.startAnchor) : undefined;
+  const endAnchor = options.endAnchor ? anchorToRouteCandidate(options.endAnchor) : undefined;
+  const dpPools: SlotPool[] = [
+    ...(startAnchor ? [{ slotKey: START_ANCHOR_KEY, candidates: [startAnchor] }] : []),
+    ...pools,
+    ...(endAnchor ? [{ slotKey: END_ANCHOR_KEY, candidates: [endAnchor] }] : []),
+  ];
 
   // 4. DP 조립 + 반경 단계 확장(radiusKmFor() 환산값 그대로 사용).
   const requestedStepIndex = [15, 30, 60, 120, 0].indexOf(requestedRadius);
-  const result = assembleRouteWithEscalation(pools, RADIUS_STEPS_KM, requestedStepIndex === -1 ? 0 : requestedStepIndex);
+  const result = assembleRouteWithEscalation(dpPools, radiusStepsKm, requestedStepIndex === -1 ? 0 : requestedStepIndex);
   if (!result || result.picked.size === 0) {
     return { course: [], source: "mock", theme };
   }
@@ -286,17 +381,35 @@ export async function generateCourseV2(
   const course: FinalStop[] = [];
   const shownIds = new Set<string>();
   const cachedSlots = new Map<string, CachedSlot>();
+  const slotDefs = new Map<string, RecommendSlot>();
+
+  // 시작 위치는 실제 슬롯보다 먼저 나오는 bookend — hour는 사용자가 준
+  // 시작 시각(있으면)을, 없으면 첫 실제 스톱 시각을 그대로 써 시간순
+  // 표시가 어색해지지 않게 한다.
+  if (startAnchor) {
+    const hour = options.startMinutes != null ? Math.round(options.startMinutes / 60) : slots[0]?.hour ?? 9;
+    course.push(anchorToFinalStop(startAnchor, START_ANCHOR_KEY, "출발지", hour));
+    shownIds.add(startAnchor.id);
+  }
+
   for (const { slot, raw } of rawPools) {
     const picked = finalPicked.get(slot.key);
     // "pool" 이름은 위쪽에서 이미 Postgres pool import로 쓰고 있어(파일
     // 최상단 import { pool } from "@/lib/server/db") 겹치지 않게 slotPool로.
     const slotPool = pools.find((p) => p.slotKey === slot.key);
     cachedSlots.set(slot.key, { slotKey: slot.key, slotLabel: slot.label, raw, shortlist: slotPool?.candidates ?? [], confirmed: picked });
+    slotDefs.set(slot.key, slot);
     if (!picked) continue;
     const place = raw.find((p) => p.id === picked.id);
     if (!place) continue;
     course.push(toFinalStop(place, slot, picked));
     shownIds.add(picked.id);
+  }
+
+  if (endAnchor) {
+    const hour = options.endMinutes != null ? Math.round(options.endMinutes / 60) : slots[slots.length - 1]?.hour ?? 21;
+    course.push(anchorToFinalStop(endAnchor, END_ANCHOR_KEY, "도착지", hour));
+    shownIds.add(endAnchor.id);
   }
 
   const courseId = randomUUID();
@@ -305,8 +418,12 @@ export async function generateCourseV2(
     theme,
     order: slots.map((s) => s.key),
     radiusStepIndex: result.usedStep,
+    mode,
     slots: cachedSlots,
+    slotDefs,
     shownIds,
+    startAnchor,
+    endAnchor,
   });
 
   return {
@@ -337,16 +454,22 @@ export async function rerollSlotV2(courseId: string, slotKey: string): Promise<R
   const course = await getCourse(courseId);
   if (!course) return { stop: null, source: "course-not-found" };
 
-  const slot = findSlot(course.theme, slotKey);
+  // findSlot(THEME_SLOTS 고정값)이 아니라 이 코스 생성 시 실제로 쓰인
+  // slotDefs에서 찾는다 — 동적 슬롯(buildDynamicSlots)이었다면 hour 등이
+  // THEME_SLOTS의 고정값과 다를 수 있어, 코스별로 저장해둔 정의를 그대로
+  // 써야 리롤 결과의 시각 표시가 원래 코스와 어긋나지 않는다.
+  const slot = course.slotDefs.get(slotKey);
   const cachedSlot = course.slots.get(slotKey);
   if (!slot || !cachedSlot) return { stop: null, source: "course-not-found" };
 
-  const radiusKm = RADIUS_STEPS_KM[course.radiusStepIndex] ?? null;
+  const radiusKm = radiusStepsKmFor(course.mode)[course.radiusStepIndex] ?? null;
   const idx = course.order.indexOf(slotKey);
   const prevKey = idx > 0 ? course.order[idx - 1] : undefined;
   const nextKey = idx < course.order.length - 1 ? course.order[idx + 1] : undefined;
-  const prev = prevKey ? course.slots.get(prevKey)?.confirmed : undefined;
-  const next = nextKey ? course.slots.get(nextKey)?.confirmed : undefined;
+  // order엔 앵커 키가 없다(설계상 항상 제외) — 첫/마지막 실제 슬롯은 이웃
+  // 슬롯이 없는 대신 시작·종료 위치 고정이 있으면 그게 이웃 역할을 한다.
+  const prev = prevKey ? course.slots.get(prevKey)?.confirmed : course.startAnchor;
+  const next = nextKey ? course.slots.get(nextKey)?.confirmed : course.endAnchor;
 
   const slotPool: SlotPool = { slotKey, candidates: cachedSlot.shortlist };
   let next1 = rerollSlot(slotPool, { prev, next, excludeIds: course.shownIds, radiusKm });
