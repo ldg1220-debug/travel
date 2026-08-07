@@ -15,6 +15,7 @@
 // 대안을 열어둠 — 이 프로젝트엔 Redis가 없어 우선 메모리를 택함).
 
 import { randomUUID } from "node:crypto";
+import { pool } from "@/lib/server/db";
 import type { Place } from "@/lib/types";
 import {
   THEME_SLOTS,
@@ -42,6 +43,9 @@ export type FinalStop = Place & { slotKey: string; slotLabel: string; hour: numb
 
 /** 15/30/60/120분/무제한 각각의 실제 km 반경 — radiusKmFor()를 그대로 계단으로 사용. 임의 값을 넣지 말 것(회귀 유발, 이전 리뷰에서 지적된 지점). */
 const RADIUS_STEPS_KM: (number | null)[] = [15, 30, 60, 120, 0].map((m) => radiusKmFor(m as TravelRadius));
+
+/** LLM 프롬프트에 슬롯당 넣는 후보 수 — POOL_SIZE(10)보다 작게 잡아 토큰/응답시간을 줄인다. 리롤은 POOL_SIZE 전체를 그대로 쓰므로 영향 없음. */
+const LLM_CANDIDATE_LIMIT = 6;
 
 // 실측(서울/부산/강릉/오사카)에서 v1/v2 둘 다 LLM 큐레이션이 한 번도 안
 // 타고 매번 결정론 폴백으로 떨어지는 게 확인됐다 — 날짜 스냅샷 없는
@@ -91,11 +95,16 @@ function scoredRawPool(raw: Place[]): RouteCandidate[] {
 }
 
 // ---------------------------------------------------------------- cache
+//
+// Postgres-backed (course_cache 테이블, schema.sql) — 원래는 프로세스 메모리
+// Map이었는데, 실측(Vercel 프리뷰)에서 리롤 요청이 코스를 만든 것과 다른
+// 서버리스 인스턴스로 가면(콜드스타트 포함) 매번 "코스를 찾을 수 없음"이
+// 재현돼(이전 세션에서 만든 courseId로 리롤 8회 전부 실패) 옮겼다.
 
 interface CachedSlot {
   slotKey: string;
   slotLabel: string;
-  /** fetchSlotCandidates 원본 전체(최대 POOL_SIZE=6) — 최종 응답 조립(전체 Place 필드)과 리롤 보충(expandShortlist) 양쪽의 소스. */
+  /** fetchSlotCandidates 원본 전체(최대 POOL_SIZE=10) — 최종 응답 조립(전체 Place 필드)과 리롤 보충(expandShortlist) 양쪽의 소스. */
   raw: Place[];
   /** LLM/결정론 취향 큐레이션 결과(최대 SHORTLIST_SIZE=3) — DP가 여기서만 고른다. 리롤로 확장되면 이 배열도 늘어난다. */
   shortlist: RouteCandidate[];
@@ -103,8 +112,8 @@ interface CachedSlot {
   confirmed?: RouteCandidate;
 }
 
+/** 메모리에서 다루는 형태 — slots/shownIds가 Map/Set이라 나머지 코드(course.slots.get(...), course.shownIds.add(...))가 그대로 자연스럽다. */
 interface CachedCourse {
-  createdAt: number;
   city: string;
   theme: CourseTheme;
   order: string[]; // 슬롯 순서(THEME_SLOTS 순서 그대로) — 리롤 시 직전/직후 이웃을 찾는 데 씀
@@ -114,26 +123,74 @@ interface CachedCourse {
   shownIds: Set<string>;
 }
 
-const CACHE_MAX = 500;
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1시간
-const courseCache = new Map<string, CachedCourse>();
-
-function rememberCourse(courseId: string, course: CachedCourse): void {
-  if (courseCache.size >= CACHE_MAX) {
-    const oldestKey = courseCache.keys().next().value;
-    if (oldestKey !== undefined) courseCache.delete(oldestKey);
-  }
-  courseCache.set(courseId, course);
+/** JSONB로 저장 가능한 형태 — Map/Set은 JSON.stringify로 안 살아남아 별도 직렬화가 필요하다. */
+interface SerializedCachedCourse {
+  city: string;
+  theme: CourseTheme;
+  order: string[];
+  radiusStepIndex: number;
+  slots: Record<string, CachedSlot>;
+  shownIds: string[];
 }
 
-function getCourse(courseId: string): CachedCourse | undefined {
-  const course = courseCache.get(courseId);
-  if (!course) return undefined;
-  if (Date.now() - course.createdAt > CACHE_TTL_MS) {
-    courseCache.delete(courseId);
+function serializeCourse(course: CachedCourse): SerializedCachedCourse {
+  return {
+    city: course.city,
+    theme: course.theme,
+    order: course.order,
+    radiusStepIndex: course.radiusStepIndex,
+    slots: Object.fromEntries(course.slots),
+    shownIds: [...course.shownIds],
+  };
+}
+
+function deserializeCourse(raw: SerializedCachedCourse): CachedCourse {
+  return {
+    city: raw.city,
+    theme: raw.theme,
+    order: raw.order,
+    radiusStepIndex: raw.radiusStepIndex,
+    slots: new Map(Object.entries(raw.slots)),
+    shownIds: new Set(raw.shownIds),
+  };
+}
+
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1시간
+
+/**
+ * 코스 생성 시 최초 저장은 물론, 리롤 성공 뒤 바뀐 상태(shownIds에 새 id
+ * 추가, 해당 슬롯의 shortlist/confirmed 갱신)를 다시 써넣을 때도 이 함수를
+ * 쓴다 — getCourse가 매번 새로 역직렬화한 객체를 돌려주므로(메모리 Map과
+ * 달리 참조 공유가 안 됨), rerollSlotV2가 로컬에서 course를 mutate만 하고
+ * 여기로 다시 저장하지 않으면 그 변경은 사라진다.
+ */
+async function rememberCourse(courseId: string, course: CachedCourse): Promise<void> {
+  await pool.query(
+    `insert into course_cache (id, payload) values ($1, $2)
+     on conflict (id) do update set payload = excluded.payload`,
+    [courseId, JSON.stringify(serializeCourse(course))],
+  );
+  // 별도 크론 없이(v2가 아직 실험 단계라 인프라를 더 늘리지 않으려) 쓰기
+  // 경로에서 가끔(5%) 오래된 행을 청소한다 — created_at에 인덱스가 있어 싸다.
+  if (Math.random() < 0.05) {
+    pool.query(`delete from course_cache where created_at < now() - interval '1 hour'`).catch((err) => {
+      console.error("[courseRecommendV2] cache cleanup failed:", err);
+    });
+  }
+}
+
+async function getCourse(courseId: string): Promise<CachedCourse | undefined> {
+  const result = await pool.query<{ payload: SerializedCachedCourse; created_at: string }>(
+    `select payload, created_at from course_cache where id = $1`,
+    [courseId],
+  );
+  const row = result.rows[0];
+  if (!row) return undefined;
+  if (Date.now() - new Date(row.created_at).getTime() > CACHE_TTL_MS) {
+    pool.query(`delete from course_cache where id = $1`, [courseId]).catch(() => {});
     return undefined;
   }
-  return course;
+  return deserializeCourse(row.payload);
 }
 
 function resolveIn(raw: Place[], id: string): RouteCandidate | undefined {
@@ -181,10 +238,20 @@ export async function generateCourseV2(
   const resolve = (slotKey: string, id: string) => resolveIn(rawBySlot.get(slotKey) ?? [], id);
 
   // 2. LLM 취향 큐레이션(슬롯당 상위 3, 동선은 절대 고려 안 함) — 실패 시 전체 결정론 폴백.
+  // 프롬프트엔 POOL_SIZE(10)개 전부가 아니라 자체 점수 상위 LLM_CANDIDATE_
+  // LIMIT(6)개만 넣는다 — 실측에서 응답시간이 8~14초로 확인됐고, POOL_SIZE를
+  // 6→10으로 올린 만큼(리롤 여유 확보 목적) 프롬프트도 같이 커져 있었다.
+  // 나머지(리롤용 예비 후보)는 rawBySlot에 그대로 남아있어 리롤/
+  // resolveDuplicatePicks 쪽 풍부함에는 영향 없다 — LLM 토큰 비용/응답
+  // 시간만 줄이는 변경.
   const tasteInputs: TasteSlotInput[] = rawPools.map(({ slot, raw }) => ({
     slotKey: slot.key,
     slotLabel: `${slot.label} · ${String(slot.hour).padStart(2, "0")}:00`,
-    candidates: raw.map(placeToTasteCandidate),
+    candidates: raw
+      .map((p, i) => ({ c: placeToTasteCandidate(p), taste: deterministicTaste(placeToTasteCandidate(p), i) }))
+      .sort((a, b) => b.taste - a.taste)
+      .slice(0, LLM_CANDIDATE_LIMIT)
+      .map(({ c }) => c),
   }));
   const llmShortlists = await curateTaste(city, THEME_LABELS[theme], tasteInputs, resolve, callHaiku).catch((err) => {
     console.error("[courseRecommendV2] curateTaste threw:", err);
@@ -221,8 +288,10 @@ export async function generateCourseV2(
   const cachedSlots = new Map<string, CachedSlot>();
   for (const { slot, raw } of rawPools) {
     const picked = finalPicked.get(slot.key);
-    const pool = pools.find((p) => p.slotKey === slot.key);
-    cachedSlots.set(slot.key, { slotKey: slot.key, slotLabel: slot.label, raw, shortlist: pool?.candidates ?? [], confirmed: picked });
+    // "pool" 이름은 위쪽에서 이미 Postgres pool import로 쓰고 있어(파일
+    // 최상단 import { pool } from "@/lib/server/db") 겹치지 않게 slotPool로.
+    const slotPool = pools.find((p) => p.slotKey === slot.key);
+    cachedSlots.set(slot.key, { slotKey: slot.key, slotLabel: slot.label, raw, shortlist: slotPool?.candidates ?? [], confirmed: picked });
     if (!picked) continue;
     const place = raw.find((p) => p.id === picked.id);
     if (!place) continue;
@@ -231,8 +300,7 @@ export async function generateCourseV2(
   }
 
   const courseId = randomUUID();
-  rememberCourse(courseId, {
-    createdAt: Date.now(),
+  await rememberCourse(courseId, {
     city,
     theme,
     order: slots.map((s) => s.key),
@@ -266,7 +334,7 @@ export interface RerollResultV2 {
  * "exhausted".
  */
 export async function rerollSlotV2(courseId: string, slotKey: string): Promise<RerollResultV2> {
-  const course = getCourse(courseId);
+  const course = await getCourse(courseId);
   if (!course) return { stop: null, source: "course-not-found" };
 
   const slot = findSlot(course.theme, slotKey);
@@ -280,15 +348,15 @@ export async function rerollSlotV2(courseId: string, slotKey: string): Promise<R
   const prev = prevKey ? course.slots.get(prevKey)?.confirmed : undefined;
   const next = nextKey ? course.slots.get(nextKey)?.confirmed : undefined;
 
-  const pool: SlotPool = { slotKey, candidates: cachedSlot.shortlist };
-  let next1 = rerollSlot(pool, { prev, next, excludeIds: course.shownIds, radiusKm });
+  const slotPool: SlotPool = { slotKey, candidates: cachedSlot.shortlist };
+  let next1 = rerollSlot(slotPool, { prev, next, excludeIds: course.shownIds, radiusKm });
   let source: RerollResultV2["source"] = "shortlist";
 
   if (!next1) {
     // 쇼트리스트 고갈 — 같은 슬롯 raw 풀에서 아직 안 쓰인 나머지로 보충(추가 API 호출 없음).
     const resolve = (_sk: string, id: string) => resolveIn(cachedSlot.raw, id);
     const fresh = cachedSlot.raw.map(placeToTasteCandidate);
-    const expanded = expandShortlist(pool, fresh, resolve, course.shownIds, sameShop);
+    const expanded = expandShortlist(slotPool, fresh, resolve, course.shownIds, sameShop);
     if (expanded.candidates.length > cachedSlot.shortlist.length) {
       cachedSlot.shortlist = expanded.candidates;
       next1 = rerollSlot({ slotKey, candidates: expanded.candidates }, { prev, next, excludeIds: course.shownIds, radiusKm });
@@ -304,6 +372,11 @@ export async function rerollSlotV2(courseId: string, slotKey: string): Promise<R
   course.shownIds.add(next1.id);
   if (!next1.reason) next1.reason = templateReason(placeToTasteCandidate(place));
   cachedSlot.confirmed = next1;
+
+  // getCourse()는 매번 새로 역직렬화한 사본을 주므로(메모리 Map과 달리
+  // 참조 공유가 안 됨), 위에서 course를 mutate만 하고 여기서 다시 저장하지
+  // 않으면 다음 리롤 요청은 이번 변경을 못 본 채 시작한다.
+  await rememberCourse(courseId, course);
 
   return { stop: toFinalStop(place, slot, next1), source };
 }

@@ -148,32 +148,56 @@ export type CourseTheme = "balanced" | "foodie" | "healing" | "culture" | "activ
 /** 스톱 간 이동 시간 상한(분). 0 = 제한없음. server의 TravelRadius와 값이 일치해야 함. */
 export type CourseTravelRadius = 0 | 15 | 30 | 60 | 120;
 
-/** AI 추천 동선 — a full auto-assembled day course of real top-rated places for a city, shaped by `theme`. Empty array when the live API is unavailable (no key). */
+export interface RecommendedCourseResult {
+  stops: RecommendedStop[];
+  /**
+   * Present only when the server used the v2 pipeline
+   * (COURSE_PIPELINE=v2 — see courseRecommendV2.ts). v1 has no server-side
+   * course state, so it's null then; fetchRerolledStop uses this to pick
+   * which reroll contract to speak (v2's courseId-only vs v1's
+   * exclude-list+anchor-from-client).
+   */
+  courseId: string | null;
+}
+
+/** AI 추천 동선 — a full auto-assembled day course of real top-rated places for a city, shaped by `theme`. Empty when the live API is unavailable (no key). */
 export async function fetchRecommendedCourse(
   scope: DiscoverScope,
   city: string,
   theme: CourseTheme = "balanced",
   radius: CourseTravelRadius = 60,
-): Promise<RecommendedStop[]> {
-  if (!city.trim()) return [];
+): Promise<RecommendedCourseResult> {
+  const empty: RecommendedCourseResult = { stops: [], courseId: null };
+  if (!city.trim()) return empty;
   try {
     const res = await fetch(`/api/course/recommend?scope=${scope}&city=${encodeURIComponent(city)}&theme=${theme}&radius=${radius}`);
-    if (!res.ok) return [];
-    const data = (await res.json()) as { course?: RecommendedStop[]; source?: string };
-    // "llm" = Claude-curated, "google"/"kakao" = deterministic ranker; all are real live results. "mock" = no API key.
-    if (data.source !== "google" && data.source !== "kakao" && data.source !== "llm") return [];
-    return data.course ?? [];
+    if (!res.ok) return empty;
+    const data = (await res.json()) as { course?: RecommendedStop[]; source?: string; courseId?: string };
+    // "llm"/"google"/"kakao" = v1 (Claude-curated or deterministic ranker).
+    // "llm-v2"/"deterministic-v2" = v2 (COURSE_PIPELINE=v2). All are real
+    // live results either way. "mock" = no API key configured.
+    const REAL_SOURCES = new Set(["google", "kakao", "llm", "llm-v2", "deterministic-v2"]);
+    if (!data.source || !REAL_SOURCES.has(data.source)) return empty;
+    return { stops: data.course ?? [], courseId: data.courseId ?? null };
   } catch {
-    return [];
+    return empty;
   }
 }
 
 /**
  * "다른 곳 추천" — replaces a single stop of an already-built AI course
- * without regenerating the whole day. `currentCourse` supplies the
- * exclude-list (so the reroll never repeats a place already shown) and an
- * anchor point (the previous stop, if any) for proximity ranking. Returns
- * null if no alternative was found (e.g. the pool is exhausted).
+ * without regenerating the whole day. Returns null if no alternative was
+ * found (e.g. the pool is exhausted).
+ *
+ * Two different reroll contracts depending on which pipeline built the
+ * course (`courseId` is how the caller tells them apart — see
+ * RecommendedCourseResult):
+ *  - v2: the server already holds this course's full state (shortlists,
+ *    raw pools, shown-ids) keyed by `courseId`, so only that + the slot key
+ *    are needed.
+ *  - v1: stateless per-request — `currentCourse` supplies the exclude-list
+ *    (never repeat a place already shown) and an anchor point (the
+ *    previous stop, if any) for proximity ranking.
  */
 export async function fetchRerolledStop(
   scope: DiscoverScope,
@@ -182,22 +206,21 @@ export async function fetchRerolledStop(
   slotKey: string,
   currentCourse: RecommendedStop[],
   radius: CourseTravelRadius = 60,
+  courseId?: string | null,
 ): Promise<RecommendedStop | null> {
   if (!city.trim()) return null;
-  const idx = currentCourse.findIndex((s) => s.slotKey === slotKey);
-  const anchor = idx > 0 ? currentCourse[idx - 1] : null;
-  const params = new URLSearchParams({
-    scope,
-    city,
-    theme,
-    slot: slotKey,
-    radius: String(radius),
-    excludeIds: currentCourse.map((s) => s.id).join(","),
-    excludeNames: currentCourse.map((s) => encodeURIComponent(s.name)).join(","),
-  });
-  if (anchor) {
-    params.set("anchorLat", String(anchor.lat));
-    params.set("anchorLng", String(anchor.lng));
+  const params = new URLSearchParams({ scope, city, theme, slot: slotKey, radius: String(radius) });
+  if (courseId) {
+    params.set("courseId", courseId);
+  } else {
+    const idx = currentCourse.findIndex((s) => s.slotKey === slotKey);
+    const anchor = idx > 0 ? currentCourse[idx - 1] : null;
+    params.set("excludeIds", currentCourse.map((s) => s.id).join(","));
+    params.set("excludeNames", currentCourse.map((s) => encodeURIComponent(s.name)).join(","));
+    if (anchor) {
+      params.set("anchorLat", String(anchor.lat));
+      params.set("anchorLng", String(anchor.lng));
+    }
   }
   try {
     const res = await fetch(`/api/course/recommend/reroll?${params.toString()}`);

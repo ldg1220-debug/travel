@@ -103,6 +103,12 @@ export function CourseBuilderPage() {
   const [finishDate, setFinishDate] = useState(todayISODate());
   // AI 추천 동선 (auto-assembled full-day course).
   const [aiCourse, setAiCourse] = useState<RecommendedStop[] | null>(null);
+  // v2 파이프라인(COURSE_PIPELINE=v2)일 때만 서버가 내려주는 값 — 리롤이
+  // 이 코스의 서버 쪽 상태(쇼트리스트·원본 후보 풀·이미 보여준 곳 목록)를
+  // 다시 찾는 열쇠. v1일 땐 계속 null이고, 리롤은 그때그때 클라이언트가
+  // 들고 있는 aiCourse 자체로 제외 목록/앵커를 구성한다 — fetchRerolledStop
+  // 참고.
+  const [aiCourseId, setAiCourseId] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiTheme, setAiTheme] = useState<CourseTheme>("balanced");
   const [aiRadius, setAiRadius] = useState<CourseTravelRadius>(60);
@@ -234,9 +240,10 @@ export function CourseBuilderPage() {
   const runAiRecommend = async () => {
     if (!aiCity) return;
     setAiLoading(true);
-    const course = await fetchRecommendedCourse(scope, aiCity, aiTheme, aiRadius);
+    const { stops, courseId } = await fetchRecommendedCourse(scope, aiCity, aiTheme, aiRadius);
     setAiLoading(false);
-    setAiCourse(course);
+    setAiCourse(stops);
+    setAiCourseId(courseId);
   };
 
   // 특정 시간대(슬롯)를 코스에서 빼기 — 그 시간은 빈 채로 남는다.
@@ -248,7 +255,7 @@ export function CourseBuilderPage() {
   const rerollAiStop = async (slotKey: string) => {
     if (!aiCourse || !aiCity) return;
     setRerollingSlot(slotKey);
-    const next = await fetchRerolledStop(scope, aiCity, aiTheme, slotKey, aiCourse, aiRadius);
+    const next = await fetchRerolledStop(scope, aiCity, aiTheme, slotKey, aiCourse, aiRadius, aiCourseId);
     setRerollingSlot(null);
     if (!next) {
       showToast("더 추천할 곳을 찾지 못했어요");
