@@ -116,6 +116,22 @@ describe("sameShop", () => {
     expect(sameShop("오사카 성", "오사카 스테이션 시티")).toBe(false);
     expect(sameShop("도톤보리", "구로몬 시장")).toBe(false);
   });
+
+  // 3차 실측 — brandKey(이름 맨 앞 2어절)도 못 잡은 사례: 같은 집이
+  // "Gyumon Dotonbori 2nd"(Day2)와 광고 문구가 상호 자리를 차지해
+  // 실제 브랜드("GYUMON")가 맨 끝에 붙은 "세계에서 가장 저렴하고
+  // 맛있는 와규 스키야키 GYUMON"(Day3)로 표기가 완전히 달랐다.
+  it("matches a promotional-phrase-prefixed name to its plain counterpart via a shared brand-like Latin token", () => {
+    expect(sameShop("Gyumon Dotonbori 2nd", "세계에서 가장 저렴하고 맛있는 와규 스키야키 GYUMON")).toBe(true);
+  });
+
+  it("brand key comparison is case-insensitive", () => {
+    expect(sameShop("Gyumon Dotonbori", "GYUMON DOTONBORI")).toBe(true);
+  });
+
+  it("does not treat a shared English location word as a brand match (false-positive guard)", () => {
+    expect(sameShop("Namba Grill House", "Namba Sushi Bar")).toBe(false);
+  });
 });
 
 describe("passesQualityGate", () => {
@@ -133,45 +149,47 @@ describe("passesQualityGate", () => {
   });
 
   it("accepts an overseas place meeting its category's minimum review count", () => {
-    expect(passesQualityGate(place({ rating: 4.5, reviewCount: 20, category: "restaurant" }), "overseas", "restaurant")).toBe(true);
+    expect(passesQualityGate(place({ rating: 4.5, reviewCount: 12, category: "restaurant" }), "overseas", "restaurant")).toBe(true);
   });
 
-  // 2차 실측(오사카)에서 평점만 있고 리뷰가 얼마 안 되는 "성합지"류가
-  // 통과한 문제 — attraction 하한을 훨씬 크게(100) 잡았다.
-  it("uses a much higher bar for attractions (real landmarks have thousands+ of reviews) than restaurants/cafes", () => {
-    expect(passesQualityGate(place({ rating: 4.2, reviewCount: 90 }), "overseas", "attraction")).toBe(false);
-    expect(passesQualityGate(place({ rating: 4.2, reviewCount: 150 }), "overseas", "attraction")).toBe(true);
-    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 30 }), "overseas", "restaurant")).toBe(true);
+  // 3차 실측 — 하한을 처음엔(2차 수정) 명소 100까지 올렸는데, 그게 아래
+  // applyQualityGate의 옛 "부족하면 미달로 채우기" 폴백과 상쇄돼(하한이
+  // 높을수록 통과 후보가 부족해져 폴백이 더 자주 발동) "형경"이 재등장하는
+  // 회귀가 났다. 폴백을 없앤 지금은 하한을 현실적인 수준(40)으로
+  // 낮췄다 — 여전히 restaurant/cafe(12/10)보다는 훨씬 높다.
+  it("uses a higher bar for attractions than restaurants/cafes, but not so high that it starves normal cities", () => {
+    expect(passesQualityGate(place({ rating: 4.2, reviewCount: 30 }), "overseas", "attraction")).toBe(false);
+    expect(passesQualityGate(place({ rating: 4.2, reviewCount: 50 }), "overseas", "attraction")).toBe(true);
+    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 15 }), "overseas", "restaurant")).toBe(true);
   });
 
   it("falls back to the default threshold when no slot category is given", () => {
-    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 20 }), "overseas")).toBe(true);
+    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 15 }), "overseas")).toBe(true);
     expect(passesQualityGate(place({ rating: 4.0, reviewCount: 2 }), "overseas")).toBe(false);
   });
 });
 
 describe("applyQualityGate", () => {
-  it("returns only gate-passing candidates when there are enough of them", () => {
-    const good = [
+  it("returns only gate-passing candidates", () => {
+    const mixed = [
       place({ id: "a", rating: 4.5, reviewCount: 50000, category: "attraction" }),
       place({ id: "b", rating: 4.3, reviewCount: 20000, category: "attraction" }),
-      place({ id: "c", rating: 4.1, reviewCount: 500, category: "attraction" }),
+      place({ id: "low-review", rating: 4.2, reviewCount: 5, category: "attraction" }),
     ];
-    expect(applyQualityGate(good, "overseas", "attraction").map((p) => p.id)).toEqual(["a", "b", "c"]);
+    expect(applyQualityGate(mixed, "overseas", "attraction").map((p) => p.id)).toEqual(["a", "b"]);
   });
 
-  // 오사카 실측(Day 4) 재현 — 소도시/한산한 지역이라 명소 하한(100)을
-  // 만족하는 후보가 거의 없을 때, 슬롯이 1개짜리로 쪼그라들지 않고
-  // 최소 개수(3)까지 리뷰 수 상위로 채워지는지.
-  it("backfills with the highest-review under-threshold candidates instead of leaving the slot starved", () => {
+  // 3차 실측에서 확인된 회귀의 재발 방지 테스트 — 이전엔 통과 후보가
+  // 부족하면 하한 미달 후보로 채웠는데, 그 폴백이 하한 인상과 상쇄돼
+  // "형경"류가 다시 새어 나왔다(요약: PR #155 논의 참고). 폴백을 완전히
+  // 없앴으니 통과 후보가 하나도 없으면(또는 적으면) 슬롯은 그냥 비어야
+  // 하고, 미달 후보가 섞여 들어가면 안 된다.
+  it("never backfills with under-threshold candidates, even when that leaves very few (or zero) results", () => {
     const thin = [
-      place({ id: "only-good", rating: 4.2, reviewCount: 150, category: "attraction" }),
-      place({ id: "weak-1", rating: 4.1, reviewCount: 40, category: "attraction" }),
-      place({ id: "weak-2", rating: 4.0, reviewCount: 90, category: "attraction" }),
-      place({ id: "weak-3", rating: 3.9, reviewCount: 5, category: "attraction" }),
+      place({ id: "weak-1", rating: 4.1, reviewCount: 5, category: "attraction" }),
+      place({ id: "weak-2", rating: 4.9, reviewCount: 30, category: "attraction" }), // 평점 높아도 하한(40) 미달
     ];
-    const result = applyQualityGate(thin, "overseas", "attraction");
-    expect(result.map((p) => p.id)).toEqual(["only-good", "weak-2", "weak-1"]);
+    expect(applyQualityGate(thin, "overseas", "attraction")).toEqual([]);
   });
 
   it("never filters domestic candidates (no rating signal to gate on)", () => {

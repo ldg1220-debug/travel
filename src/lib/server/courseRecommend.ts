@@ -317,15 +317,21 @@ const KAKAO_CATEGORY_CODE: Record<string, string> = {
   lodging: "AD5",
 };
 
-// googleTop()/kakaoTop() below already request 8~10 results per call (same
-// single billed request either way — Places New pricing is per-request by
-// field tier, not per result count) but this used to slice them down to 6,
-// silently discarding 2-4 already-paid-for candidates. Raised to 10 (== the
-// larger of the two providers' own request sizes) — this is v2's main lever
-// for surviving several reroll attempts on one slot without a real second
-// API page (see courseRecommendV2.ts's expandShortlist usage), confirmed by
-// live testing to run out too fast at 6.
-export const POOL_SIZE = 10;
+// googleTop()/kakaoTop() below request up to each provider's own per-call
+// max (Google searchText: 20, Kakao keyword: 15 per page) — same single
+// billed request either way (Places New pricing is per-request by field
+// tier, not per result count), so this only ever discards already-paid-for
+// candidates if set lower than that. Raised from 10 to 20 (Google's ceiling)
+// for two reasons found by live testing: (1) v2's main lever for surviving
+// several reroll attempts on one slot without a real second API page (see
+// courseRecommendV2.ts's expandShortlist usage) — ran out too fast at 6, and
+// again too fast at 10 once passesQualityGate started removing a chunk of
+// the pool; (2) 다일정(멀티데이) — 뒤쪽 날짜일수록 excludeIds/excludeNames
+// (이전 날짜가 이미 쓴 장소/브랜드)로 후보가 줄어드는데, 원본 풀 자체가
+// 작으면(10개) 품질 게이트까지 겹쳐 슬롯이 아예 비는 걸 오사카 3박4일
+// 실측(Day3 오후 명소, Day4 오후 명소·저녁 누락)에서 확인했다 — "필터를
+// 느슨하게" 대신 "원본 후보를 더 가져오기"로 대응.
+export const POOL_SIZE = 20;
 
 interface GooglePlace {
   id: string;
@@ -398,13 +404,43 @@ function brandKey(s: string): string {
   return words.slice(0, 2).join("");
 }
 
+// 3차 실측에서 위 brandKey(이름 맨 앞 2어절)도 못 잡은 사례: 같은 집이
+// "Gyumon Dotonbori 2nd"(Day2)와 "세계에서 가장 저렴하고 맛있는 와규
+// 스키야키 GYUMON"(Day3, 광고 문구가 상호 자리를 차지하고 실제 브랜드
+// "GYUMON"은 맨 끝에 붙음)로 표기가 완전히 달라, "브랜드는 이름 맨
+// 앞"이라는 brandKey의 가정 자체가 깨졌다. 오사카 지역명(난바/도톤보리
+// 등)이 영문 상호에 흔히 섞여 있어 "공유하는 라틴 단어가 있으면 같은
+// 브랜드"로 바로 판정하면 지역명만 같고 실제로는 다른 업체끼리 오탐이
+// 나므로, 지역명은 차단 목록으로 제외하고 남는 라틴 단어(브랜드일 가능성이
+// 높음)만 비교 신호로 쓴다.
+const LOCATION_WORD_BLOCKLIST = new Set([
+  "osaka", "kansai", "namba", "dotonbori", "umeda", "shinsaibashi", "tennoji", "amemura", "nipponbashi", "station", "city",
+]);
+function isBrandLikeLatinWord(w: string): boolean {
+  return /^[a-z]+$/i.test(w) && w.length >= 3 && !LOCATION_WORD_BLOCKLIST.has(w.toLowerCase());
+}
+/** 이름에 포함된 "브랜드일 가능성이 높은" 라틴 단어들 — 맨 앞 단어(예: "Gyumon Dotonbori"의 "Gyumon")와 전체 대문자 토큰(예: 광고 문구 안의 "GYUMON")을 후보로 모은다. 지역명은 위 차단 목록으로 제외. */
+function latinBrandTokens(s: string): string[] {
+  const tokens = new Set<string>();
+  const words = s.trim().split(/\s+/).filter(Boolean);
+  const first = words[0];
+  if (first && isBrandLikeLatinWord(first)) tokens.add(first.toLowerCase());
+  for (const m of s.match(/\b[A-Z]{3,}\b/g) ?? []) {
+    if (isBrandLikeLatinWord(m)) tokens.add(m.toLowerCase());
+  }
+  return [...tokens];
+}
+
 export function sameShop(a: string, b: string): boolean {
   const na = normName(a);
   const nb = normName(b);
   if (na && nb && (na.startsWith(nb) || nb.startsWith(na))) return true;
   const ka = brandKey(a);
   const kb = brandKey(b);
-  return Boolean(ka) && Boolean(kb) && ka === kb;
+  if (ka && kb && ka === kb) return true;
+  const latinA = latinBrandTokens(a);
+  const latinB = latinBrandTokens(b);
+  return latinA.some((t) => latinB.includes(t));
 }
 
 async function googleTop(query: string, apiKey: string, includedType?: string): Promise<GooglePlace[]> {
@@ -417,7 +453,7 @@ async function googleTop(query: string, apiKey: string, includedType?: string): 
       "X-Goog-FieldMask":
         "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryType,places.photos,places.googleMapsUri",
     },
-    body: JSON.stringify({ textQuery: query, maxResultCount: 10, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
+    body: JSON.stringify({ textQuery: query, maxResultCount: 20, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
   });
   if (!res.ok) return [];
   const data = (await res.json()) as { places?: GooglePlace[] };
@@ -434,7 +470,8 @@ interface KakaoDoc {
   y: string;
 }
 async function kakaoTop(query: string, apiKey: string, categoryGroupCode?: string): Promise<KakaoDoc[]> {
-  const params = new URLSearchParams({ query, size: "10" });
+  // 15 = Kakao Local 키워드 검색의 페이지당 최대치.
+  const params = new URLSearchParams({ query, size: "15" });
   if (categoryGroupCode) params.set("category_group_code", categoryGroupCode);
   const res = await fetch(`https://dapi.kakao.com/v2/local/search/keyword.json?${params.toString()}`, {
     cache: "no-store",
@@ -538,22 +575,24 @@ export function isValidPlace(p: Place): boolean {
   return Boolean(p.id) && Boolean(p.name?.trim()) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0);
 }
 
-// 슬롯 카테고리별 최소 리뷰 수. 2차 실측(오사카 3박4일)에서 리뷰 수가
-// 붙어 있어도(평점 유무 게이트는 통과) "성합지"(4.2)/"구치나와자카"(4.1)
-// 처럼 오사카 대표 명소로 보기 어려운 항목이 재발했다 — 반면 정상
-// 스팟들은 실측 기준 리뷰 수가 훨씬 많았다(오사카 성 9만+, 도톤보리
-// 8.5만, 우메다 스카이 4.2만). "평점 유무"가 아니라 "리뷰 수 절대량"
-// 기준으로 재조정: 명소(attraction)는 특히 크게 올리고, 나머지도 함께
-// 올렸다. 소도시는 대표 명소도 리뷰가 이만큼 안 쌓였을 수 있어 하드
-// 필터로만 두면 슬롯이 통째로 비는 회귀가 나므로, 아래 fetchSlotCandidates
-// 쪽에서 하한 미달이어도 슬롯이 완전히 비지 않게 상위 몇 개는 되살린다.
+// 슬롯 카테고리별 최소 리뷰 수. 2차 실측(오사카 3박4일)에서 "성합지"
+// (4.2)/"구치나와자카"(4.1) 같은 항목이 평점 유무 게이트는 통과해
+// "리뷰 수 절대량" 기준으로 바꿨는데, 처음엔 실측 정상 스팟(오사카 성
+// 9만+, 도톤보리 8.5만)에 맞춰 크게(명소 100) 올렸었다. 3차 실측에서
+// 그 하한이 아래 applyQualityGate의 "부족하면 미달로 채우기" 폴백과
+// 정면으로 상쇄돼(하한이 높을수록 통과 후보가 3개 미만이 되기 쉬워
+// 폴백이 더 자주 발동 → 결국 미달 항목이 오히려 자주 되살아남) "형경"이
+// 재등장하는 회귀가 났다 — 그래서 폴백은 아예 없앴고(아래), 하한은
+// 여기서 현실적인 수준으로 낮춘다. 필터를 느슨하게 해서 슬롯이 비는
+// 걸 막는 게 아니라, POOL_SIZE를 키워(위 주석 참고) 원본 후보 자체를
+// 늘리는 쪽으로 대응한다.
 const MIN_REVIEWS_BY_CATEGORY: Partial<Record<NonNullable<RecommendSlot["category"]>, number>> = {
-  restaurant: 20,
-  cafe: 15,
-  attraction: 100,
-  lodging: 10,
+  restaurant: 12,
+  cafe: 10,
+  attraction: 40,
+  lodging: 8,
 };
-const DEFAULT_MIN_REVIEWS = 15;
+const DEFAULT_MIN_REVIEWS = 12;
 
 /**
  * 평점/리뷰 수 기준 최소 품질 하한. 국내(Kakao Local)는 평점 자체를 안
@@ -562,8 +601,7 @@ const DEFAULT_MIN_REVIEWS = 15;
  * 항상 통과시킨다. 해외(Google)는 실제 존재하는 업체엔 거의 항상 리뷰가
  * 붙어 있어, 평점·리뷰가 아예 없거나 하한 미만인 항목은 저품질/관광
  * 관련성이 낮은 장소일 가능성이 높다고 보고 슬롯 카테고리별 하한으로
- * 거른다. 이 함수 자체는 순수 판정만 하고, "미달이어도 슬롯을 비우지
- * 않는다"는 정책은 fetchSlotCandidates가 처리한다.
+ * 거른다.
  */
 export function passesQualityGate(p: Place, scope: "overseas" | "domestic", slotCategory?: RecommendSlot["category"]): boolean {
   if (scope === "domestic") return true;
@@ -572,25 +610,18 @@ export function passesQualityGate(p: Place, scope: "overseas" | "domestic", slot
   return p.reviewCount >= min;
 }
 
-/** passesQualityGate 하한을 만족하는 후보가 이보다 적으면(소도시 등 리뷰 자체가 적은 지역), 부족분을 하한 미달 후보 중 리뷰 수 상위로 채운다 — courseRoute.ts의 SHORTLIST_SIZE와 맞춰, DP 레이어가 최소한 이만큼은 고를 게 있게 한다. */
-const MIN_CANDIDATES_AFTER_GATE = 3;
-
 /**
- * passesQualityGate를 하드 필터가 아니라 "우선순위"로 적용한다 — 통과한
- * 후보를 앞에, 하한 미달이어도 최소 개수(MIN_CANDIDATES_AFTER_GATE)를
- * 못 채우면 리뷰 수 상위 미달 후보로 뒷자리를 채운다. 오사카 실측
- * (Day 4)에서 하드 필터만 있을 때 오전 명소 슬롯이 사실상 1개만 남는
- * 문제가 나온 데 대한 대응 — 하한을 못 만족하는 지역이라도 슬롯 자체가
- * 비어버리는 것보다는, 그나마 나은 후보라도 보여주는 게 낫다.
+ * passesQualityGate를 그대로 적용하는 순수 하드 필터 — 하한 미달이어도
+ * 채워 넣는 폴백을 넣지 않는다. 3차 실측에서 그 폴백이 하한 인상과
+ * 서로를 상쇄한 게 확인돼(위 MIN_REVIEWS_BY_CATEGORY 주석 참고) 제거했다:
+ * 필터는 단순하고 예측 가능해야 하고, 후보가 부족한 문제는 필터를
+ * 느슨하게 해서가 아니라 POOL_SIZE를 키워 원본 후보를 늘리는 쪽으로
+ * 풀어야 한다는 게 이번 라운드의 결론이다. 이 필터를 통과하는 후보가
+ * 없으면 그 슬롯은 그냥 빈 채로 남는다(하루 코스에서 그 시간대가
+ * 빠짐) — 저품질 스팟을 보여주는 것보다 낫다는 판단.
  */
 export function applyQualityGate(places: Place[], scope: "overseas" | "domestic", slotCategory?: RecommendSlot["category"]): Place[] {
-  const passed = places.filter((p) => passesQualityGate(p, scope, slotCategory));
-  if (passed.length >= MIN_CANDIDATES_AFTER_GATE) return passed;
-  const rest = places
-    .filter((p) => !passesQualityGate(p, scope, slotCategory))
-    .sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0))
-    .slice(0, MIN_CANDIDATES_AFTER_GATE - passed.length);
-  return [...passed, ...rest];
+  return places.filter((p) => passesQualityGate(p, scope, slotCategory));
 }
 
 /** Live-searches one slot's candidate pool. Empty array when no API key is configured for the scope. */
