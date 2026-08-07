@@ -558,3 +558,19 @@ CREATE TABLE IF NOT EXISTS course_cache (
 CREATE INDEX IF NOT EXISTS course_cache_created_at_idx ON course_cache (created_at);
 -- visitor_counts와 같은 이유(PostgREST 미사용, pg Pool로만 접근) — RLS만 켜서 정책 없이 막아둔다.
 ALTER TABLE course_cache ENABLE ROW LEVEL SECURITY;
+
+-- AI 추천 코스(v1/v2 공용, src/lib/server/courseRecommend.ts의
+-- fetchSlotCandidates)의 도시×슬롯 검색 결과 캐시. 실측에서 응답시간
+-- 8~14초의 상당 부분이 슬롯 7개의 라이브 Google/Kakao 검색이었고,
+-- 인기 도시(서울/부산/오사카 등)는 여러 사용자가 반복 요청하므로 캐시
+-- 히트율이 높을 것으로 기대 — 같은 만큼 Places API 비용도 줄어든다
+-- (Places New는 요청 1건당 과금이라 재검색을 안 하면 그만큼 그대로 절감).
+-- cache_key는 실제 API 호출을 결정하는 파라미터(scope+city+keyword+
+-- category)로 만든다 — courseRecommend.ts의 candidateCacheKey() 참고.
+CREATE TABLE IF NOT EXISTS place_candidate_cache (
+  cache_key TEXT PRIMARY KEY,
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS place_candidate_cache_created_at_idx ON place_candidate_cache (created_at);
+ALTER TABLE place_candidate_cache ENABLE ROW LEVEL SECURITY;

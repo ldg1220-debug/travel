@@ -1,4 +1,5 @@
 import { colorForId } from "@/lib/placeStyle";
+import { pool } from "@/lib/server/db";
 import type { Place } from "@/lib/types";
 
 /**
@@ -287,8 +288,67 @@ function kakaoToPlace(d: KakaoDoc, fallbackCategory: string): Place {
   };
 }
 
+// 도시×슬롯 후보 검색 결과 캐시(place_candidate_cache, schema.sql) — 실측
+// 응답시간(8~14초)의 상당 부분이 이 라이브 검색이었고, 인기 도시는 여러
+// 사용자가 반복 요청하므로 캐시 히트가 그대로 지연시간과 Places API
+// 비용(요청 1건당 과금) 양쪽을 줄인다. 평점·순위 같은 신호는 하루이틀
+// 사이에 크게 안 바뀌므로 TTL을 넉넉히(7일) 잡았다.
+const CANDIDATE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function candidateCacheKey(scope: "overseas" | "domestic", city: string, slot: RecommendSlot): string {
+  return `${scope}:${city.trim().toLowerCase()}:${slot.keyword}:${slot.category ?? ""}`;
+}
+
+async function readCandidateCache(key: string): Promise<Place[] | null> {
+  try {
+    const cutoff = new Date(Date.now() - CANDIDATE_CACHE_TTL_MS);
+    const result = await pool.query<{ payload: Place[] }>(`select payload from place_candidate_cache where cache_key = $1 and created_at > $2`, [
+      key,
+      cutoff,
+    ]);
+    return result.rows[0]?.payload ?? null;
+  } catch (err) {
+    // 캐시는 어디까지나 최적화다 — 읽기가 실패해도 그냥 라이브 검색으로
+    // 넘어가면 되지, 코스 생성 자체를 막을 이유는 아니다.
+    console.error("[courseRecommend] candidate cache read failed:", err);
+    return null;
+  }
+}
+
+async function writeCandidateCache(key: string, places: Place[]): Promise<void> {
+  try {
+    await pool.query(
+      `insert into place_candidate_cache (cache_key, payload) values ($1, $2)
+       on conflict (cache_key) do update set payload = excluded.payload, created_at = now()`,
+      [key, JSON.stringify(places)],
+    );
+    // 별도 크론 없이 쓰기 경로에서 가끔(5%) 오래된 행을 청소 — course_cache와 같은 패턴.
+    if (Math.random() < 0.05) {
+      pool.query(`delete from place_candidate_cache where created_at < now() - interval '30 days'`).catch((err) => {
+        console.error("[courseRecommend] candidate cache cleanup failed:", err);
+      });
+    }
+  } catch (err) {
+    console.error("[courseRecommend] candidate cache write failed:", err);
+  }
+}
+
 /** Live-searches one slot's candidate pool. Empty array when no API key is configured for the scope. */
 export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: string, slot: RecommendSlot): Promise<Place[]> {
+  const cacheKey = candidateCacheKey(scope, city, slot);
+  const cached = await readCandidateCache(cacheKey);
+  if (cached) return cached;
+
+  const fresh = await fetchSlotCandidatesLive(scope, city, slot);
+  // 빈 결과는 캐시하지 않는다 — 진짜 "이 검색은 결과가 없다"인지, API가
+  // 일시적으로 실패해 빈 배열이 온 건지(googleTop/kakaoTop 둘 다 !res.ok면
+  // 조용히 []을 반환) 구분할 수 없어, 다음 요청은 항상 다시 라이브로
+  // 시도하게 둔다.
+  if (fresh.length > 0) await writeCandidateCache(cacheKey, fresh);
+  return fresh;
+}
+
+async function fetchSlotCandidatesLive(scope: "overseas" | "domestic", city: string, slot: RecommendSlot): Promise<Place[]> {
   if (scope === "overseas") {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!apiKey) return [];

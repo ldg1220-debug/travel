@@ -50,13 +50,20 @@ const AI_RADIUS_OPTIONS: { minutes: CourseTravelRadius; label: string }[] = [
 // gradient with nothing else on it reads as a failed image load rather
 // than a deliberate placeholder (same issue discover's SpotCard had), so a
 // centered pin watermark goes on top — same fallback language as
-// CourseSpotCard/discover's SpotCard use elsewhere in the app. ──
+// CourseSpotCard/discover's SpotCard use elsewhere in the app.
+//
+// 실측(v2 UI 확인 과정에서 부수적으로 발견)에서 이 폴백이 있어도 타일이
+// "회색 그라데이션으로 비어 보인다"는 피드백을 받았다 — SpotCard와 같은
+// text-white/40이었는데, 여기 호출부들은 전부 그 위에 텍스트 가독성용
+// 검은 그라데이션(bg-gradient-to-t from-black/45~55)을 한 겹 더 얹어서,
+// 같은 40% 흰색이라도 SpotCard보다 실제로 훨씬 흐리게 보인다. 크기와
+// 불투명도를 올려 그 위에서도 눈에 띄게 했다. ──
 function TilePhoto({ query, className }: { query: string; className?: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
       <div className={`flex items-center justify-center bg-gradient-to-br from-indigo-400 to-violet-500 ${className ?? ""}`}>
-        <MapPin size={28} className="text-white/40" />
+        <MapPin size={36} className="text-white/80" />
       </div>
     );
   }
@@ -386,6 +393,16 @@ export function CourseBuilderPage() {
                   <div className="relative h-20 w-full sm:h-24">
                     <TilePhoto query={`${path[path.length - 1]} ${c.label}`} className="absolute inset-0 h-full w-full" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/45 to-transparent" />
+                    {/* 위 두 단계(scope/1차 드릴)는 큰 이모지 오버레이가 있는데
+                        여기만 없어서, 사진 조회가 실패하면(짧은 지명은 Places
+                        검색이 자주 빗나간다) 이 단계 타일만 유독 아무 표식
+                        없이 비어 보였다. c.emoji는 이 깊이(국내 시/군, 해외
+                        도시)에선 데이터 자체가 항상 undefined라(withEmoji가
+                        나라 이름 기준으로만 매핑, courseRegions.ts 참고)
+                        `c.emoji &&` 조건부로는 절대 안 뜬다 — 1차 드릴과
+                        같은 "없으면 기본 핀"(?? "📍") 패턴으로 항상 뭔가
+                        보이게 한다. */}
+                    <span className="absolute left-2.5 top-2 text-lg drop-shadow-md">{c.emoji ?? "📍"}</span>
                   </div>
                   <span className="px-3 py-2.5 text-[13.5px] font-semibold">
                     {c.emoji ? `${c.emoji} ` : ""}
