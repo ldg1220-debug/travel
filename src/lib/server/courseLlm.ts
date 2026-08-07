@@ -98,7 +98,9 @@ export async function curateCourseWithLlm(
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1024,
+        // 실측(오사카)에서 해외 장소명(영문+현지어 혼용)이 길어 1024로는
+        // 응답이 중간에 잘려 JSON 파싱 자체가 실패하는 사례가 확인됨.
+        max_tokens: 2048,
         messages: [{ role: "user", content: buildPrompt(city, themeLabel, slots) }],
       }),
     });

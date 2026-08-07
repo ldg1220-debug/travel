@@ -157,8 +157,15 @@ const KAKAO_CATEGORY_CODE: Record<string, string> = {
   lodging: "AD5",
 };
 
-/** How many candidates per slot to keep — bounds LLM token cost and gives the deterministic ranker a few to vary among. */
-export const POOL_SIZE = 6;
+// googleTop()/kakaoTop() below already request 8~10 results per call (same
+// single billed request either way — Places New pricing is per-request by
+// field tier, not per result count) but this used to slice them down to 6,
+// silently discarding 2-4 already-paid-for candidates. Raised to 10 (== the
+// larger of the two providers' own request sizes) — this is v2's main lever
+// for surviving several reroll attempts on one slot without a real second
+// API page (see courseRecommendV2.ts's expandShortlist usage), confirmed by
+// live testing to run out too fast at 6.
+export const POOL_SIZE = 10;
 
 interface GooglePlace {
   id: string;
@@ -220,7 +227,7 @@ async function googleTop(query: string, apiKey: string, includedType?: string): 
       "X-Goog-FieldMask":
         "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryType,places.photos,places.googleMapsUri",
     },
-    body: JSON.stringify({ textQuery: query, maxResultCount: 8, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
+    body: JSON.stringify({ textQuery: query, maxResultCount: 10, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
   });
   if (!res.ok) return [];
   const data = (await res.json()) as { places?: GooglePlace[] };

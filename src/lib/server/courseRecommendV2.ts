@@ -61,7 +61,9 @@ async function callHaiku(prompt: string): Promise<string> {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 1536,
+      // 실측(오사카)에서 해외 장소명(영문+현지어 혼용) 때문에 응답이 중간에
+      // 잘려 unparseable JSON으로 폴백하는 게 확인됨 — 여유 있게 올림.
+      max_tokens: 2560,
       messages: [{ role: "user", content: prompt }],
     }),
   });

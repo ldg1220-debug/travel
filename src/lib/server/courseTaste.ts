@@ -52,7 +52,7 @@ function buildPrompt(city: string, theme: string, slots: TasteSlotInput[]): stri
 - 이동 거리·동선·다른 슬롯과의 위치 관계는 절대 고려하지 마세요. 별도 알고리즘이 처리합니다.
 - 오직 "이 슬롯 목적에 얼마나 좋은 곳인가"(취향 적합도, 품질, 관광객 함정 여부)만 판단하세요.
 - 평점이 높아도 리뷰가 매우 적으면 신중하게, 리뷰가 많은데 평점이 낮으면 관광객 함정을 의심하세요.
-- 각 선택에 25자 이내의 구체적인 추천 이유를 붙이세요. ("맛있어요" 같은 일반론 금지)
+- 각 선택에 18자 이내의 구체적인 추천 이유를 붙이세요. ("맛있어요" 같은 일반론 금지)
 - 반드시 아래 JSON 형식으로만 출력하세요. 다른 텍스트 금지.
 
 {"slots":[{"slot":"슬롯키","picks":[{"id":"후보id","reason":"이유"}]}]}
@@ -71,6 +71,61 @@ interface RawPick {
 interface RawSlot {
   slot?: unknown;
   picks?: unknown;
+}
+
+/**
+ * Best-effort recovery for a `{"slots":[...]}` response cut off mid-object
+ * by max_tokens — scans the `"slots":[` array brace-by-brace (string-aware,
+ * so a `}` inside a quoted reason doesn't miscount) and JSON.parses each
+ * top-level object individually, stopping at the first one that isn't
+ * fully present. Whatever came through complete before the cut is real,
+ * valid LLM output for those slots — no reason to discard it along with
+ * the genuinely truncated tail.
+ */
+function extractPartialSlots(raw: string): RawSlot[] {
+  const slotsKeyIdx = raw.indexOf('"slots"');
+  if (slotsKeyIdx === -1) return [];
+  const arrStart = raw.indexOf("[", slotsKeyIdx);
+  if (arrStart === -1) return [];
+
+  const results: RawSlot[] = [];
+  let i = arrStart + 1;
+  while (i < raw.length) {
+    while (i < raw.length && /[\s,]/.test(raw[i])) i++;
+    if (raw[i] !== "{") break; // either the array's closing "]" or a truncated fragment — either way, nothing more to recover
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let j = i;
+    for (; j < raw.length; j++) {
+      const ch = raw[j];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') inString = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          j++;
+          break;
+        }
+      }
+    }
+    if (depth !== 0) break; // ran off the end mid-object — this is the truncated tail, stop before it
+
+    try {
+      results.push(JSON.parse(raw.slice(i, j)));
+    } catch {
+      break; // malformed even though braces balanced — don't guess further
+    }
+    i = j;
+  }
+  return results;
 }
 
 /**
@@ -103,8 +158,18 @@ export async function curateTaste(
   try {
     parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
   } catch {
-    console.error(`[courseTaste] unparseable LLM response: ${raw.slice(0, 200)}`);
-    return null;
+    // 실측(오사카)에서 해외 장소명이 길어 응답이 max_tokens 도중에 잘려
+    // 통째로 파싱 실패하는 사례가 나왔다 — max_tokens를 올려도(위) 이론상
+    // 여전히 일어날 수 있으니, 끝까지 안 잘리고 완결된 슬롯들만이라도
+    // 건져서 쓴다. 못 건진 슬롯은 아래(0개 pick)와 같은 경로로 그 슬롯만
+    // 결정론 폴백된다 — 응답 전체를 버리는 것보다 훨씬 낫다.
+    const partial = extractPartialSlots(raw);
+    if (partial.length === 0) {
+      console.error(`[courseTaste] unparseable LLM response: ${raw.slice(0, 200)}`);
+      return null;
+    }
+    console.error(`[courseTaste] response truncated — recovered ${partial.length} complete slot(s): ${raw.slice(0, 200)}`);
+    parsed = { slots: partial };
   }
   if (!Array.isArray(parsed.slots)) {
     console.error(`[courseTaste] response has no "slots" array: ${raw.slice(0, 200)}`);

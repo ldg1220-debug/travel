@@ -154,4 +154,49 @@ describe("curateTaste", () => {
     const result = await curateTaste("도쿄", "밸런스", manySlots, manyResolve, callLlm);
     expect(result![0].candidates).toHaveLength(3);
   });
+
+  // 오사카 실측: 해외 장소명이 길어 max_tokens 도중에 응답이 잘려
+  // 통째로 파싱 실패하던 사례 — 완결된 슬롯만이라도 건져 쓰는지 검증.
+  it("recovers whatever complete slots came through before the response got cut off mid-object", async () => {
+    const full = JSON.stringify({
+      slots: [
+        { slot: "lunch", picks: [{ id: "real-1", reason: "분위기 좋음" }] },
+        { slot: "cafe", picks: [{ id: "cafe-1", reason: "루프탑 뷰" }] },
+      ],
+    });
+    // Simulate max_tokens cutting the stream mid-way through the second slot's object.
+    const cutPoint = full.indexOf('"cafe-1"') + 4;
+    const truncated = full.slice(0, cutPoint);
+    const callLlm = async () => truncated;
+    const result = await curateTaste("오사카", "밸런스", slots, resolve, callLlm);
+    expect(result).not.toBeNull();
+    // "lunch" was fully present before the cut — recovered as real LLM output.
+    expect(result!.find((s) => s.slotKey === "lunch")?.candidates.map((c) => c.id)).toEqual(["real-1"]);
+    // "cafe" was mid-object when the stream cut — nothing to recover, so it
+    // falls back to the same per-slot deterministic path as an LLM omission.
+    expect(result!.find((s) => s.slotKey === "cafe")?.candidates.map((c) => c.id)).toEqual(["cafe-1"]);
+  });
+
+  it("doesn't mistake a `}` inside an earlier (recoverable) slot's quoted reason for that object's end — only exercises the recovery scanner when the tail is actually truncated, since a fully valid response never reaches it", async () => {
+    const full = JSON.stringify({
+      slots: [
+        { slot: "lunch", picks: [{ id: "real-1", reason: "이유(참고: {특별함})" }] },
+        { slot: "cafe", picks: [{ id: "cafe-1", reason: "루프탑 뷰" }] },
+      ],
+    });
+    const cutPoint = full.indexOf('"cafe-1"') + 4;
+    const callLlm = async () => full.slice(0, cutPoint);
+    const result = await curateTaste("도쿄", "밸런스", slots, resolve, callLlm);
+    // If the brace inside "lunch"'s reason were miscounted as closing the
+    // object early, this pick (and its reason) would come out wrong or the
+    // recovery would misfire entirely.
+    const lunch = result!.find((s) => s.slotKey === "lunch")!;
+    expect(lunch.candidates[0]?.id).toBe("real-1");
+    expect(lunch.candidates[0]?.reason).toBe("이유(참고: {특별함})");
+  });
+
+  it("still returns null when truncation happens before even one complete slot object exists", async () => {
+    const callLlm = async () => '{"slots":[{"slot":"lunch","pi';
+    await expect(curateTaste("도쿄", "밸런스", slots, resolve, callLlm)).resolves.toBeNull();
+  });
 });
