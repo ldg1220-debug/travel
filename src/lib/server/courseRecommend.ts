@@ -643,6 +643,21 @@ export function applyQualityGate(places: Place[], scope: "overseas" | "domestic"
   return places.filter((p) => passesQualityGate(p, scope, slotCategory));
 }
 
+// 다일정(멀티데이) 실측(오사카 3박4일)에서 발견: 유니버설 스튜디오
+// 재팬(테마파크)이 공항 출발일 "오전 명소" 슬롯에 1시간짜리로 배정된 적이
+// 있다 — 테마파크·대형 수족관 등은 통상 하루 전체를 쓰는 장소라 그날
+// 남은 일정과 현실적으로 겹치고, 출발일엔 애초에 배치 자체가 부적합하다.
+// 스팟별 "권장 체류시간" 개념을 정식으로 들이는 건 범위가 커(GitHub
+// issue #156에 후속 과제로 남김), 우선 최소 비용으로 가장 흔한 실패
+// 사례만 막는다 — 출발일엔 이런 대형 시설을 후보에서 아예 제외.
+// Google Places(New) primaryType 기준(googleToPlace가 category에 그대로
+// 담는다) — Kakao Local엔 이 정도로 세분화된 타입이 없어 국내는 이
+// 목록으로 걸러지는 게 사실상 없다(과잉 배제 위험이 없다는 뜻이기도 함).
+const LARGE_FACILITY_TYPES = new Set(["amusement_park", "theme_park", "water_park", "aquarium", "zoo", "amusement_center"]);
+export function isLargeFacility(p: Place): boolean {
+  return LARGE_FACILITY_TYPES.has(p.category?.toLowerCase() ?? "");
+}
+
 /**
  * Live-searches one slot's candidate pool. Empty array when no API key is
  * configured for the scope.

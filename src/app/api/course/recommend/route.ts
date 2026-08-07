@@ -86,6 +86,9 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     // 후보 풀을 넓혀 쓴다(generateCourseV2의 widenPool 참고).
     const dayIndexParam = request.nextUrl.searchParams.get("dayIndex");
     const dayIndex = dayIndexParam != null && Number.isFinite(Number(dayIndexParam)) ? Number(dayIndexParam) : undefined;
+    // 출발일(공항 등 실제 종료 지점이 있는 마지막 날)엔 테마파크 같은
+    // 대형 시설을 후보에서 아예 뺀다 — GitHub issue #156.
+    const excludeLargeFacilities = request.nextUrl.searchParams.get("excludeLargeFacilities") === "1";
     return NextResponse.json(
       await generateCourseV2(scope, city, theme, radius, {
         mode,
@@ -96,6 +99,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
         excludeNames,
         avoidCentroid,
         dayIndex,
+        excludeLargeFacilities,
       }),
     );
   }

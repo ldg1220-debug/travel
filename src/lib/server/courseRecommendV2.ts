@@ -25,6 +25,7 @@ import {
   sameShop,
   radiusKmFor,
   buildDynamicSlots,
+  isLargeFacility,
   type CourseTheme,
   type TravelRadius,
   type TravelMode,
@@ -324,6 +325,16 @@ export interface GenerateCourseOptions {
    * 쓴다 — 비용 증가(추가 검색 요청)를 실제로 필요한 뒷날짜에만 국한.
    */
   dayIndex?: number;
+  /**
+   * 다일정 — 이 날짜가 여행 마지막 날이면서 실제 출발 지점(공항 등)이
+   * 종료 앵커로 잡혀있을 때만 true (GitHub issue #156). 유니버설
+   * 스튜디오 재팬 같은 대형 시설(courseRecommend.ts의 isLargeFacility)이
+   * 이 날 후보에서 아예 빠진다 — 출발일엔 하루 종일 쓰는 시설이
+   * 애초에 배치될 수 없으므로. 숙소로 돌아오기만 하는 중간 날짜(종료
+   * 앵커=숙소)는 이 플래그를 안 켠다 — fetchMultiDayCourse가
+   * `isLast && anchors.departure` 조건으로 계산해서 넘긴다.
+   */
+  excludeLargeFacilities?: boolean;
 }
 
 /** dayIndex가 이 값 이상이면 fetchSlotCandidates에 extraQuery(동의어 2차 검색)를 켠다 — 실측(오사카 3박4일)에서 정확히 3일차부터 슬롯 공백이 나 이 값으로 잡았다. */
@@ -376,6 +387,10 @@ export async function generateCourseV2(
       let raw = await fetchSlotCandidates(scope, city, slot, widenPool);
       if (options.excludeIds) raw = raw.filter((p) => !options.excludeIds!.has(p.id));
       if (options.excludeNames && options.excludeNames.length > 0) raw = raw.filter((p) => !options.excludeNames!.some((n) => sameShop(n, p.name)));
+      // 출발일엔 테마파크 같은 대형 시설이 짧은 슬롯에 꽂히면 안 된다
+      // (GitHub issue #156) — fetchMultiDayCourse가 마지막 날 + 실제
+      // 출발 지점(공항 등)이 있을 때만 이 플래그를 켠다.
+      if (options.excludeLargeFacilities) raw = raw.filter((p) => !isLargeFacility(p));
       return { slot, raw };
     }),
   );

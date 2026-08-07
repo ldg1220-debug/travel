@@ -175,6 +175,8 @@ export interface RecommendedCourseOptions {
   avoidCentroid?: { lat: number; lng: number };
   /** 다일정 — 0부터 시작하는 날짜 인덱스. 뒤쪽 날짜(서버 기준 3일차부터)일수록 excludeIds/excludeNames 누적으로 후보 풀이 마르기 쉬워, 서버가 이 값을 보고 후보 풀을 넓혀 쓴다. */
   dayIndex?: number;
+  /** 다일정 — 마지막 날 + 실제 출발 지점(공항 등)이 있을 때만 true. 테마파크 같은 대형 시설이 이 날 후보에서 아예 빠진다(GitHub issue #156). */
+  excludeLargeFacilities?: boolean;
 }
 
 /** 조건(품질 게이트·중복 제외·반경)에 맞는 곳을 못 찾아 빈 채로 남은 슬롯 — UI가 "이 시간대엔 조건에 맞는 곳을 못 찾았어요" 안내를 띄울 때 쓴다. */
@@ -232,6 +234,7 @@ export async function fetchRecommendedCourse(
       params.set("avoidLng", String(options.avoidCentroid.lng));
     }
     if (options.dayIndex != null) params.set("dayIndex", String(options.dayIndex));
+    if (options.excludeLargeFacilities) params.set("excludeLargeFacilities", "1");
     const res = await fetch(`/api/course/recommend?${params.toString()}`);
     if (!res.ok) return empty;
     const data = (await res.json()) as { course?: RecommendedStop[]; source?: string; courseId?: string; emptySlots?: EmptyStopSlot[] };
@@ -361,6 +364,9 @@ export async function fetchMultiDayCourse(
       excludeNames: [...seenNames],
       avoidCentroid: centroidCount > 0 ? { lat: centroidLatSum / centroidCount, lng: centroidLngSum / centroidCount } : undefined,
       dayIndex: day - 1,
+      // 마지막 날 + 실제 출발 지점(공항 등)이 있을 때만 — 숙소로만
+      // 돌아오는 중간 날짜는 대상이 아니다(GitHub issue #156).
+      excludeLargeFacilities: isLast && Boolean(anchors.departure),
     });
     stops.forEach((s) => {
       seenIds.add(s.id);
