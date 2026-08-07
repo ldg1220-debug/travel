@@ -122,7 +122,7 @@ export function SavedPlacesPage() {
 
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
-      <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
+      <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6 lg:max-w-4xl 2xl:max-w-5xl">
         <div className="mb-6">
           <h2 className="text-2xl font-bold tracking-tight">관심 장소 보관함</h2>
           <p className="mt-1 text-[13px] text-slate-500">일정에 담기 전에 찜해둔 장소들이에요.</p>

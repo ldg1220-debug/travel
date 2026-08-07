@@ -251,7 +251,10 @@ function ScrapbookPageInner() {
 
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
-      <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
+      {/* TripCard 목록은 폭이 넓어져도 grid로 다단 배치하기보다(내부 레이아웃이
+          한 줄 카드를 전제) 한 컬럼을 넓게 쓰는 게 안전 — 그래도 max-w-3xl
+          고정보다는 데스크톱에서 카드가 숨쉴 공간이 필요해 단계적으로 넓힘. */}
+      <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6 lg:max-w-4xl 2xl:max-w-5xl">
         {/* ── OVERVIEW ── */}
         <section className="mb-8">
           <div className="mb-3 flex items-baseline justify-between">

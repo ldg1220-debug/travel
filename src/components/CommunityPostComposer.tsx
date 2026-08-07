@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { CommunityVisibilitySelector } from "@/components/CommunityVisibilitySelector";
-import { COMMUNITY_CATEGORIES, type CommunityCategory, type CommunityVisibility } from "@/lib/community";
+import { COMMUNITY_CATEGORIES, normalizeCommunityCategory, type CommunityCategory, type CommunityVisibility } from "@/lib/community";
 import { createCommunityPost, updateCommunityPost, uploadReviewPhotos, type CommunityPostDetail } from "@/lib/api";
 import { resizeImageFiles } from "@/lib/imageResize";
 
@@ -24,7 +24,7 @@ export function CommunityPostComposer({
   onSaved: (id: number) => void;
 }) {
   const [category, setCategory] = useState<CommunityCategory>(
-    (existing?.category as CommunityCategory) ?? defaultCategory ?? COMMUNITY_CATEGORIES[0].slug,
+    existing?.category ? normalizeCommunityCategory(existing.category) : (defaultCategory ?? COMMUNITY_CATEGORIES[0].slug),
   );
   const [title, setTitle] = useState(existing?.title ?? "");
   const [content, setContent] = useState(existing?.content ?? "");

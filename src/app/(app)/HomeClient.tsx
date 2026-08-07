@@ -67,7 +67,11 @@ export function HomePage() {
 
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6">
+      {/* 데스크톱 와이드 화면에서 max-w-3xl 하나로만 고정돼 있으면(예: 1568px
+          창) 콘텐츠가 가운데 ~600px 안에 몰리고 좌우가 텅 비어 보인다 —
+          안의 grid들(QUICK_ACCESS의 lg:grid-cols-5 등)은 이미 넓은 화면을
+          쓸 준비가 돼 있었는데 이 바깥 컨테이너가 병목이었다. */}
+      <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6 lg:max-w-5xl xl:max-w-6xl">
         {/* ── GREETING ── (the brand wordmark + slogan live in the top bar) */}
         <section className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight">

@@ -74,7 +74,10 @@ export function FeedPage() {
 
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
-      <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6 lg:max-w-3xl lg:px-8">
+      {/* lg:max-w-3xl만으로는 넓은 데스크톱 창에서 여전히 콘텐츠가 가운데
+          768px 안에 몰려 좌우가 비어 보였다 — 2xl에서 한 번 더 넓히고,
+          아래 카드 grid도 2xl:grid-cols-3으로 맞춰 그 공간을 실제로 쓴다. */}
+      <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6 lg:max-w-3xl lg:px-8 2xl:max-w-6xl">
         <div className="mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <CordixIcon name="feed-announce" size={20} stroke="#6366f1" />
@@ -149,7 +152,7 @@ export function FeedPage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
             {posts.map((post) => (
               <FeedCard
                 key={post.id}
