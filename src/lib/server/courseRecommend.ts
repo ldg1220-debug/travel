@@ -508,13 +508,47 @@ export function isValidPlace(p: Place): boolean {
   return Boolean(p.id) && Boolean(p.name?.trim()) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0);
 }
 
+// 슬롯 카테고리별 최소 리뷰 수 — 오사카 3박4일 실측에서 "성합지"/
+// "구치나와자카"/"형경" 같은 이름이 부자연스럽고 평점 표시조차 없는
+// 항목이 재발했다. isValidPlace(구조 검증)는 통과하지만 품질이 의심되는
+// 케이스라 하한선을 하나 더 둔다.
+const MIN_REVIEWS_BY_CATEGORY: Partial<Record<NonNullable<RecommendSlot["category"]>, number>> = {
+  restaurant: 5,
+  cafe: 5,
+  attraction: 2,
+  lodging: 2,
+};
+const DEFAULT_MIN_REVIEWS = 3;
+
+/**
+ * 평점/리뷰 수 기준 최소 품질 하한. 국내(Kakao Local)는 평점 자체를 안
+ * 주므로(courseTaste.ts의 deterministicTaste 주석 참고 — 검색 순위를
+ * 대신 신호로 씀) 이 검증 대상이 아니다 — 전부 걸러지는 회귀를 막기 위해
+ * 항상 통과시킨다. 해외(Google)는 실제 존재하는 업체엔 거의 항상 리뷰가
+ * 붙어 있어, 평점·리뷰가 아예 없거나 극히 적은 항목은 저품질/실재하지
+ * 않는 장소일 가능성이 높다고 보고 슬롯 카테고리별 하한으로 거른다.
+ */
+export function passesQualityGate(p: Place, scope: "overseas" | "domestic", slotCategory?: RecommendSlot["category"]): boolean {
+  if (scope === "domestic") return true;
+  if (p.rating == null || p.reviewCount == null) return false;
+  const min = slotCategory ? (MIN_REVIEWS_BY_CATEGORY[slotCategory] ?? DEFAULT_MIN_REVIEWS) : DEFAULT_MIN_REVIEWS;
+  return p.reviewCount >= min;
+}
+
 /** Live-searches one slot's candidate pool. Empty array when no API key is configured for the scope. */
 export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: string, slot: RecommendSlot): Promise<Place[]> {
   const cacheKey = candidateCacheKey(scope, city, slot);
+  // passesQualityGate는 캐시에 굽지 않고 읽는 시점에만 적용한다 — 임계값을
+  // 나중에 튜닝해도 캐시 TTL(7일)을 기다리지 않고 바로 반영되게 하기
+  // 위함(경계선 후보를 캐시에서 아예 지워버리면 나중 튜닝으로도 못 살림).
+  // isValidPlace는 반대로 구조 자체가 틀린 항목이라 캐시에 쓰기 전에
+  // 영구히 걸러낸다.
+  const qualityFilter = (places: Place[]) => places.filter((p) => passesQualityGate(p, scope, slot.category));
+
   const cached = await readCandidateCache(cacheKey);
-  // 캐시된 값도 걸러야 한다 — 이 검증(isValidPlace)이 추가되기 전에 이미
-  // 써진 캐시 행이 place_candidate_cache의 TTL(7일) 동안 남아있을 수 있다.
-  if (cached) return cached.filter(isValidPlace);
+  // 캐시된 값도 isValidPlace로 걸러야 한다 — 이 검증이 추가되기 전에 이미
+  // 써진 캐시 행이 TTL 동안 남아있을 수 있다.
+  if (cached) return qualityFilter(cached.filter(isValidPlace));
 
   const fresh = (await fetchSlotCandidatesLive(scope, city, slot)).filter(isValidPlace);
   // 빈 결과는 캐시하지 않는다 — 진짜 "이 검색은 결과가 없다"인지, API가
@@ -522,7 +556,7 @@ export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: 
   // 조용히 []을 반환) 구분할 수 없어, 다음 요청은 항상 다시 라이브로
   // 시도하게 둔다.
   if (fresh.length > 0) await writeCandidateCache(cacheKey, fresh);
-  return fresh;
+  return qualityFilter(fresh);
 }
 
 async function fetchSlotCandidatesLive(scope: "overseas" | "domestic", city: string, slot: RecommendSlot): Promise<Place[]> {

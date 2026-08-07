@@ -187,6 +187,10 @@ export function CourseBuilderPage() {
   const [multiRerolling, setMultiRerolling] = useState<{ day: number; slotKey: string } | null>(null);
   const [multiStartDate, setMultiStartDate] = useState(todayISODate());
   const [multiDatePickerOpen, setMultiDatePickerOpen] = useState(false);
+  // 순차 호출이라(day를 병렬로 못 돌림, fetchMultiDayCourse 주석 참고)
+  // 오사카 3박4일 실측에서 ~40초가 걸렸는데 그동안 화면에 아무 표시가
+  // 없어 멈춘 것처럼 보였다는 피드백 — 진행 중인 날짜만 간단히 보여준다.
+  const [aiMultiProgress, setAiMultiProgress] = useState<{ day: number; days: number } | null>(null);
 
   const tree = courseRegionTree(scope);
   const options = courseNodesAtPath(tree, path);
@@ -320,14 +324,24 @@ export function CourseBuilderPage() {
     if (!aiCity) return;
     if (aiDays > 1) {
       setAiLoading(true);
-      const days = await fetchMultiDayCourse(scope, aiCity, aiTheme, aiRadius, aiDays, aiMode, {
-        lodging: aiLodgingAnchor ?? undefined,
-        arrival: aiStartAnchor ?? undefined,
-        arrivalTime: aiStartTime || undefined,
-        departure: aiEndAnchor ?? undefined,
-        departureTime: aiEndTime || undefined,
-      });
+      const days = await fetchMultiDayCourse(
+        scope,
+        aiCity,
+        aiTheme,
+        aiRadius,
+        aiDays,
+        aiMode,
+        {
+          lodging: aiLodgingAnchor ?? undefined,
+          arrival: aiStartAnchor ?? undefined,
+          arrivalTime: aiStartTime || undefined,
+          departure: aiEndAnchor ?? undefined,
+          departureTime: aiEndTime || undefined,
+        },
+        (day, daysCount) => setAiMultiProgress({ day, days: daysCount }),
+      );
       setAiLoading(false);
+      setAiMultiProgress(null);
       setActiveDayTab(0);
       setAiMultiCourse(days);
       return;
@@ -817,7 +831,9 @@ export function CourseBuilderPage() {
               <span className="min-w-0 flex-1">
                 <span className="block text-[14px] font-bold">
                   {aiLoading
-                    ? "AI가 코스를 짜는 중…"
+                    ? aiMultiProgress
+                      ? `Day ${aiMultiProgress.day} / ${aiMultiProgress.days} 구성 중…`
+                      : "AI가 코스를 짜는 중…"
                     : `${aiCity} · ${AI_THEMES.find((t) => t.key === aiTheme)?.label} ${aiDays > 1 ? `${aiDays}일 동선` : "동선"} 받기`}
                 </span>
                 <span className="block text-[11.5px] text-white/80">

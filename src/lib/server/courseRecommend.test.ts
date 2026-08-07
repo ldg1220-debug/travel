@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { radiusKmFor, parseTravelMode, parseTimeToMinutes, buildDynamicSlots, isValidPlace, THEME_LABELS, type CourseTheme } from "./courseRecommend";
+import { radiusKmFor, parseTravelMode, parseTimeToMinutes, buildDynamicSlots, isValidPlace, passesQualityGate, THEME_LABELS, type CourseTheme } from "./courseRecommend";
 import type { Place } from "@/lib/types";
 
 function place(overrides: Partial<Place> = {}): Place {
@@ -80,6 +80,35 @@ describe("isValidPlace", () => {
   it("accepts a legitimate place that happens to sit exactly on the equator or prime meridian (only true (0,0) is rejected)", () => {
     expect(isValidPlace(place({ lat: 0, lng: 127.0 }))).toBe(true);
     expect(isValidPlace(place({ lat: 37.5, lng: 0 }))).toBe(true);
+  });
+});
+
+describe("passesQualityGate", () => {
+  it("always passes domestic (Kakao Local never provides rating/reviews)", () => {
+    expect(passesQualityGate(place({ rating: undefined, reviewCount: undefined }), "domestic")).toBe(true);
+    expect(passesQualityGate(place({ rating: undefined, reviewCount: undefined }), "domestic", "restaurant")).toBe(true);
+  });
+
+  it("rejects an overseas place with no rating/review data at all — the 오사카 실측 '형경' case (no rating shown in the UI)", () => {
+    expect(passesQualityGate(place({ rating: undefined, reviewCount: undefined }), "overseas")).toBe(false);
+  });
+
+  it("rejects an overseas place below its category's minimum review count", () => {
+    expect(passesQualityGate(place({ rating: 4.5, reviewCount: 1, category: "restaurant" }), "overseas", "restaurant")).toBe(false);
+  });
+
+  it("accepts an overseas place meeting its category's minimum review count", () => {
+    expect(passesQualityGate(place({ rating: 4.5, reviewCount: 5, category: "restaurant" }), "overseas", "restaurant")).toBe(true);
+  });
+
+  it("uses a lower bar for attractions than restaurants/cafes", () => {
+    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 2 }), "overseas", "attraction")).toBe(true);
+    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 2 }), "overseas", "restaurant")).toBe(false);
+  });
+
+  it("falls back to the default threshold when no slot category is given", () => {
+    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 3 }), "overseas")).toBe(true);
+    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 2 }), "overseas")).toBe(false);
   });
 });
 

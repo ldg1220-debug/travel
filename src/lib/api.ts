@@ -169,6 +169,10 @@ export interface RecommendedCourseOptions {
   endAnchor?: CourseAnchor;
   /** 다일정(멀티데이) — 이전 날짜에 이미 배정된 place id들. 이번 날 후보에서 제외해 같은 장소가 이틀 걸러 또 뽑히는 걸 막는다. */
   excludeIds?: string[];
+  /** 다일정 — 이전 날짜에 이미 쓰인 장소 "이름"들. id가 다른 같은 브랜드(다른 지점)까지 걸러낸다(excludeIds는 정확히 같은 장소만 막음). */
+  excludeNames?: string[];
+  /** 다일정 — 지금까지 배정된 스팟들의 좌표 중심. 있으면 그 근처 후보에 소폭 감점을 줘 날짜마다 같은 동네로 쏠리는 걸 완화한다. */
+  avoidCentroid?: { lat: number; lng: number };
 }
 
 export interface RecommendedCourseResult {
@@ -211,6 +215,11 @@ export async function fetchRecommendedCourse(
       params.set("endLng", String(options.endAnchor.lng));
     }
     if (options.excludeIds && options.excludeIds.length > 0) params.set("excludeIds", options.excludeIds.join(","));
+    if (options.excludeNames && options.excludeNames.length > 0) params.set("excludeNames", options.excludeNames.map((n) => encodeURIComponent(n)).join(","));
+    if (options.avoidCentroid) {
+      params.set("avoidLat", String(options.avoidCentroid.lat));
+      params.set("avoidLng", String(options.avoidCentroid.lng));
+    }
     const res = await fetch(`/api/course/recommend?${params.toString()}`);
     if (!res.ok) return empty;
     const data = (await res.json()) as { course?: RecommendedStop[]; source?: string; courseId?: string };
@@ -244,6 +253,28 @@ export interface MultiDayAnchors {
   departureTime?: string;
 }
 
+// 오사카 3박4일 프리뷰 실측에서 나온 버그 — Day 1에 도착 시각(예:14:00)만
+// 주고 종료 시각은 안 줬는데(그날 저녁 몇 시까지 놀지는 안 정하는 게
+// 자연스러움), 서버의 buildDynamicSlots는 시작·종료가 "둘 다" 있어야
+// 켜지는 설계라 통째로 기본 골격(10:00~)으로 폴백해 도착 전 시각에 일정이
+// 잡혔다. 당일(단일) 모드는 "둘 다 입력해야 적용"이라는 안내 문구가 이미
+// 있어 그 규칙을 그대로 두고, 다일정에서만 한쪽이 비면 아래 기본값으로
+// 채워 넣어 항상 동적 슬롯이 켜지게 한다.
+const DEFAULT_DAY_START_TIME = "10:00";
+const DEFAULT_DAY_END_TIME = "21:00";
+/** 마지막 날 출발 시각 그 자체까지 일정을 채우면 공항 이동·체크인 여유가 없다 — 활동 종료를 이만큼 앞당긴다. */
+const DEPARTURE_BUFFER_MINUTES = 90;
+
+function timeToMinutes(t: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+function minutesToTime(mins: number): string {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, mins));
+  return `${String(Math.floor(clamped / 60)).padStart(2, "0")}:${String(clamped % 60).padStart(2, "0")}`;
+}
+
 /**
  * 여러 날짜의 코스를 순차 생성한다 — 하루 개념만 아는 기존
  * generateCourseV2(=/api/course/recommend)를 day 수만큼 그대로 반복
@@ -254,16 +285,22 @@ export interface MultiDayAnchors {
  *   마지막 날:      시작=숙소, 종료=출발 지점(없으면 숙소)
  *
  * 이전 날짜에서 이미 나온 장소 id를 다음 날짜의 excludeIds로 넘겨 같은
- * 여행 안에서 같은 곳이 또 뽑히지 않게 한다(하드 개런티). 지리적
- * 군집화(예: "시내 → 근교 당일치기"처럼 날짜별 방향을 다르게)는 하지
- * 않는다 — 각 날의 시작·종료 앵커가 이미 DP의 거리 페널티로 그날의 앵커
- * 주변에 자연히 모이도록 유도하고, 앵커가 똑같은(숙소 순환) 중간
- * 날짜들끼리는 위 dedup + assembleRoute의 기존 재추천 노이즈(jitter)로
- * 최소한의 다양성을 얻는 선에서 그쳤다 — 진짜 지리 군집화는 Directions
- * API 연동과 같은 이유(범위 대비 이득 불확실)로 후속 과제로 남긴다.
+ * 여행 안에서 같은 곳(정확히 같은 place)이 또 뽑히지 않게 한다(하드
+ * 개런티). 같은 "브랜드"의 다른 지점(예: 규카츠 모토무라 난바점/도톤보리점
+ * — id는 다르지만 사실상 같은 가게)은 excludeIds로는 안 걸러져서
+ * excludeNames로 따로 넘긴다(서버가 sameShop으로 매칭). 완전한 지리적
+ * 군집화(예: "시내 → 근교 당일치기"처럼 날짜별 방향을 다르게)까지는 하지
+ * 않고, avoidCentroid(지금까지 배정된 스팟들의 좌표 중심)를 넘겨 그
+ * 근처 후보에 소폭 감점만 주는 가벼운 넛지로 그쳤다 — 새 DP 없이
+ * 스코어링 단계에서만 처리(Directions API 연동을 보류한 것과 같은
+ * 이유로, 완전한 군집화는 범위 대비 이득이 불확실해 후속 과제로 남김).
  *
- * 순차 실행(day를 병렬로 안 돌림) — 다음 날짜의 excludeIds가 이전 날짜
- * 결과에 의존하므로 병렬화할 수 없다.
+ * 순차 실행(day를 병렬로 안 돌림) — 다음 날짜의 excludeIds/excludeNames/
+ * avoidCentroid가 이전 날짜 결과에 의존하므로 병렬화할 수 없다.
+ * `onProgress`는 각 날짜 요청을 시작하기 직전에 (진행 중인 날짜, 전체
+ * 날짜 수)로 호출된다 — 순차라 오사카 3박4일 실측에서 총 ~40초가
+ * 걸렸는데 그 사이 화면에 아무 표시가 없어 멈춘 것처럼 보였다는 피드백을
+ * 반영.
  */
 export async function fetchMultiDayCourse(
   scope: DiscoverScope,
@@ -273,23 +310,53 @@ export async function fetchMultiDayCourse(
   days: number,
   mode: CourseTravelMode,
   anchors: MultiDayAnchors,
+  onProgress?: (day: number, days: number) => void,
 ): Promise<RecommendedDayCourse[]> {
   const result: RecommendedDayCourse[] = [];
   const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+  let centroidLatSum = 0;
+  let centroidLngSum = 0;
+  let centroidCount = 0;
+
   for (let day = 1; day <= days; day++) {
+    onProgress?.(day, days);
     const isFirst = day === 1;
     const isLast = day === days;
     const startAnchor = isFirst ? (anchors.arrival ?? anchors.lodging) : anchors.lodging;
     const endAnchor = isLast ? (anchors.departure ?? anchors.lodging) : anchors.lodging;
+
+    let startTime: string | undefined;
+    let endTime: string | undefined;
+    if (isFirst && anchors.arrivalTime) {
+      startTime = anchors.arrivalTime;
+      endTime = DEFAULT_DAY_END_TIME;
+    }
+    if (isLast && anchors.departureTime) {
+      const departureMinutes = timeToMinutes(anchors.departureTime);
+      endTime = departureMinutes != null ? minutesToTime(departureMinutes - DEPARTURE_BUFFER_MINUTES) : anchors.departureTime;
+      startTime = startTime ?? DEFAULT_DAY_START_TIME;
+    }
+
     const { stops, courseId } = await fetchRecommendedCourse(scope, city, theme, radius, {
       mode,
-      startTime: isFirst ? anchors.arrivalTime : undefined,
-      endTime: isLast ? anchors.departureTime : undefined,
+      startTime,
+      endTime,
       startAnchor,
       endAnchor,
       excludeIds: [...seenIds],
+      excludeNames: [...seenNames],
+      avoidCentroid: centroidCount > 0 ? { lat: centroidLatSum / centroidCount, lng: centroidLngSum / centroidCount } : undefined,
     });
-    stops.forEach((s) => seenIds.add(s.id));
+    stops.forEach((s) => {
+      seenIds.add(s.id);
+      seenNames.add(s.name);
+      if (s.lat && s.lng) {
+        centroidLatSum += s.lat;
+        centroidLngSum += s.lng;
+        centroidCount++;
+      }
+    });
     result.push({ day, stops, courseId });
   }
   return result;

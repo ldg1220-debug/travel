@@ -72,10 +72,16 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     const endMinutes = parseTimeToMinutes(request.nextUrl.searchParams.get("endTime"));
     const startAnchor = parseAnchorParam(request.nextUrl.searchParams, "start");
     const endAnchor = parseAnchorParam(request.nextUrl.searchParams, "end");
-    // 다일정(멀티데이) 클라이언트가 이전 날짜에 이미 쓴 장소 id를 여기로
-    // 넘긴다 — reroll route의 excludeIds와 같은 형식(콤마 구분).
+    // 다일정(멀티데이) 클라이언트가 이전 날짜에 이미 쓴 장소 id/이름·
+    // 지금까지 배정된 스팟들의 중심 좌표를 여기로 넘긴다 — id는 reroll
+    // route의 excludeIds와 같은 형식(콤마 구분), 이름은 URI 인코딩.
     const excludeIdsParam = request.nextUrl.searchParams.get("excludeIds");
     const excludeIds = excludeIdsParam ? new Set(excludeIdsParam.split(",").filter(Boolean)) : undefined;
+    const excludeNamesParam = request.nextUrl.searchParams.get("excludeNames");
+    const excludeNames = excludeNamesParam ? excludeNamesParam.split(",").filter(Boolean).map((n) => decodeURIComponent(n)) : undefined;
+    const avoidLat = Number(request.nextUrl.searchParams.get("avoidLat"));
+    const avoidLng = Number(request.nextUrl.searchParams.get("avoidLng"));
+    const avoidCentroid = Number.isFinite(avoidLat) && Number.isFinite(avoidLng) && (avoidLat || avoidLng) ? { lat: avoidLat, lng: avoidLng } : undefined;
     return NextResponse.json(
       await generateCourseV2(scope, city, theme, radius, {
         mode,
@@ -83,6 +89,8 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
         startAnchor,
         endAnchor,
         excludeIds,
+        excludeNames,
+        avoidCentroid,
       }),
     );
   }

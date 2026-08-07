@@ -30,7 +30,15 @@ import {
   type TravelMode,
   type RecommendSlot,
 } from "./courseRecommend";
-import { assembleRouteWithEscalation, dedupePoolsByBrand, resolveDuplicatePicks, rerollSlot, type RouteCandidate, type SlotPool } from "./courseRoute";
+import {
+  assembleRouteWithEscalation,
+  dedupePoolsByBrand,
+  resolveDuplicatePicks,
+  rerollSlot,
+  haversineKm,
+  type RouteCandidate,
+  type SlotPool,
+} from "./courseRoute";
 import {
   curateTaste,
   deterministicShortlistForSlot,
@@ -291,6 +299,29 @@ export interface GenerateCourseOptions {
   endAnchor?: GenerateCourseAnchor;
   /** 다일정(멀티데이) — 이전 날짜에 이미 배정된 장소 id. 이번 날의 후보 풀에서 아예 제외해, 같은 여행에서 하루 걸러 같은 곳이 또 뽑히는 걸 막는다(generateMultiDayCourse 참고). 하루짜리 호출에선 항상 비어있다. */
   excludeIds?: Set<string>;
+  /** 다일정 — 이전 날짜에 이미 쓰인 장소 이름들. id가 달라도(예: "규카츠 모토무라 난바 분점" vs "…도톤보리점") sameShop 기준으로 같은 브랜드면 이번 날 후보에서 아예 뺀다 — excludeIds(정확히 같은 장소)만으론 못 막는, 오사카 3박4일 실측에서 실제로 나온 "같은 브랜드가 날짜만 바뀌어 반복" 문제의 직접 대응. */
+  excludeNames?: string[];
+  /** 다일정 — 지금까지(이전 날짜들) 배정된 스팟들의 좌표 중심. 있으면 그 중심에 가까운 후보에 소폭 감점을 줘, 여러 날짜가 전부 같은 동네(예: 도톤보리)로 쏠리는 걸 완화한다. 완전한 지리 군집화는 아니고 스코어링 단계의 가벼운 넛지 — 자세한 트레이드오프는 clusterPenalty 주석 참고. */
+  avoidCentroid?: { lat: number; lng: number };
+}
+
+// 이미 배정된 스팟들의 중심에서 이 반경(km) 안이면 감점, 밖이면 0 —
+// 가까울수록 감점이 커진다(선형). "브랜드 중복"과 별개로, 같은 브랜드가
+// 아니어도 도톤보리 반경 안 스팟들끼리는 서로 taste가 높아 계속 뽑히는
+// 경향이 있어(관광지 밀집 지역일수록 평점 높은 곳이 몰림) 이 소프트
+// 페널티로 완화한다. 기존 KM_PENALTY(0.35, 인접 스팟 간 이동거리
+// 페널티)보다 세게 잡아야 체감이 되므로 km당 0.6 — 반경(3km) 안에서
+// 최대 1.8점 감점, 취향점수 스케일(0~13, RANK_TASTE 최대 10)에서 결정을
+// 뒤집을 만큼은 아니면서(그러면 진짜 좋은 곳도 다 배제됨) 순위를 밀어낼
+// 정도로 조정.
+const CLUSTER_AVOID_RADIUS_KM = 3;
+const CLUSTER_PENALTY_PER_KM = 0.6;
+
+function clusterPenalty(p: Place, avoidCentroid: { lat: number; lng: number } | undefined): number {
+  if (!avoidCentroid || !p.lat || !p.lng) return 0;
+  const d = haversineKm({ lat: p.lat, lng: p.lng }, avoidCentroid);
+  if (d >= CLUSTER_AVOID_RADIUS_KM) return 0;
+  return (CLUSTER_AVOID_RADIUS_KM - d) * CLUSTER_PENALTY_PER_KM;
 }
 
 export async function generateCourseV2(
@@ -310,13 +341,16 @@ export async function generateCourseV2(
     options.startMinutes != null && options.endMinutes != null ? buildDynamicSlots(theme, options.startMinutes, options.endMinutes) : null;
   const slots = dynamicSlots && dynamicSlots.length > 0 ? dynamicSlots : THEME_SLOTS[theme];
 
-  // 1. 후보 수집 — v1과 동일한 fetchSlotCandidates(POOL_SIZE=6까지). excludeIds가
-  // 있으면(다일정에서 이전 날짜가 이미 쓴 장소) 여기서 바로 걸러내 이후
-  // 단계(LLM 큐레이션·DP)가 애초에 그 장소를 볼 일이 없게 한다.
+  // 1. 후보 수집 — v1과 동일한 fetchSlotCandidates(POOL_SIZE=6까지). excludeIds
+  // (다일정에서 이전 날짜가 이미 쓴 정확히 같은 장소)와 excludeNames(같은
+  // 브랜드의 다른 지점 — sameShop 기준)를 여기서 바로 걸러내 이후 단계
+  // (LLM 큐레이션·DP)가 애초에 그 장소/브랜드를 볼 일이 없게 한다.
   const rawPools = await Promise.all(
     slots.map(async (slot) => {
-      const raw = await fetchSlotCandidates(scope, city, slot);
-      return { slot, raw: options.excludeIds ? raw.filter((p) => !options.excludeIds!.has(p.id)) : raw };
+      let raw = await fetchSlotCandidates(scope, city, slot);
+      if (options.excludeIds) raw = raw.filter((p) => !options.excludeIds!.has(p.id));
+      if (options.excludeNames && options.excludeNames.length > 0) raw = raw.filter((p) => !options.excludeNames!.some((n) => sameShop(n, p.name)));
+      return { slot, raw };
     }),
   );
   if (rawPools.every((p) => p.raw.length === 0)) {
@@ -333,11 +367,16 @@ export async function generateCourseV2(
   // 나머지(리롤용 예비 후보)는 rawBySlot에 그대로 남아있어 리롤/
   // resolveDuplicatePicks 쪽 풍부함에는 영향 없다 — LLM 토큰 비용/응답
   // 시간만 줄이는 변경.
+  // avoidCentroid가 있으면(다일정에서 이전 날짜들이 이미 배정한 스팟들의
+  // 중심) 이 정렬 단계에서만 clusterPenalty를 반영한다 — LLM 프롬프트로
+  // 나가는 후보 순서·구성과 LLM 실패 시 폴백(deterministicShortlistForSlot,
+  // courseTaste.ts)이 둘 다 이 slot.candidates를 그대로 받아쓰므로, 여기
+  // 한 곳만 고치면 두 경로 모두에 일관되게 적용된다.
   const tasteInputs: TasteSlotInput[] = rawPools.map(({ slot, raw }) => ({
     slotKey: slot.key,
     slotLabel: `${slot.label} · ${String(slot.hour).padStart(2, "0")}:00`,
     candidates: raw
-      .map((p, i) => ({ c: placeToTasteCandidate(p), taste: deterministicTaste(placeToTasteCandidate(p), i) }))
+      .map((p, i) => ({ c: placeToTasteCandidate(p), taste: deterministicTaste(placeToTasteCandidate(p), i) - clusterPenalty(p, options.avoidCentroid) }))
       .sort((a, b) => b.taste - a.taste)
       .slice(0, LLM_CANDIDATE_LIMIT)
       .map(({ c }) => c),
