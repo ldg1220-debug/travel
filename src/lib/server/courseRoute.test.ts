@@ -261,3 +261,61 @@ describe("resolveDuplicatePicks", () => {
     expect(result.get("c")?.id).toBe("Z");
   });
 });
+
+// ── 시작·종료 위치 고정(DP 앵커) ─────────────────────────────────────
+//
+// courseRoute.ts 자체는 이 기능을 위해 전혀 수정하지 않았다 — 후보가
+// 정확히 1개뿐인 레이어를 pools 배열 맨 앞/뒤에 끼워 넣으면, 기존
+// 인접-레이어 이동 페널티 로직만으로 이미 "그 지점을 반드시 거침" 제약이
+// 된다(courseRecommendV2.ts가 실제로 이렇게 조립한다). 여기선 그 조립
+// 방식을 assembleRoute에 직접 적용해 검증한다.
+describe("assembleRoute — start/end anchors (synthetic single-candidate boundary layers)", () => {
+  it("pins only the start when no end anchor is given (open point-to-point route)", () => {
+    const pools: SlotPool[] = [
+      { slotKey: "__start__", candidates: [cand("start", 37.5, 127.0, 0)] },
+      { slotKey: "sight", candidates: [cand("far-high", 37.62, 127.02, 10), cand("near-ok", 37.505, 127.005, 9)] },
+    ];
+    const picked = assembleRoute(pools, null, false);
+    expect(picked?.get("__start__")?.id).toBe("start");
+    // 앵커에서 가까운 쪽이, 취향점수가 더 높아도 거리 페널티 때문에 진다 —
+    // courseRoute.ts의 기존 "prefers globally best combo" 테스트와 같은 이치.
+    expect(picked?.get("sight")?.id).toBe("near-ok");
+  });
+
+  it("pins both start and end, doubling the pull toward whichever candidate is close to the anchor point", () => {
+    const pools: SlotPool[] = [
+      { slotKey: "__start__", candidates: [cand("start", 37.5, 127.0, 0)] },
+      { slotKey: "sight", candidates: [cand("far-high", 37.62, 127.02, 10), cand("near-ok", 37.505, 127.005, 9)] },
+      { slotKey: "__end__", candidates: [cand("end", 37.5, 127.0, 0)] },
+    ];
+    const picked = assembleRoute(pools, null, false);
+    expect(picked?.get("__start__")?.id).toBe("start");
+    expect(picked?.get("__end__")?.id).toBe("end");
+    expect(picked?.get("sight")?.id).toBe("near-ok");
+  });
+
+  it("handles a circular route (start and end anchors at the same coordinates, e.g. '숙소로 복귀') via the same adjacent-layer penalty — no special-cased circular-route code needed", () => {
+    const lodging = { lat: 37.5, lng: 127.0 };
+    const pools: SlotPool[] = [
+      { slotKey: "__start__", candidates: [cand("lodging", lodging.lat, lodging.lng, 0)] },
+      { slotKey: "sight", candidates: [cand("far-high", 37.62, 127.02, 10), cand("near-ok", 37.505, 127.005, 9)] },
+      { slotKey: "__end__", candidates: [cand("lodging", lodging.lat, lodging.lng, 0)] },
+    ];
+    const picked = assembleRoute(pools, null, false);
+    // 왕복(숙소→명소→숙소)이라 편도 페널티의 두 배가 걸린다 — far-high는
+    // km당 0.35 페널티가 4점 캡에 걸려 두 구간 다 캡 상한(총 8점 감점)이라
+    // near-ok(왕복 페널티 총 ~0.5점)가 취향점수 차이(10 vs 9)를 훨씬 넘어
+    // 큰 격차로 이긴다.
+    expect(picked?.get("sight")?.id).toBe("near-ok");
+    expect(picked?.get("__start__")?.id).toBe("lodging");
+    expect(picked?.get("__end__")?.id).toBe("lodging");
+  });
+
+  it("applies the radius constraint to anchor edges too — an anchor far from every real candidate makes the path infeasible, same as any other adjacent pair", () => {
+    const pools: SlotPool[] = [
+      { slotKey: "__start__", candidates: [cand("start", 37.5, 127.0, 0)] },
+      { slotKey: "sight", candidates: [cand("only", 40.0, 130.0, 10)] }, // 수백km 떨어짐
+    ];
+    expect(assembleRoute(pools, 5, false)).toBeNull();
+  });
+});

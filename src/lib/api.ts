@@ -148,6 +148,42 @@ export type CourseTheme = "balanced" | "foodie" | "healing" | "culture" | "activ
 /** 스톱 간 이동 시간 상한(분). 0 = 제한없음. server의 TravelRadius와 값이 일치해야 함. */
 export type CourseTravelRadius = 0 | 15 | 30 | 60 | 120;
 
+/** 이동 수단 — 위 반경이 가정하는 이동 속도를 바꾼다. server의 TravelMode와 값이 일치해야 함. */
+export type CourseTravelMode = "walk" | "transit" | "car";
+
+/** 시작·종료 위치 고정(DP 앵커)에 쓰는 사용자가 직접 고른 실제 장소. */
+export interface CourseAnchor {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+/** "세부 설정" 패널에서만 채워지는 선택 옵션들 — 전부 생략하면 기존(v2 기본) 동작과 동일하다. */
+export interface RecommendedCourseOptions {
+  mode?: CourseTravelMode;
+  /** "HH:MM" — 시작·종료 둘 다 있어야 서버가 시간 예산 기반 동적 슬롯을 켠다. */
+  startTime?: string;
+  endTime?: string;
+  startAnchor?: CourseAnchor;
+  endAnchor?: CourseAnchor;
+  /** 다일정(멀티데이) — 이전 날짜에 이미 배정된 place id들. 이번 날 후보에서 제외해 같은 장소가 이틀 걸러 또 뽑히는 걸 막는다. */
+  excludeIds?: string[];
+  /** 다일정 — 이전 날짜에 이미 쓰인 장소 "이름"들. id가 다른 같은 브랜드(다른 지점)까지 걸러낸다(excludeIds는 정확히 같은 장소만 막음). */
+  excludeNames?: string[];
+  /** 다일정 — 지금까지 배정된 스팟들의 좌표 중심. 있으면 그 근처 후보에 소폭 감점을 줘 날짜마다 같은 동네로 쏠리는 걸 완화한다. */
+  avoidCentroid?: { lat: number; lng: number };
+  /** 다일정 — 0부터 시작하는 날짜 인덱스. 뒤쪽 날짜(서버 기준 3일차부터)일수록 excludeIds/excludeNames 누적으로 후보 풀이 마르기 쉬워, 서버가 이 값을 보고 후보 풀을 넓혀 쓴다. */
+  dayIndex?: number;
+}
+
+/** 조건(품질 게이트·중복 제외·반경)에 맞는 곳을 못 찾아 빈 채로 남은 슬롯 — UI가 "이 시간대엔 조건에 맞는 곳을 못 찾았어요" 안내를 띄울 때 쓴다. */
+export interface EmptyStopSlot {
+  slotKey: string;
+  slotLabel: string;
+  hour: number;
+}
+
 export interface RecommendedCourseResult {
   stops: RecommendedStop[];
   /**
@@ -158,6 +194,8 @@ export interface RecommendedCourseResult {
    * exclude-list+anchor-from-client).
    */
   courseId: string | null;
+  /** v2 전용(v1은 항상 빈 배열) — 조건에 맞는 곳을 못 찾아 빈 채로 남은 시간대들. */
+  emptySlots: EmptyStopSlot[];
 }
 
 /** AI 추천 동선 — a full auto-assembled day course of real top-rated places for a city, shaped by `theme`. Empty when the live API is unavailable (no key). */
@@ -166,22 +204,176 @@ export async function fetchRecommendedCourse(
   city: string,
   theme: CourseTheme = "balanced",
   radius: CourseTravelRadius = 60,
+  options: RecommendedCourseOptions = {},
 ): Promise<RecommendedCourseResult> {
-  const empty: RecommendedCourseResult = { stops: [], courseId: null };
+  const empty: RecommendedCourseResult = { stops: [], courseId: null, emptySlots: [] };
   if (!city.trim()) return empty;
   try {
-    const res = await fetch(`/api/course/recommend?scope=${scope}&city=${encodeURIComponent(city)}&theme=${theme}&radius=${radius}`);
+    const params = new URLSearchParams({ scope, city, theme, radius: String(radius) });
+    if (options.mode) params.set("mode", options.mode);
+    if (options.startTime) params.set("startTime", options.startTime);
+    if (options.endTime) params.set("endTime", options.endTime);
+    if (options.startAnchor) {
+      params.set("startId", options.startAnchor.id);
+      params.set("startName", options.startAnchor.name);
+      params.set("startLat", String(options.startAnchor.lat));
+      params.set("startLng", String(options.startAnchor.lng));
+    }
+    if (options.endAnchor) {
+      params.set("endId", options.endAnchor.id);
+      params.set("endName", options.endAnchor.name);
+      params.set("endLat", String(options.endAnchor.lat));
+      params.set("endLng", String(options.endAnchor.lng));
+    }
+    if (options.excludeIds && options.excludeIds.length > 0) params.set("excludeIds", options.excludeIds.join(","));
+    if (options.excludeNames && options.excludeNames.length > 0) params.set("excludeNames", options.excludeNames.map((n) => encodeURIComponent(n)).join(","));
+    if (options.avoidCentroid) {
+      params.set("avoidLat", String(options.avoidCentroid.lat));
+      params.set("avoidLng", String(options.avoidCentroid.lng));
+    }
+    if (options.dayIndex != null) params.set("dayIndex", String(options.dayIndex));
+    const res = await fetch(`/api/course/recommend?${params.toString()}`);
     if (!res.ok) return empty;
-    const data = (await res.json()) as { course?: RecommendedStop[]; source?: string; courseId?: string };
+    const data = (await res.json()) as { course?: RecommendedStop[]; source?: string; courseId?: string; emptySlots?: EmptyStopSlot[] };
     // "llm"/"google"/"kakao" = v1 (Claude-curated or deterministic ranker).
     // "llm-v2"/"deterministic-v2" = v2 (COURSE_PIPELINE=v2). All are real
     // live results either way. "mock" = no API key configured.
     const REAL_SOURCES = new Set(["google", "kakao", "llm", "llm-v2", "deterministic-v2"]);
     if (!data.source || !REAL_SOURCES.has(data.source)) return empty;
-    return { stops: data.course ?? [], courseId: data.courseId ?? null };
+    return { stops: data.course ?? [], courseId: data.courseId ?? null, emptySlots: data.emptySlots ?? [] };
   } catch {
     return empty;
   }
+}
+
+/** 하루짜리 코스 하나 + 그 날짜 번호(1부터). fetchMultiDayCourse가 반환하는 배열의 원소. */
+export interface RecommendedDayCourse {
+  day: number;
+  stops: RecommendedStop[];
+  courseId: string | null;
+  emptySlots: EmptyStopSlot[];
+}
+
+/** 다일정(멀티데이) "세부 설정"에서 입력하는 공통 지점들 — 전부 선택 사항. */
+export interface MultiDayAnchors {
+  /** 매일 아침 출발·저녁 복귀하는 공통 지점(보통 숙소) — 중간 날짜의 시작·종료 둘 다로, 그리고 도착/출발 지점을 안 정했을 때 첫날/마지막날의 나머지 한쪽으로도 쓰인다. */
+  lodging?: CourseAnchor;
+  /** 첫날 시작 지점(공항·기차역 등). 없으면 lodging으로 대체. */
+  arrival?: CourseAnchor;
+  arrivalTime?: string;
+  /** 마지막날 종료 지점(공항 등). 없으면 lodging으로 대체. */
+  departure?: CourseAnchor;
+  departureTime?: string;
+}
+
+// 오사카 3박4일 프리뷰 실측에서 나온 버그 — Day 1에 도착 시각(예:14:00)만
+// 주고 종료 시각은 안 줬는데(그날 저녁 몇 시까지 놀지는 안 정하는 게
+// 자연스러움), 서버의 buildDynamicSlots는 시작·종료가 "둘 다" 있어야
+// 켜지는 설계라 통째로 기본 골격(10:00~)으로 폴백해 도착 전 시각에 일정이
+// 잡혔다. 당일(단일) 모드는 "둘 다 입력해야 적용"이라는 안내 문구가 이미
+// 있어 그 규칙을 그대로 두고, 다일정에서만 한쪽이 비면 아래 기본값으로
+// 채워 넣어 항상 동적 슬롯이 켜지게 한다.
+const DEFAULT_DAY_START_TIME = "10:00";
+const DEFAULT_DAY_END_TIME = "21:00";
+/** 마지막 날 출발 시각 그 자체까지 일정을 채우면 공항 이동·체크인 여유가 없다 — 활동 종료를 이만큼 앞당긴다. */
+const DEPARTURE_BUFFER_MINUTES = 90;
+
+function timeToMinutes(t: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+function minutesToTime(mins: number): string {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, mins));
+  return `${String(Math.floor(clamped / 60)).padStart(2, "0")}:${String(clamped % 60).padStart(2, "0")}`;
+}
+
+/**
+ * 여러 날짜의 코스를 순차 생성한다 — 하루 개념만 아는 기존
+ * generateCourseV2(=/api/course/recommend)를 day 수만큼 그대로 반복
+ * 호출하는 것뿐이라 서버에 새 엔드포인트/함수를 두지 않았다. 앵커는 날짜별로:
+ *
+ *   Day 1(첫날):    시작=도착 지점(없으면 숙소), 종료=숙소
+ *   중간 날짜:      시작=종료=숙소 (기존 순환 경로 그대로)
+ *   마지막 날:      시작=숙소, 종료=출발 지점(없으면 숙소)
+ *
+ * 이전 날짜에서 이미 나온 장소 id를 다음 날짜의 excludeIds로 넘겨 같은
+ * 여행 안에서 같은 곳(정확히 같은 place)이 또 뽑히지 않게 한다(하드
+ * 개런티). 같은 "브랜드"의 다른 지점(예: 규카츠 모토무라 난바점/도톤보리점
+ * — id는 다르지만 사실상 같은 가게)은 excludeIds로는 안 걸러져서
+ * excludeNames로 따로 넘긴다(서버가 sameShop으로 매칭). 완전한 지리적
+ * 군집화(예: "시내 → 근교 당일치기"처럼 날짜별 방향을 다르게)까지는 하지
+ * 않고, avoidCentroid(지금까지 배정된 스팟들의 좌표 중심)를 넘겨 그
+ * 근처 후보에 소폭 감점만 주는 가벼운 넛지로 그쳤다 — 새 DP 없이
+ * 스코어링 단계에서만 처리(Directions API 연동을 보류한 것과 같은
+ * 이유로, 완전한 군집화는 범위 대비 이득이 불확실해 후속 과제로 남김).
+ *
+ * 순차 실행(day를 병렬로 안 돌림) — 다음 날짜의 excludeIds/excludeNames/
+ * avoidCentroid가 이전 날짜 결과에 의존하므로 병렬화할 수 없다.
+ * `onProgress`는 각 날짜 요청을 시작하기 직전에 (진행 중인 날짜, 전체
+ * 날짜 수)로 호출된다 — 순차라 오사카 3박4일 실측에서 총 ~40초가
+ * 걸렸는데 그 사이 화면에 아무 표시가 없어 멈춘 것처럼 보였다는 피드백을
+ * 반영.
+ */
+export async function fetchMultiDayCourse(
+  scope: DiscoverScope,
+  city: string,
+  theme: CourseTheme,
+  radius: CourseTravelRadius,
+  days: number,
+  mode: CourseTravelMode,
+  anchors: MultiDayAnchors,
+  onProgress?: (day: number, days: number) => void,
+): Promise<RecommendedDayCourse[]> {
+  const result: RecommendedDayCourse[] = [];
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+  let centroidLatSum = 0;
+  let centroidLngSum = 0;
+  let centroidCount = 0;
+
+  for (let day = 1; day <= days; day++) {
+    onProgress?.(day, days);
+    const isFirst = day === 1;
+    const isLast = day === days;
+    const startAnchor = isFirst ? (anchors.arrival ?? anchors.lodging) : anchors.lodging;
+    const endAnchor = isLast ? (anchors.departure ?? anchors.lodging) : anchors.lodging;
+
+    let startTime: string | undefined;
+    let endTime: string | undefined;
+    if (isFirst && anchors.arrivalTime) {
+      startTime = anchors.arrivalTime;
+      endTime = DEFAULT_DAY_END_TIME;
+    }
+    if (isLast && anchors.departureTime) {
+      const departureMinutes = timeToMinutes(anchors.departureTime);
+      endTime = departureMinutes != null ? minutesToTime(departureMinutes - DEPARTURE_BUFFER_MINUTES) : anchors.departureTime;
+      startTime = startTime ?? DEFAULT_DAY_START_TIME;
+    }
+
+    const { stops, courseId, emptySlots } = await fetchRecommendedCourse(scope, city, theme, radius, {
+      mode,
+      startTime,
+      endTime,
+      startAnchor,
+      endAnchor,
+      excludeIds: [...seenIds],
+      excludeNames: [...seenNames],
+      avoidCentroid: centroidCount > 0 ? { lat: centroidLatSum / centroidCount, lng: centroidLngSum / centroidCount } : undefined,
+      dayIndex: day - 1,
+    });
+    stops.forEach((s) => {
+      seenIds.add(s.id);
+      seenNames.add(s.name);
+      if (s.lat && s.lng) {
+        centroidLatSum += s.lat;
+        centroidLngSum += s.lng;
+        centroidCount++;
+      }
+    });
+    result.push({ day, stops, courseId, emptySlots });
+  }
+  return result;
 }
 
 /**
@@ -198,6 +390,11 @@ export async function fetchRecommendedCourse(
  *  - v1: stateless per-request — `currentCourse` supplies the exclude-list
  *    (never repeat a place already shown) and an anchor point (the
  *    previous stop, if any) for proximity ranking.
+ *
+ * `extraExcludeIds` only matters on the v2/courseId path — the server's
+ * course state only knows this one day's history, so a multi-day caller
+ * (fetchMultiDayCourse) passes every OTHER day's stop ids here to stop a
+ * reroll from re-suggesting a place already used on a different day.
  */
 export async function fetchRerolledStop(
   scope: DiscoverScope,
@@ -207,11 +404,13 @@ export async function fetchRerolledStop(
   currentCourse: RecommendedStop[],
   radius: CourseTravelRadius = 60,
   courseId?: string | null,
+  extraExcludeIds?: string[],
 ): Promise<RecommendedStop | null> {
   if (!city.trim()) return null;
   const params = new URLSearchParams({ scope, city, theme, slot: slotKey, radius: String(radius) });
   if (courseId) {
     params.set("courseId", courseId);
+    if (extraExcludeIds && extraExcludeIds.length > 0) params.set("excludeIds", extraExcludeIds.join(","));
   } else {
     const idx = currentCourse.findIndex((s) => s.slotKey === slotKey);
     const anchor = idx > 0 ? currentCourse[idx - 1] : null;
@@ -1166,4 +1365,29 @@ export async function setUserAdmin(userId: number, isAdmin: boolean): Promise<vo
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(data?.error ?? "관리자 권한 변경에 실패했어요");
   }
+}
+
+/**
+ * 플래너의 "숙소 예약" CTA 전환 추적 — VisitorPing과 같은 fire-and-forget
+ * 방식(응답을 기다리거나 실패를 화면에 드러낼 이유가 없는 순수 로깅이라).
+ * `kind: "open"`은 팝업을 연 시점, `kind: "click"`은 특정 예약사 링크를
+ * 실제로 누른 시점 — 둘의 비율이 곧 이 CTA의 실제 전환율.
+ */
+export function logLodgingCtaEvent(
+  kind: "open" | "click",
+  // "course" = 코스 만들기의 "세부 설정" 시작·종료 위치 입력란에 붙은
+  // "숙소 정하셨나요?" CTA — 아직 숙소를 안 정한 사용자가 동선을 짜기
+  // *직전*에 뜨는 지점이라 플래너의 header/timeline보다도 의도가 높을
+  // 것으로 보고 별도 placement로 남겨 비교한다.
+  placement: "header" | "timeline" | "course",
+  city: string,
+  region: Region,
+  provider?: string,
+  isAffiliate?: boolean,
+): void {
+  fetch("/api/track/lodging-cta", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, placement, city, region, provider, isAffiliate }),
+  }).catch(() => {});
 }
