@@ -1742,6 +1742,15 @@ function SpotCard({
             className="absolute inset-0 h-full w-full object-cover"
           />
         )}
+        {/* No live photo matched this spot's name — a bare gradient reads as
+            a broken/missing image, especially sitting next to cards that do
+            have a real photo. A large centered glyph makes the no-photo
+            state look like a deliberate illustrated tile instead. */}
+        {photoFailed && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <Icon size={40} className="text-white/40" />
+          </div>
+        )}
         <div className="absolute right-2 top-2">
           <Badge className="border-none bg-white/85 text-[10px] font-semibold text-slate-700 backdrop-blur">
             {spot.tag}
