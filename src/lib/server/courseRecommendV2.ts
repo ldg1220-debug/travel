@@ -26,6 +26,7 @@ import {
   radiusKmFor,
   buildDynamicSlots,
   isLargeFacility,
+  cuisineKeyword,
   type CourseTheme,
   type TravelRadius,
   type TravelMode,
@@ -314,6 +315,8 @@ export interface GenerateCourseOptions {
   excludeNames?: string[];
   /** 다일정 — 지금까지(이전 날짜들) 배정된 스팟들의 좌표 중심. 있으면 그 중심에 가까운 후보에 소폭 감점을 줘, 여러 날짜가 전부 같은 동네(예: 도톤보리)로 쏠리는 걸 완화한다. 완전한 지리 군집화는 아니고 스코어링 단계의 가벼운 넛지 — 자세한 트레이드오프는 clusterPenalty 주석 참고. */
   avoidCentroid?: { lat: number; lng: number };
+  /** 다일정 — 이전 날짜에 이미 나온 음식 종류들(courseRecommend.ts의 cuisineKeyword로 추출, 예: "규카츠"). 같은 종류가 다시 뽑히면 소폭 감점만 준다(하드 제외 아님) — 브랜드는 달라도 같은 음식이 반복되는 걸 완화하되, 하드 제외로 후보 풀을 다시 좁히지는 않는다는 게 GitHub issue #157의 명시적 요구다. */
+  avoidCuisines?: string[];
   /**
    * 다일정 — 0부터 시작하는 날짜 인덱스(1일차=0). 4차 실측(오사카
    * 3박4일)에서 확인된 원인: 슬롯별 raw 후보 풀이 도시+슬롯 키로
@@ -357,6 +360,21 @@ function clusterPenalty(p: Place, avoidCentroid: { lat: number; lng: number } | 
   const d = haversineKm({ lat: p.lat, lng: p.lng }, avoidCentroid);
   if (d >= CLUSTER_AVOID_RADIUS_KM) return 0;
   return (CLUSTER_AVOID_RADIUS_KM - d) * CLUSTER_PENALTY_PER_KM;
+}
+
+// GitHub issue #157 — 하드 제외가 아니라 소폭 감점만. 브랜드 중복
+// 억제(sameShop)와 달리 "같은 음식 종류"는 여행 중 몇 번 반복돼도
+// 실제로는 크게 이상하지 않을 수 있어(예: 라멘을 두 번 먹는 건 흔함),
+// 후보 풀을 다시 좁히는 하드 제외보다는 다른 조건이 비슷할 때 순위를
+// 한 칸 밀어내는 정도가 적절하다는 게 이슈의 명시적 결론이다. clusterPenalty
+// 최대치(1.8)보다 살짝 크게 잡아(2) "취향점수가 뚜렷이 높은 곳"까지
+// 밀어내진 않게 했다.
+const CUISINE_REPEAT_PENALTY = 2;
+
+function cuisinePenalty(p: Place, avoidCuisines: string[] | undefined): number {
+  if (!avoidCuisines || avoidCuisines.length === 0) return 0;
+  const k = cuisineKeyword(p.name);
+  return k && avoidCuisines.includes(k) ? CUISINE_REPEAT_PENALTY : 0;
 }
 
 export async function generateCourseV2(
@@ -417,7 +435,10 @@ export async function generateCourseV2(
     slotKey: slot.key,
     slotLabel: `${slot.label} · ${String(slot.hour).padStart(2, "0")}:00`,
     candidates: raw
-      .map((p, i) => ({ c: placeToTasteCandidate(p), taste: deterministicTaste(placeToTasteCandidate(p), i) - clusterPenalty(p, options.avoidCentroid) }))
+      .map((p, i) => ({
+        c: placeToTasteCandidate(p),
+        taste: deterministicTaste(placeToTasteCandidate(p), i) - clusterPenalty(p, options.avoidCentroid) - cuisinePenalty(p, options.avoidCuisines),
+      }))
       .sort((a, b) => b.taste - a.taste)
       .slice(0, LLM_CANDIDATE_LIMIT)
       .map(({ c }) => c),

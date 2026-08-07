@@ -658,6 +658,22 @@ export function isLargeFacility(p: Place): boolean {
   return LARGE_FACILITY_TYPES.has(p.category?.toLowerCase() ?? "");
 }
 
+// 다일정(멀티데이) 실측(오사카 3박4일)에서 관찰: 규카츠가 Day1(모토무라)·
+// Day3(요사쿠라)로 2회 — 서로 다른 브랜드라 sameShop 기준 중복 억제는
+// 정상 동작했지만, "같은 음식 종류가 반복된다"는 별개 축의 아쉬움이었다
+// (GitHub issue #157). 스팟 이름에 이 중 하나가 포함돼 있으면 그
+// 종류로 분류한다 — 업체명이 늘 음식 종류를 담고 있진 않으므로(예:
+// "우오신"), 매치가 없으면 undefined를 돌려주고 그 경우 다양성 로직이
+// 아예 개입하지 않는다(모르는 걸 억지로 분류하지 않음).
+const CUISINE_KEYWORDS = [
+  "규카츠", "라멘", "우동", "소바", "스시", "초밥", "돈카츠", "텐푸라", "오코노미야키",
+  "다코야키", "야키니쿠", "샤브샤브", "스키야키", "이자카야", "카레", "오니기리",
+  "불고기", "삼겹살", "곱창", "치킨", "피자", "파스타", "버거", "훠궈", "딤섬",
+];
+export function cuisineKeyword(name: string): string | undefined {
+  return CUISINE_KEYWORDS.find((k) => name.includes(k));
+}
+
 /**
  * Live-searches one slot's candidate pool. Empty array when no API key is
  * configured for the scope.

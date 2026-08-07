@@ -89,6 +89,10 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     // 출발일(공항 등 실제 종료 지점이 있는 마지막 날)엔 테마파크 같은
     // 대형 시설을 후보에서 아예 뺀다 — GitHub issue #156.
     const excludeLargeFacilities = request.nextUrl.searchParams.get("excludeLargeFacilities") === "1";
+    // 이전 날짜에 이미 나온 음식 종류 — GitHub issue #157. excludeNames와
+    // 같은 형식(콤마 구분, URI 인코딩).
+    const avoidCuisinesParam = request.nextUrl.searchParams.get("avoidCuisines");
+    const avoidCuisines = avoidCuisinesParam ? avoidCuisinesParam.split(",").filter(Boolean).map((n) => decodeURIComponent(n)) : undefined;
     return NextResponse.json(
       await generateCourseV2(scope, city, theme, radius, {
         mode,
@@ -100,6 +104,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
         avoidCentroid,
         dayIndex,
         excludeLargeFacilities,
+        avoidCuisines,
       }),
     );
   }

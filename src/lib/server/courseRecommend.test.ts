@@ -9,6 +9,7 @@ import {
   applyQualityGate,
   sameShop,
   isLargeFacility,
+  cuisineKeyword,
   THEME_LABELS,
   type CourseTheme,
 } from "./courseRecommend";
@@ -221,6 +222,24 @@ describe("isLargeFacility", () => {
 
   it("handles Kakao's broad category strings (never flags them — Kakao doesn't have this granularity)", () => {
     expect(isLargeFacility(place({ category: "관광명소" }))).toBe(false);
+  });
+});
+
+// 다일정 실측(오사카)에서 관찰 — 규카츠가 서로 다른 브랜드(모토무라/
+// 요사쿠라)로 2번 나옴 (GitHub issue #157). cuisineKeyword 자체는
+// "이름 → 종류" 추출만 하는 순수 함수 — 실제 감점 로직(cuisinePenalty)은
+// courseRecommendV2.ts에 있어 여기선 안 다룬다(그쪽은 courseRoute.ts
+// 등과 같은 이유로 orchestration이라 단위테스트 대상 밖).
+describe("cuisineKeyword", () => {
+  it("extracts a recognized cuisine keyword from a place name", () => {
+    expect(cuisineKeyword("규카츠 모토무라 난바 분점")).toBe("규카츠");
+    expect(cuisineKeyword("규카츠 요사쿠라 나가호리바시점")).toBe("규카츠");
+    expect(cuisineKeyword("Gyumon Dotonbori 2nd")).toBeUndefined(); // 영문 표기엔 한글 키워드가 안 걸림 — 알려진 한계
+  });
+
+  it("returns undefined when the name carries no recognizable cuisine signal (most business names don't)", () => {
+    expect(cuisineKeyword("우오신")).toBeUndefined();
+    expect(cuisineKeyword("오사카 성")).toBeUndefined();
   });
 });
 
