@@ -1167,3 +1167,24 @@ export async function setUserAdmin(userId: number, isAdmin: boolean): Promise<vo
     throw new Error(data?.error ?? "관리자 권한 변경에 실패했어요");
   }
 }
+
+/**
+ * 플래너의 "숙소 예약" CTA 전환 추적 — VisitorPing과 같은 fire-and-forget
+ * 방식(응답을 기다리거나 실패를 화면에 드러낼 이유가 없는 순수 로깅이라).
+ * `kind: "open"`은 팝업을 연 시점, `kind: "click"`은 특정 예약사 링크를
+ * 실제로 누른 시점 — 둘의 비율이 곧 이 CTA의 실제 전환율.
+ */
+export function logLodgingCtaEvent(
+  kind: "open" | "click",
+  placement: "header" | "timeline",
+  city: string,
+  region: Region,
+  provider?: string,
+  isAffiliate?: boolean,
+): void {
+  fetch("/api/track/lodging-cta", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, placement, city, region, provider, isAffiliate }),
+  }).catch(() => {});
+}

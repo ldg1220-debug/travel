@@ -77,7 +77,7 @@ import {
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
-import { fetchSharedItinerary } from "@/lib/api";
+import { fetchSharedItinerary, logLodgingCtaEvent } from "@/lib/api";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
@@ -638,8 +638,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // discover의 LivePlaceCard가 특정 업체 하나를 검색하는 것과 달리, 여기는
   // 도시 단위(currentCity)로 검색 딥링크를 연다 — 특정 숙소를 추천하는 게
   // 아니라 "이 도시에서 숙소를 찾아보라"는 진입점.
-  const [lodgingPickerOpen, setLodgingPickerOpen] = useState(false);
+  //
+  // null = 닫힘, 아니면 어느 진입점("header" 상단 배지 / "timeline" 일정
+  // 2곳 이상 채운 뒤 뜨는 배너)에서 열었는지 — 전환 추적(logLodgingCtaEvent)
+  // 이 두 위치 중 어디가 더 잘 눌리는지 나중에 비교할 수 있게 같이 남긴다.
+  const [lodgingPickerPlacement, setLodgingPickerPlacement] = useState<"header" | "timeline" | null>(null);
   const lodgingProviders = useMemo(() => (currentCity ? bookingProviders(currentCity, region) : []), [currentCity, region]);
+  const openLodgingPicker = (placement: "header" | "timeline") => {
+    if (!currentCity) return;
+    setLodgingPickerPlacement(placement);
+    logLodgingCtaEvent("open", placement, currentCity, region);
+  };
   const budgetBreakdownItems = useMemo(() => {
     if (budgetBreakdownScope == null) return [];
     const source = budgetBreakdownScope === "all" ? items : (scheduleByDate[budgetBreakdownScope] ?? []);
@@ -1851,7 +1860,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     {/* 일정을 짜는 중이라는 건 곧 숙소를 예약할 사람이라는
                         뜻 — 그 순간 바로 이 도시 숙소 딥링크를 보여준다. */}
                     {currentCity && (
-                      <button onClick={() => setLodgingPickerOpen(true)} aria-label={`${currentCity} 숙소 예약`}>
+                      <button onClick={() => openLodgingPicker("header")} aria-label={`${currentCity} 숙소 예약`}>
                         <Badge className="gap-1 rounded-full border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[13px] font-bold text-indigo-700 hover:bg-indigo-100">
                           <CordixIcon name="bed" size={13} stroke="#4338ca" accent="#4338ca" />
                           숙소 예약
@@ -2009,6 +2018,31 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 </div>
                 )}
               </div>
+
+              {/* 일정을 이미 2곳 이상 채운 날은 여행 일정 자체가 구체화된
+                  시점이라, "일정을 다 짠 뒤 예약"이라는 자연스러운 흐름에
+                  더 맞는 자리에도 같은 CTA를 하나 더 둔다(상단 배지와
+                  나란히 — 어느 쪽이 더 잘 눌리는지는 logLodgingCtaEvent로
+                  비교). */}
+              {!monthViewOpen && schedule.length >= 2 && currentCity && (
+                <div className="px-4 pb-1 pt-2">
+                  <button
+                    onClick={() => openLodgingPicker("timeline")}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-left transition-colors hover:bg-indigo-50"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-500 shadow-sm">
+                      <CordixIcon name="bed" size={17} className="text-indigo-500" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-bold text-indigo-700">
+                        {formatDateLabelShort(activeDate)} 일정 근처 숙소 보기
+                      </span>
+                      <span className="block text-[11.5px] text-indigo-600/80">{currentCity}에서 예약 가능한 숙소를 확인해보세요</span>
+                    </span>
+                    <ChevronRight size={16} className="shrink-0 text-indigo-400" />
+                  </button>
+                </div>
+              )}
 
               {monthViewOpen ? (
                 <div className="px-5 pb-6 pt-1">
@@ -2467,9 +2501,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             버튼(src/lib/affiliates.ts)을 도시 단위로 보여준다. 제휴 id가
             아직 없는 곳은 그냥 일반 검색 링크로 열려서(hasAffiliateLink
             참고), 프로그램 승인 전에도 자연스럽게 동작한다. */}
-        {lodgingPickerOpen && currentCity && (
+        {lodgingPickerPlacement && currentCity && (
           <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
-            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setLodgingPickerOpen(false)} />
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setLodgingPickerPlacement(null)} />
             <div className="relative w-full max-w-sm rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="flex items-center gap-1.5 text-[15px] font-bold text-slate-900">
@@ -2480,7 +2514,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   )}
                 </h3>
                 <button
-                  onClick={() => setLodgingPickerOpen(false)}
+                  onClick={() => setLodgingPickerPlacement(null)}
                   aria-label="닫기"
                   className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100"
                 >
@@ -2496,7 +2530,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     target="_blank"
                     // sponsored+nofollow per Google's affiliate-link policy; noreferrer for privacy.
                     rel="sponsored nofollow noreferrer"
-                    onClick={() => setLodgingPickerOpen(false)}
+                    onClick={() => {
+                      logLodgingCtaEvent("click", lodgingPickerPlacement, currentCity, region, p.label, p.isAffiliate);
+                      setLodgingPickerPlacement(null);
+                    }}
                     style={{ color: p.brand, borderColor: `${p.brand}55` }}
                     className="flex h-11 items-center justify-between rounded-xl border bg-white px-4 text-[13.5px] font-semibold transition-colors hover:bg-slate-50"
                   >

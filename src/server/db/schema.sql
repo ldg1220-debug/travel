@@ -574,3 +574,27 @@ CREATE TABLE IF NOT EXISTS place_candidate_cache (
 );
 CREATE INDEX IF NOT EXISTS place_candidate_cache_created_at_idx ON place_candidate_cache (created_at);
 ALTER TABLE place_candidate_cache ENABLE ROW LEVEL SECURITY;
+
+-- 플래너의 "숙소 예약" CTA(src/lib/affiliates.ts 연동, PlannerBoard.tsx)
+-- 전환 추적. 지금은 예약사가 실제 결제까지 갔는지 알 방법이 없으니(딥
+-- 링크가 각 사 검색 결과 페이지로 열릴 뿐), 최소한 "몇 명이 CTA를
+-- 열었고 몇 명이 실제 예약사 링크까지 눌렀는지"는 여기서 보고 앞서 세운
+-- 매출 모델의 전환율 가정을 실측으로 바꿀 수 있게 한다. kind='open'은
+-- 팝업을 연 시점(아직 어느 예약사인지 모름 — provider/is_affiliate는
+-- null), kind='click'은 특정 예약사 링크를 실제로 누른 시점.
+-- placement는 CTA가 어디 있었는지('header' | 'timeline') — 두 위치 중
+-- 어디가 더 잘 전환되는지 나중에 비교할 수 있게 같이 남긴다.
+CREATE TABLE IF NOT EXISTS lodging_cta_events (
+  id BIGSERIAL PRIMARY KEY,
+  "userId" INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  placement TEXT NOT NULL,
+  city TEXT NOT NULL,
+  region TEXT NOT NULL,
+  provider TEXT,
+  is_affiliate BOOLEAN,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS lodging_cta_events_created_at_idx ON lodging_cta_events (created_at);
+CREATE INDEX IF NOT EXISTS lodging_cta_events_kind_placement_idx ON lodging_cta_events (kind, placement);
+ALTER TABLE lodging_cta_events ENABLE ROW LEVEL SECURITY;
