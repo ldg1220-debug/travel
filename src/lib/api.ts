@@ -175,6 +175,10 @@ export interface RecommendedCourseOptions {
   avoidCentroid?: { lat: number; lng: number };
   /** 다일정 — 0부터 시작하는 날짜 인덱스. 뒤쪽 날짜(서버 기준 3일차부터)일수록 excludeIds/excludeNames 누적으로 후보 풀이 마르기 쉬워, 서버가 이 값을 보고 후보 풀을 넓혀 쓴다. */
   dayIndex?: number;
+  /** 다일정 — 마지막 날 + 실제 출발 지점(공항 등)이 있을 때만 true. 테마파크 같은 대형 시설이 이 날 후보에서 아예 빠진다(GitHub issue #156). */
+  excludeLargeFacilities?: boolean;
+  /** 다일정 — 이전 날짜에 이미 나온 음식 종류들(예: "규카츠"). 같은 종류가 다시 뽑히면 소폭 감점만 준다(하드 제외 아님 — GitHub issue #157). */
+  avoidCuisines?: string[];
 }
 
 /** 조건(품질 게이트·중복 제외·반경)에 맞는 곳을 못 찾아 빈 채로 남은 슬롯 — UI가 "이 시간대엔 조건에 맞는 곳을 못 찾았어요" 안내를 띄울 때 쓴다. */
@@ -232,6 +236,8 @@ export async function fetchRecommendedCourse(
       params.set("avoidLng", String(options.avoidCentroid.lng));
     }
     if (options.dayIndex != null) params.set("dayIndex", String(options.dayIndex));
+    if (options.excludeLargeFacilities) params.set("excludeLargeFacilities", "1");
+    if (options.avoidCuisines && options.avoidCuisines.length > 0) params.set("avoidCuisines", options.avoidCuisines.map((n) => encodeURIComponent(n)).join(","));
     const res = await fetch(`/api/course/recommend?${params.toString()}`);
     if (!res.ok) return empty;
     const data = (await res.json()) as { course?: RecommendedStop[]; source?: string; courseId?: string; emptySlots?: EmptyStopSlot[] };
@@ -288,6 +294,18 @@ function minutesToTime(mins: number): string {
   return `${String(Math.floor(clamped / 60)).padStart(2, "0")}:${String(clamped % 60).padStart(2, "0")}`;
 }
 
+// src/lib/server/courseRecommend.ts의 CUISINE_KEYWORDS/cuisineKeyword와
+// 반드시 같은 목록이어야 한다 — 서버 전용 모듈(pool import 등)이라 여기서
+// import할 수 없어 리터럴을 그대로 미러링했다(GitHub issue #157).
+const CUISINE_KEYWORDS = [
+  "규카츠", "라멘", "우동", "소바", "스시", "초밥", "돈카츠", "텐푸라", "오코노미야키",
+  "다코야키", "야키니쿠", "샤브샤브", "스키야키", "이자카야", "카레", "오니기리",
+  "불고기", "삼겹살", "곱창", "치킨", "피자", "파스타", "버거", "훠궈", "딤섬",
+];
+function cuisineKeyword(name: string): string | undefined {
+  return CUISINE_KEYWORDS.find((k) => name.includes(k));
+}
+
 /**
  * 여러 날짜의 코스를 순차 생성한다 — 하루 개념만 아는 기존
  * generateCourseV2(=/api/course/recommend)를 day 수만큼 그대로 반복
@@ -328,6 +346,7 @@ export async function fetchMultiDayCourse(
   const result: RecommendedDayCourse[] = [];
   const seenIds = new Set<string>();
   const seenNames = new Set<string>();
+  const seenCuisines = new Set<string>();
   let centroidLatSum = 0;
   let centroidLngSum = 0;
   let centroidCount = 0;
@@ -361,10 +380,16 @@ export async function fetchMultiDayCourse(
       excludeNames: [...seenNames],
       avoidCentroid: centroidCount > 0 ? { lat: centroidLatSum / centroidCount, lng: centroidLngSum / centroidCount } : undefined,
       dayIndex: day - 1,
+      // 마지막 날 + 실제 출발 지점(공항 등)이 있을 때만 — 숙소로만
+      // 돌아오는 중간 날짜는 대상이 아니다(GitHub issue #156).
+      excludeLargeFacilities: isLast && Boolean(anchors.departure),
+      avoidCuisines: [...seenCuisines],
     });
     stops.forEach((s) => {
       seenIds.add(s.id);
       seenNames.add(s.name);
+      const cuisine = cuisineKeyword(s.name);
+      if (cuisine) seenCuisines.add(cuisine);
       if (s.lat && s.lng) {
         centroidLatSum += s.lat;
         centroidLngSum += s.lng;

@@ -25,6 +25,8 @@ import {
   sameShop,
   radiusKmFor,
   buildDynamicSlots,
+  isLargeFacility,
+  cuisineKeyword,
   type CourseTheme,
   type TravelRadius,
   type TravelMode,
@@ -34,6 +36,7 @@ import {
   assembleRouteWithEscalation,
   dedupePoolsByBrand,
   resolveDuplicatePicks,
+  resolveMealCuisineRepeat,
   rerollSlot,
   haversineKm,
   type RouteCandidate,
@@ -313,6 +316,8 @@ export interface GenerateCourseOptions {
   excludeNames?: string[];
   /** 다일정 — 지금까지(이전 날짜들) 배정된 스팟들의 좌표 중심. 있으면 그 중심에 가까운 후보에 소폭 감점을 줘, 여러 날짜가 전부 같은 동네(예: 도톤보리)로 쏠리는 걸 완화한다. 완전한 지리 군집화는 아니고 스코어링 단계의 가벼운 넛지 — 자세한 트레이드오프는 clusterPenalty 주석 참고. */
   avoidCentroid?: { lat: number; lng: number };
+  /** 다일정 — 이전 날짜에 이미 나온 음식 종류들(courseRecommend.ts의 cuisineKeyword로 추출, 예: "규카츠"). 같은 종류가 다시 뽑히면 소폭 감점만 준다(하드 제외 아님) — 브랜드는 달라도 같은 음식이 반복되는 걸 완화하되, 하드 제외로 후보 풀을 다시 좁히지는 않는다는 게 GitHub issue #157의 명시적 요구다. */
+  avoidCuisines?: string[];
   /**
    * 다일정 — 0부터 시작하는 날짜 인덱스(1일차=0). 4차 실측(오사카
    * 3박4일)에서 확인된 원인: 슬롯별 raw 후보 풀이 도시+슬롯 키로
@@ -324,6 +329,16 @@ export interface GenerateCourseOptions {
    * 쓴다 — 비용 증가(추가 검색 요청)를 실제로 필요한 뒷날짜에만 국한.
    */
   dayIndex?: number;
+  /**
+   * 다일정 — 이 날짜가 여행 마지막 날이면서 실제 출발 지점(공항 등)이
+   * 종료 앵커로 잡혀있을 때만 true (GitHub issue #156). 유니버설
+   * 스튜디오 재팬 같은 대형 시설(courseRecommend.ts의 isLargeFacility)이
+   * 이 날 후보에서 아예 빠진다 — 출발일엔 하루 종일 쓰는 시설이
+   * 애초에 배치될 수 없으므로. 숙소로 돌아오기만 하는 중간 날짜(종료
+   * 앵커=숙소)는 이 플래그를 안 켠다 — fetchMultiDayCourse가
+   * `isLast && anchors.departure` 조건으로 계산해서 넘긴다.
+   */
+  excludeLargeFacilities?: boolean;
 }
 
 /** dayIndex가 이 값 이상이면 fetchSlotCandidates에 extraQuery(동의어 2차 검색)를 켠다 — 실측(오사카 3박4일)에서 정확히 3일차부터 슬롯 공백이 나 이 값으로 잡았다. */
@@ -346,6 +361,21 @@ function clusterPenalty(p: Place, avoidCentroid: { lat: number; lng: number } | 
   const d = haversineKm({ lat: p.lat, lng: p.lng }, avoidCentroid);
   if (d >= CLUSTER_AVOID_RADIUS_KM) return 0;
   return (CLUSTER_AVOID_RADIUS_KM - d) * CLUSTER_PENALTY_PER_KM;
+}
+
+// GitHub issue #157 — 하드 제외가 아니라 소폭 감점만. 브랜드 중복
+// 억제(sameShop)와 달리 "같은 음식 종류"는 여행 중 몇 번 반복돼도
+// 실제로는 크게 이상하지 않을 수 있어(예: 라멘을 두 번 먹는 건 흔함),
+// 후보 풀을 다시 좁히는 하드 제외보다는 다른 조건이 비슷할 때 순위를
+// 한 칸 밀어내는 정도가 적절하다는 게 이슈의 명시적 결론이다. clusterPenalty
+// 최대치(1.8)보다 살짝 크게 잡아(2) "취향점수가 뚜렷이 높은 곳"까지
+// 밀어내진 않게 했다.
+const CUISINE_REPEAT_PENALTY = 2;
+
+function cuisinePenalty(p: Place, avoidCuisines: string[] | undefined): number {
+  if (!avoidCuisines || avoidCuisines.length === 0) return 0;
+  const k = cuisineKeyword(p.name);
+  return k && avoidCuisines.includes(k) ? CUISINE_REPEAT_PENALTY : 0;
 }
 
 export async function generateCourseV2(
@@ -376,6 +406,10 @@ export async function generateCourseV2(
       let raw = await fetchSlotCandidates(scope, city, slot, widenPool);
       if (options.excludeIds) raw = raw.filter((p) => !options.excludeIds!.has(p.id));
       if (options.excludeNames && options.excludeNames.length > 0) raw = raw.filter((p) => !options.excludeNames!.some((n) => sameShop(n, p.name)));
+      // 출발일엔 테마파크 같은 대형 시설이 짧은 슬롯에 꽂히면 안 된다
+      // (GitHub issue #156) — fetchMultiDayCourse가 마지막 날 + 실제
+      // 출발 지점(공항 등)이 있을 때만 이 플래그를 켠다.
+      if (options.excludeLargeFacilities) raw = raw.filter((p) => !isLargeFacility(p));
       return { slot, raw };
     }),
   );
@@ -402,7 +436,10 @@ export async function generateCourseV2(
     slotKey: slot.key,
     slotLabel: `${slot.label} · ${String(slot.hour).padStart(2, "0")}:00`,
     candidates: raw
-      .map((p, i) => ({ c: placeToTasteCandidate(p), taste: deterministicTaste(placeToTasteCandidate(p), i) - clusterPenalty(p, options.avoidCentroid) }))
+      .map((p, i) => ({
+        c: placeToTasteCandidate(p),
+        taste: deterministicTaste(placeToTasteCandidate(p), i) - clusterPenalty(p, options.avoidCentroid) - cuisinePenalty(p, options.avoidCuisines),
+      }))
       .sort((a, b) => b.taste - a.taste)
       .slice(0, LLM_CANDIDATE_LIMIT)
       .map(({ c }) => c),
@@ -443,12 +480,30 @@ export async function generateCourseV2(
   // 검증. dedupePoolsByBrand의 "슬롯이 통째로 비면 최상위 1개는 되살리기"
   // 안전장치가 바로 이 중복을 만들 수 있는 원인이라, DP 결과를 최종
   // 확정하기 전에 한 번 더 슬롯 순서대로 훑어 정리한다.
-  const finalPicked = resolveDuplicatePicks(
+  const dedupedPicked = resolveDuplicatePicks(
     slots.map((s) => s.key),
     result.picked,
     pools,
     (slotKey) => scoredRawPool(rawBySlot.get(slotKey) ?? []),
     sameShop,
+  );
+
+  // 4.6. 같은 날 점심·저녁 cuisine 중복 정리(GitHub issue #157 후속) —
+  // cuisinePenalty는 이전 "날짜들"의 cuisine만 보고(avoidCuisines가
+  // fetchMultiDayCourse에서 그 날 시작 전 스냅샷돼 넘어옴), 같은 날 안의
+  // 점심·저녁은 이 한 번의 호출 안에서 서로를 모른 채 각자 스코어링된다
+  // — 실측(오사카 3박4일)에서 Day 1 점심·저녁이 둘 다 규카츠(서로 다른
+  // 브랜드라 sameShop 기반 resolveDuplicatePicks는 못 잡음)로 확인된
+  // 원인. 이 한 번의 호출(=하루)이 다루는 식사 슬롯끼리만 비교하므로
+  // cross-day 하드 제외처럼 후보 풀이 통째로 마르는 부작용은 없다.
+  const mealSlotKeys = new Set(slots.filter((s) => s.meal).map((s) => s.key));
+  const finalPicked = resolveMealCuisineRepeat(
+    slots.map((s) => s.key),
+    dedupedPicked,
+    mealSlotKeys,
+    pools,
+    (slotKey) => scoredRawPool(rawBySlot.get(slotKey) ?? []),
+    cuisineKeyword,
   );
 
   // 5. 최종 응답 조립(v1과 같은 FinalStop 형태) + 리롤용 캐시 적재.

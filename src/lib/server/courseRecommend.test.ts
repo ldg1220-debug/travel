@@ -8,6 +8,8 @@ import {
   passesQualityGate,
   applyQualityGate,
   sameShop,
+  isLargeFacility,
+  cuisineKeyword,
   THEME_LABELS,
   type CourseTheme,
 } from "./courseRecommend";
@@ -195,6 +197,49 @@ describe("applyQualityGate", () => {
   it("never filters domestic candidates (no rating signal to gate on)", () => {
     const domestic = [place({ id: "d1", rating: undefined, reviewCount: undefined, category: "attraction" })];
     expect(applyQualityGate(domestic, "domestic", "attraction")).toHaveLength(1);
+  });
+});
+
+// 오사카 3박4일 다일정 실측(5차)에서 발견 — 유니버설 스튜디오 재팬이
+// 공항 출발일 "오전 명소" 슬롯에 1시간짜리로 배정됨 (GitHub issue #156).
+describe("isLargeFacility", () => {
+  it("flags Google Places primaryType values for day-consuming venues", () => {
+    expect(isLargeFacility(place({ category: "amusement_park" }))).toBe(true); // 유니버설 스튜디오 재팬류
+    expect(isLargeFacility(place({ category: "aquarium" }))).toBe(true); // 오사카 해유관류
+    expect(isLargeFacility(place({ category: "zoo" }))).toBe(true);
+    expect(isLargeFacility(place({ category: "water_park" }))).toBe(true);
+  });
+
+  it("is case-insensitive (Google may return the type in either case depending on the call site)", () => {
+    expect(isLargeFacility(place({ category: "AMUSEMENT_PARK" }))).toBe(true);
+  });
+
+  it("does not flag ordinary attractions or a bare public park", () => {
+    expect(isLargeFacility(place({ category: "tourist_attraction" }))).toBe(false);
+    expect(isLargeFacility(place({ category: "park" }))).toBe(false); // 평범한 공원(예: 도톤보리바시) — 대형 시설이 아님
+    expect(isLargeFacility(place({ category: "restaurant" }))).toBe(false);
+  });
+
+  it("handles Kakao's broad category strings (never flags them — Kakao doesn't have this granularity)", () => {
+    expect(isLargeFacility(place({ category: "관광명소" }))).toBe(false);
+  });
+});
+
+// 다일정 실측(오사카)에서 관찰 — 규카츠가 서로 다른 브랜드(모토무라/
+// 요사쿠라)로 2번 나옴 (GitHub issue #157). cuisineKeyword 자체는
+// "이름 → 종류" 추출만 하는 순수 함수 — 실제 감점 로직(cuisinePenalty)은
+// courseRecommendV2.ts에 있어 여기선 안 다룬다(그쪽은 courseRoute.ts
+// 등과 같은 이유로 orchestration이라 단위테스트 대상 밖).
+describe("cuisineKeyword", () => {
+  it("extracts a recognized cuisine keyword from a place name", () => {
+    expect(cuisineKeyword("규카츠 모토무라 난바 분점")).toBe("규카츠");
+    expect(cuisineKeyword("규카츠 요사쿠라 나가호리바시점")).toBe("규카츠");
+    expect(cuisineKeyword("Gyumon Dotonbori 2nd")).toBeUndefined(); // 영문 표기엔 한글 키워드가 안 걸림 — 알려진 한계
+  });
+
+  it("returns undefined when the name carries no recognizable cuisine signal (most business names don't)", () => {
+    expect(cuisineKeyword("우오신")).toBeUndefined();
+    expect(cuisineKeyword("오사카 성")).toBeUndefined();
   });
 });
 

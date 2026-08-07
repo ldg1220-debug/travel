@@ -224,6 +224,66 @@ export function resolveDuplicatePicks(
   return resolved;
 }
 
+// ---------------------------------------------------------------- same-day meal cuisine dedup
+
+/**
+ * Post-DP same-day meal cuisine dedup (GitHub issue #157 follow-up).
+ * cuisinePenalty (courseRecommendV2.ts) only nudges against cuisines seen
+ * on PREVIOUS days — fetchMultiDayCourse snapshots that list before a day
+ * starts, and a single day's lunch+dinner are scored in the same call
+ * against that same snapshot, so they're blind to each other. Confirmed
+ * live case: lunch and dinner both landed on 규카츠 (different brands, so
+ * sameShop/resolveDuplicatePicks didn't catch it) on the same day.
+ *
+ * This is a narrower, same-day-only hard version: it only looks at MEAL
+ * slots within the single day this call covers (at most 2-3 slots), not
+ * the whole multi-day candidate pool — so it can't reproduce the "filter
+ * too hard, slots go empty" failure mode that #157 explicitly ruled out
+ * hard exclusion for at the cross-day scope. If no distinct-cuisine
+ * alternative exists for the later meal, the original pick is kept as-is
+ * — losing a meal slot entirely over a cuisine repeat would be worse than
+ * two meals sharing one.
+ */
+export function resolveMealCuisineRepeat(
+  order: string[],
+  picked: Map<string, RouteCandidate>,
+  mealSlotKeys: Set<string>,
+  pools: SlotPool[],
+  rawPoolFor: (slotKey: string) => RouteCandidate[],
+  cuisineOf: (name: string) => string | undefined,
+): Map<string, RouteCandidate> {
+  const resolved = new Map(picked);
+  const usedCuisines: string[] = [];
+
+  for (const slotKey of order) {
+    if (!mealSlotKeys.has(slotKey)) continue;
+    let cand = resolved.get(slotKey);
+    const cuisine = cand ? cuisineOf(cand.name) : undefined;
+    if (cand && cuisine && usedCuisines.includes(cuisine)) {
+      const notRepeat = (c: RouteCandidate) => {
+        const k = cuisineOf(c.name);
+        return !k || !usedCuisines.includes(k);
+      };
+      const shortlist = pools.find((p) => p.slotKey === slotKey)?.candidates ?? [];
+      const altFromShortlist = shortlist.find(notRepeat);
+      const altFromRaw = altFromShortlist ? undefined : rawPoolFor(slotKey).find(notRepeat);
+      const alt = altFromShortlist ?? altFromRaw;
+      if (alt) {
+        resolved.set(slotKey, alt);
+        cand = alt;
+      }
+      // 대안이 없으면 원래 픽을 그대로 둔다 — 슬롯을 통째로 비우는 것보다
+      // 같은 날 두 끼가 같은 음식 종류를 공유하는 게 낫다.
+    }
+    if (cand) {
+      const finalCuisine = cuisineOf(cand.name);
+      if (finalCuisine) usedCuisines.push(finalCuisine);
+    }
+  }
+
+  return resolved;
+}
+
 // ---------------------------------------------------------------- dedupe
 
 /**
