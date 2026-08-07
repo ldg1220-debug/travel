@@ -36,8 +36,10 @@ import {
   Maximize2,
   Minimize2,
   ImageDown,
+  ExternalLink,
 } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
+import { bookingProviders, hasAffiliateLink } from "@/lib/affiliates";
 import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { LoginModal } from "@/components/LoginModal";
@@ -631,6 +633,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const totalBudgetByCurrency = groupBudgetByCurrency(items);
   // 예산 내역 팝업 — "all"이면 계획 전체, 날짜 문자열이면 그 날짜만 골라 보여준다.
   const [budgetBreakdownScope, setBudgetBreakdownScope] = useState<"all" | string | null>(null);
+  // 숙소 예약 팝업 — 이미 일정을 짜고 있는(currentCity가 정해진) 유저는
+  // 곧 숙소를 예약할 사람이라, 그 순간 바로 "이 도시 숙소" 딥링크를 보여준다.
+  // discover의 LivePlaceCard가 특정 업체 하나를 검색하는 것과 달리, 여기는
+  // 도시 단위(currentCity)로 검색 딥링크를 연다 — 특정 숙소를 추천하는 게
+  // 아니라 "이 도시에서 숙소를 찾아보라"는 진입점.
+  const [lodgingPickerOpen, setLodgingPickerOpen] = useState(false);
+  const lodgingProviders = useMemo(() => (currentCity ? bookingProviders(currentCity, region) : []), [currentCity, region]);
   const budgetBreakdownItems = useMemo(() => {
     if (budgetBreakdownScope == null) return [];
     const source = budgetBreakdownScope === "all" ? items : (scheduleByDate[budgetBreakdownScope] ?? []);
@@ -1839,6 +1848,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         </Badge>
                       </button>
                     )}
+                    {/* 일정을 짜는 중이라는 건 곧 숙소를 예약할 사람이라는
+                        뜻 — 그 순간 바로 이 도시 숙소 딥링크를 보여준다. */}
+                    {currentCity && (
+                      <button onClick={() => setLodgingPickerOpen(true)} aria-label={`${currentCity} 숙소 예약`}>
+                        <Badge className="gap-1 rounded-full border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[13px] font-bold text-indigo-700 hover:bg-indigo-100">
+                          <CordixIcon name="bed" size={13} stroke="#4338ca" accent="#4338ca" />
+                          숙소 예약
+                        </Badge>
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -2440,6 +2459,52 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* 숙소 예약 팝업 — discover의 LivePlaceCard와 같은 제휴 딥링크
+            버튼(src/lib/affiliates.ts)을 도시 단위로 보여준다. 제휴 id가
+            아직 없는 곳은 그냥 일반 검색 링크로 열려서(hasAffiliateLink
+            참고), 프로그램 승인 전에도 자연스럽게 동작한다. */}
+        {lodgingPickerOpen && currentCity && (
+          <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setLodgingPickerOpen(false)} />
+            <div className="relative w-full max-w-sm rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="flex items-center gap-1.5 text-[15px] font-bold text-slate-900">
+                  <CordixIcon name="bed" size={16} className="text-indigo-500" />
+                  {currentCity} 숙소 예약
+                  {hasAffiliateLink(lodgingProviders) && (
+                    <span className="rounded bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-400">제휴</span>
+                  )}
+                </h3>
+                <button
+                  onClick={() => setLodgingPickerOpen(false)}
+                  aria-label="닫기"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <p className="mb-3 text-[12.5px] text-slate-500">이 여행 지역 기준으로 숙소를 검색해요.</p>
+              <div className="grid grid-cols-1 gap-2">
+                {lodgingProviders.map((p) => (
+                  <a
+                    key={p.key}
+                    href={p.url}
+                    target="_blank"
+                    // sponsored+nofollow per Google's affiliate-link policy; noreferrer for privacy.
+                    rel="sponsored nofollow noreferrer"
+                    onClick={() => setLodgingPickerOpen(false)}
+                    style={{ color: p.brand, borderColor: `${p.brand}55` }}
+                    className="flex h-11 items-center justify-between rounded-xl border bg-white px-4 text-[13.5px] font-semibold transition-colors hover:bg-slate-50"
+                  >
+                    {p.label}
+                    <ExternalLink size={14} />
+                  </a>
+                ))}
+              </div>
             </div>
           </div>
         )}
