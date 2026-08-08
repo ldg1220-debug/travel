@@ -76,29 +76,42 @@ export function HomePage() {
             그라데이션 배경 위에 스카이라인 실루엣이 하단을 가로지르고, 여행자
             컷아웃이 그 앞에 서 있는 형태. 두 이미지 다 public/brand/에 없으면
             그냥 렌더되지 않을 뿐 레이아웃은 깨지지 않는다(각각 onError로
-            부모 래퍼를 숨김). */}
-        <section className="relative mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-blue-600 to-sky-500 shadow-sm">
+            부모 래퍼를 숨김).
+
+            그라데이션은 blue-800 → sky-700 안에서만 움직인다(색상각 폭 약
+            25°) — hero-skyline.png 자체가 남색~하늘색 듀오톤(#0B3C6B~
+            #7FC4E8)이라 그 대역을 벗어나면 배경과 삽화 색이 어긋나 보인다.
+            양쪽 끝 스톱 모두 흰 텍스트 대비 4.5:1 이상(가장 밝은 sky-700
+            기준 5.9:1)이라, 텍스트를 안쪽 어디에 둬도 대비 기준을 만족한다
+            — 인사말을 좌상단이 아닌 다른 위치로 옮겨도 안전하다는 뜻. */}
+        <section className="relative mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-blue-800 via-blue-700 to-sky-700 shadow-sm">
           <div className="relative z-10 px-6 pb-5 pt-7 sm:px-8 sm:pt-9">
             <h1 className="max-w-[70%] text-2xl font-bold tracking-tight text-white sm:max-w-[60%] sm:text-3xl">
               {nickname ? `안녕하세요, ${nickname}님` : "안녕하세요"}
             </h1>
-            <p className="mt-1 max-w-[70%] text-[13px] text-blue-50/90 sm:max-w-[60%] sm:text-sm">
+            <p className="mt-1 max-w-[70%] text-[13px] text-blue-50 sm:max-w-[60%] sm:text-sm">
               오늘은 어디로 떠나볼까요?
             </p>
           </div>
 
           {/* 스카이라인은 실제 문서 흐름에 둬서 자기 높이를 스스로 확보한다
               (absolute면 부모 높이를 수동으로 계산해야 함) — 인물은 그 위에
-              absolute로 겹쳐 세운다. */}
+              absolute로 겹쳐 세운다. width/height는 실제 표시 크기가 아니라
+              브라우저에 가로세로 비율을 알려줘 로드 전 공간을 예약하기
+              위한 것(레이아웃 시프트 방지) — CSS가 실제 크기를 덮어쓴다. */}
           <div className="relative">
             <HeroImage
               src="/brand/hero-skyline.png"
               alt=""
+              width={1600}
+              height={393}
               className="block h-auto w-full opacity-90"
             />
             <HeroImage
               src="/brand/person-ko-600-q85.webp"
               alt=""
+              width={362}
+              height={600}
               className="pointer-events-none absolute bottom-0 right-3 h-[115%] w-auto object-contain drop-shadow-[0_8px_16px_rgba(15,23,42,0.35)] sm:right-8"
             />
           </div>
@@ -162,7 +175,22 @@ export function HomePage() {
  * public/brand/에 파일이 없어도 onError로 조용히 사라질 뿐 레이아웃이
  * 깨지지 않는다(장식용 이미지라 대체 텍스트도 필요 없음).
  */
-function HeroImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+function HeroImage({
+  src,
+  alt,
+  className,
+  width,
+  height,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  /** 원본 픽셀 치수 — CSS가 실제 표시 크기를 덮어써도, width/height 속성이
+      있으면 브라우저가 로드 전에 가로세로 비율을 알아채 그만큼 공간을
+      미리 잡아준다(레이아웃 시프트 방지). */
+  width: number;
+  height: number;
+}) {
   const [failed, setFailed] = useState(false);
   const ref = useRef<HTMLImageElement>(null);
   useEffect(() => {
@@ -175,7 +203,16 @@ function HeroImage({ src, alt, className }: { src: string; alt: string; classNam
   if (failed) return null;
   return (
     // eslint-disable-next-line @next/next/no-img-element -- decorative brand asset with an onError fallback (mirrors BrandLogo.tsx)
-    <img ref={ref} src={src} alt={alt} loading="eager" onError={() => setFailed(true)} className={className} />
+    <img
+      ref={ref}
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      loading="eager"
+      onError={() => setFailed(true)}
+      className={className}
+    />
   );
 }
 
