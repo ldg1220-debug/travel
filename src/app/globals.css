@@ -32,6 +32,10 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 
+  /* shadcn/ui primitives (Button/Badge/Input/Switch) — `primary`/`accent`/
+     `destructive` are already spoken for here, so the app-level semantic
+     tokens below use different names on purpose. Reusing these names for
+     the brand indigo would silently repaint every shadcn primitive. */
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
@@ -43,6 +47,53 @@
   --color-input: var(--input);
   --color-muted-foreground: var(--muted-foreground);
   --color-ring: var(--ring);
+
+  /* ── App-level semantic tokens ──
+     Named for what the color *means*, not which Tailwind swatch it happens
+     to be — so a rebrand is a one-line edit here instead of a grep-and-pray
+     across the app. Each just aliases Tailwind's own built-in color
+     variable, so the rendered pixels are identical to today; only the
+     class name (`bg-success-500` vs `bg-emerald-500`) changes at call
+     sites. No dark-mode remap needed — these colors don't currently swap
+     between light/dark (see the dark-surface remap below, which only
+     touches slate/white surfaces on purpose). */
+
+  /* success/positive state: "저장됐어요" 토스트, 영업중 배지, 선택된 칩,
+     예산 표시 등 — "확정/긍정" 의미로 쓰이는 곳 전부. emerald 스케일과
+     동일한 oklch 값 — Tailwind가 자기 palette 변수를 `@theme inline`
+     안에서 var() 참조로 재노출하지 않길래(생성된 CSS에 유틸리티가 안
+     나옴을 확인) 리터럴 값으로 못박았다. node_modules/tailwindcss/
+     theme.css의 --color-emerald-* 값과 동일 — 업스트림이 바뀌면 같이
+     갱신할 것. */
+  --color-success-50: oklch(97.9% 0.021 166.113);
+  --color-success-100: oklch(95% 0.052 163.051);
+  --color-success-200: oklch(90.5% 0.093 164.15);
+  --color-success-300: oklch(84.5% 0.143 164.978);
+  --color-success-400: oklch(76.5% 0.177 163.223);
+  --color-success-500: oklch(69.6% 0.17 162.48);
+  --color-success-600: oklch(59.6% 0.145 163.225);
+  --color-success-700: oklch(50.8% 0.118 165.612);
+
+  /* 별점 전용 색 — amber-500과 동일한 oklch 값 1개. 브랜드와 무관한
+     관용색(별=금색)이라 의도적으로 스케일이 아니라 단일 값이고, 향후
+     리브랜딩 스윕에서 제외 대상이라는 걸 표시해두는 게 이 토큰의 존재
+     이유다. amber는 이 외에도 안내 배너/인기 배지/필터 선택색 등 다른
+     역할로도 쓰이는데, 그건 각기 다른 의미라 이 토큰과 묶지 않았다(별도
+     검토 필요). */
+  --color-rating: oklch(76.9% 0.188 70.08);
+
+  /* 브랜드 액션색(CTA/링크/버튼) — indigo 스케일과 동일한 oklch 값.
+     실제 호출부(indigo-500 등, 20여 파일 300곳+)는 아직 이 토큰을 쓰도록
+     바뀌지 않았다 — 정의만 먼저 박아두고, 사용처 교체는 범위가 커서 별도
+     작업으로 미룬다. */
+  --color-brand-50: oklch(96.2% 0.018 272.314);
+  --color-brand-100: oklch(93% 0.034 272.788);
+  --color-brand-200: oklch(87% 0.065 274.039);
+  --color-brand-300: oklch(78.5% 0.115 274.713);
+  --color-brand-400: oklch(67.3% 0.182 276.935);
+  --color-brand-500: oklch(58.5% 0.233 277.117);
+  --color-brand-600: oklch(51.1% 0.262 276.966);
+  --color-brand-700: oklch(45.7% 0.24 277.023);
 }
 
 /* Dark theme — driven by the `.dark` class (ThemeToggle), so the toggle fully

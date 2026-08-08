@@ -435,7 +435,7 @@ export function TripPostDetailPage() {
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1.5">
                       <span className="font-semibold text-slate-800">{r.placeName}</span>
-                      <span className="flex items-center gap-0.5 text-[11.5px] font-semibold text-amber-500">
+                      <span className="flex items-center gap-0.5 text-[11.5px] font-semibold text-rating">
                         <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" /> {r.rating.toFixed(1)}
                       </span>
                     </p>
@@ -633,7 +633,7 @@ function HashtagMention({ review }: { review: TripPostPlaceReview }) {
             )}
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[16px] font-bold text-slate-800">{review.placeName}</span>
-              <span className="flex items-center gap-0.5 text-[13.5px] font-semibold text-amber-500">
+              <span className="flex items-center gap-0.5 text-[13.5px] font-semibold text-rating">
                 <CordixIcon name="star" size={13} stroke="#fbbf24" accent="#fbbf24" /> {review.rating.toFixed(1)}
               </span>
             </span>

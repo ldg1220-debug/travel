@@ -570,7 +570,7 @@ function TripCard({
         <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
 
         <div className="absolute right-3 top-3">
-          <Badge className={`gap-1 border-none text-[11px] font-semibold backdrop-blur ${isShared ? "bg-white/85 text-emerald-700" : "bg-black/35 text-white"}`}>
+          <Badge className={`gap-1 border-none text-[11px] font-semibold backdrop-blur ${isShared ? "bg-white/85 text-success-700" : "bg-black/35 text-white"}`}>
             {isShared ? <CordixIcon name="globe" size={11} /> : <CordixIcon name="lock" size={11} />}
             {isShared ? "공유됨" : "나만 보기"}
           </Badge>

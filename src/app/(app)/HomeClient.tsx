@@ -343,14 +343,14 @@ function ResumeSection() {
             href="/planner"
             className="group rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900"
           >
-            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-emerald-500">
+            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-success-500">
               <FolderOpen size={13} /> 저장된 계획
             </p>
             <p className="mt-1.5 text-lg font-bold">{savedPlans.length}개</p>
             <p className="mt-0.5 truncate text-[12px] text-slate-500 dark:text-slate-400">
               {savedPlans.length > 0 ? savedPlans.map((p) => p.name).slice(0, 2).join(" · ") : "계획을 이름 붙여 보관해보세요"}
             </p>
-            <span className="mt-3 flex items-center gap-0.5 text-[12.5px] font-semibold text-emerald-600 group-hover:text-emerald-700">
+            <span className="mt-3 flex items-center gap-0.5 text-[12.5px] font-semibold text-success-600 group-hover:text-success-700">
               계획 전환하기 <ChevronRight size={14} />
             </span>
           </Link>

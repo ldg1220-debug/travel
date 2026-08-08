@@ -1848,7 +1848,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         onClick={() => setBudgetBreakdownScope("all")}
                         aria-label="총 예산 내역 보기"
                       >
-                        <Badge className="gap-1 rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[13px] font-bold tabular-nums text-emerald-700 hover:bg-emerald-100">
+                        <Badge className="gap-1 rounded-full border-success-200 bg-success-50 px-2.5 py-1 text-[13px] font-bold tabular-nums text-success-700 hover:bg-success-100">
                           <Wallet size={13} />
                           총 예산{" "}
                           {totalBudgetByCurrency
@@ -2092,7 +2092,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                             e.stopPropagation();
                             setBudgetBreakdownScope(date);
                           }}
-                          className="mt-0.5 truncate text-[11px] font-bold text-emerald-600 hover:underline"
+                          className="mt-0.5 truncate text-[11px] font-bold text-success-600 hover:underline"
                         >
                           {dayBudgetByCurrency.map((c) => `${currencySymbol(c.currency)}${c.total.toLocaleString()}`).join(" · ")}
                         </button>
@@ -2447,7 +2447,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             <div className="relative w-full max-w-sm rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="flex items-center gap-1.5 text-[15px] font-bold text-slate-900">
-                  <Wallet size={16} className="text-emerald-600" />
+                  <Wallet size={16} className="text-success-600" />
                   {budgetBreakdownScope === "all" ? "전체 예산 내역" : `${formatDateLabelShort(budgetBreakdownScope)} 예산 내역`}
                 </h3>
                 <button
@@ -2473,7 +2473,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                             {i.time}
                           </p>
                         </div>
-                        <span className="shrink-0 text-[13.5px] font-bold tabular-nums text-emerald-700">
+                        <span className="shrink-0 text-[13.5px] font-bold tabular-nums text-success-700">
                           {currencySymbol(i.budgetCurrency ?? "KRW")}
                           {(i.budget ?? 0).toLocaleString()}
                         </span>
@@ -2484,7 +2484,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     {budgetBreakdownByCurrency.map((c) => (
                       <div key={c.currency} className="flex items-center justify-between">
                         <span className="text-[13px] font-semibold text-slate-600">{c.currency} 합계</span>
-                        <span className="text-[15px] font-bold tabular-nums text-emerald-700">
+                        <span className="text-[15px] font-bold tabular-nums text-success-700">
                           {currencySymbol(c.currency)}
                           {c.total.toLocaleString()}
                         </span>
