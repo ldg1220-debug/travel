@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -72,12 +72,36 @@ export function HomePage() {
           안의 grid들(QUICK_ACCESS의 lg:grid-cols-5 등)은 이미 넓은 화면을
           쓸 준비가 돼 있었는데 이 바깥 컨테이너가 병목이었다. */}
       <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6 lg:max-w-5xl xl:max-w-6xl">
-        {/* ── GREETING ── (the brand wordmark + slogan live in the top bar) */}
-        <section className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight">
-            {nickname ? `안녕하세요, ${nickname}님` : "안녕하세요"}
-          </h1>
-          <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">오늘은 어디로 떠나볼까요?</p>
+        {/* ── GREETING / HERO ── (the brand wordmark + slogan live in the top bar)
+            그라데이션 배경 위에 스카이라인 실루엣이 하단을 가로지르고, 여행자
+            컷아웃이 그 앞에 서 있는 형태. 두 이미지 다 public/brand/에 없으면
+            그냥 렌더되지 않을 뿐 레이아웃은 깨지지 않는다(각각 onError로
+            부모 래퍼를 숨김). */}
+        <section className="relative mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-blue-600 to-sky-500 shadow-sm">
+          <div className="relative z-10 px-6 pb-5 pt-7 sm:px-8 sm:pt-9">
+            <h1 className="max-w-[70%] text-2xl font-bold tracking-tight text-white sm:max-w-[60%] sm:text-3xl">
+              {nickname ? `안녕하세요, ${nickname}님` : "안녕하세요"}
+            </h1>
+            <p className="mt-1 max-w-[70%] text-[13px] text-blue-50/90 sm:max-w-[60%] sm:text-sm">
+              오늘은 어디로 떠나볼까요?
+            </p>
+          </div>
+
+          {/* 스카이라인은 실제 문서 흐름에 둬서 자기 높이를 스스로 확보한다
+              (absolute면 부모 높이를 수동으로 계산해야 함) — 인물은 그 위에
+              absolute로 겹쳐 세운다. */}
+          <div className="relative">
+            <HeroImage
+              src="/brand/hero-skyline.png"
+              alt=""
+              className="block h-auto w-full opacity-90"
+            />
+            <HeroImage
+              src="/brand/person-ko-600-q85.webp"
+              alt=""
+              className="pointer-events-none absolute bottom-0 right-3 h-[115%] w-auto object-contain drop-shadow-[0_8px_16px_rgba(15,23,42,0.35)] sm:right-8"
+            />
+          </div>
         </section>
 
         {/* ── HOME SEARCH ── 바로 검색어를 치면 /discover로 넘어가 그 검색을
@@ -130,6 +154,28 @@ export function HomePage() {
         <LatestFeedSection />
       </div>
     </div>
+  );
+}
+
+/**
+ * 히어로 배경의 스카이라인/인물 컷아웃용 이미지. BrandLogo.tsx와 같은 패턴 —
+ * public/brand/에 파일이 없어도 onError로 조용히 사라질 뿐 레이아웃이
+ * 깨지지 않는다(장식용 이미지라 대체 텍스트도 필요 없음).
+ */
+function HeroImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  const ref = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const img = ref.current;
+      if (img && img.complete && img.naturalWidth === 0) setFailed(true);
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  if (failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- decorative brand asset with an onError fallback (mirrors BrandLogo.tsx)
+    <img ref={ref} src={src} alt={alt} loading="eager" onError={() => setFailed(true)} className={className} />
   );
 }
 
