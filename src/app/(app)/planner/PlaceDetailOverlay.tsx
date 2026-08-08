@@ -296,7 +296,7 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
             </span>
           )}
           {details?.openNow != null && (
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${details.openNow ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"}`}>
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${details.openNow ? "bg-success-50 text-success-700" : "bg-rose-50 text-rose-600"}`}>
               {details.openNow ? "영업 중" : "영업 종료"}
             </span>
           )}
@@ -336,7 +336,7 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
           href={place.googleMapsUri}
           target="_blank"
           rel="noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-[12px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-success-50 px-3 py-1.5 text-[12px] font-semibold text-success-700 transition-colors hover:bg-success-100"
         >
           <ExternalLink size={12} /> 구글맵에서 메뉴판·전체 리뷰 보기
         </a>

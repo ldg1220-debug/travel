@@ -125,7 +125,7 @@ function PhotoRow({
         </div>
       ))}
       {copiedUrl != null && photos.some((p) => p.url === copiedUrl) && (
-        <p className="w-full text-[11px] text-emerald-600">
+        <p className="w-full text-[11px] text-success-600">
           {copyMode === "image"
             ? "사진이 복사됐어요 — 그 자리에서 Ctrl+V로 붙여넣어주세요"
             : "이 브라우저는 이미지 복사를 지원하지 않아 링크로 복사했어요"}

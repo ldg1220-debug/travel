@@ -1598,7 +1598,7 @@ function SearchResults({
         <section>
           <SectionHeader
             icon={Search}
-            iconClass="text-emerald-500"
+            iconClass="text-success-500"
             title={`"${query}" 그 외 종합 결과`}
             caption={scope === "overseas" ? "Google 지도 기준 실제 장소 · 평점" : "카카오맵 기준 실제 장소"}
           />
@@ -1629,7 +1629,7 @@ function SearchResults({
                   onClick={() => handleLiveSortClick(s.key)}
                   disabled={isDistance && userLoc.locating}
                   className={`flex shrink-0 items-center gap-1 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-60 ${
-                    active ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-emerald-300"
+                    active ? "border-success-600 bg-success-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-success-300"
                   }`}
                 >
                   {isDistance && <MapPin size={11} />}
@@ -1647,7 +1647,7 @@ function SearchResults({
                 <button
                   key={g.key}
                   onClick={() => scrollToLiveBucket(g.key)}
-                  className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11.5px] font-medium text-slate-600 transition-colors hover:border-emerald-300 hover:text-emerald-600"
+                  className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11.5px] font-medium text-slate-600 transition-colors hover:border-success-300 hover:text-success-600"
                 >
                   <g.icon size={12} />
                   {g.label} <span className="text-slate-400">{g.places.length}</span>
@@ -1884,7 +1884,7 @@ function LivePlaceCard({
                 <span className="truncate font-normal text-slate-400">· 리뷰 {fmt(place.reviewCount)}</span>
               )}
               {place.priceLevel != null && place.priceLevel > 0 && (
-                <span className="shrink-0 font-semibold text-emerald-600">· {"₩".repeat(place.priceLevel)}</span>
+                <span className="shrink-0 font-semibold text-success-600">· {"₩".repeat(place.priceLevel)}</span>
               )}
             </span>
           ) : (
@@ -1897,7 +1897,7 @@ function LivePlaceCard({
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="flex h-7 items-center gap-1 rounded-full bg-slate-100 px-2 text-[10.5px] font-semibold text-slate-500 transition-colors hover:bg-emerald-500 hover:text-white"
+                className="flex h-7 items-center gap-1 rounded-full bg-slate-100 px-2 text-[10.5px] font-semibold text-slate-500 transition-colors hover:bg-success-500 hover:text-white"
               >
                 <ExternalLink size={11} /> 메뉴·리뷰
               </a>
