@@ -47,9 +47,11 @@ export interface DiscoverSpot {
   cuisine?: CuisineTag;
   /** Specific dish/menu keywords ("라멘", "스시", ...) — matched by search in addition to name/region/tag, so a dish-specific query like "오사카 라멘" returns every ramen-adjacent place, not just ones with "라멘" literally in their name. */
   subTags?: string[];
-  /** Google-Places-style rating out of 5 (e.g. 4.7) — backfilled for every spot if not set explicitly, see the metadata pass near the bottom of this file. */
+  /** Google Places place_id — set once by scripts/match-spot-place-ids.ts (coordinate-verified, not name-only). Absent for "편집 개념" cards that aren't a real POI (e.g. "성수 핫플 골목") and for real spots not yet matched. */
+  placeId?: string;
+  /** Real Google rating out of 5, joined in at request time from spot_place_metrics (see /lib/server/getSpotMetrics.ts) — never fabricated here. Absent whenever placeId is absent, the metrics row hasn't been backfilled yet, or the row is stale (>30 days, see the ToS note on spot_place_metrics in schema.sql). */
   rating?: number;
-  /** Review count backing the rating (e.g. 1240) — shown alongside it on SpotCard as "⭐4.7 · 1.2k". */
+  /** Review count backing rating, shown as "⭐4.7 · 1.2k" on SpotCard (same fmt() as LivePlaceCard). */
   reviewCount?: number;
 }
 
@@ -1112,9 +1114,11 @@ for (const spot of [...DOMESTIC.trending, ...DOMESTIC.favorites, ...OVERSEAS.tre
   // genuine rating to attach. An earlier version of this file fabricated
   // one from each spot's `saves` count, which looked exactly like a real
   // Google rating and reviewCount without being one; `rating`/`reviewCount`
-  // stay unset here and only ever come from a genuine API response (see
-  // /discover's "실시간 검색 결과" section, sourced from
-  // /api/places/search's real google/kakao results).
+  // stay unset in this literal data and only ever get filled with a real
+  // value at request time — either by /discover's "실시간 검색 결과"
+  // section (real google/kakao results from /api/places/search), or for
+  // these curated spots by joining spot_place_metrics via placeId (see
+  // src/lib/server/getSpotMetrics.ts) — never by generating one here.
 }
 
 /** All spots in a scope's trending + favorites lists, deduped by id. */

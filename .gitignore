@@ -24,6 +24,9 @@
 .DS_Store
 *.pem
 
+# scripts/match-spot-place-ids.ts 결과 — 리뷰 전 원본 리포트라 커밋 대상 아님
+/scripts/output/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

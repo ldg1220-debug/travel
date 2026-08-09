@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -13,7 +13,6 @@ import {
   Plus,
   MapPin,
   Clock,
-  TrendingUp,
   Coffee,
   Landmark,
   UtensilsCrossed,
@@ -48,7 +47,7 @@ import { FolderChips } from "@/components/FolderChips";
 import { SchedulePlanPickerModal, type SchedulePlanTarget } from "@/components/SchedulePlanPickerModal";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
-import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch } from "@/lib/api";
+import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch, fetchSpotMetrics, type SpotMetrics } from "@/lib/api";
 import { useUserLocation } from "@/lib/useUserLocation";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
@@ -348,6 +347,14 @@ function RegionDrilldown({
   );
 }
 
+// 큐레이션 스팟(SpotCard)의 실제 Google 지표 — DiscoverPage가 마운트 시
+// 한 번만 불러 여기 채우고, SpotCard는 spot.id로 조회만 한다. props로
+// 6곳의 <SpotCard> 호출부(중첩된 섹션 컴포넌트들 포함)까지 꿰뚫어
+// 전달하는 대신 Context로 두면 그 호출부들은 안 건드려도 된다. 값이
+// 없는 spot.id는 키가 아예 없다 — placeId 미확정/편집 개념 카드/아직
+// 갱신 배치가 안 돈 스팟.
+const SpotMetricsContext = createContext<Record<string, SpotMetrics>>({});
+
 // ─────────────────────────────────────────────────────────────
 // The global App Bar (hamburger + title + Sheet nav) already lives in
 // src/components/AppBar.tsx, rendered once by src/app/(app)/layout.tsx
@@ -428,6 +435,15 @@ export function DiscoverPage() {
     queryKey: ["discover-trends", scope, seasonCheck, hotCheck, regionPath],
     queryFn: () => fetchDiscoverBundle(scope, regionPath.length > 0 ? "region" : "all", regionPath, { season: seasonCheck, hot: hotCheck }),
     enabled: activeQuery.trim().length === 0,
+  });
+
+  // 큐레이션 스팟의 실제 Google 지표 — scope/필터와 무관하게 딱 한 번만
+  // 불러서 SpotMetricsContext로 흘려보낸다. 월 1회 배치로만 갱신되는
+  // 데이터라 staleTime을 길게 잡아 세션 안에서 재요청하지 않는다.
+  const { data: spotMetrics } = useQuery({
+    queryKey: ["discover-spot-metrics"],
+    queryFn: fetchSpotMetrics,
+    staleTime: 60 * 60 * 1000,
   });
 
   const isSearching = activeQuery.trim().length > 0;
@@ -625,6 +641,7 @@ export function DiscoverPage() {
   const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
 
   return (
+    <SpotMetricsContext.Provider value={spotMetrics ?? {}}>
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       <div className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6">
         {/* ── SEARCH + SEGMENTED TOGGLE ── */}
@@ -900,7 +917,6 @@ export function DiscoverPage() {
                       <SpotCard
                         key={spot.id}
                         spot={spot}
-                        favorite
                         onAdd={() => handleAddSpot(spot)}
                         onOpenDetail={() => handleOpenDetail(spot)}
                       />
@@ -955,6 +971,7 @@ export function DiscoverPage() {
             </motion.div>
           </AnimatePresence>
         )}
+        {!isSearching && Object.keys(spotMetrics ?? {}).length > 0 && <GoogleAttribution />}
       </div>
 
       {/* "+" 퀵 버튼 — 일정에 추가할지 관심 장소(찜)에 추가할지 물어보는
@@ -1084,6 +1101,22 @@ export function DiscoverPage() {
         </div>
       )}
     </div>
+    </SpotMetricsContext.Provider>
+  );
+}
+
+/**
+ * Google Places 데이터를 표시하는 화면에 요구되는 출처 표기. 큐레이션
+ * 카드(SpotCard)가 실제 rating을 하나라도 보여주고 있을 때만 렌더한다 —
+ * 매칭 전이라 지표가 아직 하나도 안 보이는 상태에서 출처 표기부터
+ * 뜨는 건 어색하다. LivePlaceCard 쪽 실시간 검색 결과는 애초에
+ * Google/Kakao 지도 링크를 노출하므로 별도 표기가 이미 붙어 있다.
+ */
+function GoogleAttribution() {
+  return (
+    <p className="mt-8 text-center text-[11px] text-slate-400">
+      평점·리뷰 정보 제공: Google
+    </p>
   );
 }
 
@@ -1199,7 +1232,6 @@ function ExpandedSection({
             <SpotCard
               key={spot.id}
               spot={spot}
-              favorite={kind === "favorites"}
               rank={kind === "lodging" ? i + 1 : undefined}
               onAdd={() => onAddSpot(spot)}
               onOpenDetail={() => onOpenDetail(spot)}
@@ -1717,13 +1749,11 @@ function SpotCardSkeleton() {
 function SpotCard({
   spot,
   rank,
-  favorite,
   onAdd,
   onOpenDetail,
 }: {
   spot: DiscoverSpot;
   rank?: number;
-  favorite?: boolean;
   onAdd: () => void;
   onOpenDetail: () => void;
 }) {
@@ -1732,6 +1762,7 @@ function SpotCard({
   // /api/discover/spot-photo) — 404/no-key/no-match just falls back to
   // the curated gradient, so the card never shows a broken image.
   const [photoFailed, setPhotoFailed] = useState(false);
+  const metrics = useContext(SpotMetricsContext)[spot.id];
   return (
     <div
       onClick={onOpenDetail}
@@ -1777,22 +1808,32 @@ function SpotCard({
         <p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
           <CordixIcon name="pin" size={11} /> {spot.region}
         </p>
-        <div className="mt-2 flex items-center justify-between">
-          <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500">
-            {favorite ? (
-              <CordixIcon name="star" size={12} stroke="#fbbf24" accent="#fbbf24" />
-            ) : (
-              <TrendingUp size={12} className="text-rose-500" />
-            )}
-            {fmt(spot.saves)}명 저장
-          </span>
+        <div className="mt-2 flex items-center">
+          {/* 지표(⭐평점 · 리뷰수)는 실제 Google 데이터가 있을 때만 —
+              placeId 미확정/편집 개념 카드/갱신 배치 전이면 이 자리를
+              통째로 렌더하지 않는다(빈 별점·0건 표시는 있는 것보다 나쁘다).
+              favorite/trending 아이콘 단독 표시로 자리를 채우지 않는 것도
+              같은 이유 — "N명 저장"이 가짜 지표였던 것과 마찬가지로,
+              근거 없는 인기 신호를 남겨두지 않는다. */}
+          {metrics?.rating != null && (
+            <span className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-slate-600">
+              <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" className="shrink-0" />
+              {metrics.rating.toFixed(1)}
+              {metrics.reviewCount != null && (
+                <span className="truncate font-normal text-slate-400">· 리뷰 {fmt(metrics.reviewCount)}</span>
+              )}
+              {metrics.priceLevel != null && metrics.priceLevel > 0 && (
+                <span className="shrink-0 font-semibold text-success-600">· {"₩".repeat(metrics.priceLevel)}</span>
+              )}
+            </span>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
               onAdd();
             }}
             aria-label={`${spot.name} 일정에 추가`}
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-indigo-500 hover:text-white"
+            className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-indigo-500 hover:text-white"
           >
             <Plus size={15} />
           </button>
