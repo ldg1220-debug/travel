@@ -73,6 +73,12 @@ const RoutePreviewMap = dynamic(() => import("./RoutePreviewMap"), { ssr: false 
 const LiveResultsMap = dynamic(() => import("./LiveResultsMap"), { ssr: false });
 
 type SectionKind = "trending" | "favorites" | "lodging" | "routes";
+// "인기 숙소" 섹션 임시 비활성화 — 국내 89.6%/해외 83.1%가 실존 확인 안 된
+// 템플릿 생성 스팟(GitHub #164)이라, 순위(1~4위)만 떼도 나머지가 실존
+// 주장은 그대로 남는다. 예약 의도가 실린 카테고리라 다른 카드보다 결과가
+// 무거워 #164 결론(삭제 vs API 기반 교체) 날 때까지 섹션 자체를 숨긴다 —
+// lodgingSpots/lodgingRanked 등 계산 로직은 그대로 두고 렌더만 끈다.
+const HIDE_LODGING_SECTION = true;
 const COMPACT_SPOT_COUNT = 4;
 /** How many of the top-ranked candidates the compact preview draws its random pick from — keeps the shown spots genuinely popular while still varying which ones surface each visit. */
 const COMPACT_POOL_SIZE = 10;
@@ -925,7 +931,7 @@ export function DiscoverPage() {
                 </>
               )}
 
-              {lodgingSpots.length > 0 && (
+              {!HIDE_LODGING_SECTION && lodgingSpots.length > 0 && (
                 <>
                   <SectionHeader
                     icon={Hotel}
