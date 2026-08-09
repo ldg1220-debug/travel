@@ -58,7 +58,7 @@ function AnnouncementForm() {
             {sending ? "발송 중…" : "전체 발송"}
           </button>
         </div>
-        {result && <p className="mt-2 text-[12px] font-medium text-emerald-600">{result}</p>}
+        {result && <p className="mt-2 text-[12px] font-medium text-success-600">{result}</p>}
         {error && <p className="mt-2 text-[12px] text-rose-500">{error}</p>}
       </div>
     </section>

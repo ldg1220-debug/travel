@@ -79,7 +79,7 @@ export function ReviewComposer({ plan, itineraryId, onClose }: { plan: SavedPlan
                   >
                     <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-slate-800">{p.name}</span>
                     {existing ? (
-                      <span className="flex shrink-0 items-center gap-1 text-[12px] font-semibold text-emerald-600">
+                      <span className="flex shrink-0 items-center gap-1 text-[12px] font-semibold text-success-600">
                         <Check size={13} /> {existing.rating.toFixed(1)}
                       </span>
                     ) : (

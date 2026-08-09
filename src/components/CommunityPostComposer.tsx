@@ -196,7 +196,7 @@ export function CommunityPostComposer({
         </div>
 
         {error && <p className="mb-3 text-center text-[12px] text-rose-500">{error}</p>}
-        {autoSaved && <p className="mb-3 text-center text-[12px] text-emerald-500">임시 저장됐어요</p>}
+        {autoSaved && <p className="mb-3 text-center text-[12px] text-success-500">임시 저장됐어요</p>}
 
         <button
           onClick={handleSave}

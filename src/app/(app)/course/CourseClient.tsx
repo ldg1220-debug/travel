@@ -864,13 +864,13 @@ export function CourseBuilderPage() {
                     key={s.key}
                     onClick={() => setActiveSlot(s.key)}
                     className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
-                      active ? "border-slate-900 bg-slate-900 text-white" : count > 0 ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600"
+                      active ? "border-slate-900 bg-slate-900 text-white" : count > 0 ? "border-success-300 bg-success-50 text-success-700" : "border-slate-200 bg-white text-slate-600"
                     }`}
                   >
                     <span>{s.emoji}</span>
                     {s.label}
                     {count > 0 && (
-                      <span className={`flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-white/25 text-white" : "bg-emerald-500 text-white"}`}>
+                      <span className={`flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${active ? "bg-white/25 text-white" : "bg-success-500 text-white"}`}>
                         {count}
                       </span>
                     )}
@@ -956,7 +956,7 @@ export function CourseBuilderPage() {
               onClick={buildRouteOnly}
               className="flex w-full items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50"
             >
-              <CordixIcon name="compass" size={18} className="shrink-0 text-emerald-500" />
+              <CordixIcon name="compass" size={18} className="shrink-0 text-success-500" />
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-semibold text-slate-800">날짜 없이 동선만 짜기</span>
                 <span className="block text-[11.5px] text-slate-500">관심 장소로 저장 — 지도에서 동선만 먼저 잡아보기</span>
@@ -1359,7 +1359,7 @@ function CourseSpotCard({
   return (
     <div
       className={`group overflow-hidden rounded-2xl border bg-white shadow-sm transition-all ${
-        picked ? "border-emerald-400 ring-2 ring-emerald-200" : "border-slate-200/70 hover:-translate-y-0.5 hover:shadow-lg"
+        picked ? "border-success-400 ring-2 ring-success-200" : "border-slate-200/70 hover:-translate-y-0.5 hover:shadow-lg"
       }`}
     >
       <button onClick={onOpenDetail} className="block w-full text-left">
@@ -1398,7 +1398,7 @@ function CourseSpotCard({
         <button
           onClick={onToggle}
           className={`mt-2 flex h-8 w-full items-center justify-center gap-1 rounded-lg text-[12px] font-semibold transition-colors ${
-            picked ? "bg-emerald-500 text-white hover:bg-emerald-600" : "bg-slate-100 text-slate-600 hover:bg-indigo-500 hover:text-white"
+            picked ? "bg-success-500 text-white hover:bg-success-600" : "bg-slate-100 text-slate-600 hover:bg-indigo-500 hover:text-white"
           }`}
         >
           {picked ? <><Check size={13} /> 담김 · 빼기</> : <><Plus size={13} /> 코스에 담기</>}

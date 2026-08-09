@@ -419,7 +419,7 @@ export function AppBar() {
                                 className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left"
                               >
                                 {activePlanId === plan.id && (
-                                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-500" />
                                 )}
                                 <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-slate-600">
                                   {plan.name}
