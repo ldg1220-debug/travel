@@ -5,8 +5,13 @@ import { allSpots } from "@/lib/discoverData";
 
 // rating/userRatingCount/priceLevel/regularOpeningHours는 Place Details의
 // Enterprise SKU다 — 월 무료 한도가 가장 낮은 티어(1,000회)라, 사용자
-// 조회마다 부르면 안 되고 이 배치로만 채운다. 큐레이션 스팟이 ~100곳이면
-// 월 1회 갱신은 월 ~100회로 여유 있게 한도 안이다.
+// 조회마다 부르면 안 되고 이 배치로만 채운다. isPlaceholderSpot()으로
+// 걸러지는 템플릿 생성 스팟(2,134개, discoverData.ts 전체의 84%)을 뺀
+// "실존 후보" 스팟은 398개(2026-08 기준, allSpots("domestic"|"overseas")
+// 실측) — placeId가 실제로 매칭되는 건 이 중 일부뿐이라 매달 부르는
+// 실제 건수는 더 적겠지만, 상한선을 398로 잡아도 월 무료 한도 안엔
+// 들어온다. 다만 92곳으로 추정했던 최초 스코프보다 헤드룸이 훨씬
+// 좁으니 카탈로그가 더 늘어나면 다시 확인할 것.
 const FIELD_MASK = "rating,userRatingCount,priceLevel,regularOpeningHours";
 
 /**
