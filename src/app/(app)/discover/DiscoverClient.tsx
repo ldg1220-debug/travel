@@ -447,25 +447,6 @@ export function DiscoverPage() {
     enabled: activeQuery.trim().length === 0,
   });
 
-  // 임시 진단 로그 — #164 라이브 검색 결과가 프리뷰에서 간헐적으로
-  // 화면에 안 뜨는 문제(원인 미확정) 재현 시 콘솔에서 확인하려는 목적.
-  // API 응답은 정상인데 화면이 빈 상태가 재현되면, 이 로그의
-  // trendingLen이 0인지(=bundle 자체가 비어 옴, 진짜 데이터 문제) 아니면
-  // >0인데 화면에 카드가 안 보이는지(=렌더 쪽 문제)를 가른다. 원인
-  // 확정되면 제거할 것.
-  useEffect(() => {
-    console.log("[discover-debug]", {
-      regionPath: regionPath.join("/"),
-      isFetching: browseFetching,
-      updatedAt: browseUpdatedAt ? new Date(browseUpdatedAt).toISOString() : null,
-      notice: browseData?.notice,
-      trendingLen: browseData?.bundle.trending.length,
-      favoritesLen: browseData?.bundle.favorites.length,
-      routesLen: browseData?.bundle.routes.length,
-      firstTrendingName: browseData?.bundle.trending[0]?.name,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 진단용, browseData 객체 참조가 바뀔 때마다만 찍히면 충분
-  }, [browseData, browseFetching, regionPath]);
 
   // 큐레이션 스팟의 실제 Google 지표 — scope/필터와 무관하게 딱 한 번만
   // 불러서 SpotMetricsContext로 흘려보낸다. 월 1회 배치로만 갱신되는
@@ -684,6 +665,33 @@ export function DiscoverPage() {
   const lodgingRanked = useMemo(() => [...lodgingSpots].sort((a, b) => b.saves - a.saves), [lodgingSpots]);
   const lodgingCompact = useMemo(() => lodgingRanked.slice(0, COMPACT_SPOT_COUNT), [lodgingRanked]);
   const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
+
+  // 임시 진단 로그 — #164 라이브 검색 결과가 프리뷰에서 간헐적으로
+  // 이전 지역 콘텐츠에 멈춰 있던 문제(3차 검증에서 AnimatePresence
+  // mode="wait" 제거로 조치, 아직 라이브 미확인) 재검증용. API
+  // 응답(browseData)과 실제 렌더에 쓰이는 파생값(trendingCompact 등)을
+  // 나란히 찍어서, 응답은 새 지역인데 파생값이 옛 지역에 멈춰 있는지를
+  // 한눈에 비교할 수 있게 했다. 이전엔 콘솔이 객체를 축약 표시해
+  // 내용을 못 읽는다는 피드백이 있어 JSON.stringify로 바꿈 — 원인
+  // 확정되면 제거할 것.
+  useEffect(() => {
+    console.log(
+      "[discover-debug] " +
+        JSON.stringify({
+          regionPath: regionPath.join("/"),
+          isFetching: browseFetching,
+          updatedAt: browseUpdatedAt ? new Date(browseUpdatedAt).toISOString() : null,
+          notice: browseData?.notice,
+          isLiveRegion,
+          bundleTrendingLen: browseData?.bundle.trending.length,
+          bundleFirstName: browseData?.bundle.trending[0]?.name,
+          trendingRealLen: trendingReal.length,
+          trendingCompactLen: trendingCompact.length,
+          trendingCompactFirstName: trendingCompact[0]?.name,
+        }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 진단용, 렌더에 실제 쓰이는 파생값이 바뀔 때마다만 찍히면 충분
+  }, [browseData, browseFetching, regionPath, trendingCompact]);
 
   return (
     <SpotMetricsContext.Provider value={spotMetrics ?? {}}>
@@ -907,8 +915,21 @@ export function DiscoverPage() {
             onOpenLiveDetail={handleOpenLiveDetail}
           />
         ) : (
-          /* ── BROWSE CONTENT (switches on scope + category) ── */
-          <AnimatePresence mode="wait">
+          /* ── BROWSE CONTENT (switches on scope + category) ──
+             mode="wait"였을 때 발견된 버그(#166 3차 프리뷰 검증): 빠른
+             연속 지역 전환(scope/regionPath가 exit 애니메이션
+             duration=0.25s보다 짧은 간격으로 여러 번 바뀜, 자동화 테스트
+             클릭 시퀀스에서 재현) 아래에서 이전 key의 exit 애니메이션이
+             framer-motion 내부적으로 완료 추적을 놓치면, "wait" 모드는
+             그걸 기다리느라 새 key의 자식을 영영 마운트하지 않는다 —
+             바깥의 배너/칩/브레드크럼(AnimatePresence 밖, 응답을 직접
+             읽음)은 새 지역을 정확히 반영하는데 이 안의 카드 그리드만
+             이전 지역 내용에 멈춰 있던 증상이 정확히 이거였다. 기본
+             모드("sync")는 나가는 요소와 들어오는 요소가 서로를
+             기다리지 않고 동시에 애니메이션되므로 이 실패 모드 자체가
+             없다 — 전환이 살짝 덜 깔끔해 보일 수 있지만(잠깐 겹침),
+             데이터가 영구히 멈추는 것보다 훨씬 낫다. */
+          <AnimatePresence>
             <motion.div
               key={`${scope}-${seasonCheck}-${hotCheck}-${regionPath.join("/")}`}
               initial={{ opacity: 0, y: 12 }}
