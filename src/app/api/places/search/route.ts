@@ -4,6 +4,8 @@ import { DOMESTIC_PLACES } from "@/lib/mockPlacesDomestic";
 import { styleForCategory } from "@/lib/placeStyle";
 import type { Place, Region } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { sortKakaoByRelevance } from "@/lib/kakaoRelevance";
+import { parseUserLocation } from "@/lib/parseUserLocation";
 
 export const dynamic = "force-dynamic";
 
@@ -91,20 +93,13 @@ const NEAR_RADIUS_M = 3000;
 /** Category spread for a bare "X 근처" (no "Y" named) — one query per label, merged, so the grouped live-results UI has something in each theme bucket instead of whatever one generic query happened to surface. */
 const NEAR_FANOUT_LABELS = ["관광명소", "맛집", "카페", "술집", "숙소"];
 
-/** Parses `lat`/`lng` query params into a bias point for "내 주변순" — the coordinate the browser's Geolocation API resolved client-side (never stored; used only for this one request). */
-function parseUserLocation(request: NextRequest): { lat: number; lng: number } | null {
-  const lat = Number(request.nextUrl.searchParams.get("lat"));
-  const lng = Number(request.nextUrl.searchParams.get("lng"));
-  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
-}
-
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
   const rawQuery = (request.nextUrl.searchParams.get("q") ?? "").trim();
   const near = parseNearQuery(rawQuery);
   const query = stripLocalityFillers(rawQuery);
   const category = request.nextUrl.searchParams.get("category") ?? "all";
-  const userLocation = parseUserLocation(request);
+  const userLocation = parseUserLocation(request.nextUrl.searchParams);
   // "더 보기" continuation — a Google `nextPageToken` from an earlier
   // response, only meaningful for the domestic Google-fallback path today.
   const pageToken = request.nextUrl.searchParams.get("pageToken") ?? undefined;
@@ -469,6 +464,8 @@ interface KakaoLocalDocument {
   id: string;
   place_name: string;
   category_group_name?: string;
+  /** Kakao's short category code (AT4=관광명소, SW8=지하철역, FD6=음식점, AG2=중개업소, …) — used for relevance re-ranking, see src/lib/kakaoRelevance.ts. Distinct from category_group_name (the Korean label) and empty for businesses outside Kakao's defined groups. */
+  category_group_code?: string;
   address_name?: string;
   road_address_name?: string;
   x: string;
@@ -533,11 +530,11 @@ async function searchDomestic(
    * something new) instead of re-running Kakao. */
   pageToken?: string,
 ): Promise<{ places: Place[]; source: PlaceSearchSource; nextPageToken?: string }> {
+  const apiKey = process.env.KAKAO_REST_API_KEY;
   if (pageToken) {
     const page = await domesticGoogleFallback(query, pageToken);
     return { places: page.places, source: "google", nextPageToken: page.nextPageToken };
   }
-  const apiKey = process.env.KAKAO_REST_API_KEY;
   console.log("[places/search] Using Kakao API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
     // "내 주변순" — the browser's Geolocation API already resolved a
@@ -586,7 +583,12 @@ async function searchDomestic(
         docs = merged;
       }
       if (docs.length > 0) {
-        const kakaoPlaces = docs.map(kakaoDocToPlace);
+        // 문자열 매칭이라 "경복궁" 검색에 부동산중개·음식점 상호가 실제
+        // 경복궁(관광명소)보다 앞서는 문제(코스 세부설정의 시작/종료
+        // 위치 검색에서 발견) — 이름 완전/접두 일치와 카테고리 등급으로
+        // 재정렬. "우래옥"처럼 진짜 상호명 검색은 이름 일치가 먼저 걸려
+        // 그대로 1위를 유지한다.
+        const kakaoPlaces = sortKakaoByRelevance(docs, query).map(kakaoDocToPlace);
         // Kakao Local's keyword search is literal token matching, not the
         // review-driven ranking Kakao Map's own app uses — broad "지역
         // 맛집" queries can come back thin (a dozen hits, sometimes landing
