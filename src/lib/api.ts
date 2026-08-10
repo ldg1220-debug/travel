@@ -1234,6 +1234,20 @@ export async function fetchDiscoverBundle(
   return res.json();
 }
 
+export interface SpotMetrics {
+  rating: number | null;
+  reviewCount: number | null;
+  priceLevel: number | null;
+}
+
+/** spot_id → 실제 Google 지표 맵. 없는 spot_id는 키 자체가 없다(placeId 미확정이거나 갱신 배치 대상 아님) — SpotCard가 이 부재로 지표 영역 렌더 여부를 결정한다. */
+export async function fetchSpotMetrics(): Promise<Record<string, SpotMetrics>> {
+  const res = await fetch("/api/discover/spot-metrics");
+  if (!res.ok) throw new Error("Failed to load spot metrics");
+  const data = (await res.json()) as { metrics: Record<string, SpotMetrics> };
+  return data.metrics;
+}
+
 export interface DiscoverSearchPagination {
   page: number;
   limit: number;

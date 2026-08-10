@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -13,7 +13,6 @@ import {
   Plus,
   MapPin,
   Clock,
-  TrendingUp,
   Coffee,
   Landmark,
   UtensilsCrossed,
@@ -48,11 +47,11 @@ import { FolderChips } from "@/components/FolderChips";
 import { SchedulePlanPickerModal, type SchedulePlanTarget } from "@/components/SchedulePlanPickerModal";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
-import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch } from "@/lib/api";
+import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch, fetchSpotMetrics, type SpotMetrics } from "@/lib/api";
 import { useUserLocation } from "@/lib/useUserLocation";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
-import { SEASON_LABEL } from "@/lib/discoverData";
+import { SEASON_LABEL, isPlaceholderSpot } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
 import { useRecentSearches } from "@/lib/useRecentSearches";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
@@ -74,6 +73,12 @@ const RoutePreviewMap = dynamic(() => import("./RoutePreviewMap"), { ssr: false 
 const LiveResultsMap = dynamic(() => import("./LiveResultsMap"), { ssr: false });
 
 type SectionKind = "trending" | "favorites" | "lodging" | "routes";
+// "인기 숙소" 섹션 임시 비활성화 — 국내 89.6%/해외 83.1%가 실존 확인 안 된
+// 템플릿 생성 스팟(GitHub #164)이라, 순위(1~4위)만 떼도 나머지가 실존
+// 주장은 그대로 남는다. 예약 의도가 실린 카테고리라 다른 카드보다 결과가
+// 무거워 #164 결론(삭제 vs API 기반 교체) 날 때까지 섹션 자체를 숨긴다 —
+// lodgingSpots/lodgingRanked 등 계산 로직은 그대로 두고 렌더만 끈다.
+const HIDE_LODGING_SECTION = true;
 const COMPACT_SPOT_COUNT = 4;
 /** How many of the top-ranked candidates the compact preview draws its random pick from — keeps the shown spots genuinely popular while still varying which ones surface each visit. */
 const COMPACT_POOL_SIZE = 10;
@@ -348,6 +353,14 @@ function RegionDrilldown({
   );
 }
 
+// 큐레이션 스팟(SpotCard)의 실제 Google 지표 — DiscoverPage가 마운트 시
+// 한 번만 불러 여기 채우고, SpotCard는 spot.id로 조회만 한다. props로
+// 6곳의 <SpotCard> 호출부(중첩된 섹션 컴포넌트들 포함)까지 꿰뚫어
+// 전달하는 대신 Context로 두면 그 호출부들은 안 건드려도 된다. 값이
+// 없는 spot.id는 키가 아예 없다 — placeId 미확정/편집 개념 카드/아직
+// 갱신 배치가 안 돈 스팟.
+const SpotMetricsContext = createContext<Record<string, SpotMetrics>>({});
+
 // ─────────────────────────────────────────────────────────────
 // The global App Bar (hamburger + title + Sheet nav) already lives in
 // src/components/AppBar.tsx, rendered once by src/app/(app)/layout.tsx
@@ -428,6 +441,15 @@ export function DiscoverPage() {
     queryKey: ["discover-trends", scope, seasonCheck, hotCheck, regionPath],
     queryFn: () => fetchDiscoverBundle(scope, regionPath.length > 0 ? "region" : "all", regionPath, { season: seasonCheck, hot: hotCheck }),
     enabled: activeQuery.trim().length === 0,
+  });
+
+  // 큐레이션 스팟의 실제 Google 지표 — scope/필터와 무관하게 딱 한 번만
+  // 불러서 SpotMetricsContext로 흘려보낸다. 월 1회 배치로만 갱신되는
+  // 데이터라 staleTime을 길게 잡아 세션 안에서 재요청하지 않는다.
+  const { data: spotMetrics } = useQuery({
+    queryKey: ["discover-spot-metrics"],
+    queryFn: fetchSpotMetrics,
+    staleTime: 60 * 60 * 1000,
   });
 
   const isSearching = activeQuery.trim().length > 0;
@@ -590,31 +612,37 @@ export function DiscoverPage() {
     () => (bundle ? [...bundle.trending, ...bundle.favorites].filter((s) => isLodging(s.tag)) : []),
     [bundle],
   );
+  // isPlaceholderSpot 제외: "지금 뜨는 장소"/"꾸준히 사랑받는 명소"는
+  // saves 내림차순으로 상위 POOL을 뽑는데, 템플릿 생성 스팟(#164)이
+  // 전부 동일한 고정 saves 시드값(2600)을 갖고 있어 국내 트렌딩만 놓고
+  // 보면 상위 10곳 전체가 템플릿 — 즉 셔플이 어떻게 나와도 4장 다
+  // 존재하지 않는 스팟만 보이는 상태였다(실측: 첨성대 2200이 실존
+  // 최고값인데도 템플릿 2600 밑으로 전부 깔림). saves 값을 손보는 대신
+  // 애초에 후보 풀에서 제외 — 숙소 섹션을 통째로 숨긴 것과 같은 논리.
+  // trending/favoritesReal은 필터링된 "진짜" 전체 목록 — 컴팩트 미리보기
+  // 뿐 아니라 섹션 노출 여부/"전체보기" 활성화 조건도 이걸로 판단해야,
+  // 템플릿만 있는 지역(#164)에서 카드 없는 빈 섹션 헤더만 뜨는 걸 막는다.
+  const trendingReal = useMemo(
+    () => (bundle ? bundle.trending.filter((s) => !isLodging(s.tag) && !isPlaceholderSpot(s)) : []),
+    [bundle],
+  );
+  const favoritesReal = useMemo(
+    () => (bundle ? bundle.favorites.filter((s) => !isLodging(s.tag) && !isPlaceholderSpot(s)) : []),
+    [bundle],
+  );
   const trendingCompact = useMemo(
     () =>
-      bundle
-        ? shuffled(
-            bundle.trending
-              .filter((s) => !isLodging(s.tag))
-              .slice()
-              .sort((a, b) => b.saves - a.saves)
-              .slice(0, COMPACT_POOL_SIZE),
-          ).slice(0, COMPACT_SPOT_COUNT)
-        : [],
-    [bundle],
+      shuffled(
+        [...trendingReal].sort((a, b) => b.saves - a.saves).slice(0, COMPACT_POOL_SIZE),
+      ).slice(0, COMPACT_SPOT_COUNT),
+    [trendingReal],
   );
   const favoritesCompact = useMemo(
     () =>
-      bundle
-        ? shuffled(
-            bundle.favorites
-              .filter((s) => !isLodging(s.tag))
-              .slice()
-              .sort((a, b) => b.saves - a.saves)
-              .slice(0, COMPACT_POOL_SIZE),
-          ).slice(0, COMPACT_SPOT_COUNT)
-        : [],
-    [bundle],
+      shuffled(
+        [...favoritesReal].sort((a, b) => b.saves - a.saves).slice(0, COMPACT_POOL_SIZE),
+      ).slice(0, COMPACT_SPOT_COUNT),
+    [favoritesReal],
   );
   // 트렌딩/즐겨찾기와 달리 숙소는 매번 랜덤으로 섞이면 안 된다 — "어디로 갈지
   // 정해놓고 그 지역 인기 숙소 순위를 보러 오는" 용도라, 지역별 칩으로 좁힌
@@ -625,6 +653,7 @@ export function DiscoverPage() {
   const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
 
   return (
+    <SpotMetricsContext.Provider value={spotMetrics ?? {}}>
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       <div className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6">
         {/* ── SEARCH + SEGMENTED TOGGLE ── */}
@@ -859,7 +888,7 @@ export function DiscoverPage() {
                 <ChevronRight size={20} className="shrink-0 text-white/80" />
               </button>
 
-              {bundle && bundle.trending.length > 0 && (
+              {trendingReal.length > 0 && (
                 <>
                   <SectionHeader
                     icon={hotCheck ? Flame : seasonCheck ? Sparkles : Flame}
@@ -870,7 +899,7 @@ export function DiscoverPage() {
                     // 실시간 핫플"이라는 문구는 실제로 존재하지 않는 실시간
                     // 신호를 있는 것처럼 말해 신뢰를 깎을 수 있어 표현을 바꿈.
                     caption="여행자들이 많이 찾는 인기 스팟"
-                    onSeeAll={bundle.trending.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("trending") : undefined}
+                    onSeeAll={trendingReal.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("trending") : undefined}
                   />
                   <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
                     {trendingCompact.map((spot, i) => (
@@ -886,21 +915,20 @@ export function DiscoverPage() {
                 </>
               )}
 
-              {bundle && bundle.favorites.length > 0 && (
+              {favoritesReal.length > 0 && (
                 <>
                   <SectionHeader
                     icon={Crown}
                     iconClass="text-amber-500"
                     title="꾸준히 사랑받는 명소"
                     caption="언제 가도 좋은 스테디셀러 명소"
-                    onSeeAll={bundle.favorites.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("favorites") : undefined}
+                    onSeeAll={favoritesReal.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("favorites") : undefined}
                   />
                   <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
                     {favoritesCompact.map((spot) => (
                       <SpotCard
                         key={spot.id}
                         spot={spot}
-                        favorite
                         onAdd={() => handleAddSpot(spot)}
                         onOpenDetail={() => handleOpenDetail(spot)}
                       />
@@ -909,7 +937,7 @@ export function DiscoverPage() {
                 </>
               )}
 
-              {lodgingSpots.length > 0 && (
+              {!HIDE_LODGING_SECTION && lodgingSpots.length > 0 && (
                 <>
                   <SectionHeader
                     icon={Hotel}
@@ -930,7 +958,7 @@ export function DiscoverPage() {
                 </>
               )}
 
-              {bundle && bundle.trending.length === 0 && bundle.favorites.length === 0 && (
+              {bundle && trendingReal.length === 0 && favoritesReal.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400">
                   이 조건에 맞는 장소가 아직 없어요.
                 </div>
@@ -955,6 +983,7 @@ export function DiscoverPage() {
             </motion.div>
           </AnimatePresence>
         )}
+        {!isSearching && Object.keys(spotMetrics ?? {}).length > 0 && <GoogleAttribution />}
       </div>
 
       {/* "+" 퀵 버튼 — 일정에 추가할지 관심 장소(찜)에 추가할지 물어보는
@@ -1084,6 +1113,22 @@ export function DiscoverPage() {
         </div>
       )}
     </div>
+    </SpotMetricsContext.Provider>
+  );
+}
+
+/**
+ * Google Places 데이터를 표시하는 화면에 요구되는 출처 표기. 큐레이션
+ * 카드(SpotCard)가 실제 rating을 하나라도 보여주고 있을 때만 렌더한다 —
+ * 매칭 전이라 지표가 아직 하나도 안 보이는 상태에서 출처 표기부터
+ * 뜨는 건 어색하다. LivePlaceCard 쪽 실시간 검색 결과는 애초에
+ * Google/Kakao 지도 링크를 노출하므로 별도 표기가 이미 붙어 있다.
+ */
+function GoogleAttribution() {
+  return (
+    <p className="mt-8 text-center text-[11px] text-slate-400">
+      평점·리뷰 정보 제공: Google
+    </p>
   );
 }
 
@@ -1156,12 +1201,14 @@ function ExpandedSection({
   const meta = SECTION_META[kind];
   // 명소 섹션(지금 뜨는 장소/꾸준히 사랑받는 명소)에서는 숙소를 뺀다 — 숙소는
   // 별도 "인기 숙소" 섹션에서만 보여준다(사용자 피드백: 호텔이 명소 목록에
-  // 섞여 나오면 어색함).
+  // 섞여 나오면 어색함). 템플릿 생성 스팟(#164)도 컴팩트 프리뷰와 같은
+  // 이유로 제외 — 안 그러면 "전체보기"를 눌렀을 때 프리뷰에선 숨겼던
+  // 존재하지 않는 스팟이 그대로 쏟아진다.
   const spots =
     kind === "trending"
-      ? bundle.trending.filter((s) => !isLodging(s.tag))
+      ? bundle.trending.filter((s) => !isLodging(s.tag) && !isPlaceholderSpot(s))
       : kind === "favorites"
-        ? bundle.favorites.filter((s) => !isLodging(s.tag))
+        ? bundle.favorites.filter((s) => !isLodging(s.tag) && !isPlaceholderSpot(s))
         : bundle.lodging;
   return (
     <div>
@@ -1199,7 +1246,6 @@ function ExpandedSection({
             <SpotCard
               key={spot.id}
               spot={spot}
-              favorite={kind === "favorites"}
               rank={kind === "lodging" ? i + 1 : undefined}
               onAdd={() => onAddSpot(spot)}
               onOpenDetail={() => onOpenDetail(spot)}
@@ -1717,13 +1763,11 @@ function SpotCardSkeleton() {
 function SpotCard({
   spot,
   rank,
-  favorite,
   onAdd,
   onOpenDetail,
 }: {
   spot: DiscoverSpot;
   rank?: number;
-  favorite?: boolean;
   onAdd: () => void;
   onOpenDetail: () => void;
 }) {
@@ -1732,6 +1776,7 @@ function SpotCard({
   // /api/discover/spot-photo) — 404/no-key/no-match just falls back to
   // the curated gradient, so the card never shows a broken image.
   const [photoFailed, setPhotoFailed] = useState(false);
+  const metrics = useContext(SpotMetricsContext)[spot.id];
   return (
     <div
       onClick={onOpenDetail}
@@ -1777,22 +1822,32 @@ function SpotCard({
         <p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
           <CordixIcon name="pin" size={11} /> {spot.region}
         </p>
-        <div className="mt-2 flex items-center justify-between">
-          <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500">
-            {favorite ? (
-              <CordixIcon name="star" size={12} stroke="#fbbf24" accent="#fbbf24" />
-            ) : (
-              <TrendingUp size={12} className="text-rose-500" />
-            )}
-            {fmt(spot.saves)}명 저장
-          </span>
+        <div className="mt-2 flex items-center">
+          {/* 지표(⭐평점 · 리뷰수)는 실제 Google 데이터가 있을 때만 —
+              placeId 미확정/편집 개념 카드/갱신 배치 전이면 이 자리를
+              통째로 렌더하지 않는다(빈 별점·0건 표시는 있는 것보다 나쁘다).
+              favorite/trending 아이콘 단독 표시로 자리를 채우지 않는 것도
+              같은 이유 — "N명 저장"이 가짜 지표였던 것과 마찬가지로,
+              근거 없는 인기 신호를 남겨두지 않는다. */}
+          {metrics?.rating != null && (
+            <span className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-slate-600">
+              <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" className="shrink-0" />
+              {metrics.rating.toFixed(1)}
+              {metrics.reviewCount != null && (
+                <span className="truncate font-normal text-slate-400">· 리뷰 {fmt(metrics.reviewCount)}</span>
+              )}
+              {metrics.priceLevel != null && metrics.priceLevel > 0 && (
+                <span className="shrink-0 font-semibold text-success-600">· {"₩".repeat(metrics.priceLevel)}</span>
+              )}
+            </span>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
               onAdd();
             }}
             aria-label={`${spot.name} 일정에 추가`}
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-indigo-500 hover:text-white"
+            className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-indigo-500 hover:text-white"
           >
             <Plus size={15} />
           </button>

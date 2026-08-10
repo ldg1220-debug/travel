@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "pipeline": "tsx src/server/pipeline/run.ts",
-    "db:migrate": "tsx src/server/db/migrate.ts"
+    "db:migrate": "tsx src/server/db/migrate.ts",
+    "match-spot-place-ids": "tsx scripts/match-spot-place-ids.ts"
   },
   "dependencies": {
     "@auth/pg-adapter": "^1.11.2",

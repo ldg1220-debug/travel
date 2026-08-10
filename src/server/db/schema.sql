@@ -598,3 +598,25 @@ CREATE TABLE IF NOT EXISTS lodging_cta_events (
 CREATE INDEX IF NOT EXISTS lodging_cta_events_created_at_idx ON lodging_cta_events (created_at);
 CREATE INDEX IF NOT EXISTS lodging_cta_events_kind_placement_idx ON lodging_cta_events (kind, placement);
 ALTER TABLE lodging_cta_events ENABLE ROW LEVEL SECURITY;
+
+-- /discover 큐레이션 카드(discoverData.ts, spot.id 기준)의 실제 Google
+-- Places 지표. spot_id → place_id 매칭은 scripts/match-spot-place-ids.ts로
+-- 1회성(수동 검토 후) 확정하고, 이후 rating/review_count/opening_hours는
+-- /api/cron/refresh-spot-metrics가 월 1회 배치로 채운다 — 사용자 조회마다
+-- 실시간 호출하면 Enterprise SKU 월 무료 한도(1,000회)를 바로 넘는다.
+-- opening_hours는 카드에 아직 안 쓰지만, GitHub #156(운영시간 개념 부재로
+-- 스팟이 영업 전 시간대에 배정된 문제)에서 그대로 재사용하려고 같이
+-- 저장해둔다. Google ToS상 place_id는 무기한 보관 가능하지만 rating 등
+-- 콘텐츠는 30일 초과 보관이 제한돼 있어 updated_at을 두고, 배치가
+-- 30일 이상 못 돈 로우는 조회 시 "만료"로 취급해 지표를 숨긴다(코드에서
+-- 처리 — 여기서 강제 삭제하지는 않음, 다음 배치가 돌면 다시 갱신되므로).
+CREATE TABLE IF NOT EXISTS spot_place_metrics (
+  spot_id TEXT PRIMARY KEY,
+  place_id TEXT NOT NULL,
+  rating REAL,
+  review_count INTEGER,
+  price_level SMALLINT,
+  opening_hours JSONB,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE spot_place_metrics ENABLE ROW LEVEL SECURITY;
