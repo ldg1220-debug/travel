@@ -840,6 +840,15 @@ export function DiscoverPage() {
           </div>
         )}
 
+        {/* 트레쥴이 손으로 고른 스팟이 아직 없는 지역 — 실시간 검색으로
+            채운 결과라는 걸 밝힌다(#164, GoogleAttribution과 같은 이유:
+            큐레이션 카드처럼 보이면 안 됨). */}
+        {browseData?.notice === "live" && !expandedSection && (
+          <div className="mb-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-center text-[13px] text-slate-500">
+            아직 트레쥴이 직접 고른 스팟은 없어요 — 실시간 검색 결과를 보여드려요.
+          </div>
+        )}
+
         {/* ── MAIN CONTENT ── */}
         {expandedSection && bundle ? (
           <ExpandedSection
@@ -983,7 +992,7 @@ export function DiscoverPage() {
             </motion.div>
           </AnimatePresence>
         )}
-        {!isSearching && Object.keys(spotMetrics ?? {}).length > 0 && <GoogleAttribution />}
+        {!isSearching && (Object.keys(spotMetrics ?? {}).length > 0 || browseData?.notice === "live") && <GoogleAttribution />}
       </div>
 
       {/* "+" 퀵 버튼 — 일정에 추가할지 관심 장소(찜)에 추가할지 물어보는

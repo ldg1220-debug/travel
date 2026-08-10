@@ -1208,8 +1208,14 @@ export interface DiscoverBrowseResponse {
   bundle: DiscoverBundle;
   regionTree: RegionNode[];
   season: Season;
-  /** Set when a fully-drilled-down 지역별 selection had nothing, and the bundle fell back to scope-wide popular spots instead. */
-  notice: "coming_soon" | null;
+  /**
+   * Set when a fully-drilled-down 지역별 selection had no curated spots.
+   * "coming_soon" — fell back to scope-wide popular spots (live search
+   * also came up empty, e.g. no API key). "live" — filled from a live
+   * Kakao/Google search instead (#164) — `bundle.trending` holds real,
+   * un-curated places rather than trending-ranked ones.
+   */
+  notice: "coming_soon" | "live" | null;
 }
 
 /**

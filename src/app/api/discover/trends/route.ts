@@ -6,6 +6,7 @@ import {
   matchesRegionPath,
   parseSearchQuery,
   regionHierarchy,
+  resolveLeafCityCoords,
   routeMatches,
   routeMatchesRegionPath,
   seasonNow,
@@ -17,6 +18,7 @@ import {
   type PlaceCategoryTag,
 } from "@/lib/discoverData";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { fetchLiveBrowseSpots } from "@/lib/server/discoverLiveBrowse";
 
 // ISR-style caching: identical to /api/trends and /api/planner/trends —
 // this curated feed doesn't need to be recomputed on every request.
@@ -140,7 +142,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   let trending = bundle.trending;
   let favorites = bundle.favorites;
   let routes = bundle.routes;
-  let notice: "coming_soon" | null = null;
+  let notice: "coming_soon" | "live" | null = null;
 
   // 계절/핫한 are combinable check-filters (each stacks on top of a region
   // drill-down); the legacy exclusive `category` values keep working by
@@ -155,22 +157,42 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     routes = bundle.routes.filter((r) => routeMatchesRegionPath(r, scope, path));
 
     if (trending.length === 0 && favorites.length === 0) {
-      // A fully-drilled-down (leaf) selection with nothing in it reads as
-      // "this city/neighborhood isn't in our data yet" rather than "there's
-      // nothing here" — fall back one path segment at a time (e.g. a city
-      // with no data falls back to its country, not straight to
-      // scope-wide) so the "준비 중" recommendations still feel nearby.
-      notice = "coming_soon";
-      let fallbackPath = path.slice(0, -1);
-      let fallbackMatches: DiscoverSpot[] = [];
-      while (fallbackPath.length > 0) {
-        fallbackMatches = allSpots(scope).filter((s) => matchesRegionPath(s, scope, fallbackPath));
-        if (fallbackMatches.length > 0) break;
-        fallbackPath = fallbackPath.slice(0, -1);
+      // 큐레이션 스팟이 0개인 leaf(#164 — 템플릿 생성 스팟 2,134곳을
+      // 지운 뒤 남는 대부분의 도시)에 도달했을 때, path가 도시 하나를
+      // 정확히 가리키면 "준비 중" 문구 대신 라이브 검색으로 채운다 —
+      // AI 코스 추천과 같은 인프라(캐시 포함) 재사용, 프로덕션 라이브
+      // 실측으로 품질 확인됨(2026-08-10, 5개 도시 × 3개 카테고리).
+      const leafCity = resolveLeafCityCoords(scope, path);
+      const liveSpots = leafCity ? await fetchLiveBrowseSpots(scope, leafCity.city, leafCity.region) : [];
+      if (liveSpots.length > 0) {
+        trending = liveSpots;
+        favorites = [];
+        // 라이브 결과는 트레쥴이 순위를 매긴 게 아니라 있는 그대로 보여주는
+        // 것 — 클라이언트가 "실시간 검색 결과" 표기와 Google/Kakao 출처
+        // 표기를 붙일 수 있게 별도 notice로 구분한다(coming_soon과 달리
+        // 진짜 콘텐츠가 있는 상태).
+        notice = "live";
+        routes = [];
+      } else {
+        // A fully-drilled-down (leaf) selection with nothing in it reads as
+        // "this city/neighborhood isn't in our data yet" rather than "there's
+        // nothing here" — fall back one path segment at a time (e.g. a city
+        // with no data falls back to its country, not straight to
+        // scope-wide) so the "준비 중" recommendations still feel nearby.
+        // (라이브 검색이 API 키 부재/실패/빈 응답으로 아무것도 못 줬을
+        // 때의 최종 안전망 — 폴백 자체는 그대로 유지.)
+        notice = "coming_soon";
+        let fallbackPath = path.slice(0, -1);
+        let fallbackMatches: DiscoverSpot[] = [];
+        while (fallbackPath.length > 0) {
+          fallbackMatches = allSpots(scope).filter((s) => matchesRegionPath(s, scope, fallbackPath));
+          if (fallbackMatches.length > 0) break;
+          fallbackPath = fallbackPath.slice(0, -1);
+        }
+        trending = (fallbackMatches.length > 0 ? fallbackMatches : [...allSpots(scope)]).sort((a, b) => b.saves - a.saves).slice(0, FALLBACK_COUNT);
+        favorites = [];
+        routes = fallbackPath.length > 0 ? bundle.routes.filter((r) => routeMatchesRegionPath(r, scope, fallbackPath)) : [];
       }
-      trending = (fallbackMatches.length > 0 ? fallbackMatches : [...allSpots(scope)]).sort((a, b) => b.saves - a.saves).slice(0, FALLBACK_COUNT);
-      favorites = [];
-      routes = fallbackPath.length > 0 ? bundle.routes.filter((r) => routeMatchesRegionPath(r, scope, fallbackPath)) : [];
     }
   }
 
