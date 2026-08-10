@@ -51,7 +51,7 @@ import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch, fetchSp
 import { useUserLocation } from "@/lib/useUserLocation";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
-import { SEASON_LABEL } from "@/lib/discoverData";
+import { SEASON_LABEL, isPlaceholderSpot } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
 import { useRecentSearches } from "@/lib/useRecentSearches";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
@@ -612,31 +612,37 @@ export function DiscoverPage() {
     () => (bundle ? [...bundle.trending, ...bundle.favorites].filter((s) => isLodging(s.tag)) : []),
     [bundle],
   );
+  // isPlaceholderSpot 제외: "지금 뜨는 장소"/"꾸준히 사랑받는 명소"는
+  // saves 내림차순으로 상위 POOL을 뽑는데, 템플릿 생성 스팟(#164)이
+  // 전부 동일한 고정 saves 시드값(2600)을 갖고 있어 국내 트렌딩만 놓고
+  // 보면 상위 10곳 전체가 템플릿 — 즉 셔플이 어떻게 나와도 4장 다
+  // 존재하지 않는 스팟만 보이는 상태였다(실측: 첨성대 2200이 실존
+  // 최고값인데도 템플릿 2600 밑으로 전부 깔림). saves 값을 손보는 대신
+  // 애초에 후보 풀에서 제외 — 숙소 섹션을 통째로 숨긴 것과 같은 논리.
+  // trending/favoritesReal은 필터링된 "진짜" 전체 목록 — 컴팩트 미리보기
+  // 뿐 아니라 섹션 노출 여부/"전체보기" 활성화 조건도 이걸로 판단해야,
+  // 템플릿만 있는 지역(#164)에서 카드 없는 빈 섹션 헤더만 뜨는 걸 막는다.
+  const trendingReal = useMemo(
+    () => (bundle ? bundle.trending.filter((s) => !isLodging(s.tag) && !isPlaceholderSpot(s)) : []),
+    [bundle],
+  );
+  const favoritesReal = useMemo(
+    () => (bundle ? bundle.favorites.filter((s) => !isLodging(s.tag) && !isPlaceholderSpot(s)) : []),
+    [bundle],
+  );
   const trendingCompact = useMemo(
     () =>
-      bundle
-        ? shuffled(
-            bundle.trending
-              .filter((s) => !isLodging(s.tag))
-              .slice()
-              .sort((a, b) => b.saves - a.saves)
-              .slice(0, COMPACT_POOL_SIZE),
-          ).slice(0, COMPACT_SPOT_COUNT)
-        : [],
-    [bundle],
+      shuffled(
+        [...trendingReal].sort((a, b) => b.saves - a.saves).slice(0, COMPACT_POOL_SIZE),
+      ).slice(0, COMPACT_SPOT_COUNT),
+    [trendingReal],
   );
   const favoritesCompact = useMemo(
     () =>
-      bundle
-        ? shuffled(
-            bundle.favorites
-              .filter((s) => !isLodging(s.tag))
-              .slice()
-              .sort((a, b) => b.saves - a.saves)
-              .slice(0, COMPACT_POOL_SIZE),
-          ).slice(0, COMPACT_SPOT_COUNT)
-        : [],
-    [bundle],
+      shuffled(
+        [...favoritesReal].sort((a, b) => b.saves - a.saves).slice(0, COMPACT_POOL_SIZE),
+      ).slice(0, COMPACT_SPOT_COUNT),
+    [favoritesReal],
   );
   // 트렌딩/즐겨찾기와 달리 숙소는 매번 랜덤으로 섞이면 안 된다 — "어디로 갈지
   // 정해놓고 그 지역 인기 숙소 순위를 보러 오는" 용도라, 지역별 칩으로 좁힌
@@ -882,7 +888,7 @@ export function DiscoverPage() {
                 <ChevronRight size={20} className="shrink-0 text-white/80" />
               </button>
 
-              {bundle && bundle.trending.length > 0 && (
+              {trendingReal.length > 0 && (
                 <>
                   <SectionHeader
                     icon={hotCheck ? Flame : seasonCheck ? Sparkles : Flame}
@@ -893,7 +899,7 @@ export function DiscoverPage() {
                     // 실시간 핫플"이라는 문구는 실제로 존재하지 않는 실시간
                     // 신호를 있는 것처럼 말해 신뢰를 깎을 수 있어 표현을 바꿈.
                     caption="여행자들이 많이 찾는 인기 스팟"
-                    onSeeAll={bundle.trending.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("trending") : undefined}
+                    onSeeAll={trendingReal.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("trending") : undefined}
                   />
                   <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
                     {trendingCompact.map((spot, i) => (
@@ -909,14 +915,14 @@ export function DiscoverPage() {
                 </>
               )}
 
-              {bundle && bundle.favorites.length > 0 && (
+              {favoritesReal.length > 0 && (
                 <>
                   <SectionHeader
                     icon={Crown}
                     iconClass="text-amber-500"
                     title="꾸준히 사랑받는 명소"
                     caption="언제 가도 좋은 스테디셀러 명소"
-                    onSeeAll={bundle.favorites.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("favorites") : undefined}
+                    onSeeAll={favoritesReal.length > COMPACT_SPOT_COUNT ? () => setExpandedSection("favorites") : undefined}
                   />
                   <div className="-mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
                     {favoritesCompact.map((spot) => (
@@ -952,7 +958,7 @@ export function DiscoverPage() {
                 </>
               )}
 
-              {bundle && bundle.trending.length === 0 && bundle.favorites.length === 0 && (
+              {bundle && trendingReal.length === 0 && favoritesReal.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400">
                   이 조건에 맞는 장소가 아직 없어요.
                 </div>
@@ -1195,12 +1201,14 @@ function ExpandedSection({
   const meta = SECTION_META[kind];
   // 명소 섹션(지금 뜨는 장소/꾸준히 사랑받는 명소)에서는 숙소를 뺀다 — 숙소는
   // 별도 "인기 숙소" 섹션에서만 보여준다(사용자 피드백: 호텔이 명소 목록에
-  // 섞여 나오면 어색함).
+  // 섞여 나오면 어색함). 템플릿 생성 스팟(#164)도 컴팩트 프리뷰와 같은
+  // 이유로 제외 — 안 그러면 "전체보기"를 눌렀을 때 프리뷰에선 숨겼던
+  // 존재하지 않는 스팟이 그대로 쏟아진다.
   const spots =
     kind === "trending"
-      ? bundle.trending.filter((s) => !isLodging(s.tag))
+      ? bundle.trending.filter((s) => !isLodging(s.tag) && !isPlaceholderSpot(s))
       : kind === "favorites"
-        ? bundle.favorites.filter((s) => !isLodging(s.tag))
+        ? bundle.favorites.filter((s) => !isLodging(s.tag) && !isPlaceholderSpot(s))
         : bundle.lodging;
   return (
     <div>
