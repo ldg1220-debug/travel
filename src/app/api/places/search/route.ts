@@ -109,10 +109,11 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // "더 보기" continuation — a Google `nextPageToken` from an earlier
   // response, only meaningful for the domestic Google-fallback path today.
   const pageToken = request.nextUrl.searchParams.get("pageToken") ?? undefined;
+  const debug = request.nextUrl.searchParams.get("debug") === "1";
   if (!query && !userLocation && !pageToken) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
 
   if (region === "domestic") {
-    return NextResponse.json(await searchDomestic(query, near, userLocation, pageToken));
+    return NextResponse.json(await searchDomestic(query, near, userLocation, pageToken, debug));
   }
 
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -535,7 +536,16 @@ async function searchDomestic(
    * carries on the Google side (which is where "더 보기" actually finds
    * something new) instead of re-running Kakao. */
   pageToken?: string,
-): Promise<{ places: Place[]; source: PlaceSearchSource; nextPageToken?: string }> {
+  /**
+   * 임시 진단용 — true면 kakaoKeywordAll 직후 원본 문서를 가공 없이
+   * 그대로 반환한다(팬아웃/재정렬/폴백 전부 건너뜀). "경복궁" 검색에
+   * 실제 경복궁이 Kakao 응답 자체에 있는지 없는지를 눈으로 확인하려는
+   * 목적 — 정렬 로직을 아무리 고쳐도 후보군에 없으면 소용없으므로,
+   * 이걸로 원인을 코드 추측이 아니라 실제 응답으로 확정한다. 원인이
+   * 밝혀지면 이 분기와 GET 핸들러의 debug 파싱을 같이 제거할 것.
+   */
+  debug?: boolean,
+): Promise<{ places: Place[]; source: PlaceSearchSource; nextPageToken?: string } | { debugDocs: KakaoLocalDocument[] }> {
   if (pageToken) {
     const page = await domesticGoogleFallback(query, pageToken);
     return { places: page.places, source: "google", nextPageToken: page.nextPageToken };
@@ -564,6 +574,7 @@ async function searchDomestic(
       }
     }
     let docs = await kakaoKeywordAll(query, apiKey);
+    if (debug) return { debugDocs: docs ?? [] };
     if (docs !== null) {
       // A bare locality/landmark name with no category word ("노량진") only
       // literal-matches the handful of businesses whose NAME contains that
