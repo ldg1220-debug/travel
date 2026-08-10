@@ -173,14 +173,33 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     // 보강한다. 카드 그리드가 한 줄에 4장(grid-cols-2 md:grid-cols-4)이라
     // 두 줄(8장) 미만이면 "성기다"고 본다.
     const MIN_REGION_SPOTS = 8;
-    const curatedCount = trending.length + favorites.length;
+    const curatedSpots = [...trending, ...favorites];
+    const curatedCount = curatedSpots.length;
     if (curatedCount < MIN_REGION_SPOTS) {
-      // path가 도시 하나를 정확히 가리켜야(대륙/국가 단계처럼 넓은
-      // path는 대상 아님) 라이브 검색 앵커 좌표를 찾을 수 있다.
-      const leafCity = resolveLeafCityCoords(scope, path);
-      const existingNames = [...trending, ...favorites].map((s) => s.name);
-      const liveSpots = leafCity
-        ? await fetchLiveBrowseSpots(scope, leafCity.city, leafCity.region, MIN_REGION_SPOTS, existingNames)
+      // 앵커 좌표 소스가 두 갈래다: 큐레이션이 하나라도 있으면(혼합
+      // 지역) 그 스팟들 좌표 평균을 그대로 쓴다 — 이 도시 코드가
+      // WORLD_CITIES/DOMESTIC_CITY_SEEDS 카탈로그 세 곳(생성용
+      // WORLD_CITIES/DOMESTIC_CITY_SEEDS, 손큐레이션 CITY_SEEDS, 아예
+      // 개별 스팟에만 좌표가 박힌 케이스) 중 어디서 왔든 상관없이
+      // 항상 정확하다(2차 프리뷰 실측: 후쿠오카·하노이·다낭·하롱처럼
+      // WORLD_CITIES엔 없고 CITY_SEEDS나 개별 스팟에만 좌표가 있는
+      // "혼합" 해외 도시에서 resolveLeafCityCoords만 쓰면 못 찾아
+      // 라이브가 아예 안 걸리는 버그였음). 큐레이션이 0개일 때만(완전
+      // 템플릿 제거 도시) 카탈로그 조회로 넘어간다 — path가 도시
+      // 하나를 정확히 가리켜야(대륙/국가 단계처럼 넓은 path는 대상
+      // 아님) 찾을 수 있다.
+      const anchor =
+        curatedCount > 0
+          ? {
+              city: curatedSpots[0].region.split(" · ").pop()!,
+              region: curatedSpots[0].region,
+              lat: curatedSpots.reduce((sum, s) => sum + s.lat, 0) / curatedCount,
+              lng: curatedSpots.reduce((sum, s) => sum + s.lng, 0) / curatedCount,
+            }
+          : resolveLeafCityCoords(scope, path);
+      const existingNames = curatedSpots.map((s) => s.name);
+      const liveSpots = anchor
+        ? await fetchLiveBrowseSpots(scope, anchor.city, anchor.region, MIN_REGION_SPOTS, existingNames)
         : [];
       if (liveSpots.length > 0) {
         // 큐레이션(있다면)을 앞에, 라이브를 뒤에 — 손으로 고른 편집

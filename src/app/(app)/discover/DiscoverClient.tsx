@@ -437,11 +437,35 @@ export function DiscoverPage() {
   };
 
   // ── browse feed: scope + combinable filters (지역 path × 계절 × 핫한) ──
-  const { data: browseData } = useQuery({
+  const {
+    data: browseData,
+    isFetching: browseFetching,
+    dataUpdatedAt: browseUpdatedAt,
+  } = useQuery({
     queryKey: ["discover-trends", scope, seasonCheck, hotCheck, regionPath],
     queryFn: () => fetchDiscoverBundle(scope, regionPath.length > 0 ? "region" : "all", regionPath, { season: seasonCheck, hot: hotCheck }),
     enabled: activeQuery.trim().length === 0,
   });
+
+  // 임시 진단 로그 — #164 라이브 검색 결과가 프리뷰에서 간헐적으로
+  // 화면에 안 뜨는 문제(원인 미확정) 재현 시 콘솔에서 확인하려는 목적.
+  // API 응답은 정상인데 화면이 빈 상태가 재현되면, 이 로그의
+  // trendingLen이 0인지(=bundle 자체가 비어 옴, 진짜 데이터 문제) 아니면
+  // >0인데 화면에 카드가 안 보이는지(=렌더 쪽 문제)를 가른다. 원인
+  // 확정되면 제거할 것.
+  useEffect(() => {
+    console.log("[discover-debug]", {
+      regionPath: regionPath.join("/"),
+      isFetching: browseFetching,
+      updatedAt: browseUpdatedAt ? new Date(browseUpdatedAt).toISOString() : null,
+      notice: browseData?.notice,
+      trendingLen: browseData?.bundle.trending.length,
+      favoritesLen: browseData?.bundle.favorites.length,
+      routesLen: browseData?.bundle.routes.length,
+      firstTrendingName: browseData?.bundle.trending[0]?.name,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 진단용, browseData 객체 참조가 바뀔 때마다만 찍히면 충분
+  }, [browseData, browseFetching, regionPath]);
 
   // 큐레이션 스팟의 실제 Google 지표 — scope/필터와 무관하게 딱 한 번만
   // 불러서 SpotMetricsContext로 흘려보낸다. 월 1회 배치로만 갱신되는
@@ -630,12 +654,21 @@ export function DiscoverPage() {
     () => (bundle ? bundle.favorites.filter((s) => !isLodging(s.tag) && !isPlaceholderSpot(s)) : []),
     [bundle],
   );
+  // 라이브 검색으로 채워진 지역(#164, notice==="live")은 "지금 뜨는
+  // 장소"의 4장 랜덤 미리보기 파이프라인을 안 탄다 — 그건 큐레이션
+  // 풀이 충분히 클 때(여러 명이 반복 방문해도 매번 다르게 보이도록)
+  // 설계된 것이고, 라이브 검색은 애초에 "이 도시 검색 결과 전체"를
+  // 보여주는 게 맞는 의미라 무작위로 4개만 남기면 나머지가 사라진
+  // 것처럼 보인다. saves가 전부 0(가짜 지표 없음, #163과 같은 원칙)이라
+  // 정렬도 의미가 없다 — 서버가 이미 관광지→음식점→카페 순으로 카테고리
+  // 묶어 보낸 순서를 그대로 쓴다.
+  const isLiveRegion = browseData?.notice === "live";
   const trendingCompact = useMemo(
     () =>
-      shuffled(
-        [...trendingReal].sort((a, b) => b.saves - a.saves).slice(0, COMPACT_POOL_SIZE),
-      ).slice(0, COMPACT_SPOT_COUNT),
-    [trendingReal],
+      isLiveRegion
+        ? trendingReal
+        : shuffled([...trendingReal].sort((a, b) => b.saves - a.saves).slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT),
+    [trendingReal, isLiveRegion],
   );
   const favoritesCompact = useMemo(
     () =>
