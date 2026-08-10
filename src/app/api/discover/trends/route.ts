@@ -19,6 +19,7 @@ import {
 } from "@/lib/discoverData";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { fetchLiveBrowseSpots } from "@/lib/server/discoverLiveBrowse";
+import { sameShop } from "@/lib/server/courseRecommend";
 
 // #164 — 지역별 드릴다운이 라이브 검색(discoverLiveBrowse.ts)으로 채워질
 // 수 있게 되면서 이 라우트의 응답이 더 이상 항상 정적이지 않다. 예전
@@ -166,6 +167,14 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     trending = trending.filter((s) => matchesRegionPath(s, scope, path));
     favorites = favorites.filter((s) => matchesRegionPath(s, scope, path));
     routes = bundle.routes.filter((r) => routeMatchesRegionPath(r, scope, path));
+
+    // 큐레이션 안에서도 같은 곳이 이름만 살짝 다르게 중복 등재된 경우가
+    // 있다(실측: 다낭 "미케비치"/"미케 비치" — 공백 차이). discoverLiveBrowse.ts가
+    // 라이브 결과엔 이미 sameShop으로 이런 중복을 거르고 있어 큐레이션
+    // 쪽에도 같은 기준을 맞춘다. trending을 먼저 채우므로 favorites 쪽
+    // 중복만 제거하면 된다(trending 우선순위 유지).
+    trending = trending.filter((s, i) => !trending.slice(0, i).some((t) => sameShop(t.name, s.name)));
+    favorites = favorites.filter((s) => !trending.some((t) => sameShop(t.name, s.name)));
 
     // 큐레이션이 아예 없는 leaf뿐 아니라, 템플릿 제거(#164) 후 소수만
     // 남은 "혼합 지역"(예: 서울·성수 — 11곳 중 1곳만 실존, 프리뷰

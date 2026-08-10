@@ -890,6 +890,19 @@ export function DiscoverPage() {
           </div>
         )}
 
+        {/* 임시 진단(#166 카드 scope 어긋남 재현용) — 콘솔 객체 판독이
+            이전 라운드에서 신뢰도가 낮았어서, innerText로 바로 읽을 수
+            있게 평문으로 렌더한다. scope/state/카드가 실제로 쓰는 값을
+            한 줄에 같이 찍어 "응답은 맞는데 카드만 다른 소스" 여부를
+            바로 가른다. 원인 확정되면 제거할 것. */}
+        <p data-debug="discover-state" className="mb-2 select-all break-all text-[10px] text-slate-300">
+          DEBUG scope={scope} path={regionPath.join(">")} notice={String(browseData?.notice)} bundleScope=
+          {browseData ? (browseData.bundle.trending[0]?.region ?? "empty") : "no-browseData"} bundleTrendingLen=
+          {browseData?.bundle.trending.length ?? -1} trendingRealLen={trendingReal.length} trendingCompactLen=
+          {trendingCompact.length} trendingCompactFirst={trendingCompact[0]?.name ?? "none"} trendingCompactFirstRegion=
+          {trendingCompact[0]?.region ?? "none"}
+        </p>
+
         {/* ── MAIN CONTENT ── */}
         {expandedSection && bundle ? (
           <ExpandedSection
