@@ -845,7 +845,7 @@ export function DiscoverPage() {
             큐레이션 카드처럼 보이면 안 됨). */}
         {browseData?.notice === "live" && !expandedSection && (
           <div className="mb-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-center text-[13px] text-slate-500">
-            아직 트레쥴이 직접 고른 스팟은 없어요 — 실시간 검색 결과를 보여드려요.
+            트레쥴이 직접 고른 스팟이 아직 적어요 — 실시간 검색 결과로 보충해드려요.
           </div>
         )}
 

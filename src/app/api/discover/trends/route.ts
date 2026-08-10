@@ -20,9 +20,20 @@ import {
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { fetchLiveBrowseSpots } from "@/lib/server/discoverLiveBrowse";
 
-// ISR-style caching: identical to /api/trends and /api/planner/trends —
-// this curated feed doesn't need to be recomputed on every request.
-export const revalidate = 3600;
+// #164 — 지역별 드릴다운이 라이브 검색(discoverLiveBrowse.ts)으로 채워질
+// 수 있게 되면서 이 라우트의 응답이 더 이상 항상 정적이지 않다. 예전
+// (revalidate=3600, ISR 스타일 라우트 캐시)엔 순수 정적 큐레이션 데이터만
+// 있어 안전했지만, 이제 같은 URL이 "지금은 coming_soon 폴백" → "이번엔
+// 라이브 결과" 처럼 다른 내용을 돌려줄 수 있는데 Next의 풀 라우트 캐시가
+// 그 위에 한 번 더 캐싱을 얹으면(place_candidate_cache의 자체 7일
+// 캐시와 별개로) 프리뷰/엣지 환경에서 배포 시점에 따라 일관성 없는
+// 응답이 굳어질 수 있다(라이브 결과가 프리뷰에서 간헐적으로 안 보이던
+// 문제의 유력한 원인). /api/places/search가 이미 같은 이유로
+// force-dynamic을 쓰고 있어 그 전례를 따른다 — 실제 API 호출 비용은
+// fetchSlotCandidates 자체 캐시가 여전히 흡수하므로 이 라우트의
+// 재계산 자체는 가볍다(정적 분기는 순수 인메모리 필터, 라이브 분기는
+// place_candidate_cache 조회 위주).
+export const dynamic = "force-dynamic";
 
 const FALLBACK_COUNT = 4;
 /** "Trending Now" reads as a dead section with 1-2 lonely cards after a narrow region/season filter — always pad it out to at least this many. */
@@ -156,24 +167,34 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     favorites = favorites.filter((s) => matchesRegionPath(s, scope, path));
     routes = bundle.routes.filter((r) => routeMatchesRegionPath(r, scope, path));
 
-    if (trending.length === 0 && favorites.length === 0) {
-      // 큐레이션 스팟이 0개인 leaf(#164 — 템플릿 생성 스팟 2,134곳을
-      // 지운 뒤 남는 대부분의 도시)에 도달했을 때, path가 도시 하나를
-      // 정확히 가리키면 "준비 중" 문구 대신 라이브 검색으로 채운다 —
-      // AI 코스 추천과 같은 인프라(캐시 포함) 재사용, 프로덕션 라이브
-      // 실측으로 품질 확인됨(2026-08-10, 5개 도시 × 3개 카테고리).
+    // 큐레이션이 아예 없는 leaf뿐 아니라, 템플릿 제거(#164) 후 소수만
+    // 남은 "혼합 지역"(예: 서울·성수 — 11곳 중 1곳만 실존, 프리뷰
+    // 실측에서 이런 지역이 카드 1장만 보여주는 문제로 확인됨)도 라이브로
+    // 보강한다. 카드 그리드가 한 줄에 4장(grid-cols-2 md:grid-cols-4)이라
+    // 두 줄(8장) 미만이면 "성기다"고 본다.
+    const MIN_REGION_SPOTS = 8;
+    const curatedCount = trending.length + favorites.length;
+    if (curatedCount < MIN_REGION_SPOTS) {
+      // path가 도시 하나를 정확히 가리켜야(대륙/국가 단계처럼 넓은
+      // path는 대상 아님) 라이브 검색 앵커 좌표를 찾을 수 있다.
       const leafCity = resolveLeafCityCoords(scope, path);
-      const liveSpots = leafCity ? await fetchLiveBrowseSpots(scope, leafCity.city, leafCity.region) : [];
+      const existingNames = [...trending, ...favorites].map((s) => s.name);
+      const liveSpots = leafCity
+        ? await fetchLiveBrowseSpots(scope, leafCity.city, leafCity.region, MIN_REGION_SPOTS, existingNames)
+        : [];
       if (liveSpots.length > 0) {
-        trending = liveSpots;
+        // 큐레이션(있다면)을 앞에, 라이브를 뒤에 — 손으로 고른 편집
+        // 추천의 우선순위를 보존한다. 이름 중복은 fetchLiveBrowseSpots가
+        // excludeNames로 이미 걸렀다.
+        trending = [...trending, ...favorites, ...liveSpots];
         favorites = [];
-        // 라이브 결과는 트레쥴이 순위를 매긴 게 아니라 있는 그대로 보여주는
-        // 것 — 클라이언트가 "실시간 검색 결과" 표기와 Google/Kakao 출처
-        // 표기를 붙일 수 있게 별도 notice로 구분한다(coming_soon과 달리
-        // 진짜 콘텐츠가 있는 상태).
+        // 라이브 결과가 섞였다는 걸 클라이언트가 알아야 "실시간 검색
+        // 결과" 안내와 Google/Kakao 출처 표기를 붙일 수 있다 —
+        // coming_soon(엉뚱한 지역 데이터로 물러남)과 달리 이 지역
+        // 자체의 콘텐츠라는 점이 다르다.
         notice = "live";
         routes = [];
-      } else {
+      } else if (curatedCount === 0) {
         // A fully-drilled-down (leaf) selection with nothing in it reads as
         // "this city/neighborhood isn't in our data yet" rather than "there's
         // nothing here" — fall back one path segment at a time (e.g. a city

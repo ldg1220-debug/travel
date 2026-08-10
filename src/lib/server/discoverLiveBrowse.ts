@@ -64,6 +64,13 @@ export async function fetchLiveBrowseSpots(
   city: string,
   region: string,
   perCategory = 5,
+  /**
+   * 이미 큐레이션 쪽에 있는 스팟 이름 — "혼합 지역"(예: 서울·성수처럼
+   * 큐레이션이 소수 남아 있어 라이브로 보강하는 경우)에서 같은 곳이
+   * 라이브 결과에도 다시 뽑혀 중복 카드가 되는 걸 막는다. sameShop이
+   * 지점명 차이("경주 황리단길" vs "황리단길")까지 잡아준다.
+   */
+  excludeNames: string[] = [],
 ): Promise<DiscoverSpot[]> {
   const courseScope = scope === "overseas" ? "overseas" : "domestic";
   const results = await Promise.all(
@@ -76,6 +83,7 @@ export async function fetchLiveBrowseSpots(
       );
       const deduped: Place[] = [];
       for (const p of places) {
+        if (excludeNames.some((n) => sameShop(n, p.name))) continue;
         if (deduped.some((d) => sameShop(d.name, p.name))) continue;
         deduped.push(p);
         if (deduped.length >= perCategory) break;
