@@ -545,12 +545,27 @@ async function searchDomestic(
    * 밝혀지면 이 분기와 GET 핸들러의 debug 파싱을 같이 제거할 것.
    */
   debug?: boolean,
-): Promise<{ places: Place[]; source: PlaceSearchSource; nextPageToken?: string } | { debugDocs: KakaoLocalDocument[] }> {
+): Promise<
+  | { places: Place[]; source: PlaceSearchSource; nextPageToken?: string }
+  | { debugDocs: KakaoLocalDocument[]; debugMeta: { query: string; near: unknown; userLocation: unknown; pageToken: unknown } }
+> {
+  const apiKey = process.env.KAKAO_REST_API_KEY;
+  // 진단용 — 함수 맨 위, userLocation/near/pageToken 분기보다 먼저 검사한다.
+  // 앞서 kakaoKeywordAll 직후에 뒀더니 응답이 여전히 정상 {places,source}
+  // 형태로 왔다 — 즉 그 지점 전에 있는 userLocation 또는 near 분기 중
+  // 하나가 실제로 걸려서 먼저 return되고 있었다는 뜻(그중 하나가 이번
+  // 요청에 우연히 설정돼 있었거나, 호출부가 이 URL이 아니라 lat/lng를
+  // 실어 보내는 다른 경로를 타고 있었을 가능성). debugMeta로 이 함수가
+  // 실제로 받은 near/userLocation/pageToken 값을 그대로 노출해 그
+  // 가능성을 눈으로 확인한다.
+  if (debug) {
+    const docs = apiKey ? await kakaoKeywordAll(query, apiKey) : null;
+    return { debugDocs: docs ?? [], debugMeta: { query, near, userLocation, pageToken } };
+  }
   if (pageToken) {
     const page = await domesticGoogleFallback(query, pageToken);
     return { places: page.places, source: "google", nextPageToken: page.nextPageToken };
   }
-  const apiKey = process.env.KAKAO_REST_API_KEY;
   console.log("[places/search] Using Kakao API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
     // "내 주변순" — the browser's Geolocation API already resolved a
@@ -574,7 +589,6 @@ async function searchDomestic(
       }
     }
     let docs = await kakaoKeywordAll(query, apiKey);
-    if (debug) return { debugDocs: docs ?? [] };
     if (docs !== null) {
       // A bare locality/landmark name with no category word ("노량진") only
       // literal-matches the handful of businesses whose NAME contains that
