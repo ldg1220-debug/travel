@@ -4,6 +4,7 @@ import { DOMESTIC_PLACES } from "@/lib/mockPlacesDomestic";
 import { styleForCategory } from "@/lib/placeStyle";
 import type { Place, Region } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { sortKakaoByRelevance } from "@/lib/kakaoRelevance";
 
 export const dynamic = "force-dynamic";
 
@@ -469,6 +470,8 @@ interface KakaoLocalDocument {
   id: string;
   place_name: string;
   category_group_name?: string;
+  /** Kakao's short category code (AT4=관광명소, SW8=지하철역, FD6=음식점, AG2=중개업소, …) — used for relevance re-ranking, see src/lib/kakaoRelevance.ts. Distinct from category_group_name (the Korean label) and empty for businesses outside Kakao's defined groups. */
+  category_group_code?: string;
   address_name?: string;
   road_address_name?: string;
   x: string;
@@ -586,7 +589,12 @@ async function searchDomestic(
         docs = merged;
       }
       if (docs.length > 0) {
-        const kakaoPlaces = docs.map(kakaoDocToPlace);
+        // 문자열 매칭이라 "경복궁" 검색에 부동산중개·음식점 상호가 실제
+        // 경복궁(관광명소)보다 앞서는 문제(코스 세부설정의 시작/종료
+        // 위치 검색에서 발견) — 이름 완전/접두 일치와 카테고리 등급으로
+        // 재정렬. "우래옥"처럼 진짜 상호명 검색은 이름 일치가 먼저 걸려
+        // 그대로 1위를 유지한다.
+        const kakaoPlaces = sortKakaoByRelevance(docs, query).map(kakaoDocToPlace);
         // Kakao Local's keyword search is literal token matching, not the
         // review-driven ranking Kakao Map's own app uses — broad "지역
         // 맛집" queries can come back thin (a dozen hits, sometimes landing
