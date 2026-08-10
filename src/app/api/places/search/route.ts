@@ -5,6 +5,7 @@ import { styleForCategory } from "@/lib/placeStyle";
 import type { Place, Region } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { sortKakaoByRelevance } from "@/lib/kakaoRelevance";
+import { parseUserLocation } from "@/lib/parseUserLocation";
 
 export const dynamic = "force-dynamic";
 
@@ -92,28 +93,20 @@ const NEAR_RADIUS_M = 3000;
 /** Category spread for a bare "X 근처" (no "Y" named) — one query per label, merged, so the grouped live-results UI has something in each theme bucket instead of whatever one generic query happened to surface. */
 const NEAR_FANOUT_LABELS = ["관광명소", "맛집", "카페", "술집", "숙소"];
 
-/** Parses `lat`/`lng` query params into a bias point for "내 주변순" — the coordinate the browser's Geolocation API resolved client-side (never stored; used only for this one request). */
-function parseUserLocation(request: NextRequest): { lat: number; lng: number } | null {
-  const lat = Number(request.nextUrl.searchParams.get("lat"));
-  const lng = Number(request.nextUrl.searchParams.get("lng"));
-  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
-}
-
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
   const rawQuery = (request.nextUrl.searchParams.get("q") ?? "").trim();
   const near = parseNearQuery(rawQuery);
   const query = stripLocalityFillers(rawQuery);
   const category = request.nextUrl.searchParams.get("category") ?? "all";
-  const userLocation = parseUserLocation(request);
+  const userLocation = parseUserLocation(request.nextUrl.searchParams);
   // "더 보기" continuation — a Google `nextPageToken` from an earlier
   // response, only meaningful for the domestic Google-fallback path today.
   const pageToken = request.nextUrl.searchParams.get("pageToken") ?? undefined;
-  const debug = request.nextUrl.searchParams.get("debug") === "1";
   if (!query && !userLocation && !pageToken) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
 
   if (region === "domestic") {
-    return NextResponse.json(await searchDomestic(query, near, userLocation, pageToken, debug));
+    return NextResponse.json(await searchDomestic(query, near, userLocation, pageToken));
   }
 
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -536,32 +529,8 @@ async function searchDomestic(
    * carries on the Google side (which is where "더 보기" actually finds
    * something new) instead of re-running Kakao. */
   pageToken?: string,
-  /**
-   * 임시 진단용 — true면 kakaoKeywordAll 직후 원본 문서를 가공 없이
-   * 그대로 반환한다(팬아웃/재정렬/폴백 전부 건너뜀). "경복궁" 검색에
-   * 실제 경복궁이 Kakao 응답 자체에 있는지 없는지를 눈으로 확인하려는
-   * 목적 — 정렬 로직을 아무리 고쳐도 후보군에 없으면 소용없으므로,
-   * 이걸로 원인을 코드 추측이 아니라 실제 응답으로 확정한다. 원인이
-   * 밝혀지면 이 분기와 GET 핸들러의 debug 파싱을 같이 제거할 것.
-   */
-  debug?: boolean,
-): Promise<
-  | { places: Place[]; source: PlaceSearchSource; nextPageToken?: string }
-  | { debugDocs: KakaoLocalDocument[]; debugMeta: { query: string; near: unknown; userLocation: unknown; pageToken: unknown } }
-> {
+): Promise<{ places: Place[]; source: PlaceSearchSource; nextPageToken?: string }> {
   const apiKey = process.env.KAKAO_REST_API_KEY;
-  // 진단용 — 함수 맨 위, userLocation/near/pageToken 분기보다 먼저 검사한다.
-  // 앞서 kakaoKeywordAll 직후에 뒀더니 응답이 여전히 정상 {places,source}
-  // 형태로 왔다 — 즉 그 지점 전에 있는 userLocation 또는 near 분기 중
-  // 하나가 실제로 걸려서 먼저 return되고 있었다는 뜻(그중 하나가 이번
-  // 요청에 우연히 설정돼 있었거나, 호출부가 이 URL이 아니라 lat/lng를
-  // 실어 보내는 다른 경로를 타고 있었을 가능성). debugMeta로 이 함수가
-  // 실제로 받은 near/userLocation/pageToken 값을 그대로 노출해 그
-  // 가능성을 눈으로 확인한다.
-  if (debug) {
-    const docs = apiKey ? await kakaoKeywordAll(query, apiKey) : null;
-    return { debugDocs: docs ?? [], debugMeta: { query, near, userLocation, pageToken } };
-  }
   if (pageToken) {
     const page = await domesticGoogleFallback(query, pageToken);
     return { places: page.places, source: "google", nextPageToken: page.nextPageToken };
