@@ -274,6 +274,23 @@ function AdminDashboardContent() {
               </div>
             </section>
 
+            {/* 빈 결과 검색어 — 콘텐츠/카테고리 보강 우선순위 파악용 */}
+            {stats.emptySearchQueries.length > 0 && (
+              <section>
+                <h2 className="mb-2 text-[13px] font-semibold text-slate-500">
+                  빈 결과 검색어 상위 10<span className="ml-1.5 font-normal text-slate-400">(최근 30일)</span>
+                </h2>
+                <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+                  {stats.emptySearchQueries.map((q) => (
+                    <div key={q.query} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                      <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-800 dark:text-slate-100">{q.query}</p>
+                      <p className="shrink-0 text-[12px] tabular-nums text-slate-400">{q.count.toLocaleString()}회</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* 최근 가입자 */}
             <section>
               <h2 className="mb-2 text-[13px] font-semibold text-slate-500">최근 가입한 사용자</h2>

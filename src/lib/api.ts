@@ -1367,6 +1367,7 @@ export interface AdminStats {
   };
   recentSignups: { id: number; name: string; image: string | null; createdAt: string }[];
   featureEvents: { event: string; last7: number; last30: number; uniqueSessions7: number; uniqueSessions30: number }[];
+  emptySearchQueries: { query: string; count: number }[];
 }
 
 /** 관리자 전용 — 가입 추이·활성 사용자·이용량 대시보드 데이터. */

@@ -386,7 +386,7 @@ export function CourseBuilderPage() {
       return;
     }
     setAiCourse((cur) => (cur ? cur.map((s) => (s.slotKey === slotKey ? next : s)) : cur));
-    trackFeatureEvent("course_reroll", "course", { scope });
+    trackFeatureEvent("course_reroll", "course", { scope, city: aiCity, theme: aiTheme, slot: slotKey });
   };
 
   const applyAiCourse = () => {
@@ -431,6 +431,7 @@ export function CourseBuilderPage() {
       return;
     }
     trackFeatureEvent("course_reroll", "course", { scope });
+    trackFeatureEvent("course_reroll", "course", { scope, city: aiCity, theme: aiTheme, slot: slotKey, day });
     setAiMultiCourse((cur) =>
       cur ? cur.map((d) => (d.day === day ? { ...d, stops: d.stops.map((s) => (s.slotKey === slotKey ? next : s)) } : d)) : cur,
     );

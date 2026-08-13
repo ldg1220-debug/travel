@@ -48,8 +48,9 @@ export function PlacesSearchInput({ region, onSelect, surface = "planner" }: Pla
         const res = await fetch(url);
         const data = (await res.json()) as { places?: Place[] };
         if (requestIdRef.current === thisRequestId) {
-          setResults(data.places ?? []);
-          trackFeatureEvent("place_search", surface);
+          const places = data.places ?? [];
+          setResults(places);
+          trackFeatureEvent("place_search", surface, { query: trimmedQuery.slice(0, 80), region, resultCount: places.length, empty: places.length === 0 });
         }
       } catch {
         if (requestIdRef.current === thisRequestId) setResults([]);

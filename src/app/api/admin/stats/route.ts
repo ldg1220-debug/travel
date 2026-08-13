@@ -25,6 +25,8 @@ export interface AdminStats {
   recentSignups: { id: number; name: string; image: string | null; createdAt: string }[];
   /** 기능 사용 이벤트(#168) — feature_events 테이블 집계. 이벤트별 최근 7/30일 발생 수 + 고유 세션 수(퍼널/재사용 지표용). */
   featureEvents: { event: string; last7: number; last30: number; uniqueSessions7: number; uniqueSessions30: number }[];
+  /** place_search 중 결과 0건이었던 검색어 상위 10 (최근 30일) — 검색 데이터/카테고리 보강 우선순위 파악용. */
+  emptySearchQueries: { query: string; count: number }[];
 }
 
 /** 관리자 대시보드 — 가입 추이·활성 사용자·서비스 이용량 요약. 관리자만. */
@@ -34,7 +36,7 @@ export const GET = withApiErrorHandling(async () => {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [totalsResult, trendResult, engagementResult, recentResult, visitsResult, featureEventsResult] = await Promise.all([
+  const [totalsResult, trendResult, engagementResult, recentResult, visitsResult, featureEventsResult, emptySearchResult] = await Promise.all([
     pool.query<{
       total: number;
       today: number;
@@ -96,6 +98,20 @@ export const GET = withApiErrorHandling(async () => {
        where created_at >= now() - interval '30 days'
        group by event`,
     ),
+    // 검색은 됐지만 결과가 하나도 없었던 검색어 — 콘텐츠/카테고리 보강
+    // 우선순위를 정하는 데 쓰인다. props는 자유 형식 JSONB라 place_search가
+    // 아닌 이벤트나 query가 없는 옛 이벤트가 섞여도 where절에서 걸러진다.
+    pool.query<{ query: string; count: number }>(
+      `select props->>'query' as query, count(*)::int as count
+       from feature_events
+       where event = 'place_search'
+         and created_at >= now() - interval '30 days'
+         and props->>'empty' = 'true'
+         and coalesce(props->>'query', '') <> ''
+       group by 1
+       order by count(*) desc
+       limit 10`,
+    ),
   ]);
 
   const totals = totalsResult.rows[0];
@@ -151,6 +167,7 @@ export const GET = withApiErrorHandling(async () => {
       createdAt: r.createdAt,
     })),
     featureEvents,
+    emptySearchQueries: emptySearchResult.rows,
   };
 
   return NextResponse.json(stats);
