@@ -81,6 +81,7 @@ import { fetchSharedItinerary, logLodgingCtaEvent } from "@/lib/api";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
+import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { nudgeKakaoMapResize, getKakaoMaps, type KakaoMapInstance } from "@/lib/maps/kakao-map";
 import { hasStaleActiveDateCorrectionRun, suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
@@ -565,6 +566,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         description: dateRangeLabel,
         url,
       });
+      trackFeatureEvent("plan_share", "planner");
     } catch {
       showToast("카카오톡 공유에 실패했어요");
     } finally {
@@ -2606,6 +2608,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               const planId = overwriteId ? savePlanAs(name, overwriteId) : wasOnDraft ? promoteDraftToPlan(name) : savePlanAs(name);
               setSaveModalOpen(false);
               showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
+              trackFeatureEvent("plan_save", "planner", { overwrite: Boolean(overwriteId) });
               if (planId && session?.user) {
                 const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
                 if (plan) {

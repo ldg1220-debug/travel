@@ -65,6 +65,16 @@ function AnnouncementForm() {
   );
 }
 
+/** feature_events.event 값 → 대시보드에 보여줄 한글 라벨. src/lib/featureEvents.ts의 FEATURE_EVENT_NAMES와 반드시 같이 맞출 것. */
+const FEATURE_EVENT_LABELS: Record<string, string> = {
+  course_generate: "AI 코스 생성",
+  course_reroll: "코스 리롤",
+  course_save: "코스 적용(저장)",
+  place_search: "장소 검색",
+  plan_save: "계획 저장",
+  plan_share: "계획 공유",
+};
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
 }
@@ -234,6 +244,33 @@ function AdminDashboardContent() {
                 <StatCard label="장소 리뷰" value={stats.engagement.reviews} />
                 <StatCard label="메시지" value={stats.engagement.messages} />
                 <StatCard label="트래블 메이트 연결" value={stats.engagement.mateConnections} />
+              </div>
+            </section>
+
+            {/* 기능 사용 (#168) — 세션(익명 포함) 기준 핵심 기능 사용/재사용 지표 */}
+            <section>
+              <h2 className="mb-2 text-[13px] font-semibold text-slate-500">
+                기능 사용
+                <span className="ml-1.5 font-normal text-slate-400">(비로그인 포함 세션 기준, 최근 90일까지만 보관)</span>
+              </h2>
+              <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
+                {stats.featureEvents.map((f) => (
+                  <div key={f.event} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-800 dark:text-slate-100">
+                      {FEATURE_EVENT_LABELS[f.event] ?? f.event}
+                    </p>
+                    <div className="flex shrink-0 gap-4 text-right">
+                      <div>
+                        <p className="text-[13px] font-semibold tabular-nums text-slate-900 dark:text-white">{f.last7.toLocaleString()}</p>
+                        <p className="text-[10px] text-slate-400">7일 · 세션 {f.uniqueSessions7.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-[13px] font-semibold tabular-nums text-slate-900 dark:text-white">{f.last30.toLocaleString()}</p>
+                        <p className="text-[10px] text-slate-400">30일 · 세션 {f.uniqueSessions30.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </section>
 

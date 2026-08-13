@@ -27,6 +27,7 @@ import {
   type CourseAnchor,
 } from "@/lib/api";
 import { bookingProviders, hasAffiliateLink } from "@/lib/affiliates";
+import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
 import { useUserLocation } from "@/lib/useUserLocation";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { COURSE_SLOTS, courseNodesAtPath, courseRegionTree, searchableDepth, type CourseSlot } from "@/lib/courseRegions";
@@ -350,6 +351,7 @@ export function CourseBuilderPage() {
       setAiMultiProgress(null);
       setActiveDayTab(0);
       setAiMultiCourse(days);
+      trackFeatureEvent("course_generate", "course", { scope, days: aiDays, theme: aiTheme });
       return;
     }
     setAiLoading(true);
@@ -365,6 +367,7 @@ export function CourseBuilderPage() {
     setAiCourse(stops);
     setAiCourseId(courseId);
     setAiEmptySlots(emptySlots);
+    trackFeatureEvent("course_generate", "course", { scope, days: 1, theme: aiTheme });
   };
 
   // 특정 시간대(슬롯)를 코스에서 빼기 — 그 시간은 빈 채로 남는다.
@@ -383,6 +386,7 @@ export function CourseBuilderPage() {
       return;
     }
     setAiCourse((cur) => (cur ? cur.map((s) => (s.slotKey === slotKey ? next : s)) : cur));
+    trackFeatureEvent("course_reroll", "course", { scope });
   };
 
   const applyAiCourse = () => {
@@ -400,6 +404,7 @@ export function CourseBuilderPage() {
     });
     if (aiCity) setCurrentCity(aiCity);
     setAiCourse(null);
+    trackFeatureEvent("course_save", "course", { scope, days: 1 });
     router.push("/planner");
   };
 
@@ -425,6 +430,7 @@ export function CourseBuilderPage() {
       showToast("더 추천할 곳을 찾지 못했어요");
       return;
     }
+    trackFeatureEvent("course_reroll", "course", { scope });
     setAiMultiCourse((cur) =>
       cur ? cur.map((d) => (d.day === day ? { ...d, stops: d.stops.map((s) => (s.slotKey === slotKey ? next : s)) } : d)) : cur,
     );
@@ -447,6 +453,7 @@ export function CourseBuilderPage() {
     });
     if (aiCity) setCurrentCity(aiCity);
     setAiMultiCourse(null);
+    trackFeatureEvent("course_save", "course", { scope, days: aiMultiCourse.length });
     router.push("/planner");
   };
 
@@ -1126,6 +1133,7 @@ export function CourseBuilderPage() {
             </div>
             <PlacesSearchInput
               region={region}
+              surface="course"
               onSelect={(place) => {
                 const anchor: CourseAnchor = { id: place.id, name: place.name, lat: place.lat, lng: place.lng };
                 if (anchorPickerOpen === "start") setAiStartAnchor(anchor);

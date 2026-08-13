@@ -620,3 +620,32 @@ CREATE TABLE IF NOT EXISTS spot_place_metrics (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE spot_place_metrics ENABLE ROW LEVEL SECURITY;
+
+-- GitHub #168 — 관리자 대시보드의 "기능 사용" 계측. lodging_cta_events와
+-- 같은 목적(가정한 전환율을 실측으로 교체)이지만 그건 숙소 CTA 하나
+-- 전용이라, 코스 생성·리롤·저장, 장소 검색, 일정 저장/공유처럼 앱
+-- 전반의 기능 사용을 남기는 범용 테이블을 별도로 둔다. 유입/페이지뷰
+-- 자체는 Vercel Analytics가 담당하므로(#168 진행 순서 1단계) 여기엔
+-- "무엇을 해봤는가"만 남긴다.
+--
+-- session_id는 비로그인 사용자도 같은 방문 내 행동을 묶을 수 있게 하는
+-- 익명 UUID(클라이언트 localStorage, 개인식별정보 아님) — userId처럼
+-- 로그인 여부에 좌우되지 않아 course_generate → course_save 같은 퍼널을
+-- 비로그인 사용자에게도 그대로 계산할 수 있다.
+--
+-- IP는 저장하지 않는다(/api/track/lodging-cta·visitor_counts와 같은
+-- 방침 — rate limit 키로만 잠깐 쓰고 버림). props는 이벤트별 부가정보
+-- (도시·테마·반경 등)이고 개인정보를 넣지 않는다.
+CREATE TABLE IF NOT EXISTS feature_events (
+  id BIGSERIAL PRIMARY KEY,
+  "userId" INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  session_id TEXT NOT NULL,
+  event TEXT NOT NULL,
+  surface TEXT,
+  props JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS feature_events_created_at_idx ON feature_events (created_at);
+CREATE INDEX IF NOT EXISTS feature_events_event_created_idx ON feature_events (event, created_at);
+CREATE INDEX IF NOT EXISTS feature_events_session_idx ON feature_events (session_id, created_at);
+ALTER TABLE feature_events ENABLE ROW LEVEL SECURITY;

@@ -55,6 +55,7 @@ import { SEASON_LABEL, isPlaceholderSpot } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
 import { useRecentSearches } from "@/lib/useRecentSearches";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
+import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
 import type {
   CuisineTag,
   DiscoverRoute,
@@ -469,6 +470,7 @@ export function DiscoverPage() {
     setQueryInput(trimmed);
     setActiveQuery(trimmed);
     addRecent(trimmed, effectiveScope);
+    trackFeatureEvent("place_search", "discover", { scope: effectiveScope });
     setSearchFocused(false);
     // Display-only URL sync (no new RSC payload needed) — lets browser
     // back/reload restore this exact search instead of a blank box.

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { FEATURE_EVENT_NAMES } from "@/lib/featureEvents";
 
 const SIGNUP_TREND_DAYS = 14;
 const RECENT_SIGNUPS_LIMIT = 10;
@@ -22,6 +23,8 @@ export interface AdminStats {
     mateConnections: number;
   };
   recentSignups: { id: number; name: string; image: string | null; createdAt: string }[];
+  /** 기능 사용 이벤트(#168) — feature_events 테이블 집계. 이벤트별 최근 7/30일 발생 수 + 고유 세션 수(퍼널/재사용 지표용). */
+  featureEvents: { event: string; last7: number; last30: number; uniqueSessions7: number; uniqueSessions30: number }[];
 }
 
 /** 관리자 대시보드 — 가입 추이·활성 사용자·서비스 이용량 요약. 관리자만. */
@@ -31,7 +34,7 @@ export const GET = withApiErrorHandling(async () => {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [totalsResult, trendResult, engagementResult, recentResult, visitsResult] = await Promise.all([
+  const [totalsResult, trendResult, engagementResult, recentResult, visitsResult, featureEventsResult] = await Promise.all([
     pool.query<{
       total: number;
       today: number;
@@ -82,6 +85,17 @@ export const GET = withApiErrorHandling(async () => {
          coalesce(sum(count) filter (where day >= current_date - interval '29 days'), 0)::int as last30
        from visitor_counts`,
     ),
+    pool.query<{ event: string; last7: number; last30: number; uniquesessions7: number; uniquesessions30: number }>(
+      `select
+         event,
+         count(*) filter (where created_at >= now() - interval '7 days')::int as last7,
+         count(*) filter (where created_at >= now() - interval '30 days')::int as last30,
+         count(distinct session_id) filter (where created_at >= now() - interval '7 days')::int as uniquesessions7,
+         count(distinct session_id) filter (where created_at >= now() - interval '30 days')::int as uniquesessions30
+       from feature_events
+       where created_at >= now() - interval '30 days'
+       group by event`,
+    ),
   ]);
 
   const totals = totalsResult.rows[0];
@@ -100,6 +114,22 @@ export const GET = withApiErrorHandling(async () => {
 
   const engagementRow = engagementResult.rows[0];
   const visits = visitsResult.rows[0];
+
+  // signupTrend와 같은 이유 — 아직 한 번도 안 일어난 이벤트는 SQL 결과에서
+  // 통째로 빠지므로, 알려진 이벤트 목록(FEATURE_EVENT_NAMES) 전체를 0으로
+  // 먼저 채운 뒤 실제 집계값으로 덮어써서 대시보드에 항목 자체가
+  // 안 보이는 일이 없게 한다.
+  const featureEventsByName = new Map(featureEventsResult.rows.map((r) => [r.event, r]));
+  const featureEvents: AdminStats["featureEvents"] = FEATURE_EVENT_NAMES.map((event) => {
+    const row = featureEventsByName.get(event);
+    return {
+      event,
+      last7: row?.last7 ?? 0,
+      last30: row?.last30 ?? 0,
+      uniqueSessions7: row?.uniquesessions7 ?? 0,
+      uniqueSessions30: row?.uniquesessions30 ?? 0,
+    };
+  });
 
   const stats: AdminStats = {
     totalUsers: totals?.total ?? 0,
@@ -120,6 +150,7 @@ export const GET = withApiErrorHandling(async () => {
       image: r.image,
       createdAt: r.createdAt,
     })),
+    featureEvents,
   };
 
   return NextResponse.json(stats);
