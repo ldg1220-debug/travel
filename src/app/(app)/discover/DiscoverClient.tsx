@@ -640,14 +640,16 @@ export function DiscoverPage() {
   // 풀이 충분히 클 때(여러 명이 반복 방문해도 매번 다르게 보이도록)
   // 설계된 것이고, 라이브 검색은 애초에 "이 도시 검색 결과 전체"를
   // 보여주는 게 맞는 의미라 무작위로 4개만 남기면 나머지가 사라진
-  // 것처럼 보인다. saves가 전부 0(가짜 지표 없음, #163과 같은 원칙)이라
-  // 정렬도 의미가 없다 — 서버가 이미 관광지→음식점→카페 순으로 카테고리
-  // 묶어 보낸 순서를 그대로 쓴다.
+  // 것처럼 보인다. saves는 전부 0(가짜 지표 없음, #163과 같은 원칙)이라
+  // 정렬 키로 쓸 수 없다 — /course가 이미 쓰는 방식과 통일해
+  // reviewCount(실제 리뷰 수, 있으면)로 정렬한다. Kakao 국내 결과는
+  // 애초에 평점/리뷰 수를 안 줘서 reviewCount가 없는 항목도 있는데,
+  // 그런 항목은 뒤로 밀되(0 취급) 순서 자체가 사라지진 않는다.
   const isLiveRegion = browseData?.notice === "live";
   const trendingCompact = useMemo(
     () =>
       isLiveRegion
-        ? trendingReal
+        ? [...trendingReal].sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0))
         : shuffled([...trendingReal].sort((a, b) => b.saves - a.saves).slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT),
     [trendingReal, isLiveRegion],
   );
