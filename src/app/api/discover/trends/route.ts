@@ -46,6 +46,36 @@ const CUISINE_TAGS: CuisineTag[] = ["일식", "한식", "양식/아시안", "카
 /** Route titles/subtitles containing any of these read as food-relevant — boosted to the top when the search intent is 음식점. */
 const FOOD_ROUTE_KEYWORDS = ["먹방", "맛집", "카페", "미식", "맛"];
 
+const MAX_PER_CITY = 2;
+
+/**
+ * "지금 뜨는 장소"/"꾸준히 사랑받는 명소"처럼 지역 필터 없이 스코프 전체를
+ * 보여줄 때만 쓰는 다양성 보정 — 국내 큐레이션이 특정 도시(실측: 경주)에
+ * 쏠려 있어서 그대로 노출하면 그 도시가 랭킹을 독식한다(#166 후속 지적).
+ * 항목을 버리지 않고 순서만 바꾼다 — 도시당 앞쪽 N개를 먼저, 넘치는 건
+ * 뒤로 보낸다. 원래 순서 안의 우선순위(손으로 정한 트렌딩 여부 등)는 각
+ * 그룹 안에서 그대로 보존된다. 지역을 이미 선택한 화면(regionActive)에는
+ * 적용하지 않는다 — 그 도시를 보려고 들어온 화면에서 스스로 결과를 밀어
+ * 낼 이유가 없다.
+ */
+function capPerCity(spots: DiscoverSpot[], maxPerCity: number): DiscoverSpot[] {
+  const cityOf = (s: DiscoverSpot) => s.region.split(" · ")[0];
+  const counts = new Map<string, number>();
+  const head: DiscoverSpot[] = [];
+  const overflow: DiscoverSpot[] = [];
+  for (const spot of spots) {
+    const city = cityOf(spot);
+    const n = counts.get(city) ?? 0;
+    if (n < maxPerCity) {
+      head.push(spot);
+      counts.set(city, n + 1);
+    } else {
+      overflow.push(spot);
+    }
+  }
+  return [...head, ...overflow];
+}
+
 /** "Trending Now" reads thin after a narrow filter — pad it from the same-filtered favorites (not already shown) up to `min`, instead of leaving 1-2 lonely cards. */
 function padTrending(trending: DiscoverSpot[], favorites: DiscoverSpot[], min: number): DiscoverSpot[] {
   if (trending.length >= min) return trending;
@@ -268,6 +298,10 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     favorites = [...favorites].sort((a, b) => b.saves - a.saves);
     // Legacy hot-only view showed a single ranked list.
     if (!regionActive && !seasonCheck) favorites = [];
+  }
+  if (!regionActive) {
+    trending = capPerCity(trending, MAX_PER_CITY);
+    favorites = capPerCity(favorites, MAX_PER_CITY);
   }
   if (notice === null) trending = padTrending(trending, favorites, MIN_TRENDING_COUNT);
 
