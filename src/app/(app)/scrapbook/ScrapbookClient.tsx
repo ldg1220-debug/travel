@@ -267,13 +267,13 @@ function ScrapbookPageInner() {
             <div className="flex shrink-0 items-center gap-3">
               <button
                 onClick={() => router.push("/feed")}
-                className="flex items-center gap-1 text-[13px] font-semibold text-indigo-500 transition-colors hover:text-indigo-700"
+                className="flex items-center gap-1 text-[13px] font-semibold text-brand-600 transition-colors hover:text-brand-800"
               >
                 <CordixIcon name="feed-announce" size={14} /> 후기 피드
               </button>
               <button
                 onClick={openNewPostChooser}
-                className="flex items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700"
+                className="flex items-center gap-1 rounded-full bg-brand-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-800"
               >
                 <CordixIcon name="pencil" size={13} /> 새 여행 후기
               </button>
@@ -470,9 +470,9 @@ function NewPostChooser({
             <button
               onClick={() => setPicking(true)}
               disabled={plans.length === 0}
-              className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 disabled:opacity-50"
+              className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3.5 text-left transition-colors hover:border-brand-400 hover:bg-brand-50/40 disabled:opacity-50"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-500">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
                 <CordixIcon name="folder" size={16} />
               </span>
               <span className="min-w-0">
@@ -482,7 +482,7 @@ function NewPostChooser({
             </button>
             <button
               onClick={onFresh}
-              className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
+              className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3.5 text-left transition-colors hover:border-brand-400 hover:bg-brand-50/40"
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
                 <CordixIcon name="pencil" size={16} />
@@ -502,7 +502,7 @@ function NewPostChooser({
                 <button
                   key={plan.id}
                   onClick={() => onPickPlan(plan)}
-                  className="flex w-full flex-col items-start gap-0.5 rounded-xl border border-slate-100 px-3.5 py-2.5 text-left transition-colors hover:border-indigo-200 hover:bg-indigo-50/60"
+                  className="flex w-full flex-col items-start gap-0.5 rounded-xl border border-slate-100 px-3.5 py-2.5 text-left transition-colors hover:border-brand-200 hover:bg-brand-50/60"
                 >
                   <span className="w-full truncate text-[13.5px] font-semibold text-slate-800">{plan.name}</span>
                   <span className="w-full truncate text-[11.5px] text-slate-400">
@@ -587,7 +587,7 @@ function TripCard({
       {/* body */}
       <div className="px-4 py-4">
         <button onClick={onOpen} className="flex w-full items-start gap-1.5 text-left text-[12.5px] text-slate-600">
-          <CordixIcon name="pin" size={14} className="mt-0.5 shrink-0 text-indigo-500" />
+          <CordixIcon name="pin" size={14} className="mt-0.5 shrink-0 text-brand-600" />
           <span className="font-medium leading-snug">{tripRouteLabel(plan)}</span>
         </button>
 
@@ -602,7 +602,7 @@ function TripCard({
           <button
             onClick={onTripPost}
             disabled={reviewSyncing}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/60 py-2 text-[12.5px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-60"
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50/60 py-2 text-[12.5px] font-semibold text-brand-700 transition-colors hover:bg-brand-50 disabled:opacity-60"
           >
             <CordixIcon name="pencil" size={13} /> {reviewSyncing ? "준비 중…" : "여행 후기"}
           </button>
@@ -701,11 +701,11 @@ function EmptyState({ tab, onPlan, onWrite }: { tab: TabKey; onPlan: () => void;
       <p className="text-sm font-semibold text-slate-700">{copy.title}</p>
       <p className="mt-1 text-[13px] text-slate-400">{copy.sub}</p>
       {tab === "notWritten" ? (
-        <button onClick={onPlan} className="mt-4 rounded-full bg-indigo-600 px-4 py-2 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700">
+        <button onClick={onPlan} className="mt-4 rounded-full bg-brand-700 px-4 py-2 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-800">
           여행 계획짜기
         </button>
       ) : (
-        <button onClick={onWrite} className="mt-4 rounded-full bg-indigo-600 px-4 py-2 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700">
+        <button onClick={onWrite} className="mt-4 rounded-full bg-brand-700 px-4 py-2 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-800">
           여행 후기 쓰기
         </button>
       )}

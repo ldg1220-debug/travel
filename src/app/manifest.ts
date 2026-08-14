@@ -16,7 +16,10 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     display: "standalone",
     background_color: "#ffffff",
-    theme_color: "#6366f1",
+    // 브랜드 오렌지(로고 그라데이션의 시작색) — 상태 표시줄/브라우저 크롬
+    // 틴트라 텍스트 대비 규정이 적용되지 않으므로, 접근성 보정 없는 원색을
+    // 그대로 쓴다. globals.css의 --color-brand-* 계산 근거 참고.
+    theme_color: "#FF8A3D",
     lang: "ko",
     icons: [
       { src: "/brand/icon-192.png", sizes: "192x192", type: "image/png" },

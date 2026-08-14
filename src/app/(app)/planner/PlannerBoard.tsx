@@ -1861,8 +1861,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         뜻 — 그 순간 바로 이 도시 숙소 딥링크를 보여준다. */}
                     {currentCity && (
                       <button onClick={() => openLodgingPicker("header")} aria-label={`${currentCity} 숙소 예약`}>
-                        <Badge className="gap-1 rounded-full border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[13px] font-bold text-indigo-700 hover:bg-indigo-100">
-                          <CordixIcon name="bed" size={13} stroke="#4338ca" accent="#4338ca" />
+                        <Badge className="gap-1 rounded-full border-brand-200 bg-brand-50 px-2.5 py-1 text-[13px] font-bold text-brand-800 hover:bg-brand-100">
+                          <CordixIcon name="bed" size={13} stroke="#732A00" accent="#732A00" />
                           숙소 예약
                         </Badge>
                       </button>
@@ -2028,18 +2028,18 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 <div className="px-4 pb-1 pt-2">
                   <button
                     onClick={() => openLodgingPicker("timeline")}
-                    className="flex w-full items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-left transition-colors hover:bg-indigo-50"
+                    className="flex w-full items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50/70 px-4 py-3 text-left transition-colors hover:bg-brand-50"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-500 shadow-sm">
-                      <CordixIcon name="bed" size={17} className="text-indigo-500" />
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-brand-600 shadow-sm">
+                      <CordixIcon name="bed" size={17} className="text-brand-600" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-bold text-indigo-700">
+                      <span className="block text-[13px] font-bold text-brand-800">
                         {formatDateLabelShort(activeDate)} 일정 근처 숙소 보기
                       </span>
-                      <span className="block text-[11.5px] text-indigo-600/80">{currentCity}에서 예약 가능한 숙소를 확인해보세요</span>
+                      <span className="block text-[11.5px] text-brand-700/80">{currentCity}에서 예약 가능한 숙소를 확인해보세요</span>
                     </span>
-                    <ChevronRight size={16} className="shrink-0 text-indigo-400" />
+                    <ChevronRight size={16} className="shrink-0 text-brand-500" />
                   </button>
                 </div>
               )}
@@ -2163,13 +2163,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                             바로 뜨는 표시 — "여기를 잡고 있다"는 게 눈에 바로 보이도록. */}
                         {pressIndicator?.date === date && (
                           <div
-                            className="pointer-events-none absolute inset-x-0.5 z-20 flex items-center justify-center rounded-md border border-dashed border-indigo-400 bg-indigo-400/25"
+                            className="pointer-events-none absolute inset-x-0.5 z-20 flex items-center justify-center rounded-md border border-dashed border-brand-500 bg-brand-500/25"
                             style={{
                               top: (pressIndicator.startMinutes / 60) * slotHeight,
                               height: (RESIZE_STEP_MINUTES / 60) * slotHeight,
                             }}
                           >
-                            <span className="whitespace-nowrap text-[9px] font-semibold text-indigo-600">
+                            <span className="whitespace-nowrap text-[9px] font-semibold text-brand-700">
                               {formatTime(Math.floor(pressIndicator.startMinutes / 60), pressIndicator.startMinutes % 60)}
                             </span>
                           </div>
@@ -2180,7 +2180,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                             아래 액션바의 "장소 검색"으로 확정한다. */}
                         {rangeSelect?.date === date && (
                           <div
-                            className="absolute inset-x-0.5 z-20 overflow-hidden rounded-lg border-2 border-dashed border-indigo-400 bg-indigo-400/15"
+                            className="absolute inset-x-0.5 z-20 overflow-hidden rounded-lg border-2 border-dashed border-brand-500 bg-brand-500/15"
                             style={{
                               top: (rangeSelect.startMinutes / 60) * slotHeight,
                               height: (rangeSelect.durationMinutes / 60) * slotHeight,
@@ -2191,7 +2191,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                                 구간에서도 손잡이 높이 때문에 글자가 밀리거나 겹쳐
                                 뭉개지지 않는다. */}
                             <div className="flex h-full items-center justify-center overflow-hidden px-1.5">
-                              <span className="truncate whitespace-nowrap text-[10px] font-semibold text-indigo-600">
+                              <span className="truncate whitespace-nowrap text-[10px] font-semibold text-brand-700">
                                 {formatTime(Math.floor(rangeSelect.startMinutes / 60), rangeSelect.startMinutes % 60)} · {rangeSelect.durationMinutes}분
                               </span>
                             </div>
@@ -2202,7 +2202,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                               onPointerCancel={handleDraftTopResizeUp}
                               className="absolute inset-x-0 top-0 flex h-2.5 cursor-ns-resize touch-none items-start justify-center"
                             >
-                              <span className="mt-0.5 h-0.5 w-6 rounded-full bg-indigo-500" />
+                              <span className="mt-0.5 h-0.5 w-6 rounded-full bg-brand-600" />
                             </div>
                             <div
                               onPointerDown={handleDraftResizeDown}
@@ -2211,7 +2211,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                               onPointerCancel={handleDraftResizeUp}
                               className="absolute inset-x-0 bottom-0 flex h-2.5 cursor-ns-resize touch-none items-end justify-center"
                             >
-                              <span className="mb-0.5 h-0.5 w-6 rounded-full bg-indigo-500" />
+                              <span className="mb-0.5 h-0.5 w-6 rounded-full bg-brand-600" />
                             </div>
                           </div>
                         )}
@@ -2507,7 +2507,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             <div className="relative w-full max-w-sm rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="flex items-center gap-1.5 text-[15px] font-bold text-slate-900">
-                  <CordixIcon name="bed" size={16} className="text-indigo-500" />
+                  <CordixIcon name="bed" size={16} className="text-brand-600" />
                   {currentCity} 숙소 예약
                   {hasAffiliateLink(lodgingProviders) && (
                     <span className="rounded bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-400">제휴</span>

@@ -331,7 +331,7 @@ export function TripPostDetailPage() {
               className={`shrink-0 rounded-full px-3 py-1 text-[11.5px] font-semibold transition-colors disabled:opacity-60 ${
                 followStatus?.isFollowing || followStatus?.isPendingOutgoing
                   ? "border border-slate-200 bg-white text-slate-500"
-                  : "bg-indigo-600 text-white hover:bg-indigo-700"
+                  : "bg-brand-700 text-white hover:bg-brand-800"
               }`}
             >
               {followStatus?.isFollowing
@@ -366,7 +366,7 @@ export function TripPostDetailPage() {
             {linkedPlan && (
               <button
                 onClick={openLinkedPlan}
-                className="flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl border border-indigo-200 bg-indigo-50/60 text-[13px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50"
+                className="flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl border border-brand-200 bg-brand-50/60 text-[13px] font-semibold text-brand-700 transition-colors hover:bg-brand-50"
               >
                 <CordixIcon name="compass" size={14} /> 일정 보기
               </button>
@@ -421,7 +421,7 @@ export function TripPostDetailPage() {
         {placeReviews.length > 0 && (
           <div className="mt-6">
             <p className="mb-2 flex items-center gap-1.5 text-[13px] font-bold text-slate-700">
-              <CordixIcon name="pin" size={14} className="text-indigo-500" /> 다녀온 장소
+              <CordixIcon name="pin" size={14} className="text-brand-600" /> 다녀온 장소
             </p>
             <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3">
               {placeReviews.map((r) => (
@@ -609,7 +609,7 @@ function HashtagMention({ review }: { review: TripPostPlaceReview }) {
             setOpen(true);
           }
         }}
-        className="font-semibold text-indigo-500 underline decoration-indigo-200 underline-offset-2 hover:text-indigo-600"
+        className="font-semibold text-brand-600 underline decoration-brand-200 underline-offset-2 hover:text-brand-700"
       >
         #{hashtagSlug(review.placeName)}
       </button>

@@ -70,12 +70,12 @@ export function CommunityPage() {
       <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6 lg:max-w-3xl lg:px-8 2xl:max-w-6xl">
         <div className="mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <CordixIcon name="group" size={20} stroke="#6366f1" />
+            <CordixIcon name="group" size={20} stroke="#BC5200" />
             <h2 className="text-2xl font-bold tracking-tight">커뮤니티</h2>
           </div>
           <button
             onClick={handleWrite}
-            className="flex shrink-0 items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-brand-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-800"
           >
             <CordixIcon name="pencil" size={13} /> 글쓰기
           </button>
@@ -95,7 +95,7 @@ export function CommunityPage() {
           <button
             onClick={() => setCategory("all")}
             className={`rounded-full px-3 py-1.5 text-[12.5px] font-bold transition-colors ${
-              category === "all" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+              category === "all" ? "bg-brand-700 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
             }`}
           >
             전체
@@ -105,7 +105,7 @@ export function CommunityPage() {
               key={c.slug}
               onClick={() => setCategory(c.slug)}
               className={`rounded-full px-3 py-1.5 text-[12.5px] font-bold transition-colors ${
-                category === c.slug ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                category === c.slug ? "bg-brand-700 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
               }`}
             >
               {c.label}
@@ -180,7 +180,7 @@ function CommunityPostCard({ post, onOpen, onOpenProfile }: { post: CommunityPos
       className="group block w-full cursor-pointer rounded-3xl border border-slate-200/70 bg-white p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
     >
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[12px] font-bold text-indigo-500">{communityCategoryLabel(post.category)}</span>
+        <span className="text-[12px] font-bold text-brand-600">{communityCategoryLabel(post.category)}</span>
         <span className="shrink-0 text-[11.5px] text-slate-400">{formatDateLabel(post.createdAt.slice(0, 10))}</span>
       </div>
 
@@ -197,7 +197,7 @@ function CommunityPostCard({ post, onOpen, onOpenProfile }: { post: CommunityPos
               // eslint-disable-next-line @next/next/no-img-element -- OAuth profile image URL
               <img src={post.authorImage} alt="" loading="lazy" className="h-5 w-5 shrink-0 rounded-full object-cover" />
             ) : (
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-[10px] font-bold text-white">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-pink-500 text-[10px] font-bold text-white">
                 {(post.authorName ?? "여").trim().charAt(0)}
               </span>
             )}

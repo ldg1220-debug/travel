@@ -75,7 +75,7 @@ export function ReviewComposer({ plan, itineraryId, onClose }: { plan: SavedPlan
                   <button
                     key={p.placeId}
                     onClick={() => setActivePlace(p)}
-                    className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
+                    className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-left transition-colors hover:border-brand-400 hover:bg-brand-50/40"
                   >
                     <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-slate-800">{p.name}</span>
                     {existing ? (

@@ -78,7 +78,7 @@ export function TmeInvitePage() {
   return (
     <div className="flex min-h-full flex-col items-center justify-center bg-slate-50 px-6 py-16 dark:bg-slate-950">
       <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-7 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-3xl font-bold text-white">
+        <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-brand-600 to-brand-pink-600 text-3xl font-bold text-white">
           {profile.image ? (
             // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
             <img src={profile.image} alt="" className="h-full w-full object-cover" />
@@ -103,7 +103,7 @@ export function TmeInvitePage() {
         {isSelf ? (
           <p className="text-[13px] text-slate-400">내 초대 링크예요 — 카카오톡으로 친구에게 공유해보세요.</p>
         ) : profile.isFriend ? (
-          <p className="text-[13.5px] font-semibold text-indigo-500">이미 서로 트래블 메이트예요 🎉</p>
+          <p className="text-[13.5px] font-semibold text-brand-600">이미 서로 트래블 메이트예요 🎉</p>
         ) : profile.isFollowing ? (
           <button
             onClick={() => runAction(() => unfollowUser(userId))}
@@ -117,7 +117,7 @@ export function TmeInvitePage() {
             <button
               onClick={() => runAction(() => acceptFollowRequest(userId))}
               disabled={busy}
-              className="h-12 flex-1 rounded-2xl bg-indigo-600 text-[14px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              className="h-12 flex-1 rounded-2xl bg-brand-700 text-[14px] font-semibold text-white hover:bg-brand-800 disabled:opacity-60"
             >
               수락하기
             </button>
@@ -141,7 +141,7 @@ export function TmeInvitePage() {
           <button
             onClick={() => runAction(() => followUser(userId))}
             disabled={busy}
-            className="h-12 w-full rounded-2xl bg-indigo-600 text-[14px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="h-12 w-full rounded-2xl bg-brand-700 text-[14px] font-semibold text-white hover:bg-brand-800 disabled:opacity-60"
           >
             트래블 메이트 신청 보내기
           </button>

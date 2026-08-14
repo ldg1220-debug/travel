@@ -197,7 +197,7 @@ function EmojiPickerSheet({ onSelect, onClose }: { onSelect: (emoji: string) => 
               aria-label={c.label}
               title={c.label}
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-base transition-colors ${
-                active.key === c.key ? "bg-indigo-100 dark:bg-indigo-500/20" : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                active.key === c.key ? "bg-brand-100 dark:bg-brand-600/20" : "hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
               {c.icon}

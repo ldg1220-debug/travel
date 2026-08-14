@@ -152,7 +152,7 @@ export function SchedulePlanPickerModal({
               ) : (
                 <button
                   onClick={() => setCreating(true)}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-slate-300 py-3 text-[13.5px] font-semibold text-slate-500 hover:border-indigo-300 hover:text-indigo-500"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-2xl border border-dashed border-slate-300 py-3 text-[13.5px] font-semibold text-slate-500 hover:border-brand-400 hover:text-brand-600"
                 >
                   <Plus size={14} /> 새 계획 만들기
                 </button>

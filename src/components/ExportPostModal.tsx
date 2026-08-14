@@ -444,7 +444,7 @@ export function ExportPostModal({
                 <p className="text-[12px] font-semibold text-slate-500">해시태그</p>
                 <CopyTextButton text={hashtagsText} />
               </div>
-              <p className="text-[12.5px] text-indigo-500">{hashtagsText}</p>
+              <p className="text-[12.5px] text-brand-600">{hashtagsText}</p>
             </div>
           )}
 

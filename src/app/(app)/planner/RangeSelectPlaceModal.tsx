@@ -19,7 +19,7 @@ import {
 } from "@/lib/timeline";
 
 /** Neutral accent for this modal — unlike ScheduleModal, there's no place (and so no place.color) yet when this opens. Matches MonthCalendar's own default accent elsewhere in the app. */
-const ACCENT = "#4f46e5";
+const ACCENT = "#943A00";
 
 interface RangeSelectPlaceModalProps {
   date: string;

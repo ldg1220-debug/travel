@@ -91,7 +91,7 @@ function TilePhoto({ query, className }: { query: string; className?: string }) 
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
-      <div className={`flex items-center justify-center bg-gradient-to-br from-indigo-400 to-violet-500 ${className ?? ""}`}>
+      <div className={`flex items-center justify-center bg-gradient-to-br from-brand-500 to-brand-pink-600 ${className ?? ""}`}>
         <MapPin size={36} className="text-white/80" />
       </div>
     );
@@ -466,7 +466,7 @@ export function CourseBuilderPage() {
           )}
           <div>
             <h1 className="flex items-center gap-1.5 text-2xl font-bold tracking-tight">
-              <Sparkles size={22} className="text-indigo-500" /> 코스 만들기
+              <Sparkles size={22} className="text-brand-600" /> 코스 만들기
             </h1>
             <p className="mt-0.5 text-[13px] text-slate-500">
               {step === "scope" && "국내 여행부터 시작해볼까요?"}
@@ -489,7 +489,7 @@ export function CourseBuilderPage() {
         {path.length > 0 && (
           <div className="mb-5 flex flex-wrap items-center gap-1.5 text-[12px]">
             {path.map((label, i) => (
-              <button key={label} onClick={() => jumpTo(i + 1) /* keep up to this segment */} className="rounded-full bg-indigo-600 px-3 py-1 font-semibold text-white">
+              <button key={label} onClick={() => jumpTo(i + 1) /* keep up to this segment */} className="rounded-full bg-brand-700 px-3 py-1 font-semibold text-white">
                 {label}
               </button>
             ))}
@@ -532,7 +532,7 @@ export function CourseBuilderPage() {
                 <button
                   key={r.label}
                   onClick={() => drillInto(r.label)}
-                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md"
                 >
                   <div className="relative h-36 w-full sm:h-44">
                     <TilePhoto query={`${r.label} 여행`} className="absolute inset-0 h-full w-full" />
@@ -549,7 +549,7 @@ export function CourseBuilderPage() {
                 <button
                   key={c.label}
                   onClick={() => drillInto(c.label)}
-                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md"
                 >
                   <div className="relative h-20 w-full sm:h-24">
                     <TilePhoto query={`${path[path.length - 1]} ${c.label}`} className="absolute inset-0 h-full w-full" />
@@ -576,7 +576,7 @@ export function CourseBuilderPage() {
               {path.length === maxDepth - 1 && (
                 <button
                   onClick={() => setCustomSearchOpen(true)}
-                  className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-slate-300 px-3 py-3 text-center text-[13.5px] font-semibold text-slate-500 shadow-sm transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-600"
+                  className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-slate-300 px-3 py-3 text-center text-[13.5px] font-semibold text-slate-500 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:text-brand-700"
                 >
                   기타
                   <br />
@@ -603,7 +603,7 @@ export function CourseBuilderPage() {
                   if (e.key === "Enter") submitCustomSearch();
                 }}
                 placeholder={path.length > 0 ? `예: ${path[path.length - 1]} OO동` : "예: 을왕리"}
-                className="mt-4 w-full rounded-2xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-indigo-400"
+                className="mt-4 w-full rounded-2xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-brand-500"
               />
               <div className="mt-4 flex gap-2">
                 <button
@@ -637,7 +637,7 @@ export function CourseBuilderPage() {
                     onClick={() => setAiTheme(t.key)}
                     aria-pressed={active}
                     className={`shrink-0 rounded-full border px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
-                      active ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300"
+                      active ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-brand-400"
                     }`}
                   >
                     {t.emoji} {t.label}
@@ -670,12 +670,12 @@ export function CourseBuilderPage() {
               type="button"
               onClick={() => setAiAdvancedOpen((v) => !v)}
               aria-expanded={aiAdvancedOpen}
-              className="mb-2 flex items-center gap-1 text-[11.5px] font-semibold text-slate-500 hover:text-indigo-600"
+              className="mb-2 flex items-center gap-1 text-[11.5px] font-semibold text-slate-500 hover:text-brand-700"
             >
               <Settings2 size={12} />
               세부 설정
               {(aiStartAnchor || aiEndAnchor || aiStartTime || aiEndTime || aiMode !== "car" || aiDays > 1) && (
-                <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-600">적용됨</span>
+                <span className="rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-bold text-brand-700">적용됨</span>
               )}
               <ChevronDown size={12} className={`transition-transform ${aiAdvancedOpen ? "rotate-180" : ""}`} />
             </button>
@@ -692,7 +692,7 @@ export function CourseBuilderPage() {
                         onClick={() => setAiPeriod(p.key)}
                         aria-pressed={aiPeriod === p.key}
                         className={`rounded-xl border px-2.5 py-1.5 text-[12px] font-semibold transition-colors ${
-                          aiPeriod === p.key ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-600"
+                          aiPeriod === p.key ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-600"
                         }`}
                       >
                         {p.label}
@@ -708,7 +708,7 @@ export function CourseBuilderPage() {
                         value={aiCustomDays}
                         onChange={(e) => setAiCustomDays(Math.min(7, Math.max(1, Number(e.target.value) || 1)))}
                         aria-label="여행 일수"
-                        className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[13px] outline-none focus:border-indigo-400"
+                        className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[13px] outline-none focus:border-brand-500"
                       />
                       <span className="text-[11.5px] text-slate-500">일 (최대 7일)</span>
                     </div>
@@ -725,7 +725,7 @@ export function CourseBuilderPage() {
                         onClick={() => setAiMode(m.key)}
                         aria-pressed={aiMode === m.key}
                         className={`flex-1 rounded-xl border px-2 py-1.5 text-[12px] font-semibold transition-colors ${
-                          aiMode === m.key ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-600"
+                          aiMode === m.key ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-600"
                         }`}
                       >
                         {m.emoji} {m.label}
@@ -745,7 +745,7 @@ export function CourseBuilderPage() {
                           value={aiStartTime}
                           onChange={(e) => setAiStartTime(e.target.value)}
                           aria-label="시작 시각"
-                          className="w-full min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-indigo-400"
+                          className="w-full min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-brand-500"
                         />
                         <span className="self-center text-slate-300">–</span>
                         <input
@@ -753,7 +753,7 @@ export function CourseBuilderPage() {
                           value={aiEndTime}
                           onChange={(e) => setAiEndTime(e.target.value)}
                           aria-label="종료 시각"
-                          className="w-full min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-indigo-400"
+                          className="w-full min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-brand-500"
                         />
                       </div>
                       <p className="mt-1 text-[10.5px] text-slate-400">
@@ -765,7 +765,7 @@ export function CourseBuilderPage() {
                       <p className="text-[11px] font-semibold text-slate-500">시작·종료 위치 (선택)</p>
                       <AnchorRow label="시작" anchor={aiStartAnchor} onPick={() => setAnchorPickerOpen("start")} onClear={() => setAiStartAnchor(null)} />
                       <label className="flex items-center gap-1.5 pl-0.5 text-[11px] text-slate-500">
-                        <input type="checkbox" checked={endSameAsStart} onChange={(e) => setEndSameAsStart(e.target.checked)} className="accent-indigo-500" />
+                        <input type="checkbox" checked={endSameAsStart} onChange={(e) => setEndSameAsStart(e.target.checked)} className="accent-brand-600" />
                         도착지를 시작 위치와 동일하게 (숙소로 복귀)
                       </label>
                       {!endSameAsStart && (
@@ -789,7 +789,7 @@ export function CourseBuilderPage() {
                         value={aiStartTime}
                         onChange={(e) => setAiStartTime(e.target.value)}
                         aria-label="도착 시각"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-indigo-400"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-brand-500"
                       />
                       <p className="text-[10.5px] text-slate-400">비워두면 숙소를 시작 지점으로, 하루 전체를 기본 골격으로 짜요.</p>
                     </div>
@@ -802,7 +802,7 @@ export function CourseBuilderPage() {
                         value={aiEndTime}
                         onChange={(e) => setAiEndTime(e.target.value)}
                         aria-label="출발 시각"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-indigo-400"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-brand-500"
                       />
                     </div>
                   </>
@@ -815,12 +815,12 @@ export function CourseBuilderPage() {
                       setLodgingOpen(true);
                       logLodgingCtaEvent("open", "course", aiCity, region);
                     }}
-                    className="flex w-full items-center gap-2.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-left transition-colors hover:border-indigo-300"
+                    className="flex w-full items-center gap-2.5 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2.5 text-left transition-colors hover:border-brand-400"
                   >
-                    <BedDouble size={17} className="shrink-0 text-indigo-500" />
+                    <BedDouble size={17} className="shrink-0 text-brand-600" />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[12.5px] font-bold text-indigo-700">숙소 정하셨나요?</span>
-                      <span className="block text-[10.5px] text-indigo-500">
+                      <span className="block text-[12.5px] font-bold text-brand-800">숙소 정하셨나요?</span>
+                      <span className="block text-[10.5px] text-brand-600">
                         {aiDays > 1 ? "숙소를 정하면 매일의 시작·종료가 자동으로 채워져요" : "먼저 정하면 시작·종료 위치로 바로 쓸 수 있어요"}
                       </span>
                     </span>
@@ -832,7 +832,7 @@ export function CourseBuilderPage() {
             <button
               onClick={runAiRecommend}
               disabled={aiLoading}
-              className="mb-4 flex w-full items-center gap-3 rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-3.5 text-left text-white shadow-md transition-opacity hover:opacity-95 disabled:opacity-60"
+              className="mb-4 flex w-full items-center gap-3 rounded-2xl bg-gradient-to-r from-brand-600 to-brand-pink-600 px-4 py-3.5 text-left text-white shadow-md transition-opacity hover:opacity-95 disabled:opacity-60"
             >
               <Sparkles size={20} className="shrink-0" />
               <span className="min-w-0 flex-1">
@@ -922,7 +922,7 @@ export function CourseBuilderPage() {
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-center gap-3">
             <span className="text-[13px] text-slate-500">{pickedCount}곳 선택됨</span>
-            <Button onClick={() => setFinishOpen(true)} className="ml-auto h-12 rounded-2xl bg-indigo-600 px-6 text-sm font-semibold hover:bg-indigo-700">
+            <Button onClick={() => setFinishOpen(true)} className="ml-auto h-12 rounded-2xl bg-brand-700 px-6 text-sm font-semibold hover:bg-brand-800">
               코스 완성하기
             </Button>
           </div>
@@ -943,11 +943,11 @@ export function CourseBuilderPage() {
 
             <div className="mb-4 rounded-2xl border border-slate-200 p-3">
               <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-slate-700">
-                <CalendarDays size={15} className="text-indigo-500" /> 날짜 정해서 일정 만들기
+                <CalendarDays size={15} className="text-brand-600" /> 날짜 정해서 일정 만들기
               </p>
-              <MonthCalendar selected={finishDate} onSelect={setFinishDate} accentColor="#4f46e5" />
+              <MonthCalendar selected={finishDate} onSelect={setFinishDate} accentColor="#943A00" />
               <p className="mt-1 text-center text-[12px] text-slate-500">{formatDateLabel(finishDate)}에 {pickedCount}곳을 시간대별로 배치</p>
-              <Button onClick={buildWithDates} className="mt-3 h-11 w-full rounded-xl bg-indigo-600 text-sm font-semibold hover:bg-indigo-700">
+              <Button onClick={buildWithDates} className="mt-3 h-11 w-full rounded-xl bg-brand-700 text-sm font-semibold hover:bg-brand-800">
                 이 날짜로 일정 만들기
               </Button>
             </div>
@@ -973,7 +973,7 @@ export function CourseBuilderPage() {
           <div className="relative flex max-h-[85%] w-full max-w-md flex-col rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
             <div className="flex items-center justify-between px-5 pb-2 pt-5">
               <h3 className="flex items-center gap-1.5 text-lg font-bold">
-                <Sparkles size={18} className="text-indigo-500" /> {aiCity} AI 추천 동선
+                <Sparkles size={18} className="text-brand-600" /> {aiCity} AI 추천 동선
               </h3>
               <button onClick={() => setAiCourse(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
                 <X size={16} />
@@ -1003,7 +1003,7 @@ export function CourseBuilderPage() {
                   <Button onClick={runAiRecommend} disabled={aiLoading} variant="outline" className="h-11 flex-1 rounded-xl border-slate-300 text-sm font-semibold">
                     전체 다시 추천
                   </Button>
-                  <Button onClick={applyAiCourse} className="h-11 flex-[2] rounded-xl bg-indigo-600 text-sm font-semibold hover:bg-indigo-700">
+                  <Button onClick={applyAiCourse} className="h-11 flex-[2] rounded-xl bg-brand-700 text-sm font-semibold hover:bg-brand-800">
                     이 동선으로 일정 만들기
                   </Button>
                 </div>
@@ -1020,7 +1020,7 @@ export function CourseBuilderPage() {
           <div className="relative flex max-h-[85%] w-full max-w-md flex-col rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
             <div className="flex items-center justify-between px-5 pb-2 pt-5">
               <h3 className="flex items-center gap-1.5 text-lg font-bold">
-                <Sparkles size={18} className="text-indigo-500" /> {aiCity} {aiDays}일 AI 추천 동선
+                <Sparkles size={18} className="text-brand-600" /> {aiCity} {aiDays}일 AI 추천 동선
               </h3>
               <button onClick={() => setAiMultiCourse(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
                 <X size={16} />
@@ -1035,7 +1035,7 @@ export function CourseBuilderPage() {
                   onClick={() => setActiveDayTab(d.day - 1)}
                   aria-pressed={activeDayTab === d.day - 1}
                   className={`shrink-0 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
-                    activeDayTab === d.day - 1 ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-600"
+                    activeDayTab === d.day - 1 ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-600"
                   }`}
                 >
                   Day {d.day}
@@ -1066,10 +1066,10 @@ export function CourseBuilderPage() {
                   <button
                     type="button"
                     onClick={() => setMultiDatePickerOpen(true)}
-                    className="mb-2 flex w-full items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-[12.5px] font-semibold text-slate-600 hover:border-indigo-300"
+                    className="mb-2 flex w-full items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-[12.5px] font-semibold text-slate-600 hover:border-brand-400"
                   >
                     <span className="flex items-center gap-1.5">
-                      <CalendarDays size={13} className="text-indigo-500" /> Day 1 시작일
+                      <CalendarDays size={13} className="text-brand-600" /> Day 1 시작일
                     </span>
                     <span>{formatDateLabel(multiStartDate)}</span>
                   </button>
@@ -1077,7 +1077,7 @@ export function CourseBuilderPage() {
                     <Button onClick={runAiRecommend} disabled={aiLoading} variant="outline" className="h-11 flex-1 rounded-xl border-slate-300 text-sm font-semibold">
                       전체 다시 추천
                     </Button>
-                    <Button onClick={applyMultiDayCourse} className="h-11 flex-[2] rounded-xl bg-indigo-600 text-sm font-semibold hover:bg-indigo-700">
+                    <Button onClick={applyMultiDayCourse} className="h-11 flex-[2] rounded-xl bg-brand-700 text-sm font-semibold hover:bg-brand-800">
                       이 {aiDays}일 동선으로 일정 만들기
                     </Button>
                   </div>
@@ -1105,7 +1105,7 @@ export function CourseBuilderPage() {
                 setMultiStartDate(d);
                 setMultiDatePickerOpen(false);
               }}
-              accentColor="#4f46e5"
+              accentColor="#943A00"
             />
           </div>
         </div>
@@ -1290,7 +1290,7 @@ function SlotResults({
               onClick={() => handleSortClick(s.key)}
               disabled={isDistance && userLoc.locating}
               className={`flex shrink-0 items-center gap-1 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-60 ${
-                sort === s.key ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-indigo-300"
+                sort === s.key ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-brand-400"
               }`}
             >
               {isDistance && <MapPin size={11} />}
@@ -1398,7 +1398,7 @@ function CourseSpotCard({
         <button
           onClick={onToggle}
           className={`mt-2 flex h-8 w-full items-center justify-center gap-1 rounded-lg text-[12px] font-semibold transition-colors ${
-            picked ? "bg-success-500 text-white hover:bg-success-600" : "bg-slate-100 text-slate-600 hover:bg-indigo-500 hover:text-white"
+            picked ? "bg-success-500 text-white hover:bg-success-600" : "bg-slate-100 text-slate-600 hover:bg-brand-600 hover:text-white"
           }`}
         >
           {picked ? <><Check size={13} /> 담김 · 빼기</> : <><Plus size={13} /> 코스에 담기</>}
@@ -1460,7 +1460,7 @@ function CourseTimelineList({
         const isAnchor = stop.slotKey === START_ANCHOR_SLOT_KEY || stop.slotKey === END_ANCHOR_SLOT_KEY;
         return (
           <div key={stop.slotKey} className="relative flex items-center gap-3 py-2">
-            <span className={`absolute -left-4 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white ${isAnchor ? "bg-slate-700" : stop.meal ? "bg-amber-400" : "bg-indigo-500"}`} />
+            <span className={`absolute -left-4 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white ${isAnchor ? "bg-slate-700" : stop.meal ? "bg-amber-400" : "bg-brand-600"}`} />
             <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-slate-400">{pad2(stop.hour)}:00</span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-[13.5px] font-semibold text-slate-800">
@@ -1471,7 +1471,7 @@ function CourseTimelineList({
                 {stop.slotLabel}
                 {stop.rating != null && ` · ⭐ ${stop.rating.toFixed(1)}`}
               </p>
-              {stop.reason && !rerolling && <p className="mt-0.5 truncate text-[11px] text-indigo-500">💬 {stop.reason}</p>}
+              {stop.reason && !rerolling && <p className="mt-0.5 truncate text-[11px] text-brand-600">💬 {stop.reason}</p>}
             </div>
             {isAnchor ? (
               <span className="flex shrink-0 items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10.5px] font-semibold text-slate-500">
@@ -1483,7 +1483,7 @@ function CourseTimelineList({
                   onClick={() => onReroll(stop.slotKey)}
                   disabled={rerolling}
                   aria-label={`${stop.slotLabel} 다른 곳 추천`}
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-indigo-500 disabled:opacity-40"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-brand-600 disabled:opacity-40"
                 >
                   <RefreshCw size={14} className={rerolling ? "animate-spin" : ""} />
                 </button>
@@ -1529,7 +1529,7 @@ function AnchorRow({
         <button
           type="button"
           onClick={onPick}
-          className="flex-1 rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-left text-[12px] text-slate-400 hover:border-indigo-300 hover:text-indigo-500"
+          className="flex-1 rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-left text-[12px] text-slate-400 hover:border-brand-400 hover:text-brand-600"
         >
           장소 검색…
         </button>

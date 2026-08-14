@@ -340,7 +340,7 @@ export function ScheduleModal({
                         <select
                           value={currency}
                           onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
-                          className="h-11 shrink-0 rounded-xl border border-slate-200 bg-white px-2 text-[13px] font-semibold text-slate-700 outline-none focus:border-indigo-400"
+                          className="h-11 shrink-0 rounded-xl border border-slate-200 bg-white px-2 text-[13px] font-semibold text-slate-700 outline-none focus:border-brand-500"
                         >
                           {CURRENCY_OPTIONS.map((c) => (
                             <option key={c.code} value={c.code}>

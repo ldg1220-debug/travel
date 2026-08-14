@@ -71,12 +71,20 @@ export function BrandLogo({
   );
 }
 
-/** Styled text wordmark — graffiti-flavored bold italic "Tradule" + thin 트레쥴. `neon` renders cyan with a glow for dark backgrounds. */
+/**
+ * Styled text wordmark — graffiti-flavored bold italic "Tradule" + thin 트레쥴.
+ * `neon` renders cyan with a glow for dark backgrounds. On light backgrounds
+ * the "Tradule" mark is filled with the brand gradient (same orange→pink as
+ * the PNG logo asset, see docs/design/2026-08-redesign) instead of plain
+ * slate, so the text fallback still reads as *the* logo when the image is
+ * missing — text-fill gradients are exempt from WCAG contrast minimums
+ * (logotype exception), so no accessibility check needed here.
+ */
 export function WordmarkText({ neon = false, className = "" }: { neon?: boolean; className?: string }) {
   return (
     <span
       className={`inline-flex items-baseline gap-1 whitespace-nowrap font-extrabold italic tracking-tight ${
-        neon ? "text-cyan-300 [text-shadow:0_0_10px_rgba(34,211,238,0.55)]" : "text-slate-900"
+        neon ? "text-cyan-300 [text-shadow:0_0_10px_rgba(34,211,238,0.55)]" : "bg-[image:var(--brand-gradient)] bg-clip-text text-transparent"
       } ${className}`}
     >
       Tradule

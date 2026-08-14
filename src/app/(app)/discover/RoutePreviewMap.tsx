@@ -50,11 +50,11 @@ function RoutePreviewMapGoogle({ stops }: { stops: DiscoverRouteStop[] }) {
     >
       <Polyline
         path={stops.map((s) => ({ lat: s.lat, lng: s.lng }))}
-        options={{ strokeColor: "#4f46e5", strokeOpacity: 0.9, strokeWeight: 3 }}
+        options={{ strokeColor: "#943A00", strokeOpacity: 0.9, strokeWeight: 3 }}
       />
       {stops.map((s, i) => (
         <OverlayView key={i} position={{ lat: s.lat, lng: s.lng }} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
-          <div className="flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-indigo-600 text-[11px] font-bold text-white shadow">
+          <div className="flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-brand-700 text-[11px] font-bold text-white shadow">
             {i + 1}
           </div>
         </OverlayView>
@@ -70,10 +70,10 @@ function RoutePreviewMapKakao({ stops }: { stops: DiscoverRouteStop[] }) {
   };
   return (
     <KakaoMapCanvas center={{ lat: center.lat, lng: center.lng }} level={7} onLoad={handleLoad}>
-      <KakaoPolyline path={stops.map((s) => ({ lat: s.lat, lng: s.lng }))} strokeColor="#4f46e5" strokeOpacity={0.9} strokeWeight={3} />
+      <KakaoPolyline path={stops.map((s) => ({ lat: s.lat, lng: s.lng }))} strokeColor="#943A00" strokeOpacity={0.9} strokeWeight={3} />
       {stops.map((s, i) => (
         <KakaoOverlay key={i} position={{ lat: s.lat, lng: s.lng }} xAnchor={0.5} yAnchor={0.5}>
-          <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-indigo-600 text-[11px] font-bold text-white shadow">
+          <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-brand-700 text-[11px] font-bold text-white shadow">
             {i + 1}
           </div>
         </KakaoOverlay>

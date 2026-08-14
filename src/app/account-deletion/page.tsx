@@ -34,7 +34,7 @@ export default async function AccountDeletionPage({
         <p className="mt-3 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400">{content.body}</p>
         <Link
           href="/"
-          className="mt-6 inline-block rounded-xl bg-indigo-600 px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-indigo-700"
+          className="mt-6 inline-block rounded-xl bg-brand-700 px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-brand-800"
         >
           트레쥴로 돌아가기
         </Link>

@@ -35,7 +35,7 @@
   /* shadcn/ui primitives (Button/Badge/Input/Switch) — `primary`/`accent`/
      `destructive` are already spoken for here, so the app-level semantic
      tokens below use different names on purpose. Reusing these names for
-     the brand indigo would silently repaint every shadcn primitive. */
+     the brand color would silently repaint every shadcn primitive. */
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
@@ -82,18 +82,75 @@
      검토 필요). */
   --color-rating: oklch(76.9% 0.188 70.08);
 
-  /* 브랜드 액션색(CTA/링크/버튼) — indigo 스케일과 동일한 oklch 값.
-     실제 호출부(indigo-500 등, 20여 파일 300곳+)는 아직 이 토큰을 쓰도록
-     바뀌지 않았다 — 정의만 먼저 박아두고, 사용처 교체는 범위가 커서 별도
-     작업으로 미룬다. */
-  --color-brand-50: oklch(96.2% 0.018 272.314);
-  --color-brand-100: oklch(93% 0.034 272.788);
-  --color-brand-200: oklch(87% 0.065 274.039);
-  --color-brand-300: oklch(78.5% 0.115 274.713);
-  --color-brand-400: oklch(67.3% 0.182 276.935);
-  --color-brand-500: oklch(58.5% 0.233 277.117);
-  --color-brand-600: oklch(51.1% 0.262 276.966);
-  --color-brand-700: oklch(45.7% 0.24 277.023);
+  /* 브랜드 액션색(CTA/링크/버튼) — 2026-08 리디자인(docs/design/2026-08-redesign/)
+     이전엔 indigo 스케일과 동일한 oklch 값이었다: 정의만 있고 호출부
+     (indigo-500 등, 20여 파일 300곳+)는 안 바뀐 "다음 작업을 위한 밑작업"
+     상태였는데, 리디자인이 정확히 그 다음 작업이라 여기서 마저 마이그레이션했다.
+
+     로고 자산(BrandLogo)이 원래 오렌지→핑크 그라데이션이라, 그 hue에 앵커를
+     맞췄다: 오렌지 #FF8A3D(H≈50.5), 핑크 #FF4D8D(H≈3.1, → brand-pink-* 아래).
+     원본 hex 그대로를 스케일 전체에 쓰지 않은 이유 — 흰 텍스트 위에 얹으면
+     2.35:1로 WCAG AA(4.5:1) 미달임을 실측 확인(디자인 리뷰 문서 참조).
+     그래서 원본 hex는 장식 전용 밝은 단(400 부근)에 두고, 실제 버튼/링크에
+     쓰는 진한 단(600 이상)은 대비를 만족하도록 라이트니스를 낮춰 다시
+     계산했다 — brand-600 on 흰 배경 4.83:1, brand-700 7.33:1.
+     호출부 마이그레이션도 "같은 숫자 단끼리"가 아니라 한 단씩 진하게
+     밀어서 치환했다(indigo-500 → brand-600 등) — 자세한 매핑과 근거는
+     docs/design/2026-08-redesign/작업지시서_리디자인_적용.md의
+     "Phase 0 구현 기록" 참고. */
+  --color-brand-50: oklch(98% 0.0417 50.5);
+  --color-brand-100: oklch(95% 0.0667 50.5);
+  --color-brand-200: oklch(90% 0.0917 50.5);
+  --color-brand-300: oklch(83% 0.1251 50.5);
+  --color-brand-400: oklch(75% 0.1585 50.5);
+  --color-brand-500: oklch(68% 0.1668 50.5);
+  --color-brand-600: oklch(56.5% 0.1585 50.5);
+  --color-brand-700: oklch(46.5% 0.1418 50.5);
+  --color-brand-800: oklch(38.5% 0.1201 50.5);
+  --color-brand-900: oklch(30% 0.1001 50.5);
+  --color-brand-950: oklch(22% 0.0751 50.5);
+
+  /* 로고 그라데이션의 두 번째 끝점(핑크) — 단독 버튼/텍스트색보다는
+     brand-*와 짝지어 그라데이션(from-brand-600 to-brand-pink-600 등)이나
+     아바타 폴백 배경에 쓴다. 계산 방식은 brand-*와 동일(같은 대비 확보). */
+  --color-brand-pink-50: oklch(98% 0.0545 3.1);
+  --color-brand-pink-100: oklch(95% 0.0871 3.1);
+  --color-brand-pink-200: oklch(90% 0.1198 3.1);
+  --color-brand-pink-300: oklch(83% 0.1634 3.1);
+  --color-brand-pink-400: oklch(75% 0.207 3.1);
+  --color-brand-pink-500: oklch(68% 0.2179 3.1);
+  --color-brand-pink-600: oklch(56.5% 0.207 3.1);
+  --color-brand-pink-700: oklch(46.5% 0.1852 3.1);
+  --color-brand-pink-800: oklch(38.5% 0.1569 3.1);
+  --color-brand-pink-900: oklch(30% 0.1307 3.1);
+  --color-brand-pink-950: oklch(22% 0.098 3.1);
+
+  /* ── Warm 팔레트 (Phase 1+ 전용, 아직 미사용) ──
+     2026-08 리디자인 목업의 배경/서페이스/잉크 토큰. 현재 어떤 화면도 이
+     토큰을 쓰지 않는다 — 기존 페이지는 여전히 slate 유틸리티를 직접 쓴다
+     (아래쪽 다크모드 remap 참고). Phase 1이 새 홈 화면을 만들 때 가져다
+     쓰라고 미리 계산해서 박아둔 것. ink3/ink4는 목업 원안이 각각
+     3.67:1/2.07:1로 AA 미달이라(디자인 리뷰 문서 참조) 아래 값으로 이미
+     수정했다 — ink3는 본문 보조 텍스트로 써도 되지만(4.6:1), ink4는
+     텍스트로 쓰지 말 것(2.6:1, 아이콘·구분선 전용). */
+  --color-warm-bg: #faf7f2;
+  --color-warm-surface: #ffffff;
+  --color-warm-surface-alt: #f3eee6;
+  --color-warm-hairline: #eae3d6;
+  --color-warm-ink: #1a1512;
+  --color-warm-ink-2: #4a423b;
+  --color-warm-ink-3: #6f6459; /* 수정값 — 원안 #8A7F72(3.67:1)는 AA 미달, ≈4.6:1로 조정 */
+  --color-warm-ink-4: #b8ad9f; /* 텍스트 금지 — 아이콘/구분선 전용 (bg 대비 2.6:1) */
+}
+
+:root {
+  /* 로고/장식 전용 그라데이션 — 텍스트-fill(bg-clip-text)이나 큰 배너
+     배경처럼 "대비 규정이 다른" 자리에 쓴다(WCAG는 로고타입에 최소 대비를
+     요구하지 않는다). 일반 텍스트·작은 버튼 라벨에는 쓰지 말 것 — 위
+     brand/brand-pink 단색 스케일을 대신 쓴다. Tailwind의 theme 색상
+     네임스페이스에 안 넣은 건 그 파이프라인이 그라데이션 값을 못 받아서고,
+     `bg-[image:var(--brand-gradient)]` 같은 임의값 문법으로 쓴다. */
+  --brand-gradient: linear-gradient(90deg, #ff8a3d 0%, #ff4d8d 100%);
 }
 
 /* Dark theme — driven by the `.dark` class (ThemeToggle), so the toggle fully

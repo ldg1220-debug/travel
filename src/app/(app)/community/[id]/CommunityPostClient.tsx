@@ -184,7 +184,7 @@ export function CommunityPostDetailPage() {
 
         <div className="mb-1 flex items-center justify-between gap-2">
           <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">
-            <span className="font-semibold text-indigo-500">{communityCategoryLabel(post.category)}</span>
+            <span className="font-semibold text-brand-600">{communityCategoryLabel(post.category)}</span>
             {" · "}
             <button onClick={() => setProfileUserId(post.authorId)} className="font-semibold text-slate-600 hover:underline">
               {post.authorName ?? "여행자"}

@@ -84,7 +84,7 @@ export function CommunityPostComments({
         ) : (
           comments.map((c) => (
             <div key={c.id} className="flex items-start gap-2">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-[11px] font-bold text-white">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-brand-600 to-brand-pink-600 text-[11px] font-bold text-white">
                 {c.authorImage ? (
                   // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
                   <img src={c.authorImage} alt="" className="h-full w-full object-cover" />
@@ -125,12 +125,12 @@ export function CommunityPostComments({
             }
           }}
           placeholder={session?.user ? "댓글을 남겨보세요" : "로그인하면 댓글을 남길 수 있어요"}
-          className="h-10 min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 text-[13px] outline-none focus:border-indigo-300"
+          className="h-10 min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 text-[13px] outline-none focus:border-brand-400"
         />
         <button
           onClick={handleSubmit}
           disabled={posting || !text.trim()}
-          className="h-10 shrink-0 rounded-2xl bg-indigo-600 px-4 text-[13px] font-semibold text-white transition-opacity hover:bg-indigo-700 disabled:opacity-50"
+          className="h-10 shrink-0 rounded-2xl bg-brand-700 px-4 text-[13px] font-semibold text-white transition-opacity hover:bg-brand-800 disabled:opacity-50"
         >
           {posting ? "등록 중…" : "등록"}
         </button>

@@ -52,7 +52,7 @@ export default function MessagesPage() {
     <div className="min-h-full bg-slate-50 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6">
         <div className="mb-6 flex items-center gap-2">
-          <CordixIcon name="message" size={20} stroke="#6366f1" />
+          <CordixIcon name="message" size={20} stroke="#BC5200" />
           <h2 className="text-2xl font-bold tracking-tight">메시지</h2>
         </div>
 
@@ -65,7 +65,7 @@ export default function MessagesPage() {
             <p className="mt-1 text-[13px] text-slate-400">트래블 메이트와 메시지를 주고받으려면 로그인해주세요.</p>
             <button
               onClick={() => setLoginOpen(true)}
-              className="mt-5 rounded-full bg-indigo-600 px-5 py-2 text-[13px] font-semibold text-white hover:bg-indigo-700"
+              className="mt-5 rounded-full bg-brand-700 px-5 py-2 text-[13px] font-semibold text-white hover:bg-brand-800"
             >
               로그인하기
             </button>
@@ -92,7 +92,7 @@ export default function MessagesPage() {
                   // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
                   <img src={c.image} alt="" className="h-12 w-12 shrink-0 rounded-full object-cover" />
                 ) : (
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-sm font-bold text-white">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-pink-500 text-sm font-bold text-white">
                     {(c.nickname ?? "여").trim().charAt(0)}
                   </span>
                 )}
@@ -111,7 +111,7 @@ export default function MessagesPage() {
                   </p>
                 </div>
                 {c.unreadCount > 0 && (
-                  <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 px-1.5 text-[10.5px] font-bold text-white">
+                  <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-brand-700 px-1.5 text-[10.5px] font-bold text-white">
                     {c.unreadCount}
                   </span>
                 )}

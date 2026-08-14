@@ -353,7 +353,7 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
                   <span className="flex min-w-0 items-center gap-1.5">
                     <span
                       className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9.5px] font-bold ${
-                        r.source === "tradule" ? "bg-indigo-100 text-indigo-600" : "bg-slate-200 text-slate-600"
+                        r.source === "tradule" ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-600"
                       }`}
                     >
                       {r.source === "tradule" ? "트레쥴" : "구글"}
@@ -394,7 +394,7 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
                 {r.tripPostId != null && (
                   <button
                     onClick={() => router.push(`/trip/${r.tripPostId}`)}
-                    className="mt-1.5 text-[11px] font-semibold text-indigo-500 hover:underline"
+                    className="mt-1.5 text-[11px] font-semibold text-brand-600 hover:underline"
                   >
                     이 후기 보러가기
                   </button>

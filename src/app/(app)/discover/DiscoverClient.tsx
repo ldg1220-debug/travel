@@ -328,7 +328,7 @@ function RegionDrilldown({
             <button
               key={label}
               onClick={() => onSetPath(regionPath.slice(0, i + 1))}
-              className="flex items-center gap-0.5 rounded-full bg-indigo-600 px-3 py-1 text-[11.5px] font-semibold text-white"
+              className="flex items-center gap-0.5 rounded-full bg-brand-700 px-3 py-1 text-[11.5px] font-semibold text-white"
             >
               {label}
               {i < regionPath.length - 1 && <ChevronRight size={11} />}
@@ -671,7 +671,7 @@ export function DiscoverPage() {
                 if (e.key === "Enter") runSearch();
               }}
               placeholder="어디로 떠나세요?"
-              className="h-14 rounded-2xl border-slate-200 bg-white pl-12 pr-20 text-base shadow-sm shadow-slate-200/60 transition-shadow focus-visible:ring-2 focus-visible:ring-indigo-400 sm:pr-24"
+              className="h-14 rounded-2xl border-slate-200 bg-white pl-12 pr-20 text-base shadow-sm shadow-slate-200/60 transition-shadow focus-visible:ring-2 focus-visible:ring-brand-500 sm:pr-24"
             />
             <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
               {isSearching && (
@@ -687,7 +687,7 @@ export function DiscoverPage() {
                 onClick={() => runSearch()}
                 disabled={!queryInput.trim()}
                 aria-label="검색"
-                className="h-10 rounded-xl bg-indigo-600 px-3 text-[13px] font-semibold hover:bg-indigo-700 sm:px-4"
+                className="h-10 rounded-xl bg-brand-700 px-3 text-[13px] font-semibold hover:bg-brand-800 sm:px-4"
               >
                 <CordixIcon name="search" size={15} className="sm:hidden" />
                 <span className="hidden sm:inline">검색</span>
@@ -732,7 +732,7 @@ export function DiscoverPage() {
                   onClick={() => handleScopeChange(s.key)}
                   className={`flex h-14 items-center justify-center gap-2 rounded-2xl border text-[15px] font-semibold shadow-sm transition-colors ${
                     active
-                      ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                      ? "border-brand-200 bg-brand-50 text-brand-800"
                       : "border-slate-200 bg-white text-slate-500 hover:text-slate-700"
                   }`}
                 >
@@ -796,7 +796,7 @@ export function DiscoverPage() {
                 aria-pressed={regionOpen || regionPath.length > 0}
                 className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                   regionOpen || regionPath.length > 0
-                    ? "border-indigo-600 bg-indigo-600 text-white"
+                    ? "border-brand-700 bg-brand-700 text-white"
                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                 }`}
               >
@@ -817,7 +817,7 @@ export function DiscoverPage() {
                 <button
                   key={r.q}
                   onClick={() => runSearch(r.q, r.scope)}
-                  className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] text-slate-600 transition-colors hover:border-indigo-300 hover:text-indigo-600"
+                  className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] text-slate-600 transition-colors hover:border-brand-400 hover:text-brand-700"
                 >
                   {r.scope === "domestic" ? "🇰🇷 " : "🌐 "}
                   {r.q}
@@ -878,7 +878,7 @@ export function DiscoverPage() {
               {/* ✨ AI 추천 동선 — 지역만 고르면 하루 코스를 자동으로 짜주는 코스 만들기로 연결 */}
               <button
                 onClick={() => router.push("/course")}
-                className="flex w-full items-center gap-3 rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 px-4 py-4 text-left text-white shadow-md transition-opacity hover:opacity-95"
+                className="flex w-full items-center gap-3 rounded-2xl bg-gradient-to-r from-brand-600 to-brand-pink-600 px-4 py-4 text-left text-white shadow-md transition-opacity hover:opacity-95"
               >
                 <Sparkles size={22} className="shrink-0" />
                 <span className="min-w-0 flex-1">
@@ -968,7 +968,7 @@ export function DiscoverPage() {
                 <>
                   <SectionHeader
                     icon={MapIcon}
-                    iconClass="text-indigo-500"
+                    iconClass="text-brand-600"
                     title="추천 코스"
                     caption="장소를 묶어둔 추천 코스 템플릿"
                     onSeeAll={bundle.routes.length > COMPACT_ROUTE_COUNT ? () => setExpandedSection("routes") : undefined}
@@ -1174,7 +1174,7 @@ const SECTION_META: Record<SectionKind, { icon: React.ComponentType<{ size?: num
   trending: { icon: Flame, iconClass: "text-rose-500", title: "지금 뜨는 장소" },
   favorites: { icon: Crown, iconClass: "text-amber-500", title: "꾸준히 사랑받는 명소" },
   lodging: { icon: Hotel, iconClass: "text-sky-500", title: "인기 숙소" },
-  routes: { icon: MapIcon, iconClass: "text-indigo-500", title: "추천 코스" },
+  routes: { icon: MapIcon, iconClass: "text-brand-600", title: "추천 코스" },
 };
 
 function ExpandedSection({
@@ -1518,7 +1518,7 @@ function SearchResults({
         <section>
           <SectionHeader
             icon={MapIcon}
-            iconClass="text-indigo-500"
+            iconClass="text-brand-600"
             title={`"${query}" 카테고리별 장소`}
             caption="원하는 카테고리를 골라 맛집·숙소까지 찾아보세요"
           />
@@ -1549,7 +1549,7 @@ function SearchResults({
                     key={c.key}
                     onClick={() => handleCuisineClick(c.key)}
                     className={`shrink-0 rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors ${
-                      active ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-indigo-300"
+                      active ? "border-brand-700 bg-brand-700 text-white" : "border-slate-200 bg-white text-slate-500 hover:border-brand-400"
                     }`}
                   >
                     {c.label}
@@ -1612,7 +1612,7 @@ function SearchResults({
                     onClick={() => setPage(p)}
                     disabled={isFetching}
                     className={`flex h-8 w-8 items-center justify-center rounded-full text-[12.5px] font-semibold tabular-nums transition-colors ${
-                      p === page ? "bg-indigo-600 text-white" : "text-slate-500 hover:bg-slate-100"
+                      p === page ? "bg-brand-700 text-white" : "text-slate-500 hover:bg-slate-100"
                     }`}
                   >
                     {p}
@@ -1847,7 +1847,7 @@ function SpotCard({
               onAdd();
             }}
             aria-label={`${spot.name} 일정에 추가`}
-            className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-indigo-500 hover:text-white"
+            className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-brand-600 hover:text-white"
           >
             <Plus size={15} />
           </button>
@@ -1963,7 +1963,7 @@ function LivePlaceCard({
                 onAdd();
               }}
               aria-label={`${place.name} 일정에 추가`}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-indigo-500 hover:text-white"
+              className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-colors hover:bg-brand-600 hover:text-white"
             >
               <Plus size={15} />
             </button>
@@ -1972,7 +1972,7 @@ function LivePlaceCard({
         {lodging && providers.length > 0 && (
           <div className="mt-2 border-t border-slate-100 pt-2">
             <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-slate-400">
-              <CordixIcon name="bed" size={11} className="text-indigo-400" /> 최저가 예약
+              <CordixIcon name="bed" size={11} className="text-brand-500" /> 최저가 예약
               {showAffiliate && <span className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-400">제휴</span>}
             </div>
             <div className="flex flex-wrap gap-1">
@@ -2039,7 +2039,7 @@ function RouteTemplateCard({ route, onAdd, onPreview }: { route: DiscoverRoute; 
           <div className="absolute bottom-2 left-[6px] top-2 w-px bg-slate-200" />
           {route.stops.map((stop, i) => (
             <div key={i} className="relative flex items-center gap-3 py-1.5">
-              <span className="z-10 h-3 w-3 rounded-full border-2 border-white bg-indigo-400 shadow-sm ring-1 ring-slate-200" />
+              <span className="z-10 h-3 w-3 rounded-full border-2 border-white bg-brand-500 shadow-sm ring-1 ring-slate-200" />
               <span className="w-12 shrink-0 text-[11px] font-semibold tabular-nums text-slate-400">
                 {stop.time}
               </span>
@@ -2055,7 +2055,7 @@ function RouteTemplateCard({ route, onAdd, onPreview }: { route: DiscoverRoute; 
               e.stopPropagation();
               onAdd();
             }}
-            className="h-9 gap-1 rounded-full bg-indigo-600 px-4 text-[13px] font-semibold text-white shadow-sm shadow-indigo-200 transition-colors hover:bg-indigo-700"
+            className="h-9 gap-1 rounded-full bg-brand-700 px-4 text-[13px] font-semibold text-white shadow-sm shadow-brand-200 transition-colors hover:bg-brand-800"
           >
             <Plus size={15} />전체 일정에 담기
           </Button>
@@ -2090,7 +2090,7 @@ function RoutePreviewModal({ route, onClose, onAdd }: { route: DiscoverRoute; on
           </div>
 
           <div className="flex-1 overflow-y-auto p-5">
-            <Badge className="border-none bg-indigo-50 text-[11px] font-semibold text-indigo-600">{route.region}</Badge>
+            <Badge className="border-none bg-brand-50 text-[11px] font-semibold text-brand-700">{route.region}</Badge>
             <h3 className="mt-2 text-lg font-bold text-slate-900">{route.title}</h3>
             <p className="text-[13px] text-slate-500">{route.subtitle}</p>
             <div className="mt-2 flex items-center gap-3 text-[12px] font-medium text-slate-500">
@@ -2109,7 +2109,7 @@ function RoutePreviewModal({ route, onClose, onAdd }: { route: DiscoverRoute; on
               <div className="absolute bottom-2 left-[10px] top-2 w-px bg-slate-200" />
               {route.stops.map((stop, i) => (
                 <div key={i} className="relative flex items-center gap-3 py-2">
-                  <span className="z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white ring-2 ring-white">
+                  <span className="z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-700 text-[10px] font-bold text-white ring-2 ring-white">
                     {i + 1}
                   </span>
                   <span className="w-12 shrink-0 text-[11px] font-semibold tabular-nums text-slate-400">{stop.time}</span>
@@ -2120,7 +2120,7 @@ function RoutePreviewModal({ route, onClose, onAdd }: { route: DiscoverRoute; on
 
             <Button
               onClick={onAdd}
-              className="mt-5 h-12 w-full gap-1.5 rounded-2xl bg-indigo-600 text-sm font-semibold text-white hover:bg-indigo-700"
+              className="mt-5 h-12 w-full gap-1.5 rounded-2xl bg-brand-700 text-sm font-semibold text-white hover:bg-brand-800"
             >
               <Plus size={15} />전체 일정에 담기
             </Button>
@@ -2154,7 +2154,7 @@ function RouteDateModal({ route, onClose, onConfirm }: { route: DiscoverRoute; o
           </button>
 
           <div className="flex items-center gap-2 text-slate-900">
-            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-500">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
               <CalendarRange size={18} />
             </span>
             <div className="min-w-0">
@@ -2164,11 +2164,11 @@ function RouteDateModal({ route, onClose, onConfirm }: { route: DiscoverRoute; o
           </div>
 
           <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-500">며칠에 담을까요?</p>
-          <MonthCalendar selected={date} onSelect={setDate} accentColor="#4f46e5" />
+          <MonthCalendar selected={date} onSelect={setDate} accentColor="#943A00" />
 
           <p className="mt-4 text-[12px] text-slate-500">각 장소는 루트에 제시된 시간대에 맞춰 배치돼요. 이미 예약된 시간대는 자동으로 다음 빈 시간으로 옮겨져요.</p>
 
-          <button onClick={() => onConfirm(date)} className="mt-5 h-12 w-full rounded-2xl bg-indigo-600 text-sm font-semibold text-white transition-transform active:scale-[0.98] hover:bg-indigo-700">
+          <button onClick={() => onConfirm(date)} className="mt-5 h-12 w-full rounded-2xl bg-brand-700 text-sm font-semibold text-white transition-transform active:scale-[0.98] hover:bg-brand-800">
             {formatDateLabelShort(date)}에 전체 담기
           </button>
         </motion.div>

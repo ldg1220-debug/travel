@@ -64,10 +64,10 @@ export function VisibilitySelector({
             type="button"
             onClick={() => handleSelect(opt.value)}
             className={`flex flex-1 items-center justify-center gap-1 rounded-full border px-1.5 py-1.5 text-[11px] font-semibold transition-colors ${
-              value === opt.value ? "border-indigo-400 bg-indigo-50 text-indigo-600" : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+              value === opt.value ? "border-brand-500 bg-brand-50 text-brand-700" : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
             }`}
           >
-            <CordixIcon name={opt.icon} size={12} stroke={value === opt.value ? "#6366f1" : "#94a3b8"} accent={value === opt.value ? "#6366f1" : "#94a3b8"} />
+            <CordixIcon name={opt.icon} size={12} stroke={value === opt.value ? "#BC5200" : "#94a3b8"} accent={value === opt.value ? "#BC5200" : "#94a3b8"} />
             <span className="truncate">{opt.label}</span>
           </button>
         ))}
@@ -77,7 +77,7 @@ export function VisibilitySelector({
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
-          className="mt-1.5 text-[11px] font-semibold text-indigo-500 hover:underline"
+          className="mt-1.5 text-[11px] font-semibold text-brand-600 hover:underline"
         >
           {visibleToUserIds.length > 0 ? `${visibleToUserIds.length}명 선택됨 · 목록 수정` : "공개할 메이트를 선택해주세요"}
         </button>
@@ -106,13 +106,13 @@ export function VisibilitySelector({
                         type="checkbox"
                         checked={visibleToUserIds.includes(f.id)}
                         onChange={() => toggleUser(f.id)}
-                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
+                        className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-500"
                       />
                       {f.image ? (
                         // eslint-disable-next-line @next/next/no-img-element -- OAuth profile image URL
                         <img src={f.image} alt="" className="h-6 w-6 shrink-0 rounded-full object-cover" />
                       ) : (
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-[10px] font-bold text-white">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-pink-500 text-[10px] font-bold text-white">
                           {(f.name ?? "여").trim().charAt(0)}
                         </span>
                       )}
@@ -125,7 +125,7 @@ export function VisibilitySelector({
             <div className="border-t border-slate-100 p-3">
               <button
                 onClick={() => setPickerOpen(false)}
-                className="h-11 w-full rounded-2xl bg-indigo-600 text-[13px] font-semibold text-white transition-opacity hover:bg-indigo-700"
+                className="h-11 w-full rounded-2xl bg-brand-700 text-[13px] font-semibold text-white transition-opacity hover:bg-brand-800"
               >
                 완료{visibleToUserIds.length > 0 && ` (${visibleToUserIds.length}명)`}
               </button>
