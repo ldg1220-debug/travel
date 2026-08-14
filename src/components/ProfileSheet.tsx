@@ -334,7 +334,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                 key={t.value}
                 onClick={() => setTab(t.value)}
                 className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-bold transition-colors ${
-                  tab === t.value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400"
+                  tab === t.value ? "bg-brand-700 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400"
                 }`}
               >
                 {t.label}
@@ -351,7 +351,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
             <>
               <div className="mb-6 flex flex-col items-center gap-2.5">
                 <label className="relative cursor-pointer">
-                  <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-3xl font-bold text-white">
+                  <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-brand-600 to-brand-pink-600 text-3xl font-bold text-white">
                     {image ? (
                       // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL / OAuth avatar URL
                       <img src={image} alt="" className="h-full w-full object-cover" />
@@ -376,7 +376,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value.slice(0, 20))}
                 placeholder="닉네임"
-                className="mb-1 w-full rounded-2xl border border-slate-200 px-3.5 py-3 text-[14px] outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                className="mb-1 w-full rounded-2xl border border-slate-200 px-3.5 py-3 text-[14px] outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               />
               <p className="mb-4 text-right text-[11px] text-slate-400">{nickname.length}/20</p>
 
@@ -394,7 +394,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                       type="checkbox"
                       checked={agreeTerms}
                       onChange={(e) => setAgreeTerms(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
+                      className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-500"
                     />
                     <span className="min-w-0 flex-1">
                       (필수){" "}
@@ -413,7 +413,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                       type="checkbox"
                       checked={agreePrivacy}
                       onChange={(e) => setAgreePrivacy(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
+                      className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-500"
                     />
                     <span className="min-w-0 flex-1">
                       (필수){" "}
@@ -435,7 +435,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
               <button
                 onClick={handleSave}
                 disabled={saving || uploading}
-                className="h-12 w-full rounded-2xl bg-indigo-600 text-sm font-semibold text-white transition-opacity hover:bg-indigo-700 disabled:opacity-60"
+                className="h-12 w-full rounded-2xl bg-brand-700 text-sm font-semibold text-white transition-opacity hover:bg-brand-800 disabled:opacity-60"
               >
                 {saving ? "저장 중…" : "저장"}
               </button>
@@ -583,7 +583,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                             // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
                             <img src={u.image} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
                           ) : (
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-xs font-bold text-white">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-pink-500 text-xs font-bold text-white">
                               {(u.name ?? "여").trim().charAt(0)}
                             </span>
                           )}
@@ -594,7 +594,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                         <button
                           onClick={() => handleAcceptRequest(u)}
                           disabled={busyIds.has(u.id)}
-                          className="shrink-0 rounded-full bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                          className="shrink-0 rounded-full bg-brand-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-brand-800 disabled:opacity-60"
                         >
                           수락
                         </button>
@@ -626,7 +626,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                             // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
                             <img src={u.image} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
                           ) : (
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-xs font-bold text-white">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-pink-500 text-xs font-bold text-white">
                               {(u.name ?? "여").trim().charAt(0)}
                             </span>
                           )}
@@ -705,7 +705,7 @@ function NotifyToggle({
           onChange={(e) => onChange(e.target.checked)}
           className="peer sr-only"
         />
-        <span className="absolute inset-0 rounded-full bg-slate-200 transition-colors peer-checked:bg-indigo-600 dark:bg-slate-700" />
+        <span className="absolute inset-0 rounded-full bg-slate-200 transition-colors peer-checked:bg-brand-700 dark:bg-slate-700" />
         <span className="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
       </span>
     </label>
@@ -749,7 +749,7 @@ function FollowUserList({
                 // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
                 <img src={u.image} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
               ) : (
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-xs font-bold text-white">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-pink-500 text-xs font-bold text-white">
                   {(u.name ?? "여").trim().charAt(0)}
                 </span>
               )}
@@ -770,7 +770,7 @@ function FollowUserList({
               className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-60 ${
                 isMate || isPending
                   ? "border border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
-                  : "bg-indigo-600 text-white hover:bg-indigo-700"
+                  : "bg-brand-700 text-white hover:bg-brand-800"
               }`}
             >
               {isMate ? "메이트 해제" : isPending ? "요청됨" : "메이트 신청"}

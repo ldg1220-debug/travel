@@ -125,7 +125,7 @@ export default function MessageThreadPage() {
           // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
           <img src={profile.image} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
         ) : (
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-xs font-bold text-white">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-pink-500 text-xs font-bold text-white">
             {(profile?.nickname ?? "여").trim().charAt(0)}
           </span>
         )}
@@ -160,7 +160,7 @@ export default function MessageThreadPage() {
                     <p
                       className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed ${
                         mine
-                          ? "rounded-br-md bg-indigo-600 text-white"
+                          ? "rounded-br-md bg-brand-700 text-white"
                           : "rounded-bl-md bg-white text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-200"
                       }`}
                     >
@@ -217,14 +217,14 @@ export default function MessageThreadPage() {
                 }}
                 placeholder="메시지 보내기"
                 rows={1}
-                className="min-h-11 flex-1 resize-none rounded-2xl border border-slate-200 px-3.5 py-2.5 text-[13.5px] outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                className="min-h-11 flex-1 resize-none rounded-2xl border border-slate-200 px-3.5 py-2.5 text-[13.5px] outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               />
               <EmojiPickerButton onSelect={insertEmoji} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" />
               <button
                 onClick={handleSend}
                 disabled={!draft.trim() || sending}
                 aria-label="보내기"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white transition-opacity hover:bg-indigo-700 disabled:opacity-40"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-700 text-white transition-opacity hover:bg-brand-800 disabled:opacity-40"
               >
                 <Send size={16} />
               </button>

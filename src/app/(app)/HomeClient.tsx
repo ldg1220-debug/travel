@@ -153,7 +153,7 @@ export function HomePage() {
                 <p className="mt-0.5 line-clamp-1 text-[12.5px] text-slate-500 sm:mt-1 sm:line-clamp-none sm:text-[13px] dark:text-slate-400">
                   {description}
                 </p>
-                <span className="mt-4 hidden items-center gap-0.5 text-[13px] font-semibold text-indigo-600 transition-colors group-hover:text-indigo-700 sm:flex">
+                <span className="mt-4 hidden items-center gap-0.5 text-[13px] font-semibold text-brand-700 transition-colors group-hover:text-brand-800 sm:flex">
                   시작하기 <ChevronRight size={15} />
                 </span>
               </div>
@@ -239,20 +239,20 @@ function OnboardingHint() {
   };
 
   return (
-    <section className="mb-8 flex items-start gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 dark:border-indigo-500/20 dark:bg-indigo-500/10">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-500 shadow-sm dark:bg-slate-900">
+    <section className="mb-8 flex items-start gap-3 rounded-2xl border border-brand-100 bg-brand-50/70 p-4 dark:border-brand-600/20 dark:bg-brand-600/10">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-brand-600 shadow-sm dark:bg-slate-900">
         <CordixIcon name="trip-map" size={16} />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-bold text-indigo-700 dark:text-indigo-300">이렇게 써보세요</p>
-        <p className="mt-0.5 text-[12.5px] leading-relaxed text-indigo-600/90 dark:text-indigo-300/80">
+        <p className="text-[13px] font-bold text-brand-800 dark:text-brand-400">이렇게 써보세요</p>
+        <p className="mt-0.5 text-[12.5px] leading-relaxed text-brand-700/90 dark:text-brand-400/80">
           장소를 검색해서 <b>일정에 추가</b>하고, 다 짰으면 <b>계획 저장</b>으로 이름 붙여두세요. 로그인하면 다른 기기에서도 이어볼 수 있어요.
         </p>
       </div>
       <button
         onClick={dismiss}
         aria-label="안내 닫기"
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-indigo-400 hover:bg-white/70 dark:hover:bg-slate-800"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-brand-500 hover:bg-white/70 dark:hover:bg-slate-800"
       >
         <X size={13} />
       </button>
@@ -295,7 +295,7 @@ function ResumeSection() {
     <section>
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-500 dark:bg-slate-800">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-brand-600 dark:bg-slate-800">
             <CordixIcon name="trip-route" size={17} />
           </span>
           <h2 className="text-xl font-bold tracking-tight">내 여행 현황</h2>
@@ -306,7 +306,7 @@ function ResumeSection() {
               startNewPlan();
               router.push("/planner");
             }}
-            className="flex shrink-0 items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-brand-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-800"
           >
             <Plus size={13} /> 새 계획
           </button>
@@ -326,14 +326,14 @@ function ResumeSection() {
             }}
             className="group rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900"
           >
-            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-500">
+            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-brand-600">
               <Calendar size={13} /> 진행 중인 계획
             </p>
             <p className="mt-1.5 truncate text-lg font-bold">{items.length > 0 ? currentCity : "새 여행"}</p>
             <p className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">
               {items.length > 0 ? `일정 ${items.length}곳 · 이어서 계획하기` : "타임라인이 비어있어요"}
             </p>
-            <span className="mt-3 flex items-center gap-0.5 text-[12.5px] font-semibold text-indigo-600 group-hover:text-indigo-700">
+            <span className="mt-3 flex items-center gap-0.5 text-[12.5px] font-semibold text-brand-700 group-hover:text-brand-800">
               플래너 열기 <ChevronRight size={14} />
             </span>
           </Link>
@@ -376,9 +376,9 @@ function ResumeSection() {
         /* 아직 아무 데이터도 없는 첫 방문 — 시작 CTA */
         <Link
           href="/discover"
-          className="group flex items-center gap-4 rounded-3xl border border-dashed border-slate-300 bg-white/60 p-6 transition-all hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-lg dark:border-slate-700 dark:bg-slate-900/60"
+          className="group flex items-center gap-4 rounded-3xl border border-dashed border-slate-300 bg-white/60 p-6 transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-lg dark:border-slate-700 dark:bg-slate-900/60"
         >
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-600 to-brand-pink-600 text-white shadow-sm">
             <CordixIcon name="trip-route" size={22} stroke="#fff" />
           </span>
           <span className="min-w-0 flex-1">
@@ -387,7 +387,7 @@ function ResumeSection() {
               여행 계획짜기에서 장소를 찾아 첫 일정을 만들어보세요
             </span>
           </span>
-          <ChevronRight size={18} className="shrink-0 text-slate-300 transition-colors group-hover:text-indigo-500" />
+          <ChevronRight size={18} className="shrink-0 text-slate-300 transition-colors group-hover:text-brand-600" />
         </Link>
       )}
     </section>
@@ -412,12 +412,12 @@ function LatestFeedSection() {
     <section className="mt-10">
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-indigo-500 dark:bg-slate-800">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-brand-600 dark:bg-slate-800">
             <CordixIcon name="feed-announce" size={17} />
           </span>
           <h2 className="text-xl font-bold tracking-tight">최신 여행 후기</h2>
         </div>
-        <Link href="/feed" className="flex shrink-0 items-center gap-0.5 text-[12.5px] font-semibold text-indigo-500 hover:text-indigo-700">
+        <Link href="/feed" className="flex shrink-0 items-center gap-0.5 text-[12.5px] font-semibold text-brand-600 hover:text-brand-800">
           더 보기 <ChevronRight size={14} />
         </Link>
       </div>
@@ -440,7 +440,7 @@ function LatestFeedSection() {
                 // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
                 <img src={post.images[0]} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />
               ) : (
-                <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-400 to-violet-400 text-white">
+                <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-pink-500 text-white">
                   <CordixIcon name="feed-announce" size={18} stroke="#fff" />
                 </span>
               )}
@@ -450,7 +450,7 @@ function LatestFeedSection() {
                     // eslint-disable-next-line @next/next/no-img-element -- OAuth profile image URL
                     <img src={post.authorImage} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" />
                   ) : (
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-[9px] font-bold text-white">
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-pink-500 text-[9px] font-bold text-white">
                       {(post.authorName ?? "여").trim().charAt(0)}
                     </span>
                   )}

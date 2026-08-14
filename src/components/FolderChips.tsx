@@ -61,13 +61,13 @@ export function FolderChips({ value, onChange }: { value: string | undefined; on
           onBlur={handleCreate}
           placeholder="폴더 이름"
           maxLength={20}
-          className="w-24 rounded-full border border-slate-300 px-2.5 py-1 text-[12px] outline-none focus:border-indigo-400"
+          className="w-24 rounded-full border border-slate-300 px-2.5 py-1 text-[12px] outline-none focus:border-brand-500"
         />
       ) : (
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="flex items-center gap-0.5 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-[12px] font-medium text-slate-400 hover:border-indigo-300 hover:text-indigo-500"
+          className="flex items-center gap-0.5 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-[12px] font-medium text-slate-400 hover:border-brand-400 hover:text-brand-600"
         >
           <Plus size={11} /> 새 폴더
         </button>

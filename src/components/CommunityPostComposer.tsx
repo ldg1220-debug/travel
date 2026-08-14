@@ -149,7 +149,7 @@ export function CommunityPostComposer({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="제목"
-          className="mb-3 w-full rounded-2xl border border-slate-200 px-3.5 py-3 text-[15px] font-semibold outline-none focus:border-indigo-400"
+          className="mb-3 w-full rounded-2xl border border-slate-200 px-3.5 py-3 text-[15px] font-semibold outline-none focus:border-brand-500"
         />
 
         <div className="mb-3 flex flex-wrap gap-2">
@@ -167,7 +167,7 @@ export function CommunityPostComposer({
             </div>
           ))}
           {images.length < MAX_IMAGES && (
-            <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-400">
+            <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-500">
               {uploading ? <Loader2 size={18} className="animate-spin" /> : <CordixIcon name="camera" size={18} />}
               <span className="text-[10px]">
                 {images.length}/{MAX_IMAGES}
@@ -182,7 +182,7 @@ export function CommunityPostComposer({
           onChange={(e) => setContent(e.target.value)}
           placeholder="내용을 자유롭게 남겨보세요"
           rows={10}
-          className="mb-4 min-h-[26vh] w-full resize-y rounded-2xl border border-slate-200 p-3 text-[13.5px] leading-relaxed outline-none focus:border-indigo-400"
+          className="mb-4 min-h-[26vh] w-full resize-y rounded-2xl border border-slate-200 p-3 text-[13.5px] leading-relaxed outline-none focus:border-brand-500"
         />
 
         <div className="mb-4">
@@ -201,7 +201,7 @@ export function CommunityPostComposer({
         <button
           onClick={handleSave}
           disabled={saving || uploading}
-          className="h-12 w-full rounded-2xl bg-indigo-600 text-sm font-semibold text-white transition-opacity hover:bg-indigo-700 disabled:opacity-60"
+          className="h-12 w-full rounded-2xl bg-brand-700 text-sm font-semibold text-white transition-opacity hover:bg-brand-800 disabled:opacity-60"
         >
           {saving ? "저장 중…" : existing ? "수정 완료" : "글 등록"}
         </button>

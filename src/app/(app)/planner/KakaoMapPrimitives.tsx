@@ -125,7 +125,7 @@ interface KakaoPolylineProps {
   strokeStyle?: string;
 }
 
-export function KakaoPolyline({ path, strokeColor = "#4f46e5", strokeOpacity = 0.9, strokeWeight = 3, strokeStyle }: KakaoPolylineProps) {
+export function KakaoPolyline({ path, strokeColor = "#943A00", strokeOpacity = 0.9, strokeWeight = 3, strokeStyle }: KakaoPolylineProps) {
   const map = useKakaoMap();
   const pathKey = path.map((p) => `${p.lat},${p.lng}`).join(";");
 

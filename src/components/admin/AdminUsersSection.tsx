@@ -63,7 +63,7 @@ export function AdminUsersSection() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="닉네임으로 검색…"
-          className="h-10 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+          className="h-10 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
         />
         <button type="submit" className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
           검색
@@ -93,7 +93,7 @@ export function AdminUsersSection() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13.5px] font-semibold text-slate-800 dark:text-slate-100">
                     {u.name}
-                    {isRootUser && <span className="ml-1.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600">대표</span>}
+                    {isRootUser && <span className="ml-1.5 rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">대표</span>}
                     {u.isBanned && <span className="ml-1.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">정지됨</span>}
                   </p>
                   <p className="text-[11px] text-slate-400">가입 {formatDate(u.createdAt)}</p>
@@ -107,7 +107,7 @@ export function AdminUsersSection() {
                     className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-50 ${
                       u.isAdmin
                         ? "border border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300"
-                        : "bg-indigo-600 text-white hover:bg-indigo-700"
+                        : "bg-brand-700 text-white hover:bg-brand-800"
                     }`}
                   >
                     {u.isAdmin ? "관리자 해제" : "관리자로 지정"}

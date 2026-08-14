@@ -44,7 +44,7 @@ function AnnouncementForm() {
           onChange={(e) => setMessage(e.target.value.slice(0, ANNOUNCEMENT_MAX_LENGTH))}
           placeholder="전체 사용자의 알림 벨에 보낼 공지 내용을 입력하세요"
           rows={3}
-          className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+          className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
         />
         <div className="mt-2 flex items-center justify-between">
           <span className="text-[11px] text-slate-400">
@@ -53,7 +53,7 @@ function AnnouncementForm() {
           <button
             onClick={handleSend}
             disabled={sending || !message.trim()}
-            className="rounded-full bg-indigo-600 px-4 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
+            className="rounded-full bg-brand-700 px-4 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-800 disabled:opacity-50"
           >
             {sending ? "발송 중…" : "전체 발송"}
           </button>
@@ -103,7 +103,7 @@ function SignupTrendChart({ trend }: { trend: AdminStats["signupTrend"] }) {
         {trend.map((t) => (
           <div key={t.date} className="group relative flex-1">
             <div
-              className="mx-auto w-full rounded-t bg-indigo-500 transition-colors group-hover:bg-indigo-600"
+              className="mx-auto w-full rounded-t bg-brand-600 transition-colors group-hover:bg-brand-700"
               style={{ height: `${Math.max(4, (t.count / max) * 96)}px` }}
             />
             <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-1.5 py-0.5 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">

@@ -26,7 +26,7 @@ export async function sendDeletionConfirmEmail(to: string, confirmUrl: string): 
           계정과 모든 데이터가 영구 삭제되며 복구할 수 없어요.
         </p>
         <p style="margin:24px 0">
-          <a href="${confirmUrl}" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:600">
+          <a href="${confirmUrl}" style="display:inline-block;background:#BC5200;color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:600">
             탈퇴 확인하기
           </a>
         </p>

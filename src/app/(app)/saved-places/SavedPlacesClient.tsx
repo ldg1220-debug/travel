@@ -158,7 +158,7 @@ export function SavedPlacesPage() {
                       key={folder.id}
                       onClick={() => setFolderFilter(active ? "all" : folder.id)}
                       className={`rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
-                        active ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                        active ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                       }`}
                     >
                       {folder.name} <span className="opacity-70">{folderCounts.get(folder.id) ?? 0}</span>
@@ -187,9 +187,9 @@ export function SavedPlacesPage() {
                       }}
                       placeholder="폴더 이름"
                       maxLength={20}
-                      className="w-28 rounded-full border border-indigo-300 px-3 py-1.5 text-[12px] outline-none"
+                      className="w-28 rounded-full border border-brand-400 px-3 py-1.5 text-[12px] outline-none"
                     />
-                    <button onClick={handleCreateFolder} aria-label="폴더 추가" className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500 text-white hover:bg-indigo-600">
+                    <button onClick={handleCreateFolder} aria-label="폴더 추가" className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-600 text-white hover:bg-brand-700">
                       <Check size={13} />
                     </button>
                     <button onClick={() => setCreatingFolder(false)} aria-label="취소" className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
@@ -199,7 +199,7 @@ export function SavedPlacesPage() {
                 ) : (
                   <button
                     onClick={() => setCreatingFolder(true)}
-                    className="flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-[12px] font-semibold text-slate-500 hover:border-indigo-300 hover:text-indigo-500"
+                    className="flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-[12px] font-semibold text-slate-500 hover:border-brand-400 hover:text-brand-600"
                   >
                     <FolderPlus size={13} /> 새 폴더
                   </button>
@@ -208,7 +208,7 @@ export function SavedPlacesPage() {
 
               {/* 선택된 폴더가 있을 때만 이름 변경/삭제 도구를 보여준다. */}
               {folderFilter !== "all" && folderFilter !== UNFILED_FOLDER && (
-                <div className="flex items-center gap-2 rounded-xl bg-indigo-50/60 px-3 py-1.5 text-[12px]">
+                <div className="flex items-center gap-2 rounded-xl bg-brand-50/60 px-3 py-1.5 text-[12px]">
                   {editingFolderId === folderFilter ? (
                     <>
                       <input
@@ -220,9 +220,9 @@ export function SavedPlacesPage() {
                           if (e.key === "Escape") setEditingFolderId(null);
                         }}
                         maxLength={20}
-                        className="min-w-0 flex-1 rounded-lg border border-indigo-300 px-2 py-1 text-[12px] outline-none"
+                        className="min-w-0 flex-1 rounded-lg border border-brand-400 px-2 py-1 text-[12px] outline-none"
                       />
-                      <button onClick={() => handleRenameFolder(folderFilter)} className="font-semibold text-indigo-600">
+                      <button onClick={() => handleRenameFolder(folderFilter)} className="font-semibold text-brand-700">
                         저장
                       </button>
                       <button onClick={() => setEditingFolderId(null)} className="text-slate-400">
@@ -249,7 +249,7 @@ export function SavedPlacesPage() {
                           setEditingFolderId(folderFilter);
                           setEditingFolderName(savedPlaceFolders.find((f) => f.id === folderFilter)?.name ?? "");
                         }}
-                        className="flex items-center gap-0.5 font-semibold text-indigo-600 hover:text-indigo-700"
+                        className="flex items-center gap-0.5 font-semibold text-brand-700 hover:text-brand-800"
                       >
                         <CordixIcon name="pencil" size={11} /> 이름 변경
                       </button>

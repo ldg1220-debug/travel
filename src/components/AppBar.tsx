@@ -548,7 +548,7 @@ export function AppBar() {
                     onClick={() => setProfileOpen(true)}
                     className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1 py-1 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-bold text-white">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-brand-600 to-brand-pink-600 text-sm font-bold text-white">
                       {session.user.image ? (
                         // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
                         <img src={session.user.image} alt="" className="h-full w-full object-cover" />
@@ -720,7 +720,7 @@ export function AppBar() {
               </button>
             </div>
             <p className="mb-3 text-[12px] text-slate-500 dark:text-slate-400">일정이 있는 날짜에 점이 표시돼요. 날짜를 고르면 그 날부터 보여줘요.</p>
-            <MonthCalendar selected={previewDate} onSelect={setPreviewDate} markedDates={previewMarkedDates} accentColor="#4f46e5" />
+            <MonthCalendar selected={previewDate} onSelect={setPreviewDate} markedDates={previewMarkedDates} accentColor="#943A00" />
             <button
               onClick={() => {
                 loadPlan(previewPlan.id);
@@ -729,7 +729,7 @@ export function AppBar() {
                 setPreviewPlan(null);
                 router.push("/planner");
               }}
-              className="mt-4 h-11 w-full rounded-xl bg-indigo-600 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+              className="mt-4 h-11 w-full rounded-xl bg-brand-700 text-sm font-semibold text-white transition-colors hover:bg-brand-800"
             >
               세부일정 보기
             </button>

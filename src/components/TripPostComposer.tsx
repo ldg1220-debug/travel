@@ -353,7 +353,7 @@ export function TripPostComposer({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="제목 (예: 벚꽃 가득했던 오사카 3박4일)"
-              className="mb-3 w-full rounded-2xl border border-slate-200 px-3.5 py-3 text-[15px] font-semibold outline-none focus:border-indigo-400"
+              className="mb-3 w-full rounded-2xl border border-slate-200 px-3.5 py-3 text-[15px] font-semibold outline-none focus:border-brand-500"
             />
 
             <div className="mb-3 flex flex-wrap gap-2">
@@ -376,7 +376,7 @@ export function TripPostComposer({
                 </div>
               ))}
               {images.length < MAX_IMAGES && (
-                <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-400">
+                <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-500">
                   {uploading ? <Loader2 size={18} className="animate-spin" /> : <CordixIcon name="camera" size={18} />}
                   <span className="text-[10px]">{images.length}/{MAX_IMAGES}</span>
                   <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} disabled={uploading} />
@@ -389,7 +389,7 @@ export function TripPostComposer({
                 type="button"
                 onClick={() => setSnapshotting(true)}
                 disabled={snapshotting || uploading || images.length >= MAX_IMAGES}
-                className="mb-3 flex items-center gap-1.5 self-start rounded-full border border-indigo-200 bg-indigo-50/60 px-3 py-1.5 text-[12px] font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mb-3 flex items-center gap-1.5 self-start rounded-full border border-brand-200 bg-brand-50/60 px-3 py-1.5 text-[12px] font-semibold text-brand-700 transition-colors hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {snapshotting ? <Loader2 size={13} className="animate-spin" /> : <ImageDown size={13} />}
                 {snapshotting ? "캡처 중…" : "일정 이미지로 저장"}
@@ -402,7 +402,7 @@ export function TripPostComposer({
               onChange={(e) => setContent(e.target.value)}
               placeholder="이번 여행은 어땠나요? 자유롭게 남겨보세요. #장소이름 을 붙이면 그 장소 후기와 연결돼요"
               rows={12}
-              className="min-h-[30vh] w-full resize-y rounded-2xl border border-slate-200 p-3 text-[13.5px] leading-relaxed outline-none focus:border-indigo-400"
+              className="min-h-[30vh] w-full resize-y rounded-2xl border border-slate-200 p-3 text-[13.5px] leading-relaxed outline-none focus:border-brand-500"
             />
             {/* 입력창 테두리 안에 겹쳐두면 눈에 잘 안 띈다는 피드백 — 박스 밖,
                 자기만의 자리를 가진 버튼으로 뺐다. */}
@@ -410,7 +410,7 @@ export function TripPostComposer({
               <EmojiPickerButton
                 onSelect={insertAtCursor}
                 label="이모지"
-                className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-slate-500 hover:border-indigo-300 hover:text-indigo-600"
+                className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-slate-500 hover:border-brand-400 hover:text-brand-700"
               />
             </div>
 
@@ -420,7 +420,7 @@ export function TripPostComposer({
                   <button
                     key={p.placeId}
                     onClick={() => insertHashtag(p)}
-                    className="flex items-center gap-0.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                    className="flex items-center gap-0.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:bg-brand-50 hover:text-brand-700"
                   >
                     <Hash size={10} /> {hashtagSlug(p.name)}
                   </button>
@@ -433,7 +433,7 @@ export function TripPostComposer({
                 <p className="text-[12.5px] font-semibold text-slate-600">다녀온 장소 {places.length > 0 && `(${places.length})`}</p>
                 <button
                   onClick={openSearch}
-                  className="flex items-center gap-1 text-[12px] font-semibold text-indigo-500 hover:text-indigo-700"
+                  className="flex items-center gap-1 text-[12px] font-semibold text-brand-600 hover:text-brand-800"
                 >
                   <Plus size={13} /> 장소 추가
                 </button>
@@ -503,7 +503,7 @@ export function TripPostComposer({
             <button
               onClick={handleSave}
               disabled={saving || uploading}
-              className="h-12 w-full rounded-2xl bg-indigo-600 text-sm font-semibold text-white transition-opacity hover:bg-indigo-700 disabled:opacity-60"
+              className="h-12 w-full rounded-2xl bg-brand-700 text-sm font-semibold text-white transition-opacity hover:bg-brand-800 disabled:opacity-60"
             >
               {saving ? "저장 중…" : saved ? "저장됨 ✓" : postId ? "수정 저장" : "여행 후기 저장"}
             </button>
@@ -606,10 +606,10 @@ function PlaceSearchBox({
             <button
               key={p.placeId}
               onClick={() => onAdd(p)}
-              className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12.5px] hover:bg-indigo-50"
+              className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12.5px] hover:bg-brand-50"
             >
               <span className="min-w-0 flex-1 truncate">{p.name}</span>
-              <Plus size={13} className="shrink-0 text-indigo-500" />
+              <Plus size={13} className="shrink-0 text-brand-600" />
             </button>
           ))}
         </div>

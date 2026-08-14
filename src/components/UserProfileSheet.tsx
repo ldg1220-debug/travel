@@ -96,7 +96,7 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
           <p className="py-16 text-center text-[13px] text-slate-400">불러오는 중…</p>
         ) : (
           <div className="flex flex-col items-center pt-2">
-            <div className="mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-2xl font-bold text-white">
+            <div className="mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-brand-600 to-brand-pink-600 text-2xl font-bold text-white">
               {profile.image ? (
                 // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
                 <img src={profile.image} alt="" className="h-full w-full object-cover" />
@@ -115,7 +115,7 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
             {!isSelf && profile.isFriend && (
               <button
                 onClick={() => router.push(`/messages/${userId}`)}
-                className="mb-2 flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 text-[13.5px] font-semibold text-white transition-colors hover:bg-indigo-700"
+                className="mb-2 flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-brand-700 text-[13.5px] font-semibold text-white transition-colors hover:bg-brand-800"
               >
                 <CordixIcon name="message" size={15} stroke="#fff" accent="#fff" /> 메시지 보내기
               </button>
@@ -135,7 +135,7 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
                   <button
                     onClick={handleAccept}
                     disabled={busy}
-                    className="h-11 flex-1 rounded-2xl bg-indigo-600 text-[13.5px] font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
+                    className="h-11 flex-1 rounded-2xl bg-brand-700 text-[13.5px] font-semibold text-white transition-colors hover:bg-brand-800 disabled:opacity-60"
                   >
                     수락하기
                   </button>
@@ -159,7 +159,7 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
                 <button
                   onClick={handleRequest}
                   disabled={busy}
-                  className="h-11 w-full rounded-2xl bg-indigo-600 text-[13.5px] font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
+                  className="h-11 w-full rounded-2xl bg-brand-700 text-[13.5px] font-semibold text-white transition-colors hover:bg-brand-800 disabled:opacity-60"
                 >
                   트래블 메이트 신청
                 </button>

@@ -32,7 +32,7 @@ export const viewport = {
   width: "device-width",
   initialScale: 1,
   // Matches the manifest theme_color — tints the mobile browser chrome / status bar.
-  themeColor: "#6366f1",
+  themeColor: "#FF8A3D",
 };
 
 export default function RootLayout({

@@ -79,7 +79,7 @@ export function ReportModal({
                   onClick={() => setReason(opt.value)}
                   className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-[13px] transition-colors ${
                     reason === opt.value
-                      ? "border-indigo-400 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950/40 dark:text-indigo-300"
+                      ? "border-brand-500 bg-brand-50 text-brand-800 dark:border-brand-600 dark:bg-brand-950/40 dark:text-brand-400"
                       : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                   }`}
                 >
@@ -93,7 +93,7 @@ export function ReportModal({
               placeholder="상세 설명(선택)"
               rows={3}
               maxLength={500}
-              className="mt-3 w-full resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-[13px] outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+              className="mt-3 w-full resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-[13px] outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             />
             {error && <p className="mt-2 text-[11.5px] text-rose-500">{error}</p>}
             <button

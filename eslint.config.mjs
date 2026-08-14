@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Reference-only design mockups (docs/design/2026-08-redesign) — rely on
+    // a `window.T` global instead of real imports, never built/shipped.
+    "docs/**",
   ]),
 ]);
 

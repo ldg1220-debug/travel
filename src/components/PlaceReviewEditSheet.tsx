@@ -136,11 +136,11 @@ export function PlaceReviewEditSheet({
             onChange={(e) => setContent(e.target.value.slice(0, 50))}
             placeholder="한 줄로 남겨보세요 (예: 야경이 정말 예뻤어요)"
             maxLength={50}
-            className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-3 py-2.5 text-[13.5px] outline-none focus:border-indigo-400"
+            className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-3 py-2.5 text-[13.5px] outline-none focus:border-brand-500"
           />
           <EmojiPickerButton
             onSelect={insertEmoji}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-base text-slate-400 hover:border-indigo-300 hover:text-indigo-600"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-base text-slate-400 hover:border-brand-400 hover:text-brand-700"
           />
         </div>
         <p className="mb-3 text-right text-[11px] text-slate-400">{content.length}/50</p>
@@ -162,7 +162,7 @@ export function PlaceReviewEditSheet({
             </div>
           ))}
           {images.length < MAX_IMAGES && (
-            <label className="flex h-16 w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-400">
+            <label className="flex h-16 w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-500">
               {uploading ? <Loader2 size={16} className="animate-spin" /> : <CordixIcon name="camera" size={16} />}
               <span className="text-[9px]">{images.length}/{MAX_IMAGES}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} disabled={uploading} />
@@ -175,7 +175,7 @@ export function PlaceReviewEditSheet({
         <button
           onClick={handleSave}
           disabled={saving || uploading}
-          className="h-12 w-full rounded-2xl bg-indigo-600 text-sm font-semibold text-white transition-opacity hover:bg-indigo-700 disabled:opacity-60"
+          className="h-12 w-full rounded-2xl bg-brand-700 text-sm font-semibold text-white transition-opacity hover:bg-brand-800 disabled:opacity-60"
         >
           {saving ? "저장 중…" : "저장"}
         </button>
