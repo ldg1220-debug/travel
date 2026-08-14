@@ -184,7 +184,15 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     const MIN_REGION_SPOTS = 8;
     const curatedSpots = [...trending, ...favorites];
     const curatedCount = curatedSpots.length;
-    if (curatedCount < MIN_REGION_SPOTS) {
+    // #176(좌표 미검증 생성 스팟 차단) 이후 실측된 "데드존" — 개수는
+    // 8곳을 넘어 이 분기를 안 타는데, 평점 보유 스팟이 0곳이라
+    // "트레쥴 큐레이션" 배지만 잔뜩 붙은 얇은 화면이 되는 도시(오사카
+    // 13곳, 경주 15곳 등). 평점·좌표 매칭(398 -> 81곳, 진행 중)이
+    // 끝나기 전까지의 한시적 안전망으로, 개수 임계값과 별개로 "평점
+    // 보유 스팟이 하나도 없으면" 라이브로 보강한다 — 매칭이 끝나
+    // 큐레이션에 평점이 붙기 시작하면 이 조건에서 자연히 벗어난다.
+    const curatedHasRating = curatedSpots.some((s) => s.rating != null);
+    if (curatedCount < MIN_REGION_SPOTS || (curatedCount > 0 && !curatedHasRating)) {
       // 앵커 좌표 소스가 두 갈래다: 큐레이션이 하나라도 있으면(혼합
       // 지역) 그 스팟들 좌표 평균을 그대로 쓴다 — 이 도시 코드가
       // WORLD_CITIES/DOMESTIC_CITY_SEEDS 카탈로그 세 곳(생성용
