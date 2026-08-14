@@ -301,7 +301,9 @@ const OVERSEAS: DiscoverBundle = {
     { id: "o-t5", name: "시부야 스크램블 교차로", region: "일본 · 도쿄", tag: "관광지", season: "fall", saves: 4200, gradient: "from-rose-400 to-red-300", iconKey: "camera", lat: 35.6595, lng: 139.7005, color: "#fb7185" },
     { id: "o-t6", name: "후시미이나리 신사", region: "일본 · 교토", tag: "관광지", season: "fall", saves: 3600, gradient: "from-orange-400 to-red-300", iconKey: "landmark", lat: 34.9671, lng: 135.7727, color: "#fb923c" },
     { id: "o-t7", name: "왓아룬 새벽사원", region: "태국 · 방콕", tag: "관광지", season: "winter", saves: 2400, gradient: "from-amber-400 to-yellow-300", iconKey: "landmark", lat: 13.7437, lng: 100.4888, color: "#fbbf24" },
-    { id: "o-t8", name: "타이베이 101", region: "대만 · 타이베이", tag: "관광지", season: "spring", saves: 2900, gradient: "from-sky-400 to-blue-300", iconKey: "landmark", lat: 25.034, lng: 121.5645, color: "#38bdf8" },
+    // o-t8 "타이베이 101"(중복) 제거 — 평점·좌표 매칭 실측(2026-08-14)에서
+    // OVERSEAS.favorites의 o-tw1과 완전히 같은 장소(동일 좌표)로 확인된
+    // 중복 등록. saves가 더 큰 o-tw1을 남기고 이쪽을 삭제.
     { id: "o-t9", name: "미케비치", region: "베트남 · 다낭", tag: "자연", season: "summer", saves: 1850, gradient: "from-cyan-400 to-teal-300", iconKey: "waves", lat: 16.0544, lng: 108.25, color: "#22d3ee" },
     { id: "o-t10", name: "나카스 야타이 포장마차거리", region: "일본 · 후쿠오카", tag: "술집", season: "winter", saves: 2100, gradient: "from-orange-400 to-amber-300", iconKey: "wine", lat: 33.5904, lng: 130.4017, color: "#fb923c" },
     { id: "o-t11", name: "삿포로 오도리공원", region: "일본 · 삿포로", tag: "자연", season: "winter", saves: 1620, gradient: "from-sky-400 to-indigo-300", iconKey: "waves", lat: 43.0609, lng: 141.3549, color: "#818cf8" },
