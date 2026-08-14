@@ -94,6 +94,58 @@ describe("좌표 미검증 생성 스팟 노출 차단 (2026-08-14)", () => {
   });
 });
 
+// 평점·좌표 매칭 실측(2026-08-14, 프로덕션 81곳 전수 조회) 반영 이후의
+// 회귀 테스트. TSV 원본은 세션 채팅에만 있고 discoverData.ts에는 그
+// 결과(placeId/rating/reviewCount/좌표/제거·개명)만 반영돼 있다.
+describe("평점·좌표 매칭 반영 (2026-08-14)", () => {
+  it("오매칭·실체불명으로 확정 제거된 6곳이 더 이상 노출되지 않는다", () => {
+    const removed = ["o-f11", "o-f10", "o-f12", "d-f15", "d-f12", "o-t3"];
+    const ids = new Set([...allSpots("domestic"), ...allSpots("overseas")].map((s) => s.id));
+    for (const id of removed) expect(ids.has(id)).toBe(false);
+  });
+
+  it("중복 등록 2건(타이베이 101 o-t8, 왓아룬 o-t7)이 제거되고 남은 쪽만 있다", () => {
+    const ids = new Set([...allSpots("domestic"), ...allSpots("overseas")].map((s) => s.id));
+    expect(ids.has("o-t8")).toBe(false);
+    expect(ids.has("o-t7")).toBe(false);
+    expect(ids.has("o-tw1")).toBe(true);
+    expect(ids.has("o-th1")).toBe(true);
+  });
+
+  it("같은 이름으로 중복 노출되는 스팟이 없다", () => {
+    const names = new Map<string, string[]>();
+    for (const s of [...allSpots("domestic"), ...allSpots("overseas")]) {
+      names.set(s.name, [...(names.get(s.name) ?? []), s.id]);
+    }
+    for (const [, ids] of names) expect(ids.length).toBe(1);
+  });
+
+  it("matched 스팟은 placeId·rating·reviewCount를 갖고 좌표는 그대로다", () => {
+    const spot = allSpots("domestic").find((s) => s.id === "d-t1")!;
+    expect(spot.placeId).toBe("ChIJI9pHulD1DDURR1SI8elRLgA");
+    expect(spot.rating).toBe(4.3);
+    expect(spot.reviewCount).toBe(526);
+    expect(spot.lat).toBeCloseTo(33.4623, 3);
+  });
+
+  it("좌표 교체 대상은 Google 좌표로 갱신됐다", () => {
+    const spot = allSpots("domestic").find((s) => s.id === "d-t3")!;
+    expect(spot.lat).toBeCloseTo(35.1612808, 5);
+    expect(spot.lng).toBeCloseTo(129.1913941, 5);
+    expect(spot.placeId).toBe("ChIJR7h_LQCNaDURQK_M1jg4KsM");
+  });
+
+  it("통칭이었던 재정의 대상은 실체 있는 이름으로 바뀌었다", () => {
+    const byId = Object.fromEntries(allSpots("overseas").map((s) => [s.id, s]));
+    expect(byId["o-t12"].name).toBe("하롱베이 크루즈 선착장");
+    expect(byId["o-fr3"].name).toBe("몽마르뜨 언덕");
+    expect(byId["o-us3"].name).toBe("덤보(DUMBO)");
+    // 음식점 통칭에서 지역 명소로 재정의된 곳은 cuisine 필드를 더는 갖지 않는다.
+    expect(byId["o-fr3"].cuisine).toBeUndefined();
+    expect(byId["o-us3"].cuisine).toBeUndefined();
+  });
+});
+
 describe("resolveLeafCityCoords", () => {
   it("해외: [대륙,국가,도시]가 다 있어야 좌표를 찾는다", () => {
     expect(resolveLeafCityCoords("overseas", ["아시아", "일본", "나고야"])).toEqual({

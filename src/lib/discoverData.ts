@@ -183,42 +183,42 @@ function generateSpots(
 
 const DOMESTIC: DiscoverBundle = {
   trending: [
-    { id: "d-t1", name: "애월 감성 카페거리", region: "제주 · 애월", tag: "카페", season: "summer", saves: 1240, gradient: "from-rose-400 to-orange-300", iconKey: "coffee", lat: 33.4623, lng: 126.3096, color: "#fb7185" },
-    { id: "d-t2", name: "성수동 팝업 스트리트", region: "서울 · 성수", tag: "쇼핑", season: "fall", saves: 980, gradient: "from-violet-400 to-fuchsia-300", iconKey: "camera", lat: 37.5445, lng: 127.0557, color: "#a78bfa" },
-    { id: "d-t3", name: "해운대 블루라인 파크", region: "부산 · 해운대", tag: "자연", season: "summer", saves: 872, gradient: "from-sky-400 to-cyan-300", iconKey: "waves", lat: 35.1587, lng: 129.1604, color: "#38bdf8" },
-    { id: "d-t4", name: "익선동 한옥골목", region: "서울 · 종로", tag: "관광지", season: "fall", saves: 640, gradient: "from-amber-400 to-yellow-300", iconKey: "landmark", lat: 37.573, lng: 126.991, color: "#fbbf24" },
-    { id: "d-t5", name: "황리단길 포장마차거리", region: "경주 · 황남동", tag: "술집", season: "summer", saves: 1560, gradient: "from-indigo-400 to-purple-300", iconKey: "wine", lat: 35.8345, lng: 129.2115, color: "#818cf8" },
-    { id: "d-t6", name: "경주월드 테마파크", region: "경주 · 보문동", tag: "테마파크", season: "summer", saves: 1120, gradient: "from-orange-400 to-amber-300", iconKey: "tent", lat: 35.8215, lng: 129.2695, color: "#fb923c" },
+    { id: "d-t1", name: "애월 감성 카페거리", region: "제주 · 애월", tag: "카페", season: "summer", saves: 1240, gradient: "from-rose-400 to-orange-300", iconKey: "coffee", lat: 33.4623, lng: 126.3096, color: "#fb7185", placeId: "ChIJI9pHulD1DDURR1SI8elRLgA", rating: 4.3, reviewCount: 526 },
+    { id: "d-t2", name: "성수동 팝업 스트리트", region: "서울 · 성수", tag: "쇼핑", season: "fall", saves: 980, gradient: "from-violet-400 to-fuchsia-300", iconKey: "camera", lat: 37.5445, lng: 127.0557, color: "#a78bfa", placeId: "ChIJK_1KKwClfDURLJvyPeF2VT0", rating: 4.7, reviewCount: 3 },
+    { id: "d-t3", name: "해운대 블루라인 파크", region: "부산 · 해운대", tag: "자연", season: "summer", saves: 872, gradient: "from-sky-400 to-cyan-300", iconKey: "waves", lat: 35.1612808, lng: 129.1913941, color: "#38bdf8", placeId: "ChIJR7h_LQCNaDURQK_M1jg4KsM", rating: 4.2, reviewCount: 54 },
+    { id: "d-t4", name: "익선동 한옥골목", region: "서울 · 종로", tag: "관광지", season: "fall", saves: 640, gradient: "from-amber-400 to-yellow-300", iconKey: "landmark", lat: 37.573, lng: 126.991, color: "#fbbf24", placeId: "ChIJe4Jbot2ifDUR2zWhruwyaow", rating: 4.3, reviewCount: 8457 },
+    { id: "d-t5", name: "황리단길 포장마차거리", region: "경주 · 황남동", tag: "술집", season: "summer", saves: 1560, gradient: "from-indigo-400 to-purple-300", iconKey: "wine", lat: 35.8345, lng: 129.2115, color: "#818cf8", placeId: "ChIJA8nY8ExPZjURPC-8kcf4l4E", rating: 4.2, reviewCount: 7771 },
+    { id: "d-t6", name: "경주월드 테마파크", region: "경주 · 보문동", tag: "테마파크", season: "summer", saves: 1120, gradient: "from-orange-400 to-amber-300", iconKey: "tent", lat: 35.8365085, lng: 129.2822318, color: "#fb923c", placeId: "ChIJ90r5yn5NZjUR0ymH-He3gsY", rating: 4.5, reviewCount: 11516 },
     // "지금 뜨는 장소"가 위 6개뿐이라 새로고침할 때마다 거의 같은 카드만
     // 도는 문제가 있었다 — 지역을 넓혀 실제로 순환할 만한 풀을 만든다.
-    { id: "d-t7", name: "강릉 안목해변 카페거리", region: "강릉 · 안목해변", tag: "카페", season: "winter", saves: 1430, gradient: "from-cyan-400 to-sky-300", iconKey: "coffee", lat: 37.7749, lng: 128.9486, color: "#22d3ee" },
-    { id: "d-t8", name: "전주 한옥마을", region: "전주 · 한옥마을", tag: "관광지", season: "fall", saves: 2050, gradient: "from-amber-400 to-orange-300", iconKey: "landmark", lat: 35.8155, lng: 127.1531, color: "#fbbf24" },
-    { id: "d-t9", name: "여수 밤바다 낭만포차거리", region: "여수 · 낭만포차거리", tag: "술집", season: "summer", saves: 1780, gradient: "from-fuchsia-400 to-pink-300", iconKey: "wine", lat: 34.7462, lng: 127.7381, color: "#e879f9" },
-    { id: "d-t10", name: "속초 아바이마을", region: "속초 · 아바이마을", tag: "관광지", season: "winter", saves: 910, gradient: "from-blue-400 to-indigo-300", iconKey: "landmark", lat: 38.2033, lng: 128.5946, color: "#60a5fa" },
-    { id: "d-t11", name: "통영 동피랑 벽화마을", region: "통영 · 동피랑", tag: "관광지", season: "spring", saves: 1340, gradient: "from-teal-400 to-cyan-300", iconKey: "camera", lat: 34.8474, lng: 128.4335, color: "#2dd4bf" },
-    { id: "d-t12", name: "광안리 해수욕장", region: "부산 · 광안리", tag: "자연", season: "summer", saves: 1990, gradient: "from-sky-400 to-blue-300", iconKey: "waves", lat: 35.1532, lng: 129.1186, color: "#38bdf8" },
-    { id: "d-t13", name: "송도 센트럴파크", region: "인천 · 송도", tag: "자연", season: "spring", saves: 760, gradient: "from-emerald-400 to-green-300", iconKey: "waves", lat: 37.3894, lng: 126.6432, color: "#34d399" },
-    { id: "d-t14", name: "김광석다시그리기길", region: "대구 · 방천시장", tag: "관광지", season: "fall", saves: 880, gradient: "from-slate-400 to-zinc-300", iconKey: "camera", lat: 35.8577, lng: 128.5934, color: "#94a3b8" },
-    { id: "d-t15", name: "홍대 걷고싶은거리", region: "서울 · 홍대", tag: "쇼핑", season: "fall", saves: 1610, gradient: "from-rose-400 to-fuchsia-300", iconKey: "camera", lat: 37.5563, lng: 126.9226, color: "#fb7185" },
-    { id: "d-t16", name: "중문 색달해변", region: "제주 · 중문", tag: "자연", season: "summer", saves: 1050, gradient: "from-sky-400 to-cyan-300", iconKey: "waves", lat: 33.2394, lng: 126.4103, color: "#38bdf8" },
+    { id: "d-t7", name: "강릉 안목해변 카페거리", region: "강릉 · 안목해변", tag: "카페", season: "winter", saves: 1430, gradient: "from-cyan-400 to-sky-300", iconKey: "coffee", lat: 37.7749, lng: 128.9486, color: "#22d3ee", placeId: "ChIJb4_vGlfnYTURZKvnWLBhDpY", rating: 4.3, reviewCount: 1865 },
+    { id: "d-t8", name: "전주 한옥마을", region: "전주 · 한옥마을", tag: "관광지", season: "fall", saves: 2050, gradient: "from-amber-400 to-orange-300", iconKey: "landmark", lat: 35.8155, lng: 127.1531, color: "#fbbf24", placeId: "ChIJS73uEmIjcDURjoTQxhu-9I4", rating: 4.1, reviewCount: 29222 },
+    { id: "d-t9", name: "여수 밤바다 낭만포차거리", region: "여수 · 낭만포차거리", tag: "술집", season: "summer", saves: 1780, gradient: "from-fuchsia-400 to-pink-300", iconKey: "wine", lat: 34.7364135, lng: 127.7493336, color: "#e879f9", placeId: "ChIJ886vr97YbTUR6pXuLs8azO8", rating: 3.5, reviewCount: 7335 },
+    { id: "d-t10", name: "속초 아바이마을", region: "속초 · 아바이마을", tag: "관광지", season: "winter", saves: 910, gradient: "from-blue-400 to-indigo-300", iconKey: "landmark", lat: 38.2033, lng: 128.5946, color: "#60a5fa", placeId: "ChIJS-0hB3S82F8RhhoahewKIeY", rating: 3.8, reviewCount: 2893 },
+    { id: "d-t11", name: "통영 동피랑 벽화마을", region: "통영 · 동피랑", tag: "관광지", season: "spring", saves: 1340, gradient: "from-teal-400 to-cyan-300", iconKey: "camera", lat: 34.8456408, lng: 128.4276137, color: "#2dd4bf", placeId: "ChIJqdlILhXHbjURNX9wrCyu260", rating: 4.0, reviewCount: 7769 },
+    { id: "d-t12", name: "광안리 해수욕장", region: "부산 · 광안리", tag: "자연", season: "summer", saves: 1990, gradient: "from-sky-400 to-blue-300", iconKey: "waves", lat: 35.1532, lng: 129.1186, color: "#38bdf8", placeId: "ChIJQ7OamaDBaDURVqEEI6RLxXA", rating: 4.5, reviewCount: 10396 },
+    { id: "d-t13", name: "송도 센트럴파크", region: "인천 · 송도", tag: "자연", season: "spring", saves: 760, gradient: "from-emerald-400 to-green-300", iconKey: "waves", lat: 37.3894, lng: 126.6432, color: "#34d399", placeId: "ChIJR-rlYap3ezURNlKAHaPpVt8", rating: 4.5, reviewCount: 6138 },
+    { id: "d-t14", name: "김광석다시그리기길", region: "대구 · 방천시장", tag: "관광지", season: "fall", saves: 880, gradient: "from-slate-400 to-zinc-300", iconKey: "camera", lat: 35.8599664, lng: 128.6066296, color: "#94a3b8", placeId: "ChIJf4b2FsrjZTURsQVZl47hng8", rating: 4.2, reviewCount: 7940 },
+    { id: "d-t15", name: "홍대 걷고싶은거리", region: "서울 · 홍대", tag: "쇼핑", season: "fall", saves: 1610, gradient: "from-rose-400 to-fuchsia-300", iconKey: "camera", lat: 37.5563, lng: 126.9226, color: "#fb7185", placeId: "ChIJ68AiKsWYfDUROpTctLKtxtU", rating: 4.6, reviewCount: 9443 },
+    { id: "d-t16", name: "중문 색달해변", region: "제주 · 중문", tag: "자연", season: "summer", saves: 1050, gradient: "from-sky-400 to-cyan-300", iconKey: "waves", lat: 33.2450137, lng: 126.411632, color: "#38bdf8", placeId: "ChIJIafFjMhaDDURVKXiGBeCkFI", rating: 4.2, reviewCount: 133 },
   ],
   favorites: [
-    { id: "d-f1", name: "경복궁", region: "서울 · 종로", tag: "관광지", season: "spring", saves: 5200, gradient: "from-emerald-400 to-teal-300", iconKey: "landmark", lat: 37.5796, lng: 126.977, color: "#34d399" },
-    { id: "d-f2", name: "성산일출봉", region: "제주 · 서귀포", tag: "자연", season: "fall", saves: 4800, gradient: "from-lime-400 to-green-300", iconKey: "waves", lat: 33.4586, lng: 126.9425, color: "#a3e635" },
-    { id: "d-f3", name: "광장시장 먹자골목", region: "서울 · 종로", tag: "음식점", season: "winter", saves: 4100, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 37.5701, lng: 126.9997, color: "#fb923c" },
-    { id: "d-f4", name: "감천문화마을", region: "부산 · 사하", tag: "관광지", season: "summer", saves: 3600, gradient: "from-pink-400 to-rose-300", iconKey: "camera", lat: 35.0975, lng: 129.0107, color: "#f472b6" },
-    { id: "d-f5", name: "불국사", region: "경주 · 진현동", tag: "관광지", season: "fall", saves: 3900, gradient: "from-teal-400 to-emerald-300", iconKey: "landmark", lat: 35.7898, lng: 129.332, color: "#2dd4bf" },
-    { id: "d-f6", name: "대릉원 돌담길", region: "경주 · 황남동", tag: "관광지", season: "spring", saves: 3300, gradient: "from-rose-400 to-pink-300", iconKey: "camera", lat: 35.8367, lng: 129.2133, color: "#fb7185" },
-    { id: "d-f7", name: "국립경주박물관", region: "경주 · 인왕동", tag: "박물관", season: "winter", saves: 2100, gradient: "from-sky-400 to-indigo-300", iconKey: "building", lat: 35.8305, lng: 129.2274, color: "#38bdf8" },
-    { id: "d-f8", name: "교촌마을 한옥 맛집", region: "경주 · 교동", tag: "음식점", season: "fall", saves: 1980, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 35.8305, lng: 129.2105, color: "#fbbf24" },
+    { id: "d-f1", name: "경복궁", region: "서울 · 종로", tag: "관광지", season: "spring", saves: 5200, gradient: "from-emerald-400 to-teal-300", iconKey: "landmark", lat: 37.5796, lng: 126.977, color: "#34d399", placeId: "ChIJod7tSseifDUR9hXHLFNGMIs", rating: 4.6, reviewCount: 46721 },
+    { id: "d-f2", name: "성산일출봉", region: "제주 · 서귀포", tag: "자연", season: "fall", saves: 4800, gradient: "from-lime-400 to-green-300", iconKey: "waves", lat: 33.4586, lng: 126.9425, color: "#a3e635", placeId: "ChIJn3jj9rkUDTURS7YjOgUyUVU", rating: 4.7, reviewCount: 1898 },
+    { id: "d-f3", name: "광장시장 먹자골목", region: "서울 · 종로", tag: "음식점", season: "winter", saves: 4100, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 37.5701, lng: 126.9997, color: "#fb923c", placeId: "ChIJm3V0fu2ifDURRJ8IMUijVtY", rating: 4.2, reviewCount: 44181 },
+    { id: "d-f4", name: "감천문화마을", region: "부산 · 사하", tag: "관광지", season: "summer", saves: 3600, gradient: "from-pink-400 to-rose-300", iconKey: "camera", lat: 35.0975, lng: 129.0107, color: "#f472b6", placeId: "ChIJUToRo7fpaDURo_ZMItcBfpc", rating: 4.4, reviewCount: 32979 },
+    { id: "d-f5", name: "불국사", region: "경주 · 진현동", tag: "관광지", season: "fall", saves: 3900, gradient: "from-teal-400 to-emerald-300", iconKey: "landmark", lat: 35.7898, lng: 129.332, color: "#2dd4bf", placeId: "ChIJQwyfbNqyZzUR31ffyfmvm6w", rating: 4.6, reviewCount: 18020 },
+    { id: "d-f6", name: "대릉원 돌담길", region: "경주 · 황남동", tag: "관광지", season: "spring", saves: 3300, gradient: "from-rose-400 to-pink-300", iconKey: "camera", lat: 35.8367, lng: 129.2133, color: "#fb7185", placeId: "ChIJKxM0HJ9PZjURZxKCaFNYpWw", rating: 4.7, reviewCount: 35 },
+    { id: "d-f7", name: "국립경주박물관", region: "경주 · 인왕동", tag: "박물관", season: "winter", saves: 2100, gradient: "from-sky-400 to-indigo-300", iconKey: "building", lat: 35.8305, lng: 129.2274, color: "#38bdf8", placeId: "ChIJRawRj0NOZjURV-Bwn4zSng4", rating: 4.6, reviewCount: 13284 },
+    { id: "d-f8", name: "교촌마을 한옥 맛집", region: "경주 · 교동", tag: "음식점", season: "fall", saves: 1980, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 35.8305, lng: 129.2105, color: "#fbbf24", placeId: "ChIJL4fCGg9PZjUROVhQ-9WFnKw", rating: 4.5, reviewCount: 91 },
     // 경주 음식점 — 황리단길 일대 트렌디 맛집 (야끼니꾸/라멘 포함), 검색 시 "카테고리별 장소"에서 음식점 칩으로 걸러진다.
-    { id: "d-f9", name: "황리단길 라멘하우스", region: "경주 · 황남동", tag: "음식점", season: "winter", saves: 1720, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 35.8342, lng: 129.2109, color: "#fb923c" },
-    { id: "d-f10", name: "경주 야키니쿠 스미비", region: "경주 · 황남동", tag: "음식점", season: "fall", saves: 1540, gradient: "from-red-400 to-orange-300", iconKey: "utensils", lat: 35.8355, lng: 129.213, color: "#f87171" },
-    { id: "d-f11", name: "황남빵 본점", region: "경주 · 황남동", tag: "음식점", season: "spring", saves: 2650, gradient: "from-amber-400 to-yellow-300", iconKey: "utensils", lat: 35.838, lng: 129.2077, color: "#fbbf24" },
+    { id: "d-f9", name: "황리단길 라멘하우스", region: "경주 · 황남동", tag: "음식점", season: "winter", saves: 1720, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 35.8342, lng: 129.2109, color: "#fb923c", placeId: "ChIJIauJcQBPZjURDcsJx7_WG1I", rating: 4.4, reviewCount: 27 },
+    { id: "d-f10", name: "경주 야키니쿠 스미비", region: "경주 · 황남동", tag: "음식점", season: "fall", saves: 1540, gradient: "from-red-400 to-orange-300", iconKey: "utensils", lat: 35.8355, lng: 129.213, color: "#f87171", placeId: "ChIJdQLfXMtPZjUR9YfQUBI7MAE", rating: 4.4, reviewCount: 918 },
+    { id: "d-f11", name: "황남빵 본점", region: "경주 · 황남동", tag: "음식점", season: "spring", saves: 2650, gradient: "from-amber-400 to-yellow-300", iconKey: "utensils", lat: 35.8408476, lng: 129.2136762, color: "#fbbf24", placeId: "ChIJt_beGkNOZjURuYxSUlN0I0o", rating: 4.2, reviewCount: 3817 },
     // 경주 숙소 — 호텔/게스트하우스/에어비앤비, 아직 국내 데이터에 "숙소" 태그가 하나도 없었어서 새로 추가.
     { id: "d-f12", name: "경주 힐탑호텔", region: "경주 · 불국동", tag: "숙소", season: "summer", saves: 1380, gradient: "from-sky-400 to-blue-300", iconKey: "hotel", lat: 35.8256, lng: 129.2231, color: "#38bdf8" },
-    { id: "d-f13", name: "황리단길 게스트하우스", region: "경주 · 황남동", tag: "숙소", season: "fall", saves: 960, gradient: "from-violet-400 to-purple-300", iconKey: "hotel", lat: 35.834, lng: 129.2115, color: "#a78bfa" },
-    { id: "d-f14", name: "경주 라한셀렉트 호텔", region: "경주 · 보문동", tag: "숙소", season: "winter", saves: 1210, gradient: "from-slate-400 to-slate-300", iconKey: "hotel", lat: 35.843, lng: 129.275, color: "#94a3b8" },
+    { id: "d-f13", name: "황리단길 게스트하우스", region: "경주 · 황남동", tag: "숙소", season: "fall", saves: 960, gradient: "from-violet-400 to-purple-300", iconKey: "hotel", lat: 35.834, lng: 129.2115, color: "#a78bfa", placeId: "ChIJ-35f5m9PZjURJnXTXB7WQpY", rating: 4.2, reviewCount: 20 },
+    { id: "d-f14", name: "경주 라한셀렉트 호텔", region: "경주 · 보문동", tag: "숙소", season: "winter", saves: 1210, gradient: "from-slate-400 to-slate-300", iconKey: "hotel", lat: 35.8503809, lng: 129.2771519, color: "#94a3b8", placeId: "ChIJ4TRtIn1SZjURsVHxKLyV8pk", rating: 4.3, reviewCount: 4201 },
     { id: "d-f15", name: "보문단지 한옥스테이 에어비앤비", region: "경주 · 보문동", tag: "숙소", season: "spring", saves: 890, gradient: "from-emerald-400 to-teal-300", iconKey: "hotel", lat: 35.841, lng: 129.27, color: "#34d399" },
   ],
   routes: [
@@ -293,34 +293,42 @@ const DOMESTIC: DiscoverBundle = {
 
 const OVERSEAS: DiscoverBundle = {
   trending: [
-    { id: "o-t1", name: "도톤보리 글리코 사인", region: "일본 · 오사카", tag: "관광지", season: "summer", saves: 3120, gradient: "from-fuchsia-400 to-pink-300", iconKey: "camera", lat: 34.6688, lng: 135.5019, color: "#e879f9" },
-    { id: "o-t2", name: "유후인 플로랄 빌리지", region: "일본 · 오이타", tag: "관광지", season: "spring", saves: 2540, gradient: "from-rose-400 to-amber-300", iconKey: "landmark", lat: 33.2668, lng: 131.3717, color: "#fb7185" },
+    { id: "o-t1", name: "도톤보리 글리코 사인", region: "일본 · 오사카", tag: "관광지", season: "summer", saves: 3120, gradient: "from-fuchsia-400 to-pink-300", iconKey: "camera", lat: 34.6688, lng: 135.5019, color: "#e879f9", placeId: "ChIJ6XHOkxTnAGARvyn92D4gWVs", rating: 4.5, reviewCount: 19067 },
+    { id: "o-t2", name: "유후인 플로랄 빌리지", region: "일본 · 오이타", tag: "관광지", season: "spring", saves: 2540, gradient: "from-rose-400 to-amber-300", iconKey: "landmark", lat: 33.2674871, lng: 131.3655357, color: "#fb7185", placeId: "ChIJWax-bn6uRjUReLLmqHrObCU", rating: 4.1, reviewCount: 12240 },
     { id: "o-t3", name: "하노이 구시가지 나이트", region: "베트남 · 하노이", tag: "술집", season: "summer", saves: 1980, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 21.0343, lng: 105.8508, color: "#fbbf24" },
-    { id: "o-t4", name: "캐널시티 하카타", region: "일본 · 후쿠오카", tag: "쇼핑", season: "fall", saves: 1670, gradient: "from-cyan-400 to-blue-300", iconKey: "pin", lat: 33.5898, lng: 130.4103, color: "#22d3ee" },
+    { id: "o-t4", name: "캐널시티 하카타", region: "일본 · 후쿠오카", tag: "쇼핑", season: "fall", saves: 1670, gradient: "from-cyan-400 to-blue-300", iconKey: "pin", lat: 33.5898, lng: 130.4103, color: "#22d3ee", placeId: "ChIJYcOBiZWRQTUR0Rl0ehe67eA", rating: 4.2, reviewCount: 54997 },
     // 국내와 같은 이유 — 4개뿐이던 풀을 넓혀 실제로 순환하게 한다.
-    { id: "o-t5", name: "시부야 스크램블 교차로", region: "일본 · 도쿄", tag: "관광지", season: "fall", saves: 4200, gradient: "from-rose-400 to-red-300", iconKey: "camera", lat: 35.6595, lng: 139.7005, color: "#fb7185" },
-    { id: "o-t6", name: "후시미이나리 신사", region: "일본 · 교토", tag: "관광지", season: "fall", saves: 3600, gradient: "from-orange-400 to-red-300", iconKey: "landmark", lat: 34.9671, lng: 135.7727, color: "#fb923c" },
-    { id: "o-t7", name: "왓아룬 새벽사원", region: "태국 · 방콕", tag: "관광지", season: "winter", saves: 2400, gradient: "from-amber-400 to-yellow-300", iconKey: "landmark", lat: 13.7437, lng: 100.4888, color: "#fbbf24" },
+    { id: "o-t5", name: "시부야 스크램블 교차로", region: "일본 · 도쿄", tag: "관광지", season: "fall", saves: 4200, gradient: "from-rose-400 to-red-300", iconKey: "camera", lat: 35.6595, lng: 139.7005, color: "#fb7185", placeId: "ChIJscDhJ4SLGGARbx0GlzPi9ng", rating: 4.2, reviewCount: 9343 },
+    { id: "o-t6", name: "후시미이나리 신사", region: "일본 · 교토", tag: "관광지", season: "fall", saves: 3600, gradient: "from-orange-400 to-red-300", iconKey: "landmark", lat: 34.9676945, lng: 135.7791876, color: "#fb923c", placeId: "ChIJIW0uPRUPAWAR6eI6dRzKGns", rating: 4.6, reviewCount: 90452 },
+    // o-t7 "왓아룬 새벽사원"(중복) 제거 — 평점·좌표 매칭 실측(2026-08-14)에서
+    // OVERSEAS.favorites의 o-th1과 동일 placeId(ChIJaSv_6gaZ4jARnbiUVn6Z_YY)로
+    // 확인된 같은 장소. saves가 더 큰 o-th1을 남기고 이쪽을 삭제.
     // o-t8 "타이베이 101"(중복) 제거 — 평점·좌표 매칭 실측(2026-08-14)에서
     // OVERSEAS.favorites의 o-tw1과 완전히 같은 장소(동일 좌표)로 확인된
     // 중복 등록. saves가 더 큰 o-tw1을 남기고 이쪽을 삭제.
-    { id: "o-t9", name: "미케비치", region: "베트남 · 다낭", tag: "자연", season: "summer", saves: 1850, gradient: "from-cyan-400 to-teal-300", iconKey: "waves", lat: 16.0544, lng: 108.25, color: "#22d3ee" },
-    { id: "o-t10", name: "나카스 야타이 포장마차거리", region: "일본 · 후쿠오카", tag: "술집", season: "winter", saves: 2100, gradient: "from-orange-400 to-amber-300", iconKey: "wine", lat: 33.5904, lng: 130.4017, color: "#fb923c" },
-    { id: "o-t11", name: "삿포로 오도리공원", region: "일본 · 삿포로", tag: "자연", season: "winter", saves: 1620, gradient: "from-sky-400 to-indigo-300", iconKey: "waves", lat: 43.0609, lng: 141.3549, color: "#818cf8" },
-    { id: "o-t12", name: "하롱베이", region: "베트남 · 하롱", tag: "자연", season: "spring", saves: 2050, gradient: "from-emerald-400 to-teal-300", iconKey: "waves", lat: 20.9101, lng: 107.1839, color: "#2dd4bf" },
+    { id: "o-t9", name: "미케비치", region: "베트남 · 다낭", tag: "자연", season: "summer", saves: 1850, gradient: "from-cyan-400 to-teal-300", iconKey: "waves", lat: 16.0616944, lng: 108.2469346, color: "#22d3ee", placeId: "ChIJ4w7694IXQjERrFXucqKL--o", rating: 4.7, reviewCount: 4557 },
+    { id: "o-t10", name: "나카스 야타이 포장마차거리", region: "일본 · 후쿠오카", tag: "술집", season: "winter", saves: 2100, gradient: "from-orange-400 to-amber-300", iconKey: "wine", lat: 33.5903962, lng: 130.4083, color: "#fb923c", placeId: "ChIJRbuyypWRQTURbITjwMeuLnM", rating: 3.5, reviewCount: 5558 },
+    { id: "o-t11", name: "삿포로 오도리공원", region: "일본 · 삿포로", tag: "자연", season: "winter", saves: 1620, gradient: "from-sky-400 to-indigo-300", iconKey: "waves", lat: 43.0609, lng: 141.3549, color: "#818cf8", placeId: "ChIJKdPFSFEpC18RnuAg7TaybA4", rating: 4.5, reviewCount: 3653 },
+    // 평점·좌표 매칭 실측(2026-08-14) — "하롱베이"가 Google에서 도시(Ha
+    // Long) 자체로 매칭돼 평점을 못 얻음. 구체 장소를 가리키도록 개명 —
+    // 재조회(placeId/평점/좌표 확정)는 프로덕션 API 접근이 필요해 별도 후속.
+    { id: "o-t12", name: "하롱베이 크루즈 선착장", region: "베트남 · 하롱", tag: "자연", season: "spring", saves: 2050, gradient: "from-emerald-400 to-teal-300", iconKey: "waves", lat: 20.9101, lng: 107.1839, color: "#2dd4bf" },
   ],
   favorites: [
-    { id: "o-f1", name: "오사카성", region: "일본 · 오사카", tag: "관광지", season: "spring", saves: 8900, gradient: "from-teal-400 to-emerald-300", iconKey: "landmark", lat: 34.6873, lng: 135.5259, color: "#2dd4bf" },
-    { id: "o-f2", name: "이치란 라멘 본점", region: "일본 · 후쿠오카", tag: "음식점", season: "winter", saves: 7300, gradient: "from-red-400 to-orange-300", iconKey: "utensils", lat: 33.5958, lng: 130.409, color: "#f87171" },
-    { id: "o-f3", name: "호안끼엠 호수", region: "베트남 · 하노이", tag: "자연", season: "summer", saves: 6100, gradient: "from-green-400 to-lime-300", iconKey: "waves", lat: 21.0285, lng: 105.8524, color: "#4ade80" },
-    { id: "o-f4", name: "나라 사슴공원", region: "일본 · 나라", tag: "자연", season: "spring", saves: 5400, gradient: "from-yellow-400 to-amber-300", iconKey: "camera", lat: 34.6851, lng: 135.843, color: "#facc15" },
+    { id: "o-f1", name: "오사카성", region: "일본 · 오사카", tag: "관광지", season: "spring", saves: 8900, gradient: "from-teal-400 to-emerald-300", iconKey: "landmark", lat: 34.6873, lng: 135.5259, color: "#2dd4bf", placeId: "ChIJ_TooXM3gAGARQR6hXH3QAQ8", rating: 4.4, reviewCount: 98623 },
+    { id: "o-f2", name: "이치란 라멘 본점", region: "일본 · 후쿠오카", tag: "음식점", season: "winter", saves: 7300, gradient: "from-red-400 to-orange-300", iconKey: "utensils", lat: 33.5958, lng: 130.409, color: "#f87171", placeId: "ChIJSc8jdZORQTURu6BMwxrKbGg", rating: 4.2, reviewCount: 13017 },
+    { id: "o-f3", name: "호안끼엠 호수", region: "베트남 · 하노이", tag: "자연", season: "summer", saves: 6100, gradient: "from-green-400 to-lime-300", iconKey: "waves", lat: 21.0285, lng: 105.8524, color: "#4ade80", placeId: "ChIJlclXM5WrNTERDqL5tGu_ugE", rating: 4.7, reviewCount: 12687 },
+    { id: "o-f4", name: "나라 사슴공원", region: "일본 · 나라", tag: "자연", season: "spring", saves: 5400, gradient: "from-yellow-400 to-amber-300", iconKey: "camera", lat: 34.6851, lng: 135.843, color: "#facc15", placeId: "ChIJYWCMvZY5AWARVnREV_OsbPk", rating: 4.6, reviewCount: 75663 },
     // 오사카 음식점 — 도톤보리/신사이바시/우메다 일대 (기존엔 오사카 태그의 음식점이 하나도 없었음).
-    { id: "o-f5", name: "도톤보리 타코야키 왕골목", region: "일본 · 오사카", tag: "음식점", season: "summer", saves: 6800, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 34.6688, lng: 135.5019, color: "#fb923c" },
-    { id: "o-f6", name: "신사이바시 야키니쿠 규카쿠", region: "일본 · 오사카", tag: "음식점", season: "fall", saves: 4200, gradient: "from-red-400 to-rose-300", iconKey: "utensils", lat: 34.6731, lng: 135.5013, color: "#f87171" },
-    { id: "o-f7", name: "우메다 라멘 스트리트", region: "일본 · 오사카", tag: "음식점", season: "winter", saves: 5100, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 34.7025, lng: 135.4959, color: "#fbbf24" },
-    { id: "o-f8", name: "쿠로몬 시장 스시", region: "일본 · 오사카", tag: "음식점", season: "spring", saves: 3900, gradient: "from-rose-400 to-pink-300", iconKey: "utensils", lat: 34.6656, lng: 135.5065, color: "#fb7185" },
+    { id: "o-f5", name: "도톤보리 타코야키 왕골목", region: "일본 · 오사카", tag: "음식점", season: "summer", saves: 6800, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 34.6688, lng: 135.5019, color: "#fb923c", placeId: "ChIJAQDAkxTnAGARbcvABiIOasw", rating: 4.1, reviewCount: 2078 },
+    { id: "o-f6", name: "신사이바시 야키니쿠 규카쿠", region: "일본 · 오사카", tag: "음식점", season: "fall", saves: 4200, gradient: "from-red-400 to-rose-300", iconKey: "utensils", lat: 34.6731, lng: 135.5013, color: "#f87171", placeId: "ChIJ-7SsuSPnAGARX78jG4iJ5vA", rating: 4.6, reviewCount: 509 },
+    // 평점·좌표 매칭 실측(2026-08-14) — "라멘 스트리트"는 통칭이라
+    // Google이 인근 개별 가게로 오매칭. 실제 시설명으로 개명 —
+    // 재조회(placeId/평점/좌표 확정)는 프로덕션 API 접근이 필요해 별도 후속.
+    { id: "o-f7", name: "우메다 스카이빌딩 다키미코지", region: "일본 · 오사카", tag: "음식점", season: "winter", saves: 5100, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 34.7025, lng: 135.4959, color: "#fbbf24" },
+    { id: "o-f8", name: "쿠로몬 시장 스시", region: "일본 · 오사카", tag: "음식점", season: "spring", saves: 3900, gradient: "from-rose-400 to-pink-300", iconKey: "utensils", lat: 34.6656, lng: 135.5065, color: "#fb7185", placeId: "ChIJky560EHnAGARnbpuJBtIsag", rating: 4.9, reviewCount: 1816 },
     // 오사카 숙소 — 호텔/게스트하우스/에어비앤비.
-    { id: "o-f9", name: "난바 시티 호텔", region: "일본 · 오사카", tag: "숙소", season: "summer", saves: 2400, gradient: "from-sky-400 to-blue-300", iconKey: "hotel", lat: 34.6656, lng: 135.5006, color: "#38bdf8" },
+    { id: "o-f9", name: "난바 시티 호텔", region: "일본 · 오사카", tag: "숙소", season: "summer", saves: 2400, gradient: "from-sky-400 to-blue-300", iconKey: "hotel", lat: 34.6656, lng: 135.5006, color: "#38bdf8", placeId: "ChIJFd5ZaGnnAGARMfWwM6X4XWQ", rating: 3.9, reviewCount: 14725 },
     { id: "o-f10", name: "신사이바시 캡슐호텔", region: "일본 · 오사카", tag: "숙소", season: "fall", saves: 1680, gradient: "from-slate-400 to-slate-300", iconKey: "hotel", lat: 34.6741, lng: 135.502, color: "#94a3b8" },
     { id: "o-f11", name: "도톤보리뷰 에어비앤비", region: "일본 · 오사카", tag: "숙소", season: "winter", saves: 1950, gradient: "from-violet-400 to-purple-300", iconKey: "hotel", lat: 34.669, lng: 135.503, color: "#a78bfa" },
     { id: "o-f12", name: "우메다 스카이 호텔", region: "일본 · 오사카", tag: "숙소", season: "spring", saves: 2870, gradient: "from-emerald-400 to-teal-300", iconKey: "hotel", lat: 34.7052, lng: 135.4906, color: "#34d399" },
@@ -562,38 +570,49 @@ pushGeneratedBatch(OVERSEAS, "o-umd-stay", UMEDA_LODGING_NAMES, "일본 · 오�
 // enough to populate the tree; matchesRegionPath's country-level fallback
 // (in the API route) covers any city under these that has no data yet. ──
 OVERSEAS.favorites.push(
-  { id: "o-uk1", name: "빅벤 & 웨스트민스터", region: "영국 · 런던", tag: "관광지", season: "spring", saves: 4200, gradient: "from-indigo-400 to-purple-300", iconKey: "landmark", lat: 51.4994, lng: -0.1245, color: "#818cf8" },
-  { id: "o-uk2", name: "버킹엄 궁전", region: "영국 · 런던", tag: "관광지", season: "summer", saves: 3800, gradient: "from-rose-400 to-pink-300", iconKey: "landmark", lat: 51.5014, lng: -0.1419, color: "#fb7185" },
-  { id: "o-uk3", name: "캄든마켓 피시앤칩스", region: "영국 · 런던", tag: "음식점", season: "fall", saves: 2100, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 51.5416, lng: -0.1465, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["피시앤칩스", "스트리트푸드"] },
-  { id: "o-fr1", name: "에펠탑", region: "프랑스 · 파리", tag: "관광지", season: "spring", saves: 9200, gradient: "from-sky-400 to-blue-300", iconKey: "landmark", lat: 48.8584, lng: 2.2945, color: "#38bdf8" },
-  { id: "o-fr2", name: "루브르 박물관", region: "프랑스 · 파리", tag: "박물관", season: "winter", saves: 7100, gradient: "from-violet-400 to-fuchsia-300", iconKey: "building", lat: 48.8606, lng: 2.3376, color: "#a78bfa" },
-  { id: "o-fr3", name: "몽마르뜨 크레페거리", region: "프랑스 · 파리", tag: "음식점", season: "fall", saves: 2600, gradient: "from-rose-400 to-orange-300", iconKey: "utensils", lat: 48.8867, lng: 2.3431, color: "#fb7185", cuisine: "양식/아시안", subTags: ["크레페", "디저트"] },
-  { id: "o-us1", name: "타임스퀘어", region: "미국 · 뉴욕", tag: "관광지", season: "winter", saves: 8600, gradient: "from-red-400 to-orange-300", iconKey: "landmark", lat: 40.758, lng: -73.9855, color: "#f87171" },
-  { id: "o-us2", name: "센트럴파크", region: "미국 · 뉴욕", tag: "자연", season: "fall", saves: 6900, gradient: "from-lime-400 to-green-300", iconKey: "waves", lat: 40.7829, lng: -73.9654, color: "#a3e635" },
-  { id: "o-us3", name: "브루클린 피자거리", region: "미국 · 뉴욕", tag: "음식점", season: "summer", saves: 3300, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 40.7081, lng: -73.9571, color: "#fb923c", cuisine: "양식/아시안", subTags: ["피자", "뉴욕스타일"] },
-  { id: "o-ca1", name: "스탠리파크", region: "캐나다 · 밴쿠버", tag: "자연", season: "summer", saves: 4100, gradient: "from-emerald-400 to-teal-300", iconKey: "waves", lat: 49.3017, lng: -123.1417, color: "#34d399" },
-  { id: "o-ca2", name: "그랜빌아일랜드 마켓", region: "캐나다 · 밴쿠버", tag: "음식점", season: "spring", saves: 2400, gradient: "from-amber-400 to-yellow-300", iconKey: "utensils", lat: 49.2714, lng: -123.1341, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["마켓", "브런치"] },
+  { id: "o-uk1", name: "빅벤 & 웨스트민스터", region: "영국 · 런던", tag: "관광지", season: "spring", saves: 4200, gradient: "from-indigo-400 to-purple-300", iconKey: "landmark", lat: 51.4994, lng: -0.1245, color: "#818cf8", placeId: "ChIJ2dGMjMMEdkgRqVqkuXQkj7c", rating: 4.6, reviewCount: 99583 },
+  { id: "o-uk2", name: "버킹엄 궁전", region: "영국 · 런던", tag: "관광지", season: "summer", saves: 3800, gradient: "from-rose-400 to-pink-300", iconKey: "landmark", lat: 51.5014, lng: -0.1419, color: "#fb7185", placeId: "ChIJtV5bzSAFdkgRpwLZFPWrJgo", rating: 4.5, reviewCount: 193988 },
+  { id: "o-uk3", name: "캄든마켓 피시앤칩스", region: "영국 · 런던", tag: "음식점", season: "fall", saves: 2100, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 51.5416, lng: -0.1465, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["피시앤칩스", "스트리트푸드"], placeId: "ChIJSfFEEuQadkgRCO-FF_-eZUc", rating: 4.6, reviewCount: 151548 },
+  { id: "o-fr1", name: "에펠탑", region: "프랑스 · 파리", tag: "관광지", season: "spring", saves: 9200, gradient: "from-sky-400 to-blue-300", iconKey: "landmark", lat: 48.8584, lng: 2.2945, color: "#38bdf8", placeId: "ChIJLU7jZClu5kcR4PcOOO6p3I0", rating: 4.7, reviewCount: 492505 },
+  { id: "o-fr2", name: "루브르 박물관", region: "프랑스 · 파리", tag: "박물관", season: "winter", saves: 7100, gradient: "from-violet-400 to-fuchsia-300", iconKey: "building", lat: 48.8606, lng: 2.3376, color: "#a78bfa", placeId: "ChIJD3uTd9hx5kcR1IQvGfr8dbk", rating: 4.7, reviewCount: 373858 },
+  // 평점·좌표 매칭 실측(2026-08-14) — "크레페거리"는 통칭이라 Google이
+  // 인근 개별 가게로 오매칭(4.9km). 실제 지역명으로 개명하며 음식점 →
+  // 관광지로 태그 조정(cuisine/subTags 제거) — 재조회는 별도 후속.
+  { id: "o-fr3", name: "몽마르뜨 언덕", region: "프랑스 · 파리", tag: "관광지", season: "fall", saves: 2600, gradient: "from-rose-400 to-orange-300", iconKey: "camera", lat: 48.8867, lng: 2.3431, color: "#fb7185" },
+  { id: "o-us1", name: "타임스퀘어", region: "미국 · 뉴욕", tag: "관광지", season: "winter", saves: 8600, gradient: "from-red-400 to-orange-300", iconKey: "landmark", lat: 40.758, lng: -73.9855, color: "#f87171", placeId: "ChIJmQJIxlVYwokRLgeuocVOGVU", rating: 4.7, reviewCount: 245057 },
+  { id: "o-us2", name: "센트럴파크", region: "미국 · 뉴욕", tag: "자연", season: "fall", saves: 6900, gradient: "from-lime-400 to-green-300", iconKey: "waves", lat: 40.7829, lng: -73.9654, color: "#a3e635", placeId: "ChIJ4zGFAZpYwokRGUGph3Mf37k", rating: 4.8, reviewCount: 300956 },
+  // 평점·좌표 매칭 실측(2026-08-14) — "피자거리"는 통칭이라 Google이
+  // 인근 개별 가게로 오매칭(3.1km). 실제 지역명으로 개명하며 음식점 →
+  // 관광지로 태그 조정(cuisine/subTags 제거) — 재조회는 별도 후속.
+  { id: "o-us3", name: "덤보(DUMBO)", region: "미국 · 뉴욕", tag: "관광지", season: "summer", saves: 3300, gradient: "from-orange-400 to-red-300", iconKey: "camera", lat: 40.7081, lng: -73.9571, color: "#fb923c" },
+  { id: "o-ca1", name: "스탠리파크", region: "캐나다 · 밴쿠버", tag: "자연", season: "summer", saves: 4100, gradient: "from-emerald-400 to-teal-300", iconKey: "waves", lat: 49.3017, lng: -123.1417, color: "#34d399", placeId: "ChIJo-QmrYxxhlQRFuIJtJ1jSjY", rating: 4.8, reviewCount: 49048 },
+  { id: "o-ca2", name: "그랜빌아일랜드 마켓", region: "캐나다 · 밴쿠버", tag: "음식점", season: "spring", saves: 2400, gradient: "from-amber-400 to-yellow-300", iconKey: "utensils", lat: 49.2714, lng: -123.1341, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["마켓", "브런치"], placeId: "ChIJG3q8d85zhlQRIH1pyAsVpEc", rating: 4.6, reviewCount: 25004 },
 );
 
 // ── further global expansion: 아시아(태국·방콕, 대만·타이베이), 유럽
 // (이탈리아·로마, 스페인·바르셀로나), 미주(미국·샌프란시스코) — same
 // small-real-seed approach as the UK/France/US/Canada batch above. ──
 OVERSEAS.favorites.push(
-  { id: "o-th1", name: "왓 아룬 (새벽사원)", region: "태국 · 방콕", tag: "관광지", season: "winter", saves: 5100, gradient: "from-orange-400 to-amber-300", iconKey: "landmark", lat: 13.7437, lng: 100.4888, color: "#fb923c" },
-  { id: "o-th2", name: "짜뚜짝 주말시장", region: "태국 · 방콕", tag: "쇼핑", season: "fall", saves: 3400, gradient: "from-emerald-400 to-lime-300", iconKey: "pin", lat: 13.7997, lng: 100.5502, color: "#4ade80" },
-  { id: "o-th3", name: "카오산로드 팟타이거리", region: "태국 · 방콕", tag: "음식점", season: "summer", saves: 4600, gradient: "from-red-400 to-orange-300", iconKey: "utensils", lat: 13.7589, lng: 100.4977, color: "#f87171", cuisine: "양식/아시안", subTags: ["팟타이", "스트리트푸드"] },
-  { id: "o-tw1", name: "타이베이 101", region: "대만 · 타이베이", tag: "관광지", season: "spring", saves: 6200, gradient: "from-sky-400 to-indigo-300", iconKey: "landmark", lat: 25.0340, lng: 121.5645, color: "#38bdf8" },
-  { id: "o-tw2", name: "스펀 천등축제", region: "대만 · 타이베이", tag: "관광지", season: "winter", saves: 3900, gradient: "from-amber-400 to-yellow-300", iconKey: "camera", lat: 25.0731, lng: 121.7699, color: "#fbbf24" },
-  { id: "o-tw3", name: "스린 야시장 소룽바오", region: "대만 · 타이베이", tag: "음식점", season: "fall", saves: 4800, gradient: "from-rose-400 to-red-300", iconKey: "utensils", lat: 25.0879, lng: 121.5241, color: "#fb7185", cuisine: "일식", subTags: ["딤섬", "소룽바오", "야시장"] },
-  { id: "o-it1", name: "콜로세움", region: "이탈리아 · 로마", tag: "관광지", season: "spring", saves: 8100, gradient: "from-amber-400 to-orange-300", iconKey: "landmark", lat: 41.8902, lng: 12.4922, color: "#fbbf24" },
-  { id: "o-it2", name: "트레비 분수", region: "이탈리아 · 로마", tag: "관광지", season: "summer", saves: 6700, gradient: "from-sky-400 to-blue-300", iconKey: "waves", lat: 41.9009, lng: 12.4833, color: "#38bdf8" },
-  { id: "o-it3", name: "트라스테베레 트라토리아", region: "이탈리아 · 로마", tag: "음식점", season: "fall", saves: 3600, gradient: "from-red-400 to-rose-300", iconKey: "utensils", lat: 41.8896, lng: 12.4696, color: "#f87171", cuisine: "양식/아시안", subTags: ["파스타", "피자"] },
-  { id: "o-es1", name: "사그라다 파밀리아", region: "스페인 · 바르셀로나", tag: "관광지", season: "spring", saves: 7400, gradient: "from-violet-400 to-purple-300", iconKey: "landmark", lat: 41.4036, lng: 2.1744, color: "#a78bfa" },
-  { id: "o-es2", name: "구엘 공원", region: "스페인 · 바르셀로나", tag: "자연", season: "summer", saves: 5200, gradient: "from-emerald-400 to-teal-300", iconKey: "waves", lat: 41.4145, lng: 2.1527, color: "#34d399" },
-  { id: "o-es3", name: "보케리아 시장 타파스", region: "스페인 · 바르셀로나", tag: "음식점", season: "fall", saves: 4100, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 41.3819, lng: 2.1716, color: "#fb923c", cuisine: "양식/아시안", subTags: ["타파스", "시장음식"] },
-  { id: "o-us4", name: "금문교", region: "미국 · 샌프란시스코", tag: "관광지", season: "fall", saves: 7900, gradient: "from-red-400 to-orange-300", iconKey: "landmark", lat: 37.8199, lng: -122.4783, color: "#f87171" },
-  { id: "o-us5", name: "피셔맨스 워프", region: "미국 · 샌프란시스코", tag: "관광지", season: "summer", saves: 5300, gradient: "from-sky-400 to-cyan-300", iconKey: "camera", lat: 37.808, lng: -122.4177, color: "#38bdf8" },
-  { id: "o-us6", name: "클램차우더 소서딜리토", region: "미국 · 샌프란시스코", tag: "음식점", season: "winter", saves: 3100, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 37.8087, lng: -122.4098, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["클램차우더", "해산물"] },
+  { id: "o-th1", name: "왓 아룬 (새벽사원)", region: "태국 · 방콕", tag: "관광지", season: "winter", saves: 5100, gradient: "from-orange-400 to-amber-300", iconKey: "landmark", lat: 13.7437, lng: 100.4888, color: "#fb923c", placeId: "ChIJaSv_6gaZ4jARnbiUVn6Z_YY", rating: 4.7, reviewCount: 45017 },
+  { id: "o-th2", name: "짜뚜짝 주말시장", region: "태국 · 방콕", tag: "쇼핑", season: "fall", saves: 3400, gradient: "from-emerald-400 to-lime-300", iconKey: "pin", lat: 13.7997, lng: 100.5502, color: "#4ade80", placeId: "ChIJ3fiD6BSc4jARS324hNeR8ZE", rating: 4.4, reviewCount: 56181 },
+  { id: "o-th3", name: "카오산로드 팟타이거리", region: "태국 · 방콕", tag: "음식점", season: "summer", saves: 4600, gradient: "from-red-400 to-orange-300", iconKey: "utensils", lat: 13.7589, lng: 100.4977, color: "#f87171", cuisine: "양식/아시안", subTags: ["팟타이", "스트리트푸드"], placeId: "ChIJOfAjyduZ4jARDdApnnulcdY", rating: 4.9, reviewCount: 28 },
+  { id: "o-tw1", name: "타이베이 101", region: "대만 · 타이베이", tag: "관광지", season: "spring", saves: 6200, gradient: "from-sky-400 to-indigo-300", iconKey: "landmark", lat: 25.0340, lng: 121.5645, color: "#38bdf8", placeId: "ChIJH56c2rarQjQRphD9gvC8BhI" },
+  // 평점·좌표 매칭 실측(2026-08-14) — "천등축제"는 행사명이라 장소가
+  // 아님(3.5km 오매칭). 실제 거리명으로 개명 — 재조회는 별도 후속.
+  { id: "o-tw2", name: "스펀 라오제(십분노가)", region: "대만 · 타이베이", tag: "관광지", season: "winter", saves: 3900, gradient: "from-amber-400 to-yellow-300", iconKey: "camera", lat: 25.0731, lng: 121.7699, color: "#fbbf24" },
+  { id: "o-tw3", name: "스린 야시장 소룽바오", region: "대만 · 타이베이", tag: "음식점", season: "fall", saves: 4800, gradient: "from-rose-400 to-red-300", iconKey: "utensils", lat: 25.0879, lng: 121.5241, color: "#fb7185", cuisine: "일식", subTags: ["딤섬", "소룽바오", "야시장"], placeId: "ChIJBa_9xLGuQjQRKfnnhr5twuc", rating: 4.1, reviewCount: 20877 },
+  { id: "o-it1", name: "콜로세움", region: "이탈리아 · 로마", tag: "관광지", season: "spring", saves: 8100, gradient: "from-amber-400 to-orange-300", iconKey: "landmark", lat: 41.8902, lng: 12.4922, color: "#fbbf24", placeId: "ChIJrRMgU7ZhLxMRxAOFkC7I8Sg", rating: 4.8, reviewCount: 502371 },
+  { id: "o-it2", name: "트레비 분수", region: "이탈리아 · 로마", tag: "관광지", season: "summer", saves: 6700, gradient: "from-sky-400 to-blue-300", iconKey: "waves", lat: 41.9009, lng: 12.4833, color: "#38bdf8", placeId: "ChIJ1UCDJ1NgLxMRtrsCzOHxdvY", rating: 4.7, reviewCount: 517896 },
+  // 평점·좌표 매칭 실측(2026-08-14) — "트라토리아"는 통칭이라 Google이
+  // 지역명(Trastevere) 자체로 매칭, 평점 없음. 실제 지역명으로 개명하며
+  // 음식점 → 관광지로 태그 조정(cuisine/subTags 제거) — 재조회는 별도 후속.
+  { id: "o-it3", name: "트라스테베레", region: "이탈리아 · 로마", tag: "관광지", season: "fall", saves: 3600, gradient: "from-red-400 to-rose-300", iconKey: "camera", lat: 41.8896, lng: 12.4696, color: "#f87171" },
+  { id: "o-es1", name: "사그라다 파밀리아", region: "스페인 · 바르셀로나", tag: "관광지", season: "spring", saves: 7400, gradient: "from-violet-400 to-purple-300", iconKey: "landmark", lat: 41.4036, lng: 2.1744, color: "#a78bfa", placeId: "ChIJk_s92NyipBIRUMnDG8Kq2Js", rating: 4.8, reviewCount: 328638 },
+  { id: "o-es2", name: "구엘 공원", region: "스페인 · 바르셀로나", tag: "자연", season: "summer", saves: 5200, gradient: "from-emerald-400 to-teal-300", iconKey: "waves", lat: 41.4145, lng: 2.1527, color: "#34d399", placeId: "ChIJq0HUUq6ipBIRWM6qGqALmok", rating: 4.4, reviewCount: 239478 },
+  { id: "o-es3", name: "보케리아 시장 타파스", region: "스페인 · 바르셀로나", tag: "음식점", season: "fall", saves: 4100, gradient: "from-orange-400 to-red-300", iconKey: "utensils", lat: 41.3819, lng: 2.1716, color: "#fb923c", cuisine: "양식/아시안", subTags: ["타파스", "시장음식"], placeId: "ChIJAVoetfeipBIR1a1z3FTGCoY", rating: 4.5, reviewCount: 214596 },
+  { id: "o-us4", name: "금문교", region: "미국 · 샌프란시스코", tag: "관광지", season: "fall", saves: 7900, gradient: "from-red-400 to-orange-300", iconKey: "landmark", lat: 37.8199, lng: -122.4783, color: "#f87171", placeId: "ChIJw____96GhYARCVVwg5cT7c0", rating: 4.8, reviewCount: 85457 },
+  { id: "o-us5", name: "피셔맨스 워프", region: "미국 · 샌프란시스코", tag: "관광지", season: "summer", saves: 5300, gradient: "from-sky-400 to-cyan-300", iconKey: "camera", lat: 37.808, lng: -122.4177, color: "#38bdf8", placeId: "ChIJueOuefqAhYARapAU-YtbztA" },
+  { id: "o-us6", name: "클램차우더 소서딜리토", region: "미국 · 샌프란시스코", tag: "음식점", season: "winter", saves: 3100, gradient: "from-amber-400 to-orange-300", iconKey: "utensils", lat: 37.8087, lng: -122.4098, color: "#fbbf24", cuisine: "양식/아시안", subTags: ["클램차우더", "해산물"], placeId: "ChIJHSGzi_yAhYAR6nmtmfLpeWU", rating: 4.3, reviewCount: 3245 },
 );
 
 // ── city-depth pass: every overseas country above had exactly ONE seeded
@@ -1051,7 +1070,7 @@ const FOOD_METADATA: Record<string, { cuisine: CuisineTag; subTags: string[] }> 
   "o-f2": { cuisine: "일식", subTags: ["라멘", "돈코츠라멘"] }, // 이치란 라멘 본점
   "o-f5": { cuisine: "일식", subTags: ["다코야키", "길거리음식"] }, // 도톤보리 타코야키 왕골목
   "o-f6": { cuisine: "일식", subTags: ["야키니쿠", "규카쿠"] }, // 신사이바시 야키니쿠 규카쿠
-  "o-f7": { cuisine: "일식", subTags: ["라멘", "라멘스트리트"] }, // 우메다 라멘 스트리트
+  "o-f7": { cuisine: "일식", subTags: ["라멘", "다키미코지"] }, // 우메다 스카이빌딩 다키미코지 (구 "우메다 라멘 스트리트")
   "o-f8": { cuisine: "일식", subTags: ["스시", "시장회", "라멘"] }, // 쿠로몬 시장 스시
 };
 for (const spot of [...DOMESTIC.trending, ...DOMESTIC.favorites, ...OVERSEAS.trending, ...OVERSEAS.favorites]) {
@@ -1072,16 +1091,34 @@ for (const spot of [...DOMESTIC.trending, ...DOMESTIC.favorites, ...OVERSEAS.tre
   // src/lib/server/getSpotMetrics.ts) — never by generating one here.
 }
 
-// UNVERIFIED_GENERATED_SPOT_IDS(위 generateSpots 주석 참고)에 걸린 스팟을
-// 여기서 한 번에 걸러낸다 — DOMESTIC/OVERSEAS를 직접 참조로 export하는
-// DISCOVER_DATA보다 늦게, 이 파일의 다른 모든 수정(FOOD_METADATA 백필
-// 포함)이 끝난 뒤에 걸러야 놓치는 곳이 없다. 소스의 배치 정의(pushGeneratedBatch
-// 호출들)는 그대로 두고 여기 한 곳에서만 필터링하므로, Google Places로
-// 좌표를 확인해 되살릴 때도(2-C) 이 필터 조건만 풀면 된다 — 삭제가
-// 아니라 노출 차단이라 되돌리기 쉽다.
+// 평점·좌표 매칭 실측(2026-08-14, 81곳 전수 조회)에서 이름이 실존
+// 업소를 가리키지 않거나("○○ 에어비앤비"/"○○ 캡슐호텔"류 범주명) Google
+// 매칭이 500m을 크게 벗어난(최대 10.2km) 스팟들 — #164·#176의 생성 스팟과
+// 성격이 같은 "채움용/오매칭" 콘텐츠로 판단해 같은 기준으로 노출을
+// 차단한다. UNVERIFIED_GENERATED_SPOT_IDS와 별도 Set으로 두는 이유는
+// 원인이 다르기 때문(좌표 생성 버그가 아니라 애초에 특정 시설을 가리키지
+// 않는 이름/실체 불명) — 삭제가 아니라 필터라 나중에 실제 대상을
+// 특정하면 이 목록에서 id만 빼면 되돌릴 수 있다.
+const MISMATCHED_SPOT_IDS = new Set<string>([
+  "o-f11", // 도톤보리뷰 에어비앤비 — 특정 시설 아님, Google도 "에어비앤비"로 매칭, 평점 없음
+  "o-f10", // 신사이바시 캡슐호텔 — 범주명, 특정 시설 아님 (661m 오매칭)
+  "o-f12", // 우메다 스카이 호텔 — 실존하지 않는 호텔명, 인근 다른 호텔로 오매칭 (1,355m)
+  "d-f15", // 보문단지 한옥스테이 에어비앤비 — 특정 시설 아님, 5.6km 오매칭
+  "d-f12", // 경주 힐탑호텔 — 10.2km 오매칭, 폐업/개명 추정
+  "o-t3", // 하노이 구시가지 나이트 — 7.7km 오매칭(가라오케), 통칭이자 실체 불명
+]);
+
+// UNVERIFIED_GENERATED_SPOT_IDS(위 generateSpots 주석 참고)와
+// MISMATCHED_SPOT_IDS(위 참고)에 걸린 스팟을 여기서 한 번에 걸러낸다 —
+// DOMESTIC/OVERSEAS를 직접 참조로 export하는 DISCOVER_DATA보다 늦게, 이
+// 파일의 다른 모든 수정(FOOD_METADATA 백필 포함)이 끝난 뒤에 걸러야
+// 놓치는 곳이 없다. 소스의 배치 정의(pushGeneratedBatch 호출들)는 그대로
+// 두고 여기 한 곳에서만 필터링하므로, Google Places로 좌표를 확인해
+// 되살릴 때도(2-C) 이 필터 조건만 풀면 된다 — 삭제가 아니라 노출 차단이라
+// 되돌리기 쉽다.
 for (const bundle of [DOMESTIC, OVERSEAS]) {
-  bundle.trending = bundle.trending.filter((s) => !UNVERIFIED_GENERATED_SPOT_IDS.has(s.id));
-  bundle.favorites = bundle.favorites.filter((s) => !UNVERIFIED_GENERATED_SPOT_IDS.has(s.id));
+  bundle.trending = bundle.trending.filter((s) => !UNVERIFIED_GENERATED_SPOT_IDS.has(s.id) && !MISMATCHED_SPOT_IDS.has(s.id));
+  bundle.favorites = bundle.favorites.filter((s) => !UNVERIFIED_GENERATED_SPOT_IDS.has(s.id) && !MISMATCHED_SPOT_IDS.has(s.id));
 }
 
 /** All spots in a scope's trending + favorites lists, deduped by id. */
