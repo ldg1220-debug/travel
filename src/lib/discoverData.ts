@@ -97,7 +97,10 @@ export const SEASON_LABEL: Record<Season, string> = {
   winter: "겨울",
 };
 
-const GENERATED_GRADIENTS = [
+// export된 이유: discoverLiveBrowse.ts가 라이브 검색 결과(실제 장소지만
+// 손으로 고른 그라데이션은 없음)에도 같은 중립 팔레트를 돌려 쓴다 —
+// 카드 배경이 큐레이션 스팟과 이질감 없이 섞이게.
+export const GENERATED_GRADIENTS = [
   "from-rose-400 to-orange-300",
   "from-violet-400 to-fuchsia-300",
   "from-sky-400 to-cyan-300",
@@ -107,7 +110,7 @@ const GENERATED_GRADIENTS = [
   "from-red-400 to-orange-300",
   "from-lime-400 to-green-300",
 ];
-const GENERATED_COLORS = ["#fb7185", "#a78bfa", "#38bdf8", "#fbbf24", "#34d399", "#818cf8", "#f87171", "#a3e635"];
+export const GENERATED_COLORS = ["#fb7185", "#a78bfa", "#38bdf8", "#fbbf24", "#34d399", "#818cf8", "#f87171", "#a3e635"];
 const GENERATED_SEASONS: Season[] = ["spring", "summer", "fall", "winter"];
 
 /**
@@ -884,16 +887,19 @@ for (const city of CITY_SEEDS) {
   pushGeneratedBatch(OVERSEAS, `${city.idPrefix}-stay`, city.lodgings, city.region, "숙소", "hotel", city.lat, city.lng, 2000, 1);
 }
 
-// ── breadth pass: a world-city registry so every major country branches
-// into a deep list of economically/touristically important cities, plus
-// two brand-new countries (중국·독일·멕시코·브라질) and a new continent
-// (오세아니아 — 호주·뉴질랜드). The hand-authored/CITY_SEEDS cities above
-// carry real spot names; the long tail here is filled by a neutral
-// template generator (no false specific claims — this file is explicitly
-// curated placeholder content, see the header). Any city already seeded
-// above is skipped so it keeps its authored spots. ──
-type WorldCity = [country: string, city: string, lat: number, lng: number];
-const WORLD_CITIES: WorldCity[] = [
+// 세계 도시 카탈로그 — 국가별로 주요 도시를 폭넓게 등록해 지역별
+// 드릴다운(대륙→국가→도시)이 CITY_SEEDS의 손큐레이션 도시 너머까지
+// 뻗어나가게 한다. 예전엔 이 목록으로 도시마다 템플릿 채움 스팟까지
+// 자동 생성했었는데(GitHub #164 — 실존 확인 안 된 "{도시} 랜드마크
+// 전망대" 류 카드가 전체 카탈로그의 84%를 차지), 그 생성 로직은
+// 없앴다. 이제 이 배열은 순수하게 좌표 카탈로그로만 쓰인다:
+// regionHierarchy()가 CITY_SEEDS에 없는 도시도 드릴다운 트리에 빈
+// leaf로 얹는 데, /api/discover/trends가 그 leaf에 실제 스팟이
+// 0개일 때 라이브 검색(fetchSlotCandidates, courseRecommend.ts와
+// 동일 인프라·캐시 재사용)의 좌표 앵커로 쓴다 — src/lib/server/
+// discoverLiveBrowse.ts 참고.
+export type WorldCity = [country: string, city: string, lat: number, lng: number];
+export const WORLD_CITIES: WorldCity[] = [
   // 아시아 · 일본
   ["일본", "도쿄", 35.6762, 139.6503], ["일본", "교토", 35.0116, 135.7681], ["일본", "삿포로", 43.0618, 141.3545],
   ["일본", "나고야", 35.1815, 136.9066], ["일본", "요코하마", 35.4437, 139.638], ["일본", "고베", 34.6901, 135.1955],
@@ -959,61 +965,14 @@ const WORLD_CITIES: WorldCity[] = [
   ["페루", "리마", -12.0464, -77.0428], ["페루", "쿠스코", -13.5319, -71.9675],
 ];
 
-// Neutral, no-false-claim name suffixes — combined with the city name to
-// produce browsable placeholder spots (e.g. "베를린 구시가지 산책로").
-const GEN_ATTR_SUFFIXES = ["랜드마크 전망대", "구시가지 산책로", "리버사이드 워크", "센트럴 광장", "시립 미술관", "시티 파크", "아트 스트리트", "하버뷰 포인트", "대표 재래시장", "야경 명소"];
-const GEN_FOOD_SUFFIXES: { suffix: string; cuisine: CuisineTag; subTags: string[] }[] = [
-  { suffix: "로컬 다이닝", cuisine: "양식/아시안", subTags: ["로컬푸드", "현지음식"] },
-  { suffix: "시푸드 하우스", cuisine: "양식/아시안", subTags: ["해산물", "씨푸드"] },
-  { suffix: "미식 골목", cuisine: "양식/아시안", subTags: ["맛집거리", "현지음식"] },
-  { suffix: "나이트 푸드마켓", cuisine: "양식/아시안", subTags: ["야시장", "길거리음식"] },
-  { suffix: "브런치 카페", cuisine: "카페/디저트", subTags: ["브런치", "카페"] },
-  { suffix: "전통 레스토랑", cuisine: "양식/아시안", subTags: ["전통요리", "현지음식"] },
-  { suffix: "스트리트 푸드코트", cuisine: "양식/아시안", subTags: ["푸드코트", "다양한음식"] },
-  { suffix: "디저트 카페", cuisine: "카페/디저트", subTags: ["디저트", "카페"] },
-];
-const GEN_STAY_SUFFIXES = ["센트럴 호텔", "부티크 스테이", "게스트하우스", "리버뷰 레지던스", "다운타운 호스텔"];
-
-/** Rotates `arr` by `offset` and takes the first `n` items — different cities pick different suffixes so the list doesn't read identically everywhere. */
-function rotatePick<T>(arr: T[], offset: number, n: number): T[] {
-  const start = offset % arr.length;
-  return Array.from({ length: n }, (_, i) => arr[(start + i) % arr.length]);
-}
-
-const seededRegions = new Set([...OVERSEAS.trending, ...OVERSEAS.favorites].map((s) => s.region));
-WORLD_CITIES.forEach(([country, city, lat, lng], idx) => {
-  const region = `${country} · ${city}`;
-  if (seededRegions.has(region)) return; // keep hand-authored cities' real spots
-  const off = [...city].reduce((a, ch) => a + ch.charCodeAt(0), 0);
-  const prefix = `o-gen${idx}`;
-  const attrNames = rotatePick(GEN_ATTR_SUFFIXES, off, 5).map((s) => `${city} ${s}`);
-  const foods = rotatePick(GEN_FOOD_SUFFIXES, off, 5);
-  const stayNames = rotatePick(GEN_STAY_SUFFIXES, off, 3).map((s) => `${city} ${s}`);
-  pushGeneratedBatch(OVERSEAS, `${prefix}-attr`, attrNames, region, "관광지", "landmark", lat, lng, 2800, 2);
-  pushGeneratedBatch(
-    OVERSEAS,
-    `${prefix}-food`,
-    foods.map((f) => `${city} ${f.suffix}`),
-    region,
-    "음식점",
-    "utensils",
-    lat,
-    lng,
-    2400,
-    2,
-    foods.map((f) => ({ cuisine: f.cuisine, subTags: f.subTags })),
-  );
-  pushGeneratedBatch(OVERSEAS, `${prefix}-stay`, stayNames, region, "숙소", "hotel", lat, lng, 1900, 1);
-});
-
-// ── domestic breadth pass: the overseas registry above grew 해외 to 1,800+
-// spots, but 국내 was still only 제주2/서울4/부산2/경주46 — drilling 지역별
-// into almost any Korean region showed 1-2 lonely cards or the coming-soon
-// fallback. Same template-generator approach, one entry per canonical
-// 시/군/구 (regions.ts): metro 동네 keep the "시도 · 동네" format the
-// existing data uses; 도-cities use their bare label ("강릉"). ──
-type DomesticCitySeed = [region: string, lat: number, lng: number];
-const DOMESTIC_CITY_SEEDS: DomesticCitySeed[] = [
+// 국내 도시 카탈로그 — WORLD_CITIES의 국내판. 마찬가지로 이제 순수
+// 좌표 카탈로그로만 쓰인다(예전엔 여기서도 도시마다 템플릿 채움
+// 스팟을 자동 생성했다 — 위 WORLD_CITIES 주석 참고). metro 동네는
+// 기존 데이터와 같은 "시도 · 동네" 포맷, 도-소속 도시는 bare
+// label("강릉")을 쓴다 — regions.ts의 DOMESTIC_CANONICAL 2단계
+// 라벨과 일치시켜야 지역별 드릴다운에서 그대로 leaf로 붙는다.
+export type DomesticCitySeed = [region: string, lat: number, lng: number];
+export const DOMESTIC_CITY_SEEDS: DomesticCitySeed[] = [
   // 서울 (구/동네)
   ["서울 · 종로", 37.573, 126.9794], ["서울 · 성수", 37.5445, 127.0557], ["서울 · 강남", 37.4979, 127.0276],
   ["서울 · 홍대", 37.5563, 126.922], ["서울 · 명동", 37.5636, 126.983], ["서울 · 잠실", 37.5133, 127.1001],
@@ -1046,42 +1005,6 @@ const DOMESTIC_CITY_SEEDS: DomesticCitySeed[] = [
   ["문경", 36.5866, 128.1867], ["울릉", 37.4844, 130.9058],
 ];
 
-const DOM_ATTR_SUFFIXES = ["대표 전망대", "구시가지 산책길", "중앙시장", "시립 미술관", "시민공원", "문화의 거리", "야경 명소", "핫플 골목", "전통 한옥길", "레트로 골목"];
-const DOM_FOOD_SUFFIXES: { suffix: string; cuisine: CuisineTag; subTags: string[] }[] = [
-  { suffix: "로컬 맛집", cuisine: "한식", subTags: ["로컬맛집", "현지음식"] },
-  { suffix: "전통시장 먹거리", cuisine: "한식", subTags: ["시장", "길거리음식"] },
-  { suffix: "노포 국밥집", cuisine: "한식", subTags: ["국밥", "노포"] },
-  { suffix: "감성 브런치 카페", cuisine: "카페/디저트", subTags: ["브런치", "카페"] },
-  { suffix: "디저트 카페", cuisine: "카페/디저트", subTags: ["디저트", "카페"] },
-  { suffix: "한우 구이집", cuisine: "한식", subTags: ["한우", "구이"] },
-  { suffix: "분식 골목", cuisine: "한식", subTags: ["분식", "길거리음식"] },
-  { suffix: "해물 맛집", cuisine: "한식", subTags: ["해산물", "회"] },
-];
-const DOM_STAY_SUFFIXES = ["시티 호텔", "게스트하우스", "한옥스테이", "리버뷰 펜션", "부티크 스테이"];
-
-DOMESTIC_CITY_SEEDS.forEach(([region, lat, lng], idx) => {
-  const label = region.split(" · ").pop()!;
-  const off = [...label].reduce((a, ch) => a + ch.charCodeAt(0), 0);
-  const prefix = `d-gen${idx}`;
-  const attrNames = rotatePick(DOM_ATTR_SUFFIXES, off, 4).map((s) => `${label} ${s}`);
-  const foods = rotatePick(DOM_FOOD_SUFFIXES, off, 4);
-  const stayNames = rotatePick(DOM_STAY_SUFFIXES, off, 2).map((s) => `${label} ${s}`);
-  pushGeneratedBatch(DOMESTIC, `${prefix}-attr`, attrNames, region, "관광지", "landmark", lat, lng, 2600, 2);
-  pushGeneratedBatch(
-    DOMESTIC,
-    `${prefix}-food`,
-    foods.map((f) => `${label} ${f.suffix}`),
-    region,
-    "음식점",
-    "utensils",
-    lat,
-    lng,
-    2200,
-    1,
-    foods.map((f) => ({ cuisine: f.cuisine, subTags: f.subTags })),
-  );
-  pushGeneratedBatch(DOMESTIC, `${prefix}-stay`, stayNames, region, "숙소", "hotel", lat, lng, 1700, 1);
-});
 
 export const DISCOVER_DATA: Record<DiscoverScope, DiscoverBundle> = {
   domestic: DOMESTIC,
@@ -1178,6 +1101,18 @@ export function regionHierarchy(scope: DiscoverScope): RegionNode[] {
       if (!countries.has(country)) countries.set(country, new Set());
       if (city) countries.get(country)!.add(city);
     }
+    // WORLD_CITIES도 leaf로 얹는다 — 국내와 달리 해외는 이 트리 전체가
+    // spots에서 파생되는 static skeleton이 없어서, 템플릿 생성 스팟
+    // 제거(#164) 이후로는 WORLD_CITIES를 안 넣으면 스팟 하나 없는
+    // 도시가 드릴다운에서 통째로 사라진다 — 그러면 애초에 그 도시로
+    // 들어가 라이브 검색을 트리거할 방법이 없어진다.
+    for (const [country, city] of WORLD_CITIES) {
+      const continent = COUNTRY_CONTINENT[country] ?? "기타";
+      if (!tree.has(continent)) tree.set(continent, new Map());
+      const countries = tree.get(continent)!;
+      if (!countries.has(country)) countries.set(country, new Set());
+      countries.get(country)!.add(city);
+    }
     // Fixed canonical continent order (아시아→유럽→아프리카→북미→남미→오세아니아)
     // instead of data-insertion order, so the drill-down reads like an atlas.
     const ordered = [...CONTINENT_ORDER.filter((c) => tree.has(c)), ...Array.from(tree.keys()).filter((c) => !CONTINENT_ORDER.includes(c))];
@@ -1220,6 +1155,34 @@ export function regionHierarchy(scope: DiscoverScope): RegionNode[] {
       children: Array.from(dongs).map((d) => ({ label: d, children: [] })),
     })),
   }));
+}
+
+/**
+ * 드릴다운 path가 도시 하나를 정확히 가리킬 때(대륙/국가 단계처럼 아직
+ * 넓은 path는 대상 아님) 그 도시의 좌표를 WORLD_CITIES/DOMESTIC_CITY_SEEDS
+ * 카탈로그에서 찾는다. /api/discover/trends가 그 leaf에 정적 스팟이
+ * 0개일 때 라이브 검색(discoverLiveBrowse.ts)의 앵커 좌표로 쓴다 — 없는
+ * 도시(카탈로그에도 없는 임의 path)면 null.
+ */
+export function resolveLeafCityCoords(scope: DiscoverScope, path: string[]): { city: string; region: string; lat: number; lng: number } | null {
+  if (scope === "overseas") {
+    if (path.length < 3) return null; // [대륙, 국가, 도시] 다 있어야 도시 하나로 좁혀짐
+    const [, country, city] = path;
+    const found = WORLD_CITIES.find(([c, ci]) => c === country && ci === city);
+    if (!found) return null;
+    const [, , lat, lng] = found;
+    return { city, region: `${country} · ${city}`, lat, lng };
+  }
+  if (path.length < 2) return null; // [광역, 시/군] 다 있어야 도시 하나로 좁혀짐
+  const [province, city] = path;
+  // 도-소속(강원 · 강릉)은 bare label로, metro(서울 · 성수)는 "광역 · 도시"로
+  // 카탈로그에 있다 — 어느 쪽인지 미리 안 가리고 둘 다 시도한다.
+  const bare = DOMESTIC_CITY_SEEDS.find(([region]) => region === city);
+  if (bare) return { city, region: bare[0], lat: bare[1], lng: bare[2] };
+  const metroRegion = `${province} · ${city}`;
+  const metro = DOMESTIC_CITY_SEEDS.find(([region]) => region === metroRegion);
+  if (metro) return { city, region: metro[0], lat: metro[1], lng: metro[2] };
+  return null;
 }
 
 /**

@@ -438,11 +438,16 @@ export function DiscoverPage() {
   };
 
   // ── browse feed: scope + combinable filters (지역 path × 계절 × 핫한) ──
-  const { data: browseData } = useQuery({
+  const {
+    data: browseData,
+    isFetching: browseFetching,
+    dataUpdatedAt: browseUpdatedAt,
+  } = useQuery({
     queryKey: ["discover-trends", scope, seasonCheck, hotCheck, regionPath],
     queryFn: () => fetchDiscoverBundle(scope, regionPath.length > 0 ? "region" : "all", regionPath, { season: seasonCheck, hot: hotCheck }),
     enabled: activeQuery.trim().length === 0,
   });
+
 
   // 큐레이션 스팟의 실제 Google 지표 — scope/필터와 무관하게 딱 한 번만
   // 불러서 SpotMetricsContext로 흘려보낸다. 월 1회 배치로만 갱신되는
@@ -635,12 +640,23 @@ export function DiscoverPage() {
     () => (bundle ? bundle.favorites.filter((s) => !isLodging(s.tag) && !isPlaceholderSpot(s)) : []),
     [bundle],
   );
+  // 라이브 검색으로 채워진 지역(#164, notice==="live")은 "지금 뜨는
+  // 장소"의 4장 랜덤 미리보기 파이프라인을 안 탄다 — 그건 큐레이션
+  // 풀이 충분히 클 때(여러 명이 반복 방문해도 매번 다르게 보이도록)
+  // 설계된 것이고, 라이브 검색은 애초에 "이 도시 검색 결과 전체"를
+  // 보여주는 게 맞는 의미라 무작위로 4개만 남기면 나머지가 사라진
+  // 것처럼 보인다. saves는 전부 0(가짜 지표 없음, #163과 같은 원칙)이라
+  // 정렬 키로 쓸 수 없다 — /course가 이미 쓰는 방식과 통일해
+  // reviewCount(실제 리뷰 수, 있으면)로 정렬한다. Kakao 국내 결과는
+  // 애초에 평점/리뷰 수를 안 줘서 reviewCount가 없는 항목도 있는데,
+  // 그런 항목은 뒤로 밀되(0 취급) 순서 자체가 사라지진 않는다.
+  const isLiveRegion = browseData?.notice === "live";
   const trendingCompact = useMemo(
     () =>
-      shuffled(
-        [...trendingReal].sort((a, b) => b.saves - a.saves).slice(0, COMPACT_POOL_SIZE),
-      ).slice(0, COMPACT_SPOT_COUNT),
-    [trendingReal],
+      isLiveRegion
+        ? [...trendingReal].sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0))
+        : shuffled([...trendingReal].sort((a, b) => b.saves - a.saves).slice(0, COMPACT_POOL_SIZE)).slice(0, COMPACT_SPOT_COUNT),
+    [trendingReal, isLiveRegion],
   );
   const favoritesCompact = useMemo(
     () =>
@@ -656,6 +672,33 @@ export function DiscoverPage() {
   const lodgingRanked = useMemo(() => [...lodgingSpots].sort((a, b) => b.saves - a.saves), [lodgingSpots]);
   const lodgingCompact = useMemo(() => lodgingRanked.slice(0, COMPACT_SPOT_COUNT), [lodgingRanked]);
   const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
+
+  // 임시 진단 로그 — #164 라이브 검색 결과가 프리뷰에서 간헐적으로
+  // 이전 지역 콘텐츠에 멈춰 있던 문제(3차 검증에서 AnimatePresence
+  // mode="wait" 제거로 조치, 아직 라이브 미확인) 재검증용. API
+  // 응답(browseData)과 실제 렌더에 쓰이는 파생값(trendingCompact 등)을
+  // 나란히 찍어서, 응답은 새 지역인데 파생값이 옛 지역에 멈춰 있는지를
+  // 한눈에 비교할 수 있게 했다. 이전엔 콘솔이 객체를 축약 표시해
+  // 내용을 못 읽는다는 피드백이 있어 JSON.stringify로 바꿈 — 원인
+  // 확정되면 제거할 것.
+  useEffect(() => {
+    console.log(
+      "[discover-debug] " +
+        JSON.stringify({
+          regionPath: regionPath.join("/"),
+          isFetching: browseFetching,
+          updatedAt: browseUpdatedAt ? new Date(browseUpdatedAt).toISOString() : null,
+          notice: browseData?.notice,
+          isLiveRegion,
+          bundleTrendingLen: browseData?.bundle.trending.length,
+          bundleFirstName: browseData?.bundle.trending[0]?.name,
+          trendingRealLen: trendingReal.length,
+          trendingCompactLen: trendingCompact.length,
+          trendingCompactFirstName: trendingCompact[0]?.name,
+        }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 진단용, 렌더에 실제 쓰이는 파생값이 바뀔 때마다만 찍히면 충분
+  }, [browseData, browseFetching, regionPath, trendingCompact]);
 
   return (
     <SpotMetricsContext.Provider value={spotMetrics ?? {}}>
@@ -845,6 +888,28 @@ export function DiscoverPage() {
           </div>
         )}
 
+        {/* 트레쥴이 손으로 고른 스팟이 아직 없는 지역 — 실시간 검색으로
+            채운 결과라는 걸 밝힌다(#164, GoogleAttribution과 같은 이유:
+            큐레이션 카드처럼 보이면 안 됨). */}
+        {browseData?.notice === "live" && !expandedSection && (
+          <div className="mb-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-center text-[13px] text-slate-500">
+            트레쥴이 직접 고른 스팟이 아직 적어요 — 실시간 검색 결과로 보충해드려요.
+          </div>
+        )}
+
+        {/* 임시 진단(#166 카드 scope 어긋남 재현용) — 콘솔 객체 판독이
+            이전 라운드에서 신뢰도가 낮았어서, innerText로 바로 읽을 수
+            있게 평문으로 렌더한다. scope/state/카드가 실제로 쓰는 값을
+            한 줄에 같이 찍어 "응답은 맞는데 카드만 다른 소스" 여부를
+            바로 가른다. 원인 확정되면 제거할 것. */}
+        <p data-debug="discover-state" className="mb-2 select-all break-all text-[10px] text-slate-300">
+          DEBUG scope={scope} path={regionPath.join(">")} notice={String(browseData?.notice)} bundleScope=
+          {browseData ? (browseData.bundle.trending[0]?.region ?? "empty") : "no-browseData"} bundleTrendingLen=
+          {browseData?.bundle.trending.length ?? -1} trendingRealLen={trendingReal.length} trendingCompactLen=
+          {trendingCompact.length} trendingCompactFirst={trendingCompact[0]?.name ?? "none"} trendingCompactFirstRegion=
+          {trendingCompact[0]?.region ?? "none"}
+        </p>
+
         {/* ── MAIN CONTENT ── */}
         {expandedSection && bundle ? (
           <ExpandedSection
@@ -870,8 +935,21 @@ export function DiscoverPage() {
             onOpenLiveDetail={handleOpenLiveDetail}
           />
         ) : (
-          /* ── BROWSE CONTENT (switches on scope + category) ── */
-          <AnimatePresence mode="wait">
+          /* ── BROWSE CONTENT (switches on scope + category) ──
+             mode="wait"였을 때 발견된 버그(#166 3차 프리뷰 검증): 빠른
+             연속 지역 전환(scope/regionPath가 exit 애니메이션
+             duration=0.25s보다 짧은 간격으로 여러 번 바뀜, 자동화 테스트
+             클릭 시퀀스에서 재현) 아래에서 이전 key의 exit 애니메이션이
+             framer-motion 내부적으로 완료 추적을 놓치면, "wait" 모드는
+             그걸 기다리느라 새 key의 자식을 영영 마운트하지 않는다 —
+             바깥의 배너/칩/브레드크럼(AnimatePresence 밖, 응답을 직접
+             읽음)은 새 지역을 정확히 반영하는데 이 안의 카드 그리드만
+             이전 지역 내용에 멈춰 있던 증상이 정확히 이거였다. 기본
+             모드("sync")는 나가는 요소와 들어오는 요소가 서로를
+             기다리지 않고 동시에 애니메이션되므로 이 실패 모드 자체가
+             없다 — 전환이 살짝 덜 깔끔해 보일 수 있지만(잠깐 겹침),
+             데이터가 영구히 멈추는 것보다 훨씬 낫다. */
+          <AnimatePresence>
             <motion.div
               key={`${scope}-${seasonCheck}-${hotCheck}-${regionPath.join("/")}`}
               initial={{ opacity: 0, y: 12 }}
@@ -988,7 +1066,7 @@ export function DiscoverPage() {
             </motion.div>
           </AnimatePresence>
         )}
-        {!isSearching && Object.keys(spotMetrics ?? {}).length > 0 && <GoogleAttribution />}
+        {!isSearching && (Object.keys(spotMetrics ?? {}).length > 0 || browseData?.notice === "live") && <GoogleAttribution />}
       </div>
 
       {/* "+" 퀵 버튼 — 일정에 추가할지 관심 장소(찜)에 추가할지 물어보는
