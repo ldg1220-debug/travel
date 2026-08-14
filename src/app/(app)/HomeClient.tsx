@@ -78,18 +78,23 @@ export function HomePage() {
             그냥 렌더되지 않을 뿐 레이아웃은 깨지지 않는다(각각 onError로
             부모 래퍼를 숨김).
 
-            그라데이션은 blue-800 → sky-700 안에서만 움직인다(색상각 폭 약
-            25°) — hero-skyline.png 자체가 남색~하늘색 듀오톤(#0B3C6B~
-            #7FC4E8)이라 그 대역을 벗어나면 배경과 삽화 색이 어긋나 보인다.
-            양쪽 끝 스톱 모두 흰 텍스트 대비 4.5:1 이상(가장 밝은 sky-700
-            기준 5.9:1)이라, 텍스트를 안쪽 어디에 둬도 대비 기준을 만족한다
-            — 인사말을 좌상단이 아닌 다른 위치로 옮겨도 안전하다는 뜻. */}
-        <section className="relative mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-blue-800 via-blue-700 to-sky-700 shadow-sm">
+            원래 blue-800→sky-700이었던 건 삽화(hero-skyline.png, 남색~하늘색
+            듀오톤)에 맞춘 하드코딩이었는데, Phase 0(#170)의 indigo→brand
+            마이그레이션 대상에서 빠졌다 — discoverData.ts류 "장식 그라데이션"
+            제외 목록에 같이 걸린 것으로 보인다(#173 검증에서 지적, P0). 브랜드
+            오렌지로 교체하되, brand-700~900 범위로 어둡게 잡은 이유는 밝은
+            단(brand-500/600)은 흰 텍스트 대비가 3~4.8:1로 부족해서다 —
+            brand-700(7.3:1)부터 안전해서 그 이상만 썼다. 삽화는 청색 톤 그대로
+            둔다(리컬러링은 이미지 편집 작업이라 코드 변경 범위 밖) — 어두운
+            warm 배경 위의 청색 스카이라인은 도시 야경처럼 읽혀 부자연스럽지
+            않다. 양쪽 끝 스톱 모두 흰 텍스트 대비 7:1 이상이라, 텍스트를
+            안쪽 어디에 둬도 대비 기준을 만족한다. */}
+        <section className="relative mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900 shadow-sm">
           <div className="relative z-10 px-6 pb-5 pt-7 sm:px-8 sm:pt-9">
             <h1 className="max-w-[70%] text-2xl font-bold tracking-tight text-white sm:max-w-[60%] sm:text-3xl">
               {nickname ? `안녕하세요, ${nickname}님` : "안녕하세요"}
             </h1>
-            <p className="mt-1 max-w-[70%] text-[13px] text-blue-50 sm:max-w-[60%] sm:text-sm">
+            <p className="mt-1 max-w-[70%] text-[13px] text-orange-50 sm:max-w-[60%] sm:text-sm">
               오늘은 어디로 떠나볼까요?
             </p>
           </div>
