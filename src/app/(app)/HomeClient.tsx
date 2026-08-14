@@ -199,7 +199,7 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
   };
 
   return (
-    <section className="relative mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-blue-800 via-blue-700 to-sky-700 shadow-sm">
+    <section className="relative mb-6 overflow-hidden rounded-3xl bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900 shadow-sm">
       <div className="relative z-10 px-6 pb-5 pt-7 sm:px-8 sm:pt-9">
         {!state && (
           // SSR과 동일한 자리표시자 — hydration mismatch 회피.
@@ -207,7 +207,7 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
             <h1 className="max-w-[70%] text-2xl font-bold tracking-tight text-white sm:max-w-[60%] sm:text-3xl">
               {nickname ? `안녕하세요, ${nickname}님` : "안녕하세요"}
             </h1>
-            <p className="mt-1 max-w-[70%] text-[13px] text-blue-50 sm:max-w-[60%] sm:text-sm">오늘은 어디로 떠나볼까요?</p>
+            <p className="mt-1 max-w-[70%] text-[13px] text-orange-50 sm:max-w-[60%] sm:text-sm">오늘은 어디로 떠나볼까요?</p>
           </>
         )}
 
@@ -218,7 +218,7 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
               {state.trip.city} 여행{" "}
               {state.trip.kind === "ongoing" ? "중이에요" : `${state.trip.daysUntil}일 남았어요`}
             </h1>
-            <p className="mt-1 max-w-[80%] text-[13px] text-blue-50 sm:max-w-[65%] sm:text-sm">
+            <p className="mt-1 max-w-[80%] text-[13px] text-orange-50 sm:max-w-[65%] sm:text-sm">
               {state.trip.kind === "ongoing"
                 ? `오늘, Day ${state.trip.dayNumber} 일정을 확인해보세요`
                 : `Day ${state.trip.dayNumber}을 마저 짜볼까요? · ${state.trip.stopCount}곳 담김`}
@@ -245,7 +245,7 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
             <h1 className="max-w-[80%] text-2xl font-bold tracking-tight text-white sm:max-w-[65%] sm:text-3xl">
               다음 여행은 어디로 떠날까요?
             </h1>
-            <p className="mt-1 max-w-[80%] text-[13px] text-blue-50 sm:max-w-[65%] sm:text-sm">
+            <p className="mt-1 max-w-[80%] text-[13px] text-orange-50 sm:max-w-[65%] sm:text-sm">
               최근 여행: {state.lastPlan.currentCity} · {state.lastPlan.items.length}곳 다녀왔어요
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -270,7 +270,7 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
             <h1 className="max-w-[80%] text-2xl font-bold tracking-tight text-white sm:max-w-[65%] sm:text-3xl">
               {nickname ? `안녕하세요, ${nickname}님` : "안녕하세요"}
             </h1>
-            <p className="mt-1 max-w-[80%] text-[13px] text-blue-50 sm:max-w-[65%] sm:text-sm">
+            <p className="mt-1 max-w-[80%] text-[13px] text-orange-50 sm:max-w-[65%] sm:text-sm">
               첫 여행 계획, AI 추천으로 시작할까요, 직접 짜볼까요?
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
