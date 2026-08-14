@@ -122,6 +122,30 @@ const GENERATED_SEASONS: Season[] = ["spring", "summer", "fall", "winter"];
  * gradient/color/season cycling, and a descending save-count ramp are
  * all derived mechanically from the list index.
  */
+// ── 좌표 미검증 생성 스팟 긴급 차단 (2026-08-14) ──
+// generateSpots()는 실존 지명(GYEONGJU_ATTRACTION_NAMES 등 real place
+// names)에, 도시 앵커 좌표(baseLat/baseLng) 주변을 나선형으로 도는
+// *수학적으로 계산된* 좌표를 붙인다 — 그 자리의 실제 좌표가 아니다.
+// 앵커 근처(도보권)에 실제로 있는 이름이면 오차가 작지만, 이름은 진짜
+// 유명 장소인데 실제로는 앵커에서 멀리 떨어진 경우(예: "문무대왕릉"은
+// 경주 황남동 앵커에서 실제로 27km 떨어진 감포/문무대왕면) 지도 핀이
+// 완전히 엉뚱한 곳에 찍힌다. isPlaceholderSpot()은 이름 자체가 가짜인
+// d-gen*/o-gen*(#164)만 걸러내므로, 이름은 진짜라 검증을 통과하는 이
+// 부류는 잡아내지 못했다.
+//
+// 근본 원인은 이 함수 자체에 있다 — trending/favorites를 매번 index
+// 0부터 새로 generateSpots()를 호출해 만들다 보니, 같은 배치 안에서
+// trending[i]와 favorites[i]가 항상 완전히 같은 좌표(baseLat/lng +
+// 같은 angle/radius 공식)를 갖는다. 서로 다른 실존 장소(예: "문무대왕릉"과
+// "감은사지 삼층석탑")가 좌표만 복제된다 — 실측으로 확인된 패턴.
+//
+// 임시 조치: 삭제 대신 필터 — 이 함수가 만든 모든 id를 추적해뒀다가
+// DOMESTIC/OVERSEAS를 내보내기 직전에 trending/favorites에서 걸러낸다
+// (아래 UNVERIFIED_GENERATED_SPOT_IDS 사용부 참고). 소스의 배치 정의
+// 자체는 그대로 둬서, 나중에 Google Places로 실제 좌표를 확인해 되살릴
+// 수 있게 했다(2-C). 빈자리는 #166의 라이브 검색이 채운다.
+const UNVERIFIED_GENERATED_SPOT_IDS = new Set<string>();
+
 function generateSpots(
   idPrefix: string,
   names: string[],
@@ -137,8 +161,10 @@ function generateSpots(
   return names.map((name, i) => {
     const angle = i * 2.4; // spreads points around the seed coordinate instead of a straight line
     const radius = 0.0025 * (1 + i * 0.35);
+    const id = `${idPrefix}${i + 1}`;
+    UNVERIFIED_GENERATED_SPOT_IDS.add(id);
     return {
-      id: `${idPrefix}${i + 1}`,
+      id,
       name,
       region,
       tag,
@@ -1042,6 +1068,18 @@ for (const spot of [...DOMESTIC.trending, ...DOMESTIC.favorites, ...OVERSEAS.tre
   // section (real google/kakao results from /api/places/search), or for
   // these curated spots by joining spot_place_metrics via placeId (see
   // src/lib/server/getSpotMetrics.ts) — never by generating one here.
+}
+
+// UNVERIFIED_GENERATED_SPOT_IDS(위 generateSpots 주석 참고)에 걸린 스팟을
+// 여기서 한 번에 걸러낸다 — DOMESTIC/OVERSEAS를 직접 참조로 export하는
+// DISCOVER_DATA보다 늦게, 이 파일의 다른 모든 수정(FOOD_METADATA 백필
+// 포함)이 끝난 뒤에 걸러야 놓치는 곳이 없다. 소스의 배치 정의(pushGeneratedBatch
+// 호출들)는 그대로 두고 여기 한 곳에서만 필터링하므로, Google Places로
+// 좌표를 확인해 되살릴 때도(2-C) 이 필터 조건만 풀면 된다 — 삭제가
+// 아니라 노출 차단이라 되돌리기 쉽다.
+for (const bundle of [DOMESTIC, OVERSEAS]) {
+  bundle.trending = bundle.trending.filter((s) => !UNVERIFIED_GENERATED_SPOT_IDS.has(s.id));
+  bundle.favorites = bundle.favorites.filter((s) => !UNVERIFIED_GENERATED_SPOT_IDS.has(s.id));
 }
 
 /** All spots in a scope's trending + favorites lists, deduped by id. */
