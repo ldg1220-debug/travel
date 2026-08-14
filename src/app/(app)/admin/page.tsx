@@ -73,6 +73,7 @@ const FEATURE_EVENT_LABELS: Record<string, string> = {
   place_search: "장소 검색",
   plan_save: "계획 저장",
   plan_share: "계획 공유",
+  home_hero_cta: "홈 히어로 CTA 클릭",
 };
 
 function formatDate(iso: string): string {
