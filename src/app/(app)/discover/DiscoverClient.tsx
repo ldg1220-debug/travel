@@ -438,16 +438,11 @@ export function DiscoverPage() {
   };
 
   // ── browse feed: scope + combinable filters (지역 path × 계절 × 핫한) ──
-  const {
-    data: browseData,
-    isFetching: browseFetching,
-    dataUpdatedAt: browseUpdatedAt,
-  } = useQuery({
+  const { data: browseData } = useQuery({
     queryKey: ["discover-trends", scope, seasonCheck, hotCheck, regionPath],
     queryFn: () => fetchDiscoverBundle(scope, regionPath.length > 0 ? "region" : "all", regionPath, { season: seasonCheck, hot: hotCheck }),
     enabled: activeQuery.trim().length === 0,
   });
-
 
   // 큐레이션 스팟의 실제 Google 지표 — scope/필터와 무관하게 딱 한 번만
   // 불러서 SpotMetricsContext로 흘려보낸다. 월 1회 배치로만 갱신되는
@@ -673,33 +668,6 @@ export function DiscoverPage() {
   const lodgingCompact = useMemo(() => lodgingRanked.slice(0, COMPACT_SPOT_COUNT), [lodgingRanked]);
   const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
 
-  // 임시 진단 로그 — #164 라이브 검색 결과가 프리뷰에서 간헐적으로
-  // 이전 지역 콘텐츠에 멈춰 있던 문제(3차 검증에서 AnimatePresence
-  // mode="wait" 제거로 조치, 아직 라이브 미확인) 재검증용. API
-  // 응답(browseData)과 실제 렌더에 쓰이는 파생값(trendingCompact 등)을
-  // 나란히 찍어서, 응답은 새 지역인데 파생값이 옛 지역에 멈춰 있는지를
-  // 한눈에 비교할 수 있게 했다. 이전엔 콘솔이 객체를 축약 표시해
-  // 내용을 못 읽는다는 피드백이 있어 JSON.stringify로 바꿈 — 원인
-  // 확정되면 제거할 것.
-  useEffect(() => {
-    console.log(
-      "[discover-debug] " +
-        JSON.stringify({
-          regionPath: regionPath.join("/"),
-          isFetching: browseFetching,
-          updatedAt: browseUpdatedAt ? new Date(browseUpdatedAt).toISOString() : null,
-          notice: browseData?.notice,
-          isLiveRegion,
-          bundleTrendingLen: browseData?.bundle.trending.length,
-          bundleFirstName: browseData?.bundle.trending[0]?.name,
-          trendingRealLen: trendingReal.length,
-          trendingCompactLen: trendingCompact.length,
-          trendingCompactFirstName: trendingCompact[0]?.name,
-        }),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 진단용, 렌더에 실제 쓰이는 파생값이 바뀔 때마다만 찍히면 충분
-  }, [browseData, browseFetching, regionPath, trendingCompact]);
-
   return (
     <SpotMetricsContext.Provider value={spotMetrics ?? {}}>
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
@@ -890,25 +858,15 @@ export function DiscoverPage() {
 
         {/* 트레쥴이 손으로 고른 스팟이 아직 없는 지역 — 실시간 검색으로
             채운 결과라는 걸 밝힌다(#164, GoogleAttribution과 같은 이유:
-            큐레이션 카드처럼 보이면 안 됨). */}
+            큐레이션 카드처럼 보이면 안 됨). 점선 테두리+회색은 위 "준비
+            중" 배너와 같은 톤이라 결과가 있는데도 "결과 없음"으로 오독된다는
+            지적(#166 후속) — 브랜드 톤 배경 + 아이콘으로 긍정적 안내로 바꿨다. */}
         {browseData?.notice === "live" && !expandedSection && (
-          <div className="mb-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-center text-[13px] text-slate-500">
+          <div className="mb-6 flex items-center gap-2.5 rounded-2xl bg-brand-50 px-4 py-3 text-[13px] text-brand-700 dark:bg-brand-600/10 dark:text-brand-400">
+            <Sparkles size={16} className="shrink-0 text-brand-600" />
             트레쥴이 직접 고른 스팟이 아직 적어요 — 실시간 검색 결과로 보충해드려요.
           </div>
         )}
-
-        {/* 임시 진단(#166 카드 scope 어긋남 재현용) — 콘솔 객체 판독이
-            이전 라운드에서 신뢰도가 낮았어서, innerText로 바로 읽을 수
-            있게 평문으로 렌더한다. scope/state/카드가 실제로 쓰는 값을
-            한 줄에 같이 찍어 "응답은 맞는데 카드만 다른 소스" 여부를
-            바로 가른다. 원인 확정되면 제거할 것. */}
-        <p data-debug="discover-state" className="mb-2 select-all break-all text-[10px] text-slate-300">
-          DEBUG scope={scope} path={regionPath.join(">")} notice={String(browseData?.notice)} bundleScope=
-          {browseData ? (browseData.bundle.trending[0]?.region ?? "empty") : "no-browseData"} bundleTrendingLen=
-          {browseData?.bundle.trending.length ?? -1} trendingRealLen={trendingReal.length} trendingCompactLen=
-          {trendingCompact.length} trendingCompactFirst={trendingCompact[0]?.name ?? "none"} trendingCompactFirstRegion=
-          {trendingCompact[0]?.region ?? "none"}
-        </p>
 
         {/* ── MAIN CONTENT ── */}
         {expandedSection && bundle ? (
@@ -1882,6 +1840,12 @@ function SpotCard({
   // the curated gradient, so the card never shows a broken image.
   const [photoFailed, setPhotoFailed] = useState(false);
   const metrics = useContext(SpotMetricsContext)[spot.id];
+  // 라이브 스팟(#166, discoverLiveBrowse.ts)은 spot_place_metrics 배치를
+  // 거치지 않고 rating/reviewCount를 자기 객체에 직접 들고 있다 — Context만
+  // 보면 이 값이 항상 비어 해외 라이브 카드에 평점이 안 뜨는 버그였다
+  // (#166 후속). 큐레이션 스팟은 spot 자체에 없으므로 Context로 폴백.
+  const rating = spot.rating ?? metrics?.rating;
+  const reviewCount = spot.reviewCount ?? metrics?.reviewCount;
   return (
     <div
       onClick={onOpenDetail}
@@ -1934,14 +1898,12 @@ function SpotCard({
               favorite/trending 아이콘 단독 표시로 자리를 채우지 않는 것도
               같은 이유 — "N명 저장"이 가짜 지표였던 것과 마찬가지로,
               근거 없는 인기 신호를 남겨두지 않는다. */}
-          {metrics?.rating != null && (
+          {rating != null && (
             <span className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-slate-600">
               <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" className="shrink-0" />
-              {metrics.rating.toFixed(1)}
-              {metrics.reviewCount != null && (
-                <span className="truncate font-normal text-slate-400">· 리뷰 {fmt(metrics.reviewCount)}</span>
-              )}
-              {metrics.priceLevel != null && metrics.priceLevel > 0 && (
+              {rating.toFixed(1)}
+              {reviewCount != null && <span className="truncate font-normal text-slate-400">· 리뷰 {fmt(reviewCount)}</span>}
+              {metrics?.priceLevel != null && metrics.priceLevel > 0 && (
                 <span className="shrink-0 font-semibold text-success-600">· {"₩".repeat(metrics.priceLevel)}</span>
               )}
             </span>
