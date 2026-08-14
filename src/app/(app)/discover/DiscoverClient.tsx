@@ -1846,6 +1846,9 @@ function SpotCard({
   // (#166 후속). 큐레이션 스팟은 spot 자체에 없으므로 Context로 폴백.
   const rating = spot.rating ?? metrics?.rating;
   const reviewCount = spot.reviewCount ?? metrics?.reviewCount;
+  // discoverLiveBrowse.ts가 라이브 스팟에 매기는 id 접두사 — 큐레이션
+  // 스팟과 구분해서 배지 문구를 다르게 준다(확정사항 A, #173 후속 검증).
+  const isLive = spot.id.startsWith("live:");
   return (
     <div
       onClick={onOpenDetail}
@@ -1898,7 +1901,7 @@ function SpotCard({
               favorite/trending 아이콘 단독 표시로 자리를 채우지 않는 것도
               같은 이유 — "N명 저장"이 가짜 지표였던 것과 마찬가지로,
               근거 없는 인기 신호를 남겨두지 않는다. */}
-          {rating != null && (
+          {rating != null ? (
             <span className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-slate-600">
               <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" className="shrink-0" />
               {rating.toFixed(1)}
@@ -1907,6 +1910,18 @@ function SpotCard({
                 <span className="shrink-0 font-semibold text-success-600">· {"₩".repeat(metrics.priceLevel)}</span>
               )}
             </span>
+          ) : (
+            // 평점이 없을 때의 빈자리 — 큐레이션 스팟은 "트레쥴 큐레이션"
+            // 배지로 채운다(확정사항 A: 평점 대신 큐레이션 자체의 가치를
+            // 강조). 국내 라이브 스팟(Kakao, 평점 미제공)은 "트레쥴이 고른"이
+            // 아니라 실시간 검색 결과라 배지를 붙이면 부정확하므로, 카테고리·
+            // 지역만 있는 채로 둔다(위에 이미 표시 중).
+            !isLive && (
+              <span className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-brand-600">
+                <CordixIcon name="star" size={11} stroke="currentColor" accent="currentColor" className="shrink-0" />
+                트레쥴 큐레이션
+              </span>
+            )
           )}
           <button
             onClick={(e) => {
