@@ -54,6 +54,46 @@ describe("템플릿 생성 스팟 제거 (#164)", () => {
   });
 });
 
+// 2026-08-14 긴급 조치 — pushGeneratedBatch/generateSpots가 실존 지명에
+// 수학적으로 계산한(실제 위치와 무관한) 좌표를 붙이던 문제. 같은 배치 안
+// trending[i]/favorites[i]가 항상 같은 좌표를 갖는 게 원인이었고(#166
+// 후속 실측: 문무대왕릉·감은사지가 좌표만 복제), 실제로는 앵커에서
+// 수십 km 떨어진 진짜 장소도 섞여 있어 지도 핀이 크게 틀렸다.
+describe("좌표 미검증 생성 스팟 노출 차단 (2026-08-14)", () => {
+  it("생성 배치 접두사(d-gj-/o-osk-/o-umd-/CITY_SEEDS)가 노출 목록에 하나도 없다", () => {
+    const GENERATED_PREFIXES = ["d-gj-", "o-osk-", "o-umd-"];
+    for (const scope of ["domestic", "overseas"] as const) {
+      const spots = allSpots(scope);
+      for (const prefix of GENERATED_PREFIXES) {
+        expect(spots.filter((s) => s.id.startsWith(prefix))).toEqual([]);
+      }
+      // CITY_SEEDS(다낭·오사카 등 국가-도시 2글자 접두사 배치) 전수 —
+      // "o-xx-yy-attr/food/stay" 패턴 전체가 대상이라 개별 나열 대신
+      // 정규식으로 훑는다.
+      expect(spots.filter((s) => /^o-[a-z]{2}-[a-z]{2,3}-(attr|food|stay)-/.test(s.id))).toEqual([]);
+    }
+  });
+
+  it("실측으로 확인된 좌표-복제 사례(문무대왕릉 등)가 더 이상 노출되지 않는다", () => {
+    const overseas = allSpots("overseas");
+    const domestic = allSpots("domestic");
+    for (const name of ["문무대왕릉", "감은사지 삼층석탑", "양동마을"]) {
+      expect(domestic.find((s) => s.name === name)).toBeUndefined();
+    }
+    // 오사카/다낭 큐레이션도 생성 배치였던 만큼 크게 줄어든다 — 손으로
+    // 쓴 항목(d-t*/d-f* 같은 초기 큐레이션)만 남아야 한다.
+    expect(overseas.find((s) => s.id.startsWith("o-vn-dn-"))).toBeUndefined();
+  });
+
+  it("손으로 쓴 큐레이션(생성 배치 아닌 것)은 그대로 남아있다", () => {
+    const domestic = allSpots("domestic");
+    // d-t5/d-t6처럼 초기부터 있던 손큐레이션 경주 스팟 — 생성 배치와
+    // 무관하므로 필터에 걸리면 안 된다.
+    expect(domestic.some((s) => s.id === "d-t5")).toBe(true);
+    expect(domestic.some((s) => s.id === "d-t6")).toBe(true);
+  });
+});
+
 describe("resolveLeafCityCoords", () => {
   it("해외: [대륙,국가,도시]가 다 있어야 좌표를 찾는다", () => {
     expect(resolveLeafCityCoords("overseas", ["아시아", "일본", "나고야"])).toEqual({
