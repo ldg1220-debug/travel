@@ -82,6 +82,7 @@ import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
+import { ROUTE_OPTIMIZED_ONCE_KEY } from "@/lib/tripStatus";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { nudgeKakaoMapResize, getKakaoMaps, type KakaoMapInstance } from "@/lib/maps/kakao-map";
 import { hasStaleActiveDateCorrectionRun, suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
@@ -1301,6 +1302,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const handleOptimizeRoute = () => {
     const optimized = optimizeRoute(activeDate);
     showToast(optimized ? "동선이 최적화되었습니다" : "최적화하려면 3개 이상의 장소가 필요해요");
+    // 홈 온보딩 스테퍼 3단계("동선 자동 정리") 완료 신호 — 서버 저장 불필요.
+    if (optimized) localStorage.setItem(ROUTE_OPTIMIZED_ONCE_KEY, "1");
   };
 
   // ── slot hit-testing (multi-day grid, keyed by "date|hour") ──
