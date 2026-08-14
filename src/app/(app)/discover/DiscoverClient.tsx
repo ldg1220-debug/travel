@@ -55,6 +55,7 @@ import { SEASON_LABEL, isPlaceholderSpot } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
 import { useRecentSearches } from "@/lib/useRecentSearches";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
+import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
 import type {
   CuisineTag,
   DiscoverRoute,
@@ -469,6 +470,10 @@ export function DiscoverPage() {
     setQueryInput(trimmed);
     setActiveQuery(trimmed);
     addRecent(trimmed, effectiveScope);
+    // 실제 place_search 계측은 결과가 나온 뒤(SearchResults 컴포넌트)에
+    // 한 번 찍는다 — 검색어 자체가 비었는지(resultCount)를 함께 남겨야
+    // "빈 결과 검색어 상위" 집계가 가능한데, 그 값은 여기(제출 시점)엔
+    // 아직 없다.
     setSearchFocused(false);
     // Display-only URL sync (no new RSC payload needed) — lets browser
     // back/reload restore this exact search instead of a blank box.
@@ -1303,6 +1308,11 @@ function SearchResults({
   // auto-adoption never fires again for this search.
   const [userPickedCategory, setUserPickedCategory] = useState(false);
   const [autoSynced, setAutoSynced] = useState(false);
+  // place_search 계측을 (scope, query) 조합당 정확히 한 번만 보내기 위한
+  // 가드 — 카테고리 칩 클릭이나 페이지 이동으로 이 컴포넌트가 리렌더될
+  // 때마다 다시 찍히면 안 된다 (컴포넌트 자체는 `key={activeQuery}`로
+  // 검색이 바뀔 때마다 새로 마운트되므로, 이 ref도 매 검색마다 새로 시작).
+  const loggedSearchRef = useRef(false);
 
   // category/cuisine filtering + pagination all happen server-side now —
   // filtering client-side after the fact would only ever see whatever's
@@ -1442,6 +1452,23 @@ function SearchResults({
   const scrollToLiveBucket = (key: LiveBucketKey) => {
     document.getElementById(`live-bucket-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+
+  // place_search 계측 — 제출 시점이 아니라 결과가 실제로 정해진 시점에
+  // 찍어야 "이 검색어가 빈 결과였는지"를 같이 남길 수 있다. 큐레이션
+  // (`data`)과 라이브(`liveData`) 둘 다 첫 응답이 온 뒤에만 발화한다.
+  useEffect(() => {
+    if (loggedSearchRef.current) return;
+    if (!data || isFetching) return;
+    if (isLiveFetching && liveData === undefined) return;
+    loggedSearchRef.current = true;
+    const resultCount = data.pagination.total + (liveResults?.length ?? 0);
+    trackFeatureEvent("place_search", "discover", {
+      query: query.slice(0, 80),
+      scope,
+      resultCount,
+      empty: resultCount === 0,
+    });
+  }, [data, isFetching, isLiveFetching, liveData, liveResults, query, scope]);
 
   if (data && !autoSynced && !userPickedCategory) {
     setAutoSynced(true);

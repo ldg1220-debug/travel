@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Search, Loader2 } from "lucide-react";
+import { trackFeatureEvent, type FeatureEventSurface } from "@/lib/trackFeatureEvent";
 import type { Place, Region } from "@/lib/types";
 
 const DEBOUNCE_MS = 400;
@@ -9,6 +10,8 @@ const DEBOUNCE_MS = 400;
 interface PlacesSearchInputProps {
   region: Region;
   onSelect: (place: Place) => void;
+  /** Which page embeds this box — defaults to "planner" since that's where it originated; CourseClient passes "course". */
+  surface?: FeatureEventSurface;
 }
 
 /**
@@ -19,7 +22,7 @@ interface PlacesSearchInputProps {
  * place's own name, so "카이유칸 근처 맛집" returned nothing — this box now
  * behaves identically to discover's search for that kind of query.
  */
-export function PlacesSearchInput({ region, onSelect }: PlacesSearchInputProps) {
+export function PlacesSearchInput({ region, onSelect, surface = "planner" }: PlacesSearchInputProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Place[]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,7 +47,11 @@ export function PlacesSearchInput({ region, onSelect }: PlacesSearchInputProps) 
         const url = `/api/places/search?region=${region}&q=${encodeURIComponent(trimmedQuery)}`;
         const res = await fetch(url);
         const data = (await res.json()) as { places?: Place[] };
-        if (requestIdRef.current === thisRequestId) setResults(data.places ?? []);
+        if (requestIdRef.current === thisRequestId) {
+          const places = data.places ?? [];
+          setResults(places);
+          trackFeatureEvent("place_search", surface, { query: trimmedQuery.slice(0, 80), region, resultCount: places.length, empty: places.length === 0 });
+        }
       } catch {
         if (requestIdRef.current === thisRequestId) setResults([]);
       } finally {
@@ -55,7 +62,7 @@ export function PlacesSearchInput({ region, onSelect }: PlacesSearchInputProps) 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [trimmedQuery, region]);
+  }, [trimmedQuery, region, surface]);
 
   const handleSelect = (place: Place) => {
     onSelect(place);
