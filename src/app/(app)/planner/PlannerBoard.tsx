@@ -960,12 +960,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // comment on the refs above for why plain capture alone wasn't enough)
   // so continuing to drag without lifting grows the draft live, with
   // auto-scroll near the viewport edge. Letting go and grabbing the
-  // separate top/bottom resize handles afterward still works too. 280ms
-  // rather than the map-pin drag's 500ms — feedback was that the longer
-  // delay felt sluggish here; the 8px cancel-threshold below still guards
-  // against mistaking a scroll for a hold during the pending phase.
-  const RANGE_SELECT_LONG_PRESS_MS = 280;
-  /** Drag now opens the modal directly on release (no confirm bar) — below this, a drag reads as an accidental brush rather than an intentional pick, so it's dropped silently instead of popping a modal. */
+  // separate top/bottom resize handles afterward still works too. 140ms
+  // (halved from 280ms, 2026-08-15 — still felt sluggish) rather than the
+  // map-pin drag's 500ms; the 8px cancel-threshold below still guards
+  // against mistaking a scroll for a hold during the pending phase. A
+  // shorter delay also modestly helps the touch-scroll-hijack race noted
+  // below — the sooner touch-action:none actually lands, the less time
+  // Chrome's own gesture recognizer has to lean toward "this is a scroll"
+  // first.
+  const RANGE_SELECT_LONG_PRESS_MS = 140;
+  /** A release at or above this opens the modal directly (no confirm bar) — reads as an intentional pick, not just the long-press's initial 15-minute commit. Below this, handleGridCellUp leaves the box as-is instead of discarding it (see there) — tap-to-confirm/the resize handles are still available. */
   const MIN_DRAG_SELECT_MINUTES = 30;
   const handleGridCellDown = (e: React.PointerEvent<HTMLDivElement>, date: string) => {
     const target = e.target as HTMLElement;
@@ -1034,15 +1038,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const active = activeRangeDrag.current;
     if (active) {
       releaseActiveRangeDrag(e, active);
-      // Straight into the modal on release — no more confirm bar (계획 탭
-      // 후속 작업지시서, 2026-08-15). A plain long-press-and-release with no
-      // real drag commits at RESIZE_STEP_MINUTES(15) via handleGridCellDown's
-      // timer, which is below the threshold and gets silently dropped here
-      // instead of popping a modal for what reads as an accidental tap.
+      // Straight into the modal on release for a real drag — no more
+      // confirm bar (계획 탭 후속 작업지시서, 2026-08-15). Below the
+      // threshold, LEAVE the box as-is instead of discarding it — a plain
+      // press-and-release with no further drag commits at
+      // RESIZE_STEP_MINUTES(15) via handleGridCellDown's timer, and an
+      // earlier version silently dropped that here on the theory that it
+      // reads as an accidental tap. Live feedback (2026-08-15) was the
+      // opposite: pressing a slot should visibly "activate" it and hold —
+      // the user then grows/shrinks it via the top/bottom handles or a
+      // fresh drag, or taps the box (confirmRangeSelect) to open the modal
+      // as-is. Only a release that already reached a decisive size skips
+      // straight to the modal.
       if (rangeSelect && rangeSelect.durationMinutes >= MIN_DRAG_SELECT_MINUTES) {
         setRangeSelectTarget(rangeSelect);
-        setRangeSelect(null);
-      } else {
         setRangeSelect(null);
       }
       return;
@@ -1055,17 +1064,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
    * gesture (most often its own touch-scroll recognizer deciding to take
    * over mid-drag despite the synchronous touch-action:none set at commit
    * time; a known-fragile race noted on handleGridCellDown above), not that
-   * the user chose to let go. Reported live (2026-08-15, 모바일 앱): pressing
-   * to arm the draft worked, but the very first move-to-grow gesture made
-   * the box vanish instead of growing — routing a cancel through the same
-   * "release → commit-or-discard" path as handleGridCellUp did exactly
-   * that, since the drag had barely started (duration still well under
-   * MIN_DRAG_SELECT_MINUTES) when the browser cut it off. This handler only
-   * does the pointer/ref cleanup and leaves `rangeSelect` exactly as it
-   * was — the box stays on screen at whatever size it had reached (frozen,
-   * matching the pre-2026-08-15 confirm-bar behavior for this same case)
-   * instead of disappearing, and the tap-to-confirm handler on the box
-   * itself (below) is the recovery path now that there's no bottom bar.
+   * the user chose to let go. Unlike handleGridCellUp, this never opens the
+   * modal even if the box had already reached MIN_DRAG_SELECT_MINUTES — an
+   * interruption isn't a confirmation. Just cleanup, `rangeSelect` is left
+   * exactly as it was (same "leave it, don't discard" as handleGridCellUp's
+   * below-threshold case) — the box stays on screen at whatever size it had
+   * reached, and the tap-to-confirm handler on the box itself (below) or
+   * the resize handles are how the user picks it back up.
    */
   const handleGridCellCancel = (e: React.PointerEvent<HTMLDivElement>) => {
     const active = activeRangeDrag.current;
@@ -2270,17 +2275,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                             </span>
                           </div>
                         )}
-                        {/* 빈 시간대를 눌러 잡으면(long-press) 기본 길이의 임시 일정이
-                            뜬다 — 장소부터 고르는 기존 흐름과 반대로, 시간부터 정하고
-                            장소를 검색해 채우는 흐름. 놓는 즉시(handleGridCellUp)
-                            30분 이상이면 바로 모달로 넘어간다 — 위/아래 손잡이는
-                            드래그 도중 실시간 표시용으로만 남아 있고, 확정 전
-                            별도 미세조정 단계는 없다(모달의 숫자 입력으로 대체).
-                            박스 자체도 탭하면 confirmRangeSelect — pointercancel이
-                            드래그를 끊어 박스가 그 자리에 멈춰 선 경우(모바일 터치
-                            제스처 충돌, handleGridCellCancel 참고) 하단 바 없이도
-                            여전히 열 수 있는 유일한 경로라 남겨둔다. 손잡이 쪽
-                            pointerdown이 이미 preventDefault를 걸어(아래) 손잡이를
+                        {/* 빈 시간대를 눌러 잡으면(long-press) 기본 길이(15분)의
+                            임시 일정이 뜬다 — 장소부터 고르는 기존 흐름과 반대로,
+                            시간부터 정하고 장소를 검색해 채우는 흐름. 놓는
+                            즉시(handleGridCellUp) 30분 이상이면 바로 모달로
+                            넘어가고, 그 미만이면(단순 탭, 또는 pointercancel로
+                            일찍 끊긴 드래그 — handleGridCellCancel 참고) 박스가
+                            그 크기로 남는다 — 위/아래 손잡이로 더 늘리거나
+                            줄이고, 박스 자체를 탭하면(confirmRangeSelect) 그
+                            크기 그대로 모달이 열린다. 손잡이 쪽 pointerdown이
+                            이미 preventDefault를 걸어(아래) 손잡이를
                             누른 탭은 이 onClick까지 안 올라온다. */}
                         {rangeSelect?.date === date && (
                           <div
@@ -2500,12 +2504,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           />
         )}
 
-        {/* ── 빈 시간대를 드래그해 놓는 순간(handleGridCellUp) 바로 이
-             모달로 넘어간다 — 예전엔 여기 확인/취소 바가 한 단계 더
-             있었지만(2026-08-15 이전), 하는 일이 모달 열기뿐이라 단계만
-             늘리고 화면 맨 아래라 시선도 안 가 걷어냈다. 30분 미만
-             드래그는 handleGridCellUp에서 이미 걸러져 여기까지 오지
-             않는다(실수로 살짝 끈 것까지 모달을 띄우지 않도록). ── */}
+        {/* ── 빈 시간대를 드래그해 30분 이상 채운 채로 놓으면
+             (handleGridCellUp) 바로 이 모달로 넘어간다 — 예전엔 여기
+             확인/취소 바가 한 단계 더 있었지만(2026-08-15 이전), 하는
+             일이 모달 열기뿐이라 단계만 늘리고 화면 맨 아래라 시선도 안
+             가 걷어냈다. 30분 미만인 채로 놓으면 모달로 안 넘어오고
+             그리드 위 박스만 그 크기로 남는다 — 탭하거나(confirmRangeSelect)
+             손잡이로 더 늘려서 확정한다. ── */}
         {rangeSelectTarget && (
           <RangeSelectPlaceModal
             date={rangeSelectTarget.date}
