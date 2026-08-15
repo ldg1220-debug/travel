@@ -33,6 +33,24 @@ function stripMockPlaces(places: Place[]): Place[] {
 /** Cap on how many named plans a user can keep side by side — enough to compare a handful of trip drafts without the switcher list growing unbounded. */
 export const MAX_SAVED_PLANS = 10;
 
+/**
+ * Single source of truth for plannerMapHeight's default — used both by the
+ * store's initial state and by the persist migration below. Was 480 before
+ * 2026-08-15; lowered to 320 because the old value left too little room for
+ * the timeline (the thing users actually drag on) without manually
+ * expanding it (계획 탭 드래그 버그 후속 리포트). A PREVIOUS version of this
+ * fix only changed the initial-state literal and left the migrate()
+ * fallback's `?? 480` (and, more importantly, never bumped `version`) — so
+ * anyone who had already opened the planner once under the old default had
+ * literal 480 sitting in their persisted state, which zustand's shallow
+ * merge then applied straight over the new initial value, undoing the fix
+ * for effectively everyone. Now both read this one constant, and the
+ * version bump below forces the migration that actually rewrites it.
+ */
+const DEFAULT_PLANNER_MAP_HEIGHT = 320;
+/** The value plannerMapHeight defaulted to before 2026-08-15 — persisted rows still holding exactly this get rewritten to the new default by the v9 migration (see below). A user who happened to manually resize to exactly 480 is indistinguishable from one who never touched it and gets nudged too; an accepted tradeoff given how few people would land on that exact pixel value on purpose. */
+const LEGACY_PLANNER_MAP_HEIGHT_DEFAULT = 480;
+
 /** Synthesizes a minimal Place per item so a plan/draft hydrated from the server (which only stores placesData, not a `places` catalog) still gets a stable hashed color/icon per stop instead of falling back to fallbackDisplay's uncolored gray default. */
 function placesFromItems(items: ItineraryItem[]): Place[] {
   return items.map((item) => {
@@ -277,15 +295,7 @@ export const useItineraryStore = create<ItineraryState>()(
       region: "international",
       currentCity: "새 여행",
       timelineZoom: 1.5,
-      // 데스크톱 지도 패널 기본 높이. 480px는 남은 타임라인 영역이 (특히
-      // 화면이 낮은 노트북에서) 확대 없인 1~2시간 구간밖에 안 보일 만큼
-      // 좁아지는 문제가 있었다(계획 탭 드래그 버그 리포트, 2026-08-15) —
-      // 계획 탭의 실제 조작 대상은 지도가 아니라 타임라인인데 정작 그
-      // 화면이 가장 좁았다. 320px로 낮춰 드래그로 시간대를 잡는 게
-      // 기본값에서도 성립하게 한다. 이미 이 값을 조절해본 사용자는
-      // persist된 자기 값을 그대로 쓰므로 영향 없음 — 새 사용자/기존
-      // 기본값을 그대로 쓰던 사용자만 해당.
-      plannerMapHeight: 320,
+      plannerMapHeight: DEFAULT_PLANNER_MAP_HEIGHT,
       places: [],
       savedPlaces: [],
       savedPlaceFolders: [],
@@ -747,10 +757,16 @@ export const useItineraryStore = create<ItineraryState>()(
       //
       // v7: add timelineZoom (개인 시간칸 크기 배율, 기본 1.5).
       //
-      // v8: add plannerMapHeight (데스크톱 지도 패널 높이, 기본 320px — 원래
-      // 480px였으나 타임라인이 확대 없인 안 보일 만큼 좁아지는 문제로
-      // 낮춤, 2026-08-15). 이미 커스텀한 사용자의 persist된 값은 안 건드림.
-      version: 8,
+      // v8: add plannerMapHeight (데스크톱 지도 패널 높이, 기본 480px).
+      //
+      // v9: plannerMapHeight 기본값을 480 → 320으로 낮춤(타임라인이 확대
+      // 없인 안 보일 만큼 좁아지는 문제, 2026-08-15). 초기 상태 리터럴만
+      // 바꾸고 version을 그대로 뒀던 첫 시도는 실패했다 — v8을 이미 겪은
+      // 사용자는(플래너를 한 번이라도 연 적 있으면 전부) persist된 상태에
+      // 문자 그대로 480이 박혀 있고, version이 안 바뀌면 migrate가 아예
+      // 안 돌아 zustand의 얕은 병합이 새 기본값을 그대로 덮어썼다. 아래
+      // migrate의 version < 9 분기가 그 남은 480을 한 번 320으로 고쳐쓴다.
+      version: 9,
       partialize: (state) => ({
         items: state.items,
         places: state.places,
@@ -783,11 +799,17 @@ export const useItineraryStore = create<ItineraryState>()(
           activePlanId: state.activePlanId ?? null,
           draft: state.draft ?? null,
           timelineZoom: state.timelineZoom ?? 1.5,
-          plannerMapHeight: state.plannerMapHeight ?? 320,
+          plannerMapHeight: state.plannerMapHeight ?? DEFAULT_PLANNER_MAP_HEIGHT,
         };
         if (version < 3) {
           migrated.places = stripMockPlaces(migrated.places);
           migrated.savedPlaces = stripMockPlaces(migrated.savedPlaces);
+        }
+        // v9 — see the version-bump comment above. Only rewrites the exact
+        // old default; a value the user actually dragged to (anything else,
+        // including coincidentally 480 chosen by hand) is left alone.
+        if (version < 9 && migrated.plannerMapHeight === LEGACY_PLANNER_MAP_HEIGHT_DEFAULT) {
+          migrated.plannerMapHeight = DEFAULT_PLANNER_MAP_HEIGHT;
         }
         return migrated;
       },
