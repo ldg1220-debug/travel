@@ -277,7 +277,15 @@ export const useItineraryStore = create<ItineraryState>()(
       region: "international",
       currentCity: "새 여행",
       timelineZoom: 1.5,
-      plannerMapHeight: 480,
+      // 데스크톱 지도 패널 기본 높이. 480px는 남은 타임라인 영역이 (특히
+      // 화면이 낮은 노트북에서) 확대 없인 1~2시간 구간밖에 안 보일 만큼
+      // 좁아지는 문제가 있었다(계획 탭 드래그 버그 리포트, 2026-08-15) —
+      // 계획 탭의 실제 조작 대상은 지도가 아니라 타임라인인데 정작 그
+      // 화면이 가장 좁았다. 320px로 낮춰 드래그로 시간대를 잡는 게
+      // 기본값에서도 성립하게 한다. 이미 이 값을 조절해본 사용자는
+      // persist된 자기 값을 그대로 쓰므로 영향 없음 — 새 사용자/기존
+      // 기본값을 그대로 쓰던 사용자만 해당.
+      plannerMapHeight: 320,
       places: [],
       savedPlaces: [],
       savedPlaceFolders: [],
@@ -739,7 +747,9 @@ export const useItineraryStore = create<ItineraryState>()(
       //
       // v7: add timelineZoom (개인 시간칸 크기 배율, 기본 1.5).
       //
-      // v8: add plannerMapHeight (데스크톱 지도 패널 높이, 기본 480px).
+      // v8: add plannerMapHeight (데스크톱 지도 패널 높이, 기본 320px — 원래
+      // 480px였으나 타임라인이 확대 없인 안 보일 만큼 좁아지는 문제로
+      // 낮춤, 2026-08-15). 이미 커스텀한 사용자의 persist된 값은 안 건드림.
       version: 8,
       partialize: (state) => ({
         items: state.items,
@@ -773,7 +783,7 @@ export const useItineraryStore = create<ItineraryState>()(
           activePlanId: state.activePlanId ?? null,
           draft: state.draft ?? null,
           timelineZoom: state.timelineZoom ?? 1.5,
-          plannerMapHeight: state.plannerMapHeight ?? 480,
+          plannerMapHeight: state.plannerMapHeight ?? 320,
         };
         if (version < 3) {
           migrated.places = stripMockPlaces(migrated.places);
