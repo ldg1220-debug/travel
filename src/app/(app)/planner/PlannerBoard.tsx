@@ -965,6 +965,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // delay felt sluggish here; the 8px cancel-threshold below still guards
   // against mistaking a scroll for a hold during the pending phase.
   const RANGE_SELECT_LONG_PRESS_MS = 280;
+  /** Drag now opens the modal directly on release (no confirm bar) — below this, a drag reads as an accidental brush rather than an intentional pick, so it's dropped silently instead of popping a modal. */
+  const MIN_DRAG_SELECT_MINUTES = 30;
   const handleGridCellDown = (e: React.PointerEvent<HTMLDivElement>, date: string) => {
     const target = e.target as HTMLElement;
     if (target.closest("[data-scheduled-card], [data-spillover-strip]")) return;
@@ -1027,6 +1029,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       active.el.style.touchAction = "";
       activeRangeDrag.current = null;
       stopAutoScroll();
+      // Straight into the modal on release — no more confirm bar (계획 탭
+      // 후속 작업지시서, 2026-08-15). A plain long-press-and-release with no
+      // real drag commits at RESIZE_STEP_MINUTES(15) via handleGridCellDown's
+      // timer, which is below the threshold and gets silently dropped here
+      // instead of popping a modal for what reads as an accidental tap.
+      if (rangeSelect && rangeSelect.durationMinutes >= MIN_DRAG_SELECT_MINUTES) {
+        setRangeSelectTarget(rangeSelect);
+        setRangeSelect(null);
+      } else {
+        setRangeSelect(null);
+      }
       return;
     }
     cancelPendingRangeSelect();
@@ -2195,8 +2208,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         )}
                         {/* 빈 시간대를 눌러 잡으면(long-press) 기본 길이의 임시 일정이
                             뜬다 — 장소부터 고르는 기존 흐름과 반대로, 시간부터 정하고
-                            장소를 검색해 채우는 흐름. 위/아래 손잡이로 시간을 조절한 뒤
-                            아래 액션바의 "장소 검색"으로 확정한다. */}
+                            장소를 검색해 채우는 흐름. 놓는 즉시(handleGridCellUp)
+                            30분 이상이면 바로 모달로 넘어간다 — 위/아래 손잡이는
+                            드래그 도중 실시간 표시용으로만 남아 있고, 확정 전
+                            별도 미세조정 단계는 없다(모달의 숫자 입력으로 대체). */}
                         {rangeSelect?.date === date && (
                           <div
                             className="absolute inset-x-0.5 z-20 overflow-hidden rounded-lg border-2 border-dashed border-brand-500 bg-brand-500/15"
@@ -2411,43 +2426,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           />
         )}
 
-        {/* ── 빈 시간대 드래그로 잡은 임시 일정의 확인/취소 바 — 그리드 위
-             손잡이로 시간을 조절하는 동안 계속 떠 있다가, "일정 추가"를
-             누르면 그 시간을 그대로 들고 다음 모달(검색/직접입력)로 넘어간다. ── */}
-        {rangeSelect && (
-          <div className="fixed inset-x-0 bottom-0 z-[70] flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[11px] font-medium text-slate-400">{formatDateLabelShort(rangeSelect.date)}</p>
-              <p className="truncate text-[14px] font-bold tabular-nums text-slate-900">
-                {pad2(Math.floor(rangeSelect.startMinutes / 60))}:{pad2(rangeSelect.startMinutes % 60)}
-                {" ~ "}
-                {pad2(Math.floor((rangeSelect.startMinutes + rangeSelect.durationMinutes) / 60) % 24)}:
-                {pad2((rangeSelect.startMinutes + rangeSelect.durationMinutes) % 60)} · {rangeSelect.durationMinutes}분
-              </p>
-            </div>
-            <button
-              onClick={() => setRangeSelect(null)}
-              className="h-10 shrink-0 rounded-xl border border-slate-200 px-4 text-[13px] font-semibold text-slate-600 hover:bg-slate-50"
-            >
-              취소
-            </button>
-            <button
-              onClick={() => {
-                setRangeSelectTarget(rangeSelect);
-                setRangeSelect(null);
-              }}
-              className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-[13px] font-semibold text-white"
-            >
-              {/* 이전엔 "장소 검색"이었는데, 다음 모달에 검색/직접입력 두
-                  탭이 있어서 "검색만 되는 버튼"으로 읽혀 직접입력 기능이
-                  묻혔다 — 모달 제목("일정 추가")과 맞춰 그 존재를 드러낸다. */}
-              일정 추가
-            </button>
-          </div>
-        )}
-
-        {/* ── 확인 후 — 시간을 다듬으면서 그 자리에 채울 장소를 검색하거나
-             직접 입력해서 등록 ── */}
+        {/* ── 빈 시간대를 드래그해 놓는 순간(handleGridCellUp) 바로 이
+             모달로 넘어간다 — 예전엔 여기 확인/취소 바가 한 단계 더
+             있었지만(2026-08-15 이전), 하는 일이 모달 열기뿐이라 단계만
+             늘리고 화면 맨 아래라 시선도 안 가 걷어냈다. 30분 미만
+             드래그는 handleGridCellUp에서 이미 걸러져 여기까지 오지
+             않는다(실수로 살짝 끈 것까지 모달을 띄우지 않도록). ── */}
         {rangeSelectTarget && (
           <RangeSelectPlaceModal
             date={rangeSelectTarget.date}
@@ -2457,7 +2441,13 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             onRegionChange={setRegion}
             hasConflict={hasConflictStore}
             fallbackCoords={fallbackCoordsForManualPlace}
-            onClose={() => setRangeSelectTarget(null)}
+            onClose={() => {
+              // rangeSelect는 이 시점엔 이미 null이지만(드래그 종료와 동시에
+              // 모달로 넘어가며 비웠음), 방어적으로 같이 정리 — 어떤 경로로
+              // 닫히든(X, 백드롭 클릭, 뒤로가기) 점선 선택 박스가 남지 않게.
+              setRangeSelect(null);
+              setRangeSelectTarget(null);
+            }}
             onConfirm={handleRangeSelectConfirm}
           />
         )}
