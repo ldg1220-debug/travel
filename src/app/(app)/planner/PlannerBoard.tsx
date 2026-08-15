@@ -731,9 +731,23 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const [pressIndicator, setPressIndicator] = useState<{ date: string; startMinutes: number } | null>(null);
   // A back-press cancels whichever step is active — the draft (still on
   // the grid) or the search modal — rather than stepping back one screen,
-  // matching every other modal here.
-  useBackButtonClose(rangeSelect !== null, () => setRangeSelect(null));
-  useBackButtonClose(rangeSelectTarget !== null, () => setRangeSelectTarget(null));
+  // matching every other modal here. Treated as ONE overlay (not two
+  // separate useBackButtonClose calls) on purpose: the "장소 검색" button
+  // below flips rangeSelect→null and rangeSelectTarget→{...} in the same
+  // click handler, i.e. the same React commit. Two independent hook
+  // instances there used to race — the closing one's cleanup calls
+  // history.back() (to consume the entry it pushed), which is asynchronous,
+  // so by the time that back-navigation actually fires, the opening one had
+  // already pushed ITS entry on top; the resulting popstate lands on the
+  // just-opened hook's listener and immediately closes the modal that had
+  // barely rendered (read as "the button does nothing"). Combining them
+  // means `isOpen` stays continuously true across the handoff, so the
+  // effect never tears down and re-runs in between — one push at the start
+  // of the drag-select flow, one back()/pop at the very end.
+  useBackButtonClose(rangeSelect !== null || rangeSelectTarget !== null, () => {
+    setRangeSelect(null);
+    setRangeSelectTarget(null);
+  });
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -2398,8 +2412,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         )}
 
         {/* ── 빈 시간대 드래그로 잡은 임시 일정의 확인/취소 바 — 그리드 위
-             손잡이로 시간을 조절하는 동안 계속 떠 있다가, "장소 검색"을
-             누르면 그 시간을 그대로 들고 검색 모달로 넘어간다. ── */}
+             손잡이로 시간을 조절하는 동안 계속 떠 있다가, "일정 추가"를
+             누르면 그 시간을 그대로 들고 다음 모달(검색/직접입력)로 넘어간다. ── */}
         {rangeSelect && (
           <div className="fixed inset-x-0 bottom-0 z-[70] flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
             <div className="min-w-0 flex-1">
@@ -2424,7 +2438,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               }}
               className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-[13px] font-semibold text-white"
             >
-              장소 검색
+              {/* 이전엔 "장소 검색"이었는데, 다음 모달에 검색/직접입력 두
+                  탭이 있어서 "검색만 되는 버튼"으로 읽혀 직접입력 기능이
+                  묻혔다 — 모달 제목("일정 추가")과 맞춰 그 존재를 드러낸다. */}
+              일정 추가
             </button>
           </div>
         )}
