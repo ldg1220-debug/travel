@@ -2173,7 +2173,19 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               </div>
 
               <div ref={timelineScrollRef} className="px-4 pb-6">
-                <div className="flex" style={{ height: TIMELINE_HOURS.length * slotHeight }}>
+                {/* select-none(+webkit-touch-callout) on the whole grid — 실제
+                    원인 확인(2026-08-15, 사용자 스크린샷): 빈 시간대의 "—"
+                    표시가 그냥 선택 가능한 텍스트였다. 그 위에서 롱프레스하면
+                    커스텀 드래그보다 먼저(또는 대신) OS 네이티브 텍스트
+                    선택 팝업("복사/공유/모두 선택/웹 검색")이 뜨면서 우리
+                    포인터 시퀀스가 pointercancel로 끊겼다 — #183에서 막은
+                    "박스가 사라지는" 증상의 실제 유발 지점이 바로 이거였다.
+                    이 레이어(시간 눈금 라벨 + 요일 컬럼) 전체를 선택 불가로
+                    만들어 애초에 그 팝업이 뜰 일을 없앤다. */}
+                <div
+                  className="flex select-none [-webkit-touch-callout:none]"
+                  style={{ height: TIMELINE_HOURS.length * slotHeight }}
+                >
                   {/* hour gutter */}
                   <div className="w-[42px] shrink-0">
                     {TIMELINE_HOURS.map((h) => (
@@ -2206,6 +2218,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         onPointerUp={handleGridCellUp}
                         onPointerCancel={handleGridCellCancel}
                       >
+                        {/* 시간대 구분용 연한 회색 선 — 예전엔 빈 칸의 "—" 표시
+                            하나로만 시간 경계를 알 수 있었다("가시성이 떨어진다"는
+                            지적). DroppableCell 자체 border는 mx-0.5/my-0.5 여백
+                            때문에 경계와 살짝 어긋나므로, 시간 눈금(왼쪽 05:00 등)과
+                            픽셀 단위로 맞는 별도 장식 레이어로 그린다 — 클릭/드래그에
+                            안 끼어들게 pointer-events-none. 맨 위(0시간째)는 컬럼 위쪽
+                            테두리가 따로 없어 생략(첫 줄에 붙는 선이 어색해 보임). */}
+                        {TIMELINE_HOURS.slice(1).map((h, i) => (
+                          <div
+                            key={h}
+                            className="pointer-events-none absolute inset-x-0 h-px bg-slate-100"
+                            style={{ top: (i + 1) * slotHeight }}
+                          />
+                        ))}
                         {spillover && (() => {
                           const spillPlace = places.find((p) => p.id === spillover.item.placeId) ?? fallbackDisplay(spillover.item.name);
                           const spillHeight = (spillover.minutes / 60) * slotHeight;
