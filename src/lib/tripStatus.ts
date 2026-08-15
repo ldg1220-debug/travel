@@ -27,10 +27,18 @@ export interface TripStatus {
  * 오늘이 속한 날을 그대로 쓴다(오늘 할 일을 보여주는 게 더 유용해서).
  * 이동시간 같은 추정치는 절대 안 만든다(#163 원칙) — stopCount(담긴
  * 곳 수)만 실측값이라 그것만 노출한다.
+ *
+ * `today`는 classifyPlan/hasCompletedTrip과 같은 이유로 선택 인자다 —
+ * 기본값은 실제 오늘이고, 테스트에서만 고정값을 넘겨 실제 시각과
+ * 무관하게 만든다(과거 버전은 내부에서 todayISODate()를 하드코딩해
+ * 테스트의 고정 TODAY 픽스처가 날짜가 바뀔 때마다 깨졌었다).
  */
-export function deriveTripStatus(savedPlans: SavedPlan[], draftItems: ItineraryItem[], draftCity: string): TripStatus | null {
-  const today = todayISODate();
-
+export function deriveTripStatus(
+  savedPlans: SavedPlan[],
+  draftItems: ItineraryItem[],
+  draftCity: string,
+  today: string = todayISODate(),
+): TripStatus | null {
   const candidates: { planId: string | null; city: string; items: ItineraryItem[] }[] = [
     ...savedPlans.map((p) => ({ planId: p.id, city: p.currentCity, items: p.items })),
     ...(draftItems.length > 0 ? [{ planId: null, city: draftCity, items: draftItems }] : []),
