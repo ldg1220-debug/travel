@@ -1018,17 +1018,22 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (Math.hypot(e.clientX - anchor.x, e.clientY - anchor.y) > 8) cancelPendingRangeSelect();
   };
 
+  /** Shared cleanup for both a real release and a cancelled gesture — pointer capture, touch-action, refs, auto-scroll. Doesn't touch `rangeSelect` itself; callers decide what happens to the draft. */
+  const releaseActiveRangeDrag = (e: React.PointerEvent<HTMLDivElement>, active: NonNullable<typeof activeRangeDrag.current>) => {
+    try {
+      e.currentTarget.releasePointerCapture(active.pointerId);
+    } catch {
+      // Already released — nothing to do.
+    }
+    active.el.style.touchAction = "";
+    activeRangeDrag.current = null;
+    stopAutoScroll();
+  };
+
   const handleGridCellUp = (e: React.PointerEvent<HTMLDivElement>) => {
     const active = activeRangeDrag.current;
     if (active) {
-      try {
-        e.currentTarget.releasePointerCapture(active.pointerId);
-      } catch {
-        // Already released — nothing to do.
-      }
-      active.el.style.touchAction = "";
-      activeRangeDrag.current = null;
-      stopAutoScroll();
+      releaseActiveRangeDrag(e, active);
       // Straight into the modal on release — no more confirm bar (계획 탭
       // 후속 작업지시서, 2026-08-15). A plain long-press-and-release with no
       // real drag commits at RESIZE_STEP_MINUTES(15) via handleGridCellDown's
@@ -1043,6 +1048,39 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       return;
     }
     cancelPendingRangeSelect();
+  };
+
+  /**
+   * pointercancel ≠ pointerup — a cancel means the BROWSER interrupted the
+   * gesture (most often its own touch-scroll recognizer deciding to take
+   * over mid-drag despite the synchronous touch-action:none set at commit
+   * time; a known-fragile race noted on handleGridCellDown above), not that
+   * the user chose to let go. Reported live (2026-08-15, 모바일 앱): pressing
+   * to arm the draft worked, but the very first move-to-grow gesture made
+   * the box vanish instead of growing — routing a cancel through the same
+   * "release → commit-or-discard" path as handleGridCellUp did exactly
+   * that, since the drag had barely started (duration still well under
+   * MIN_DRAG_SELECT_MINUTES) when the browser cut it off. This handler only
+   * does the pointer/ref cleanup and leaves `rangeSelect` exactly as it
+   * was — the box stays on screen at whatever size it had reached (frozen,
+   * matching the pre-2026-08-15 confirm-bar behavior for this same case)
+   * instead of disappearing, and the tap-to-confirm handler on the box
+   * itself (below) is the recovery path now that there's no bottom bar.
+   */
+  const handleGridCellCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    const active = activeRangeDrag.current;
+    if (active) {
+      releaseActiveRangeDrag(e, active);
+      return;
+    }
+    cancelPendingRangeSelect();
+  };
+
+  /** Tap-to-confirm on the draft box itself — the only way to open the modal for a draft that a pointercancel froze mid-drag (see handleGridCellCancel above), and also just a faster path than re-dragging when the box already looks right. No threshold check here: seeing the box at all means a real drag already committed past the long-press. */
+  const confirmRangeSelect = () => {
+    if (!rangeSelect) return;
+    setRangeSelectTarget(rangeSelect);
+    setRangeSelect(null);
   };
 
   // ── draft resize handles — same math/pattern as ScheduledCard's own
@@ -2166,7 +2204,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         onPointerDown={(e) => handleGridCellDown(e, date)}
                         onPointerMove={handleGridCellMove}
                         onPointerUp={handleGridCellUp}
-                        onPointerCancel={handleGridCellUp}
+                        onPointerCancel={handleGridCellCancel}
                       >
                         {spillover && (() => {
                           const spillPlace = places.find((p) => p.id === spillover.item.placeId) ?? fallbackDisplay(spillover.item.name);
@@ -2211,10 +2249,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                             장소를 검색해 채우는 흐름. 놓는 즉시(handleGridCellUp)
                             30분 이상이면 바로 모달로 넘어간다 — 위/아래 손잡이는
                             드래그 도중 실시간 표시용으로만 남아 있고, 확정 전
-                            별도 미세조정 단계는 없다(모달의 숫자 입력으로 대체). */}
+                            별도 미세조정 단계는 없다(모달의 숫자 입력으로 대체).
+                            박스 자체도 탭하면 confirmRangeSelect — pointercancel이
+                            드래그를 끊어 박스가 그 자리에 멈춰 선 경우(모바일 터치
+                            제스처 충돌, handleGridCellCancel 참고) 하단 바 없이도
+                            여전히 열 수 있는 유일한 경로라 남겨둔다. 손잡이 쪽
+                            pointerdown이 이미 preventDefault를 걸어(아래) 손잡이를
+                            누른 탭은 이 onClick까지 안 올라온다. */}
                         {rangeSelect?.date === date && (
                           <div
-                            className="absolute inset-x-0.5 z-20 overflow-hidden rounded-lg border-2 border-dashed border-brand-500 bg-brand-500/15"
+                            role="button"
+                            tabIndex={0}
+                            aria-label="이 시간대로 일정 추가"
+                            onClick={confirmRangeSelect}
+                            className="absolute inset-x-0.5 z-20 cursor-pointer overflow-hidden rounded-lg border-2 border-dashed border-brand-500 bg-brand-500/15"
                             style={{
                               top: (rangeSelect.startMinutes / 60) * slotHeight,
                               height: (rangeSelect.durationMinutes / 60) * slotHeight,
