@@ -719,7 +719,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // Set once the long-press commits and capture is engaged — while this is
   // non-null, pointermove keeps resizing live (and driving auto-scroll)
   // instead of watching for the pending-press cancel threshold.
-  const activeRangeDrag = useRef<{ date: string; el: HTMLDivElement; anchorMinutes: number; pointerId: number } | null>(null);
+  const activeRangeDrag = useRef<{ date: string; el: HTMLDivElement; anchorMinutes: number; pointerId: number; commitClientY: number } | null>(null);
   const [rangeSelect, setRangeSelect] = useState<{ date: string; startMinutes: number; durationMinutes: number } | null>(null);
   const [rangeSelectTarget, setRangeSelectTarget] = useState<{ date: string; startMinutes: number; durationMinutes: number } | null>(null);
   // Shown the instant a press lands (before the 500ms long-press even
@@ -933,6 +933,21 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     else if (speed === 0) stopAutoScroll();
   };
 
+  /**
+   * Real presses aren't perfectly still — lift-off in particular tends to
+   * carry a few px of unintentional slide as contact area shrinks (common
+   * capacitive-touchscreen behavior). Without a floor, that alone was
+   * enough sub-15-minute rounding noise to occasionally round the very
+   * first live-grow tick straight up to MIN_DRAG_SELECT_MINUTES(30), so a
+   * plain press-and-release read as a deliberate 30-minute drag and jumped
+   * straight to the modal instead of leaving the 15-minute box to activate
+   * (reported live, 2026-08-15: "짧게 눌렀다 뗐을때 15분짜리 박스 안 남아,
+   * 모달은 열려"). Mirrors the pending-phase's own 8px cancel-threshold
+   * (see handleGridCellDown/Move above) for the same reason, just applied
+   * after commit instead of before.
+   */
+  const RANGE_GROW_DEADZONE_PX = 16;
+
   // Recomputes the live duration for a committed range-drag — same anchored
   // (start fixed, duration grows/shrinks) math as the bottom resize handle
   // below, just fed by the ongoing grid-cell drag instead of the handle's
@@ -942,6 +957,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const updateActiveRangeDrag = (clientY: number) => {
     const active = activeRangeDrag.current;
     if (!active) return;
+    // Below the dead zone, leave the duration exactly as the long-press
+    // commit set it (RESIZE_STEP_MINUTES) — don't even recompute. Once past
+    // it, growth uses the live absolute position (not a delta from here),
+    // same as always, so auto-scroll dragging the column under a
+    // now-stationary finger still keeps working mid-drag.
+    if (Math.abs(clientY - active.commitClientY) < RANGE_GROW_DEADZONE_PX) return;
     const top = active.el.getBoundingClientRect().top;
     const raw = ((clientY - top) / slotHeight) * 60;
     const pointerMinutes = Math.round(raw / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES;
@@ -997,7 +1018,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         // waiting on a React re-render — is what actually and reliably
         // suppresses it; restored on release/cancel below.
         el.style.touchAction = "none";
-        activeRangeDrag.current = { date, el, anchorMinutes, pointerId };
+        // The original pointerdown Y (not "now") — the dead zone in
+        // updateActiveRangeDrag measures from where the finger actually
+        // first touched, so drift accumulated across the whole press (not
+        // just after commit) counts toward it.
+        activeRangeDrag.current = { date, el, anchorMinutes, pointerId, commitClientY: rangeSelectStart.current?.y ?? e.clientY };
       } catch {
         // Pointer already released before the timer fired — the draft still
         // shows (from setRangeSelect above), just without live-drag growth;
