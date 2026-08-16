@@ -36,7 +36,7 @@ export function MessageBell() {
     <Link
       href="/messages"
       aria-label="메시지"
-      className="relative flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+      className="relative flex h-11 w-11 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
     >
       <CordixIcon name="message" size={18} />
       {unread > 0 && (

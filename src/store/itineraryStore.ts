@@ -124,6 +124,16 @@ interface ItineraryState {
   plannerMapHeight: number;
   setPlannerMapHeight: (px: number) => void;
   /**
+   * 모바일 하단 탭바를 /planner에서 스크롤 다운 시 접기 위한 신호 — 순수
+   * 화면 상태라 persist 안 한다(partialize에 없음, 새로고침 때마다 false로
+   * 시작). PlannerBoard의 스크롤 핸들러가 쓰고, BottomTabBar가 /planner
+   * 경로일 때만 읽는다(다른 라우트에서는 항상 무시하고 펼쳐진 채로 보임).
+   * 탭바를 아예 안 그리면(null) 뒤로가기 말고는 다른 탭으로 갈 방법이
+   * 없어져서(작업지시서 피드백) 완전히 숨기는 대신 접었다 펼 수 있게 한다.
+   */
+  plannerTabBarHidden: boolean;
+  setPlannerTabBarHidden: (hidden: boolean) => void;
+  /**
    * Places available to schedule — starts empty and fills in from real
    * user actions (search, trend cards, /discover) rather than a
    * hardcoded seed, so the map only ever shows places someone actually
@@ -296,6 +306,7 @@ export const useItineraryStore = create<ItineraryState>()(
       currentCity: "새 여행",
       timelineZoom: 1.5,
       plannerMapHeight: DEFAULT_PLANNER_MAP_HEIGHT,
+      plannerTabBarHidden: false,
       places: [],
       savedPlaces: [],
       savedPlaceFolders: [],
@@ -308,6 +319,7 @@ export const useItineraryStore = create<ItineraryState>()(
       setRegion: (region) => set({ region }),
       setTimelineZoom: (zoom) => set({ timelineZoom: Math.max(1, Math.min(2, zoom)) }),
       setPlannerMapHeight: (px) => set({ plannerMapHeight: Math.max(280, Math.min(800, Math.round(px))) }),
+      setPlannerTabBarHidden: (hidden) => set({ plannerTabBarHidden: hidden }),
       setPlaces: (places) => set({ places }),
       addPlaces: (newPlaces) =>
         set((state) => {

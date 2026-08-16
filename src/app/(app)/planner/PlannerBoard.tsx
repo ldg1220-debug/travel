@@ -241,8 +241,36 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // responsive h-[45%]); this only kicks in at the md breakpoint.
   const plannerMapHeight = useItineraryStore((s) => s.plannerMapHeight);
   const setPlannerMapHeight = useItineraryStore((s) => s.setPlannerMapHeight);
+  const setPlannerTabBarHidden = useItineraryStore((s) => s.setPlannerTabBarHidden);
   const [liveMapHeight, setLiveMapHeight] = useState<number | null>(null);
   const mapHeight = liveMapHeight ?? plannerMapHeight;
+
+  // 모바일 하단 탭바 접기/펴기 — 아래로 스크롤하면 접어서 타임라인에
+  // 세로 공간을 더 내주고, 위로 스크롤하거나 맨 위 근처로 돌아오면 다시
+  // 편다(탭바를 아예 안 그리면 다른 탭으로 갈 방법이 뒤로가기뿐이라는
+  // 지적 반영 — BottomTabBar.tsx 참고). 아주 작은 스크롤(관성/바운스)에
+  // 반응해 깜빡이지 않도록 최소 이동량을 요구한다.
+  const lastScrollTopRef = useRef(0);
+  const SCROLL_HIDE_THRESHOLD_PX = 8;
+  const NEAR_TOP_PX = 24;
+  const handleBoardScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    const delta = top - lastScrollTopRef.current;
+    if (top <= NEAR_TOP_PX) {
+      setPlannerTabBarHidden(false);
+    } else if (delta > SCROLL_HIDE_THRESHOLD_PX) {
+      setPlannerTabBarHidden(true);
+    } else if (delta < -SCROLL_HIDE_THRESHOLD_PX) {
+      setPlannerTabBarHidden(false);
+    }
+    lastScrollTopRef.current = top;
+  };
+  // 이 화면을 벗어날 때(다른 탭으로 이동 등) 접힌 채로 남아있지 않게 리셋 —
+  // 다음에 어느 탭이든 처음 볼 땐 항상 펼쳐진 상태여야 한다.
+  useEffect(() => {
+    return () => setPlannerTabBarHidden(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 언마운트 시 1회만, setPlannerTabBarHidden identity는 zustand라 안정적이지만 의도적으로 deps에서 뺐다.
+  }, []);
 
   // A place just found via the map's search box, not yet scheduled — shown
   // as a single temporary pin (see scheduleMapPlaces below) so it stays
@@ -1764,7 +1792,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           dvh accounting is unreliable). Scrolling the map away with
           everything else means the schedule gets the full viewport once
           you scroll past it, on any browser. */}
-      <div ref={boardRef} className="relative flex h-full flex-col overflow-y-auto bg-white font-sans">
+      <div ref={boardRef} onScroll={handleBoardScroll} className="relative flex h-full flex-col overflow-y-auto bg-white font-sans">
         {/* ── MAP AREA — real Google Maps, auto-fit to every visible place ── */}
         {/* min-h is a safety floor: h-[45%] depends on the flex ancestor
             chain resolving before the Maps SDK measures the container (it

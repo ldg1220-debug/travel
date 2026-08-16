@@ -120,7 +120,7 @@ export function NotificationBell() {
       <button
         onClick={handleToggle}
         aria-label="알림"
-        className="relative flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+        className="relative flex h-11 w-11 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
       >
         <Bell size={18} />
         {unreadCount > 0 && (
