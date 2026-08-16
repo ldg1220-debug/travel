@@ -718,16 +718,16 @@ export interface FeedResponse {
   pagination: { page: number; limit: number; total: number; hasMore: boolean };
 }
 
-/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first — optionally filtered by region, a free-text search across the post's title/content/trip title/visited place names, and/or scoped to only people the viewer follows ("트메" tab). */
+/** The public in-app feed of everyone's published 여행 후기 (trip posts), most recent first — optionally filtered by region, a free-text search across the post's title/content/trip title/visited place names, and/or scoped to only people the viewer follows ("트메" tab) or just the viewer's own posts ("내 후기", /my). */
 export async function fetchFeed(
   page = 1,
   limit = 10,
-  options?: { region?: Region; q?: string; scope?: "all" | "following" },
+  options?: { region?: Region; q?: string; scope?: "all" | "following" | "mine" },
 ): Promise<FeedResponse> {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (options?.region) params.set("region", options.region);
   if (options?.q?.trim()) params.set("q", options.q.trim());
-  if (options?.scope === "following") params.set("scope", "following");
+  if (options?.scope === "following" || options?.scope === "mine") params.set("scope", options.scope);
   const res = await fetch(`/api/feed?${params.toString()}`);
   if (!res.ok) return { posts: [], pagination: { page, limit, total: 0, hasMore: false } };
   return res.json();

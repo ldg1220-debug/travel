@@ -25,6 +25,12 @@ const DEFAULT_LIMIT = 10;
  * signed-in viewer follows (still gated by each post's own visibility —
  * a followed-but-not-mutual author's "friends" posts stay hidden). Requires
  * login; returns an empty page for an anonymous viewer.
+ *
+ * Optional `scope=mine` narrows the feed to only the signed-in viewer's own
+ * posts (/my page's "내 후기" section) — visibility is a non-issue here
+ * since the base `visibilityChecks` above already always includes
+ * `p."userId" = viewerId`, so this scope just adds an ownership filter on
+ * top. Requires login; returns an empty page for an anonymous viewer.
  */
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const session = await auth();
@@ -37,7 +43,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const q = request.nextUrl.searchParams.get("q")?.trim() || null;
   const scope = request.nextUrl.searchParams.get("scope");
 
-  if (scope === "following" && viewerId == null) {
+  if ((scope === "following" || scope === "mine") && viewerId == null) {
     return NextResponse.json({ posts: [], pagination: { page, limit, total: 0, hasMore: false } });
   }
 
@@ -67,6 +73,10 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   if (scope === "following" && viewerId != null) {
     params.push(viewerId);
     conditions.push(`exists (select 1 from follows f where f."followerId" = $${params.length} and f."followingId" = p."userId" and f.status = 'accepted')`);
+  }
+  if (scope === "mine" && viewerId != null) {
+    params.push(viewerId);
+    conditions.push(`p."userId" = $${params.length}`);
   }
 
   if (region === "domestic" || region === "international") {
