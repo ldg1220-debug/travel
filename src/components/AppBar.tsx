@@ -3,79 +3,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
-import { Menu, UserPlus, Plus, ChevronDown, LogIn, LogOut, X, Calendar, ShieldAlert, LayoutDashboard } from "lucide-react";
-import { ROOT_ADMIN_EMAIL } from "@/lib/server/rootAdmin";
-import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { useSession } from "next-auth/react";
+import { UserPlus, Plus, X, Calendar, CalendarRange } from "lucide-react";
+import { CordixIcon } from "@/components/icons/CordixIcon";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { LoginModal } from "@/components/LoginModal";
 import { ProfileSheet } from "@/components/ProfileSheet";
 import { NotificationBell } from "@/components/NotificationBell";
 import { MessageBell } from "@/components/MessageBell";
 import { ThemedLogo } from "@/components/BrandLogo";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { SavePlanModal } from "@/components/SavePlanModal";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
-import { fetchUserItineraries, fetchAdminContactId, reviveAccount } from "@/lib/api";
+import { fetchUserItineraries, reviveAccount } from "@/lib/api";
 import { syncPlanToServer } from "@/lib/planSync";
 import { formatDateLabel } from "@/lib/timeline";
-import { unsubscribeFromPush } from "@/lib/push";
 import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
+import { NAV_TABS } from "@/lib/navTabs";
 import type { SavedPlan } from "@/lib/types";
-
-// 일정(계획)과는 완전히 분리된 두 개의 보관함: 다녀온 여행 보관함(지난
-// itinerary/trip 기록, /scrapbook)과 관심 장소 보관함(찜해둔 개별 장소,
-// /saved-places) — 후자는 하단에 독립된 탭으로 별도 배치.
-// 코스 만들기는 여행 계획짜기의 하위 플로우(지역 고르고 코스 조립)라서
-// 최상위 탭이 아니라 여행 계획짜기 아래 서랍(sub-item)으로 들어간다.
-interface NavItem {
-  href: string;
-  label: string;
-  icon: CordixIconName;
-  sub?: { href: string; label: string; icon: CordixIconName }[];
-}
-// Tradule Icon Set(듀오톤, 디자인팀 전달분) — 예전엔 Fluent Emoji 3D PNG를 썼는데
-// 나머지 화면(CordixIcon)과 결이 달라 사이드바만 밋밋하고 올드해 보였다.
-const NAV_ITEMS: NavItem[] = [
-  {
-    href: "/discover",
-    label: "여행 계획짜기",
-    icon: "trip-map",
-    sub: [{ href: "/course", label: "코스 만들기", icon: "course-sparkle" }],
-  },
-  { href: "/planner", label: "계획", icon: "plan-check" },
-  { href: "/scrapbook", label: "여행 보관함", icon: "trip-archive" },
-  { href: "/feed", label: "후기 피드", icon: "feed-chat" },
-  { href: "/community", label: "커뮤니티", icon: "group" },
-];
-const SAVED_PLACES_NAV_ITEM = { href: "/saved-places", label: "관심 장소 보관함", icon: "saved-card-heart" as const };
-
-/** 사이드바 메뉴 아이콘 배지 — `icon`(CordixIcon 이름)이 있으면 그걸, 없으면 `src`(정적 PNG)를 그린다. */
-function NavIcon({
-  icon,
-  src,
-  size = "h-8 w-8",
-  padding = "p-1.5",
-}: {
-  icon?: CordixIconName;
-  src?: string;
-  size?: string;
-  padding?: string;
-}) {
-  return (
-    <span
-      className={`flex ${size} shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-900 ${padding} dark:bg-slate-800 dark:text-slate-100`}
-    >
-      {icon ? (
-        <CordixIcon name={icon} size={size === "h-8 w-8" ? 22 : 16} className="h-full w-full" />
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element -- static local asset, not worth next/image's overhead for a 32px icon
-        <img src={src} alt="" className="h-full w-full object-contain" />
-      )}
-    </span>
-  );
-}
 
 const PAGE_TITLES: Record<string, string> = {
   "/": "홈",
@@ -94,57 +39,31 @@ const PAGE_TITLES: Record<string, string> = {
 };
 
 /**
- * Global App Bar for the /discover, /planner, /scrapbook screens (see
- * src/app/(app)/layout.tsx) — a hamburger menu opens a left-side Sheet
- * listing all three, and the center/right slots adapt to whichever one is
- * active. Only /planner has anything worth inviting a collaborator to, so
- * the invite button (and the handleInvite logic it drives) only appears
- * there.
+ * Global App Bar — 탭바 도입(2026-08-15, B안) 이후로는 모바일 내비게이션의
+ * 주 진입점이 아니다(그건 BottomTabBar가 담당). 여기 남는 건: (1)
+ * 데스크톱(md↑) 전용 인라인 메뉴(NAV_TABS 재사용, 모바일에선 안 보임),
+ * (2) 항상 보이는 컨텍스트 타이틀(플래너 계획명/날짜, 홈·탐색 워드마크
+ * 등), (3) 저장된 계획 스위처(독립 Sheet — 예전 햄버거 서랍에 있던 것과
+ * 같은 로직을 트리거만 아이콘 버튼으로 옮김), (4) 초대·메시지·알림
+ * 아이콘. 관리자 링크/약관/문의하기/다크모드/로그아웃 같은 계정·설정
+ * 성격 항목은 신규 /my 페이지로 이관됐다(별도 PR).
  */
 export function AppBar() {
   const pathname = usePathname();
   const router = useRouter();
   const { data: session, update: updateSession } = useSession();
-  const [menuOpen, setMenuOpen] = useState(false);
   const [loginReason, setLoginReason] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [plansOpen, setPlansOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [savedPlansOpen, setSavedPlansOpen] = useState(false);
   // 저장된 계획 미리보기 — 목록에서 계획을 누르면 바로 열지 않고, 그 계획에
   // 일정이 들어있는 날짜만 표시(다른 색 점)한 월간 달력을 먼저 보여준 뒤
   // "세부일정 보기"를 눌러야 실제로 플래너로 이동하게 한다.
   const [previewPlan, setPreviewPlan] = useState<SavedPlan | null>(null);
   const [previewDate, setPreviewDate] = useState<string>("");
-  const [contactingAdmin, setContactingAdmin] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // 문의하기 — 로그인 상태면 쪽지로(트래블 메이트가 아니어도 관리자에게는
-  // 예외로 보낼 수 있게 서버에서 허용해뒀다), 아니면 로그인 없이도 바로
-  // 쓸 수 있는 메일로 대신한다. 관리자 계정 id는 이메일이 아니라 DB의
-  // 실제 userId가 필요해서 한 번 조회한다.
-  const handleContactAdmin = async () => {
-    if (!session?.user) {
-      window.location.href = `mailto:${ROOT_ADMIN_EMAIL}`;
-      return;
-    }
-    setContactingAdmin(true);
-    try {
-      const adminId = await fetchAdminContactId();
-      if (adminId != null) {
-        setMenuOpen(false);
-        router.push(`/messages/${adminId}`);
-      } else {
-        window.location.href = `mailto:${ROOT_ADMIN_EMAIL}`;
-      }
-    } catch {
-      window.location.href = `mailto:${ROOT_ADMIN_EMAIL}`;
-    } finally {
-      setContactingAdmin(false);
-    }
-  };
 
   // 탈퇴 유예기간 중 "계정 살리기" — 재로그인만으로는 자동 취소되지 않게
   // 일부러 만든 명시적 진입점이라, 앱 어디서든 보이는 상단 배너에 바로
@@ -293,302 +212,30 @@ export function AppBar() {
   return (
     <>
       <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
-        <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-          <SheetTrigger asChild>
-            <button
-              aria-label="메뉴"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              <Menu size={20} />
-            </button>
-          </SheetTrigger>
-          <SheetContent side="left" className="w-72 dark:border-slate-800 dark:bg-slate-900">
-            <SheetHeader>
-              <div className="flex items-center justify-between pr-8">
-                <SheetTitle>
-                  <Link href="/" onClick={() => setMenuOpen(false)} className="flex items-baseline gap-1.5 transition-opacity hover:opacity-80">
-                    {/* compact header → lettering-only wordmark (the full graffiti emblem lives on roomy surfaces: splash/login) */}
-                    <ThemedLogo form="wordmark" imgClassName="h-10 w-auto" textClassName="text-2xl" />
-                  </Link>
-                </SheetTitle>
-                <ThemeToggle />
-              </div>
-            </SheetHeader>
-            <div className="flex flex-1 flex-col overflow-y-auto">
-            <nav className="flex flex-col gap-1 px-2">
-              {NAV_ITEMS.map(({ href, label, icon, sub }) => {
-                const active = pathname?.startsWith(href) ?? false;
-                const isPlan = href === "/planner";
-                const iconBadge = <NavIcon icon={icon} size="h-8 w-8" />;
-                return (
-                  <div key={href}>
-                    <div className="flex items-center gap-0.5">
-                      {isPlan ? (
-                        // 저장된 계획이 여러 개일 수 있어 "계획" 탭 자체는 곧장
-                        // 아무 계획(마지막 작업분)으로 이동하지 않고, 아래 서랍부터
-                        // 열어 고를 수 있게 한다 — 화살표와 동일한 토글 동작.
-                        <button
-                          onClick={() => setPlansOpen((v) => !v)}
-                          className={`flex flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-                            active ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
-                          }`}
-                        >
-                          {iconBadge}
-                          {label}
-                        </button>
-                      ) : (
-                        <Link
-                          href={href}
-                          onClick={() => setMenuOpen(false)}
-                          className={`flex flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                            active ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
-                          }`}
-                        >
-                          {iconBadge}
-                          {label}
-                        </Link>
-                      )}
-                      {isPlan && (
-                        <button
-                          onClick={() => setPlansOpen((v) => !v)}
-                          aria-label={plansOpen ? "저장된 계획 접기" : "저장된 계획 펼치기"}
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-                        >
-                          <ChevronDown size={15} className={`transition-transform ${plansOpen ? "" : "-rotate-90"}`} />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* 저장된 계획 — 여러 트립 초안을 이름 붙여 저장해두고 전환/비교할
-                        수 있는 스위처. 서랍처럼 화살표로 펼치고 접는다. */}
-                    {isPlan && plansOpen && (
-                      <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 dark:border-slate-800 pl-3">
-                        {/* 새 계획 — 이전에 뭘 만들다 말았는지 몰라도(또는
-                            신경쓰고 싶지 않아도) 항상 빈 화면으로 들어갈 수
-                            있는 명시적인 진입점. 초안(draft)에 뭐가 남아있는지
-                            애매해서 헷갈린다는 피드백에 따라, "지금 작업 중인
-                            일정 보기"(=이어서 하기)와 나란히 둬서 고를 수 있게. */}
-                        <button
-                          onClick={() => {
-                            startNewPlan();
-                            router.push("/planner");
-                            setMenuOpen(false);
-                          }}
-                          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
-                        >
-                          <Plus size={13} />
-                          새 계획 시작하기
-                        </button>
-                        {/* 계획을 하나도 안 골라도 지금 작업 중인 일정으로는 항상
-                            바로 갈 수 있게 — 서랍이 유일한 진입점이 된 뒤에도
-                            막다른 길이 되지 않도록. */}
-                        <button
-                          onClick={() => {
-                            openDraft();
-                            router.push("/planner");
-                            setMenuOpen(false);
-                          }}
-                          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
-                        >
-                          <Calendar size={13} />
-                          지금 작업 중인 일정 보기
-                        </button>
-                        {savedPlans.length === 0 ? (
-                          <button
-                            onClick={() => {
-                              setSaveModalOpen(true);
-                              setMenuOpen(false);
-                            }}
-                            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
-                          >
-                            <Plus size={13} />
-                            계획 저장
-                          </button>
-                        ) : (
-                          savedPlans.map((plan) => (
-                            <div key={plan.id} className="group flex items-center gap-1 rounded-lg px-1 py-0.5 hover:bg-slate-50">
-                              <button
-                                onClick={() => {
-                                  const firstMarked = plan.items.length > 0
-                                    ? [...plan.items].map((i) => i.date).sort()[0]
-                                    : plan.activeDate;
-                                  setPreviewPlan(plan);
-                                  setPreviewDate(firstMarked);
-                                  setMenuOpen(false);
-                                }}
-                                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left"
-                              >
-                                {activePlanId === plan.id && (
-                                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-500" />
-                                )}
-                                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-slate-600">
-                                  {plan.name}
-                                </span>
-                              </button>
-                              {confirmDeleteId === plan.id ? (
-                                <div className="flex shrink-0 items-center gap-1.5 pr-1">
-                                  <button
-                                    onClick={() => {
-                                      deletePlan(plan.id);
-                                      setConfirmDeleteId(null);
-                                    }}
-                                    className="text-[11px] font-semibold text-rose-500"
-                                  >
-                                    삭제
-                                  </button>
-                                  <button onClick={() => setConfirmDeleteId(null)} className="text-[11px] text-slate-400">
-                                    취소
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => setConfirmDeleteId(plan.id)}
-                                  aria-label={`${plan.name} 삭제`}
-                                  className="shrink-0 p-1.5 text-slate-300 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100"
-                                >
-                                  <CordixIcon name="trash" size={12} />
-                                </button>
-                              )}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
-
-                    {/* 하위 플로우 링크 (예: 여행 계획짜기 → 코스 만들기) — 항상 펼쳐진 서랍 */}
-                    {sub && (
-                      <div className="ml-4 mt-1 flex flex-col gap-0.5 border-l border-slate-100 dark:border-slate-800 pl-3">
-                        {sub.map(({ href: subHref, label: subLabel, icon: subIcon }) => {
-                          const subActive = pathname?.startsWith(subHref) ?? false;
-                          return (
-                            <Link
-                              key={subHref}
-                              href={subHref}
-                              onClick={() => setMenuOpen(false)}
-                              className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] font-medium transition-colors ${
-                                subActive
-                                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
-                                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                              }`}
-                            >
-                              <NavIcon icon={subIcon} size="h-6 w-6" padding="p-1" />
-                              {subLabel}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </nav>
-
-            {/* 관심 장소 보관함 — 일정/여행 기록과는 무관한 개별 찜 목록이라
-                위 메뉴와 구분선으로 분리된 독립 탭으로 하단에 배치. */}
-            <div className="mt-2 border-t border-slate-100 dark:border-slate-800 px-2 pt-2">
-              <Link
-                href={SAVED_PLACES_NAV_ITEM.href}
-                onClick={() => setMenuOpen(false)}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                  (pathname?.startsWith(SAVED_PLACES_NAV_ITEM.href) ?? false)
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-700 hover:bg-slate-100"
-                }`}
-              >
-                <NavIcon icon={SAVED_PLACES_NAV_ITEM.icon} size="h-8 w-8" />
-                {SAVED_PLACES_NAV_ITEM.label}
-              </Link>
-            </div>
-
-            {/* 관리자 전용 — 대시보드·신고 처리 화면. */}
-            {session?.user?.isAdmin && (
-              <div className="mt-2 space-y-1 border-t border-slate-100 px-2 pt-2 dark:border-slate-800">
+        <div className="flex min-w-0 items-center gap-1">
+          {/* 모바일: 왼쪽 슬롯은 비운다(햄버거 제거, BottomTabBar가 대신함) —
+              센터 타이틀이 시각적으로 가운데 오도록 오른쪽 아이콘 폭만큼
+              스페이서만 둔다. 데스크톱: 인라인 텍스트 메뉴. */}
+          <div className="h-11 w-11 md:hidden" aria-hidden />
+          <nav aria-label="주요 메뉴" className="hidden items-center gap-1 md:flex">
+            {NAV_TABS.map((tab) => {
+              const active = tab.isActive(pathname ?? "/");
+              return (
                 <Link
-                  href="/admin"
-                  onClick={() => setMenuOpen(false)}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                    pathname === "/admin" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
+                  key={tab.key}
+                  href={tab.href}
+                  className={`rounded-full px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
+                    active
+                      ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                      : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
                   }`}
                 >
-                  <LayoutDashboard className="h-5 w-5" strokeWidth={1.8} />
-                  관리자 대시보드
+                  {tab.label}
                 </Link>
-                <Link
-                  href="/admin/reports"
-                  onClick={() => setMenuOpen(false)}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                    pathname === "/admin/reports" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
-                  }`}
-                >
-                  <ShieldAlert className="h-5 w-5" strokeWidth={1.8} />
-                  신고 관리
-                </Link>
-              </div>
-            )}
-
-            {/* 약관/방침/문의 — 서랍 맨 아래 계정 영역 위에 작게. */}
-            <div className="mt-auto flex gap-3 px-3 pb-1 text-[11px] text-slate-400">
-              <Link href="/terms" onClick={() => setMenuOpen(false)} className="hover:underline">
-                이용약관
-              </Link>
-              <Link href="/privacy" onClick={() => setMenuOpen(false)} className="hover:underline">
-                개인정보처리방침
-              </Link>
-              <button onClick={handleContactAdmin} disabled={contactingAdmin} className="hover:underline disabled:opacity-60">
-                {contactingAdmin ? "연결 중…" : "문의하기"}
-              </button>
-            </div>
-
-            {/* 계정 — 로그아웃 상태면 로그인/회원가입 진입, 로그인 상태면
-                프로필 + 로그아웃. */}
-            <div className="border-t border-slate-100 dark:border-slate-800 px-2 pb-2 pt-3">
-              {session?.user ? (
-                <div className="flex items-center gap-1 rounded-xl px-1 py-1.5">
-                  <button
-                    onClick={() => setProfileOpen(true)}
-                    className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1 py-1 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
-                  >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-brand-600 to-brand-pink-600 text-sm font-bold text-white">
-                      {session.user.image ? (
-                        // eslint-disable-next-line @next/next/no-img-element -- OAuth avatar / uploaded blob URL
-                        <img src={session.user.image} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        (session.user.nickname ?? session.user.email ?? "?").trim().charAt(0).toUpperCase()
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{session.user.nickname ?? "여행자"}</p>
-                      {session.user.email && <p className="truncate text-[11px] text-slate-400">{session.user.email}</p>}
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => {
-                      unsubscribeFromPush().catch(() => {});
-                      signOut();
-                    }}
-                    aria-label="로그아웃"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                  >
-                    <LogOut size={16} />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => {
-                    setLoginReason(null);
-                    setLoginOpen(true);
-                    setMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-3 rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
-                >
-                  <LogIn size={17} />
-                  로그인 / 회원가입
-                </button>
-              )}
-            </div>
-            </div>
-          </SheetContent>
-        </Sheet>
+              );
+            })}
+          </nav>
+        </div>
 
         <div className="flex min-w-0 flex-col items-center">
           {isPlanner ? (
@@ -621,25 +268,126 @@ export function AppBar() {
         </div>
 
         <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => setSavedPlansOpen(true)}
+            aria-label="저장된 계획"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            <CalendarRange size={18} />
+          </button>
           {isPlanner && (
             <button
               onClick={handleInvite}
               aria-label="초대하기"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              className="flex h-11 w-11 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
             >
               <UserPlus size={18} />
             </button>
           )}
-          {session?.user ? (
+          {session?.user && (
             <>
               <MessageBell />
               <NotificationBell />
             </>
-          ) : (
-            !isPlanner && <div className="h-9 w-9" aria-hidden />
           )}
         </div>
       </header>
+
+      {/* 저장된 계획 스위처 — 예전엔 햄버거 서랍 안 "계획" 서브메뉴였다.
+          트리거만 우측 아이콘 버튼으로 옮기고 내용 로직은 그대로 재사용. */}
+      <Sheet open={savedPlansOpen} onOpenChange={setSavedPlansOpen}>
+        <SheetContent side="right" className="w-72 dark:border-slate-800 dark:bg-slate-900">
+          <SheetHeader>
+            <SheetTitle>저장된 계획</SheetTitle>
+          </SheetHeader>
+          <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-4">
+            {/* 새 계획 — 이전에 뭘 만들다 말았는지 몰라도(또는 신경쓰고
+                싶지 않아도) 항상 빈 화면으로 들어갈 수 있는 명시적인
+                진입점. 초안(draft)에 뭐가 남아있는지 애매해서 헷갈린다는
+                피드백에 따라, "지금 작업 중인 일정 보기"(=이어서 하기)와
+                나란히 둬서 고를 수 있게. */}
+            <button
+              onClick={() => {
+                startNewPlan();
+                router.push("/planner");
+                setSavedPlansOpen(false);
+              }}
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:hover:bg-slate-800"
+            >
+              <Plus size={13} />
+              새 계획 시작하기
+            </button>
+            {/* 계획을 하나도 안 골라도 지금 작업 중인 일정으로는 항상 바로
+                갈 수 있게. */}
+            <button
+              onClick={() => {
+                openDraft();
+                router.push("/planner");
+                setSavedPlansOpen(false);
+              }}
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:hover:bg-slate-800"
+            >
+              <Calendar size={13} />
+              지금 작업 중인 일정 보기
+            </button>
+            {savedPlans.length === 0 ? (
+              <button
+                onClick={() => {
+                  setSaveModalOpen(true);
+                  setSavedPlansOpen(false);
+                }}
+                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:hover:bg-slate-800"
+              >
+                <Plus size={13} />
+                계획 저장
+              </button>
+            ) : (
+              savedPlans.map((plan) => (
+                <div key={plan.id} className="group flex items-center gap-1 rounded-lg px-1 py-0.5 hover:bg-slate-50 dark:hover:bg-slate-800">
+                  <button
+                    onClick={() => {
+                      const firstMarked = plan.items.length > 0
+                        ? [...plan.items].map((i) => i.date).sort()[0]
+                        : plan.activeDate;
+                      setPreviewPlan(plan);
+                      setPreviewDate(firstMarked);
+                      setSavedPlansOpen(false);
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left"
+                  >
+                    {activePlanId === plan.id && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-500" />}
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-slate-600 dark:text-slate-300">{plan.name}</span>
+                  </button>
+                  {confirmDeleteId === plan.id ? (
+                    <div className="flex shrink-0 items-center gap-1.5 pr-1">
+                      <button
+                        onClick={() => {
+                          deletePlan(plan.id);
+                          setConfirmDeleteId(null);
+                        }}
+                        className="text-[11px] font-semibold text-rose-500"
+                      >
+                        삭제
+                      </button>
+                      <button onClick={() => setConfirmDeleteId(null)} className="text-[11px] text-slate-400">
+                        취소
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteId(plan.id)}
+                      aria-label={`${plan.name} 삭제`}
+                      className="shrink-0 p-1.5 text-slate-300 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100"
+                    >
+                      <CordixIcon name="trash" size={12} />
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* 탈퇴 유예기간 중임을 어디서든 바로 알 수 있게 하는 배너 — 로그인만
           하면 자동으로 취소되지 않고(의도적으로), 여기서 명시적으로 "계정
@@ -666,11 +414,8 @@ export function AppBar() {
       {/* 가입 직후 닉네임이 없거나 이용약관·개인정보처리방침 동의 기록이 없으면
           앱을 쓰기 전 강제로 설정/동의부터 하게 한다 — 닫기/배경클릭으로 건너뛸
           수 없는 mandatory 모드. (약관 도입 전 기존 가입자도 다음 접속 때 통과) */}
-      {(profileOpen || (session?.user && (session.user.nickname == null || !session.user.termsAgreed))) && (
-        <ProfileSheet
-          onClose={() => setProfileOpen(false)}
-          mandatory={!profileOpen && (session?.user?.nickname == null || !session?.user?.termsAgreed)}
-        />
+      {session?.user && (session.user.nickname == null || !session.user.termsAgreed) && (
+        <ProfileSheet onClose={() => {}} mandatory />
       )}
 
       {saveModalOpen && (
