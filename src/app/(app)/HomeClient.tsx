@@ -17,17 +17,19 @@ import { colorForId } from "@/lib/placeStyle";
 import type { SavedPlan } from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────
-// The global App Bar (hamburger + title + Sheet nav) already lives in
-// src/components/AppBar.tsx, rendered once by src/app/(app)/layout.tsx
-// above every screen in this group — this page owns only the content
-// below it, not another header.
+// The global App Bar + BottomTabBar (탭바 도입, 2026-08-15 B안) already
+// live in src/components/AppBar.tsx / BottomTabBar.tsx, rendered once by
+// src/app/(app)/layout.tsx above every screen in this group — this page
+// owns only the content below them, not another header/nav.
 //
 // 리디자인 Phase 1(docs/design/2026-08-redesign) — "안녕하세요 + 메뉴 5개"
-// 였던 홈을 사용자 상태 기반으로 바꿨다. 메뉴 카드 5개는 완전히 뺐다(내비게
-// 이션은 기존 상단바/사이드시트가 이미 담당 — IA 자체를 다시 짜는 건 #167과
-// 묶일 Phase 2 몫). 온보딩(V3 웰컴→V2 취향퀴즈→V1 코치마크 전체 흐름)은
-// 이번 PR 범위 밖(별도 PR로 진행하기로 합의) — "완전 신규" 히어로는 그 전까지
-// AI 코스/직접 계획 버튼 2개짜리 축약판으로만 처리한다.
+// 였던 홈을 사용자 상태 기반으로 바꿨다. 메뉴 카드 5개는 완전히 뺐다.
+// Phase 1~2 사이엔 정식 내비게이션이 없어 재방문 사용자용 임시
+// QuickLinksRow(텍스트 바로가기 한 줄)를 잠깐 뒀었는데, 이제 정식 탭바/
+// 데스크톱 인라인 메뉴가 들어왔으니(navTabs.ts) 제거했다. 온보딩(V3
+// 웰컴→V2 취향퀴즈→V1 코치마크 전체 흐름)은 이번 PR 범위 밖(별도 PR로
+// 진행하기로 합의) — "완전 신규" 히어로는 그 전까지 AI 코스/직접 계획
+// 버튼 2개짜리 축약판으로만 처리한다.
 export function HomePage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -44,7 +46,6 @@ export function HomePage() {
     <div className="min-h-full bg-slate-50 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto max-w-3xl px-4 pb-24 pt-8 sm:px-6 lg:max-w-5xl xl:max-w-6xl">
         <HomeHero nickname={nickname} />
-        <QuickLinksRow />
 
         {/* ── HOME SEARCH ── 바로 검색어를 치면 /discover로 넘어가 그 검색을
             이어서 실행. discover 페이지의 ?q= 복원 로직을 그대로 탄다.
@@ -127,40 +128,6 @@ function useHeroState(): HeroState | null {
   }
 
   return { kind: "new" };
-}
-
-/**
- * 임시 바로가기 한 줄 — Phase 1이 메뉴 카드 5개(사실상 메인 내비게이션)를
- * 없애면서, 정식 대체 내비게이션(탭바/상단바)이 들어오는 Phase 2 전까지
- * 재방문 사용자가 보관함·커뮤니티 등으로 갈 방법이 햄버거 메뉴뿐이었다
- * (#173 검증 지적 — "재방문 사용자에게 명백한 후퇴"). 카드가 아니라 텍스트
- * 링크 한 줄이라 "메뉴판" 회귀는 아니고, Phase 2에서 정식 내비게이션이
- * 들어오면 이 컴포넌트만 지우면 된다. 신규 사용자에게는 숨긴다 — 그
- * 상태는 CTA 2개(AI 코스/직접 계획)에 시선을 집중시키는 게 목적이라, 아직
- * 갈 곳도 없는 보관함 링크를 보여줘봐야 산만하기만 하다.
- */
-function QuickLinksRow() {
-  const state = useHeroState();
-  if (!state || state.kind === "new") return null;
-
-  const links: { href: string; label: string }[] = [
-    { href: "/planner", label: "계획" },
-    { href: "/scrapbook", label: "보관함" },
-    { href: "/feed", label: "후기 피드" },
-    { href: "/community", label: "커뮤니티" },
-  ];
-  return (
-    <nav className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-slate-500 dark:text-slate-400">
-      {links.map((l, i) => (
-        <span key={l.href} className="flex items-center gap-2">
-          {i > 0 && <span className="text-slate-300 dark:text-slate-700" aria-hidden>·</span>}
-          <Link href={l.href} className="font-medium hover:text-brand-600">
-            {l.label}
-          </Link>
-        </span>
-      ))}
-    </nav>
-  );
 }
 
 /**
