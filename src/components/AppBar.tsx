@@ -31,6 +31,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/feed": "후기 피드",
   "/community": "커뮤니티",
   "/messages": "메시지",
+  "/my": "MY",
   "/terms": "이용약관",
   "/privacy": "개인정보처리방침",
   "/admin/reports": "신고 관리",
