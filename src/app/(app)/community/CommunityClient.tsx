@@ -11,6 +11,7 @@ import { COMMUNITY_CATEGORIES, communityCategoryLabel, isCommunityCategory } fro
 import { LoginModal } from "@/components/LoginModal";
 import { CommunityPostComposer } from "@/components/CommunityPostComposer";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
+import { CommunitySegmentTabs } from "@/components/CommunitySegmentTabs";
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -68,6 +69,7 @@ export function CommunityPage() {
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       {/* feed/page.tsx와 같은 이유로 2xl에서 한 번 더 넓힘 — 아래 grid도 맞춤. */}
       <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6 lg:max-w-3xl lg:px-8 2xl:max-w-6xl">
+        <CommunitySegmentTabs current="community" />
         <div className="mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <CordixIcon name="group" size={20} stroke="#BC5200" />

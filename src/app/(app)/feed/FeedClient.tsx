@@ -9,6 +9,7 @@ import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { LoginModal } from "@/components/LoginModal";
 import { UserProfileSheet } from "@/components/UserProfileSheet";
+import { CommunitySegmentTabs } from "@/components/CommunitySegmentTabs";
 import type { Region } from "@/lib/types";
 
 const SEARCH_DEBOUNCE_MS = 400;
@@ -78,6 +79,7 @@ export function FeedPage() {
           768px 안에 몰려 좌우가 비어 보였다 — 2xl에서 한 번 더 넓히고,
           아래 카드 grid도 2xl:grid-cols-3으로 맞춰 그 공간을 실제로 쓴다. */}
       <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6 lg:max-w-3xl lg:px-8 2xl:max-w-6xl">
+        <CommunitySegmentTabs current="feed" />
         <div className="mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <CordixIcon name="feed-announce" size={20} stroke="#BC5200" />
