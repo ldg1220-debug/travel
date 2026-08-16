@@ -225,7 +225,7 @@ export function AppBar() {
                 <Link
                   key={tab.key}
                   href={tab.href}
-                  className={`rounded-full px-3 py-1.5 text-[13.5px] font-semibold transition-colors ${
+                  className={`flex h-11 items-center rounded-full px-3.5 text-[13.5px] font-semibold transition-colors ${
                     active
                       ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
                       : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
