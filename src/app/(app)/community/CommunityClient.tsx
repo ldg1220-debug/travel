@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Loader2, Search } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
+import { EmptyStateCard } from "@/components/EmptyStateCard";
 import { fetchCommunityPosts, type CommunityPostSummary } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { COMMUNITY_CATEGORIES, communityCategoryLabel, isCommunityCategory } from "@/lib/community";
@@ -118,13 +119,11 @@ export function CommunityPage() {
         {loading ? (
           <div className="py-24 text-center text-[13px] text-slate-400">불러오는 중…</div>
         ) : posts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center">
-            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-              <CordixIcon name="group" size={24} />
-            </span>
-            <p className="text-sm font-semibold text-slate-700">{query ? "조건에 맞는 글이 없어요" : "아직 글이 없어요"}</p>
-            <p className="mt-1 text-[13px] text-slate-400">{query ? "다른 검색어로 찾아보세요." : "가장 먼저 글을 남겨보세요."}</p>
-          </div>
+          <EmptyStateCard
+            icon={<CordixIcon name="group" size={28} />}
+            title={query ? "조건에 맞는 글이 없어요" : "아직 글이 없어요"}
+            subtitle={query ? "다른 검색어로 찾아보세요." : "가장 먼저 글을 남겨보세요."}
+          />
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
             {posts.map((post) => (

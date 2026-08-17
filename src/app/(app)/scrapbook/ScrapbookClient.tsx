@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Calendar, X, ChevronLeft } from "lucide-react";
 import { CordixIcon, type CordixIconName } from "@/components/icons/CordixIcon";
 import { Badge } from "@/components/ui/badge";
+import { EmptyStateCard } from "@/components/EmptyStateCard";
 import { LoginModal } from "@/components/LoginModal";
 import { ReviewComposer } from "@/components/ReviewComposer";
 import { TripPostComposer } from "@/components/TripPostComposer";
@@ -735,24 +736,14 @@ function PostOnlyCard({ post, onOpen }: { post: TripPost; onOpen: () => void }) 
 function EmptyState({ tab, onPlan, onWrite }: { tab: TabKey; onPlan: () => void; onWrite: () => void }) {
   const copy =
     tab === "notWritten"
-      ? { title: "아직 후기를 안 쓴 계획이 없어요", sub: "탐색에서 새로운 여행을 계획해보세요." }
-      : { title: "다녀온 여행이 없어요", sub: "여행 후기를 남긴 계획이 여기에 모여요." };
+      ? { title: "아직 후기를 안 쓴 계획이 없어요", sub: "탐색에서 새로운 여행을 계획해보세요.", icon: "ticket" as const, label: "여행 계획짜기", onClick: onPlan }
+      : { title: "다녀온 여행이 없어요", sub: "여행 후기를 남긴 계획이 여기에 모여요.", icon: "passport" as const, label: "여행 후기 쓰기", onClick: onWrite };
   return (
-    <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center">
-      <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-        <CordixIcon name="plane" size={24} />
-      </span>
-      <p className="text-sm font-semibold text-slate-700">{copy.title}</p>
-      <p className="mt-1 text-[13px] text-slate-400">{copy.sub}</p>
-      {tab === "notWritten" ? (
-        <button onClick={onPlan} className="mt-4 rounded-full bg-brand-700 px-4 py-2 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-800">
-          여행 계획짜기
-        </button>
-      ) : (
-        <button onClick={onWrite} className="mt-4 rounded-full bg-brand-700 px-4 py-2 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-800">
-          여행 후기 쓰기
-        </button>
-      )}
-    </div>
+    <EmptyStateCard
+      icon={<CordixIcon name={copy.icon} size={28} />}
+      title={copy.title}
+      subtitle={copy.sub}
+      action={{ label: copy.label, onClick: copy.onClick }}
+    />
   );
 }

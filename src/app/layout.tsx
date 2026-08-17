@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Gaegu } from "next/font/google";
 import { Providers } from "./providers";
 import { SplashScreen } from "@/components/SplashScreen";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
@@ -13,6 +13,22 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// 빈 상태 헤드라인 전용 손글씨 폰트(스크랩북 모티프 작업지시서 B-4 — 본문·
+// 라벨·버튼엔 절대 안 씀, EmptyStateCard의 title에서만). 홈은 이미 크리티컬
+// 패스에 프리로드 리소스가 여럿(폰트 2개 + 로고 738KB 등) 걸려 있어
+// `preload: false`로 빼둔다 — font-display: swap(next/font 기본값)이라
+// font-handwriting 클래스가 실제로 화면에 그려지는 순간에만 지연 로드된다.
+// subsets는 "latin"뿐이지만(next/font의 Gaegu 메타데이터에 "korean" 서브셋
+// 자체가 없음 — Google이 이 폰트를 단일 파일로만 배포), 그 하나뿐인 파일에
+// 한글 글리프가 이미 포함돼 있어 실제로 한글이 정상 렌더된다(확인함) —
+// 따로 뺄 수 있는 "라틴 전용" 경량판이 없으니 이게 최소 용량이다.
+const gaegu = Gaegu({
+  variable: "--font-handwriting",
+  subsets: ["latin"],
+  weight: ["700"],
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -43,7 +59,7 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${gaegu.variable} h-full antialiased`}
     >
       <head>
         {/* "only light"가 기본 — 폰 OS가 다크 모드여도 삼성 인터넷/크롬의

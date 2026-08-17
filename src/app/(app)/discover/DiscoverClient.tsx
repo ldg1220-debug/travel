@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CordixIcon } from "@/components/icons/CordixIcon";
+import { EmptyStateCard } from "@/components/EmptyStateCard";
 import { ScheduleModal } from "@/components/ScheduleModal";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
 import { MonthCalendar } from "@/components/MonthCalendar";
@@ -1000,9 +1001,7 @@ export function DiscoverPage() {
               )}
 
               {bundle && trendingReal.length === 0 && favoritesReal.length === 0 && (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center text-sm text-slate-400">
-                  이 조건에 맞는 장소가 아직 없어요.
-                </div>
+                <EmptyStateCard icon={<CordixIcon name="compass" size={28} />} title="이 조건에 맞는 장소가 아직 없어요." />
               )}
 
               {bundle && bundle.routes.length > 0 && (
