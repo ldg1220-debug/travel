@@ -295,6 +295,22 @@ interface ItineraryState {
   startNewPlan: () => void;
   /** Reconciles the local draft against the server's copy on login — same "server wins for anything already synced" rule as hydrateSavedPlansFromServer. `null` means the server has no draft yet, so the local one (if any, not yet synced) is left untouched. */
   hydrateDraftFromServer: (remote: { id: number; title: string; region: Region; placesData: ItineraryItem[]; shareToken: string } | null) => void;
+  /**
+   * Wipes everything that can identify or profile the person who was just
+   * using this browser — the working itinerary, every saved plan, saved
+   * places/folders, and the 진행 중인 계획 draft — so a shared/family device
+   * doesn't keep showing the next person who opens the app someone else's
+   * trip dates and lodging locations after they log out (작업지시서
+   * 2026-08-17, "로그아웃 데이터 잔존"). Deliberately does NOT touch
+   * `timelineZoom`/`plannerMapHeight`/`plannerTabBarHidden` — those are UI
+   * environment prefs, not personal data, and the work order explicitly
+   * says to keep them. Call this from the logout handler (and from any
+   * future account-switch path that doesn't go through a full signOut)
+   * BEFORE the session actually clears, since server-synced plans should
+   * already have been pushed up by then — see migrateGuestDataToAccount for
+   * the opposite-direction counterpart run on login.
+   */
+  clearPersonalDataOnLogout: () => void;
 }
 
 export const useItineraryStore = create<ItineraryState>()(
@@ -743,6 +759,20 @@ export const useItineraryStore = create<ItineraryState>()(
             : {}),
         });
       },
+
+      clearPersonalDataOnLogout: () =>
+        set({
+          items: [],
+          activeDate: todayISODate(),
+          region: "international",
+          currentCity: "새 여행",
+          places: [],
+          savedPlaces: [],
+          savedPlaceFolders: [],
+          savedPlans: [],
+          activePlanId: null,
+          draft: null,
+        }),
     }),
     {
       name: "travel-scheduler-saved-places",

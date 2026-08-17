@@ -13,6 +13,8 @@ import { fetchFeed, fetchAdminContactId, type FeedPost } from "@/lib/api";
 import { unsubscribeFromPush } from "@/lib/push";
 import { ROOT_ADMIN_EMAIL } from "@/lib/server/rootAdmin";
 import { formatDateLabel } from "@/lib/timeline";
+import { useItineraryStore } from "@/store/itineraryStore";
+import { clearRecentSearchesStorage } from "@/lib/useRecentSearches";
 
 /** 메뉴 한 줄 — href가 있으면 Link, 없으면 버튼(onClick). 오른쪽은 항상 화살표(또는 커스텀 slot, 다크모드 토글용). */
 function MenuRow({
@@ -78,6 +80,7 @@ function Section({ title, children }: { title?: string; children: React.ReactNod
 export default function MyClient() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const clearPersonalDataOnLogout = useItineraryStore((s) => s.clearPersonalDataOnLogout);
   const [loginOpen, setLoginOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [myPosts, setMyPosts] = useState<FeedPost[] | null>(null);
@@ -119,6 +122,14 @@ export default function MyClient() {
 
   const handleLogout = () => {
     unsubscribeFromPush().catch(() => {});
+    // 공유 기기 대응(작업지시서 2026-08-17) — 서버 세션은 signOut()이
+    // 정리하지만, 이 브라우저의 localStorage에 남아있는 여행 계획/최근
+    // 검색어는 그대로면 다음 사람이 앱을 열었을 때 그대로 보인다. 둘 다
+    // signOut() 이전에 지워 화면이 즉시 빈 상태로 전환되게 한다(먼저
+    // signOut()이 세션을 지우면 리렌더 사이에 잠깐이라도 "로그아웃됐지만
+    // 이전 계획이 아직 보이는" 창이 생길 수 있다).
+    clearPersonalDataOnLogout();
+    clearRecentSearchesStorage();
     signOut();
   };
 
