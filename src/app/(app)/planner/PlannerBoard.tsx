@@ -82,6 +82,7 @@ import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
+import { EmptyStateCard } from "@/components/EmptyStateCard";
 import { ROUTE_OPTIMIZED_ONCE_KEY } from "@/lib/tripStatus";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { nudgeKakaoMapResize, getKakaoMaps, type KakaoMapInstance } from "@/lib/maps/kakao-map";
@@ -2445,9 +2446,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             <div className="flex flex-col gap-3 px-4 pb-6 pt-3">
               <PlaceSearchPanel region={region} onRegionChange={setRegion} onSelect={handleSavedPlaceDiscovered} />
               {savedPlaces.length === 0 ? (
-                <p className="mt-6 text-center text-[12px] text-slate-400">
-                  아직 저장한 장소가 없어요. 위에서 검색해서 담아보세요.
-                </p>
+                <EmptyStateCard
+                  icon={<CordixIcon name="pin" size={28} className="text-brand-600" />}
+                  title="아직 저장한 장소가 없어요"
+                  subtitle="위에서 검색해서 담아보세요."
+                />
               ) : (
                 <div className="space-y-2">
                   {savedPlaces.map((p) => (

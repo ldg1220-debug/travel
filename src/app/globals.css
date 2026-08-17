@@ -139,14 +139,14 @@
   --color-brand-pink-900: oklch(30% 0.1307 3.1);
   --color-brand-pink-950: oklch(22% 0.098 3.1);
 
-  /* ── Warm 팔레트 (Phase 1+ 전용, 아직 미사용) ──
-     2026-08 리디자인 목업의 배경/서페이스/잉크 토큰. 현재 어떤 화면도 이
-     토큰을 쓰지 않는다 — 기존 페이지는 여전히 slate 유틸리티를 직접 쓴다
-     (아래쪽 다크모드 remap 참고). Phase 1이 새 홈 화면을 만들 때 가져다
-     쓰라고 미리 계산해서 박아둔 것. ink3/ink4는 목업 원안이 각각
-     3.67:1/2.07:1로 AA 미달이라(디자인 리뷰 문서 참조) 아래 값으로 이미
-     수정했다 — ink3는 본문 보조 텍스트로 써도 되지만(4.6:1), ink4는
-     텍스트로 쓰지 말 것(2.6:1, 아이콘·구분선 전용). */
+  /* ── Warm 팔레트 (Phase 1+ 전용) ──
+     2026-08 리디자인 목업의 배경/서페이스/잉크 토큰. 처음엔 어떤 화면도 안
+     썼는데(기존 페이지는 여전히 slate 유틸리티를 직접 씀 — 아래쪽 다크모드
+     remap 참고), 스크랩북 모티프 작업(파트 B)이 그 첫 실사용처다
+     (ScrapbookClient.tsx의 카드 노치/스탬프, EmptyStateCard). ink3/ink4는
+     목업 원안이 각각 3.67:1/2.07:1로 AA 미달이라(디자인 리뷰 문서 참조)
+     아래 값으로 이미 수정했다 — ink3는 본문 보조 텍스트로 써도 되지만
+     (4.6:1), ink4는 텍스트로 쓰지 말 것(2.6:1, 아이콘·구분선 전용). */
   --color-warm-bg: #faf7f2;
   --color-warm-surface: #ffffff;
   --color-warm-surface-alt: #f3eee6;
@@ -155,6 +155,14 @@
   --color-warm-ink-2: #4a423b;
   --color-warm-ink-3: #6f6459; /* 수정값 — 원안 #8A7F72(3.67:1)는 AA 미달, ≈4.6:1로 조정 */
   --color-warm-ink-4: #b8ad9f; /* 텍스트 금지 — 아이콘/구분선 전용 (bg 대비 2.6:1) */
+}
+
+/* 손글씨 액센트 폰트 — 스크랩북 모티프 작업지시서(파트 B) B-4: 빈 상태
+   헤드라인 전용, 본문·라벨·버튼엔 절대 안 씀. `EmptyStateCard`의 `title`
+   프롭에서만 쓴다. `@utility`는 `@theme` 밖, 최상위에 둬야 한다(Tailwind
+   v4 문법). */
+@utility font-handwriting {
+  font-family: var(--font-handwriting), sans-serif;
 }
 
 :root {
