@@ -67,6 +67,11 @@ export function PrivacyBody() {
                   <td>익명 세션 식별자(임의로 생성된 문자열), 코스 생성·검색·계획 저장/공유 등 기능 이용 기록</td>
                   <td>서비스 이용 과정에서 브라우저에 자동 생성·저장</td>
                 </tr>
+                <tr>
+                  <td>자동</td>
+                  <td>제휴 마케팅 목적의 클릭·방문 정보</td>
+                  <td>외부 제휴 마케팅 플랫폼(Travelpayouts)이 제공하는 스크립트를 통해 쿠키·로컬 스토리지 방식으로 자동 수집</td>
+                </tr>
               </tbody>
             </table>
             <p className="mt-2">
@@ -81,6 +86,12 @@ export function PrivacyBody() {
               익명 세션 식별자는 로그인 여부와 무관하게 브라우저에 저장되는 임의의 문자열로, 특정 개인을 식별할 수 없으며
               IP 주소는 별도로 저장되지 않습니다. 이는 어떤 기능이 얼마나 쓰이는지 파악해 서비스를 개선하는 목적에만
               쓰이며, 수집일로부터 최대 90일간 보관 후 자동 삭제됩니다.
+            </p>
+            <p className="mt-2">
+              서비스는 제휴 마케팅(어필리에이트) 성과 측정을 위해 외부 업체 Travelpayouts의 추적 스크립트를 페이지에
+              포함하고 있습니다. 이 스크립트는 서비스가 아닌 Travelpayouts가 직접 운영하며, 쿠키 또는 브라우저 로컬
+              스토리지를 이용해 클릭·방문 정보를 수집할 수 있습니다. 수집되는 정보의 구체적인 처리 방식은 Travelpayouts의
+              자체 개인정보처리방침을 따릅니다.
             </p>
           </section>
 
@@ -137,6 +148,11 @@ export function PrivacyBody() {
                   <td>Google LLC / 카카오 / Apple Inc.</td>
                   <td>소셜 로그인 인증, 지도·장소 정보 제공</td>
                   <td>미국·대한민국</td>
+                </tr>
+                <tr>
+                  <td>Travelpayouts</td>
+                  <td>제휴 마케팅 성과 측정(클릭·방문 정보 수집)</td>
+                  <td>해외</td>
                 </tr>
               </tbody>
             </table>
