@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Gaegu } from "next/font/google";
+import Script from "next/script";
 import { Providers } from "./providers";
 import { SplashScreen } from "@/components/SplashScreen";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
@@ -83,6 +84,22 @@ export default function RootLayout({
         <ServiceWorkerRegister />
         <SplashScreen />
         <Providers>{children}</Providers>
+        {/* Travelpayouts Drive — 사이트 소유 확인용 스니펫(작업지시서
+            2026-08-17, "Travelpayouts Drive 스크립트 설치"). 원본 안내는
+            <head> 최상단 배치를 권하지만, 홈 화면이 이미 preload 8개(폰트
+            2·이미지 5·스크립트 1) + 738KB 로고를 크리티컬 패스에 들고 있어
+            그대로 따르면 LCP가 직접 밀린다. 원본 스니펫도 결국
+            `script.async = 1`로 붙이는 비동기 로드라 afterInteractive로
+            옮겨도 동작은 동일 — 첫 페인트만 막지 않는다. 원본의 나머지
+            속성(nowprocket, data-noptimize 등)은 전부 WordPress 최적화
+            플러그인 우회용 힌트라 Next.js와 무관해 넣지 않았고,
+            data-cmp-ab만 주입되는 스크립트 자체에 실제로 붙던 값이라 유지.
+            Verify installation이 실패하면 그때 beforeInteractive로 올린다.
+            Money Script(전체 링크 자동 제휴화)는 의도적으로 설치하지
+            않음 — bookingProviders()가 이미 딥링크를 직접 관리하고
+            lodging_cta_events로 전환을 추적 중이라, 자동 변환을 얹으면
+            통제를 잃고 그 추적과 충돌한다. */}
+        <Script id="tp-drive" src="https://emrldtp.com/NTYzMDg1.js?t=563085" strategy="afterInteractive" data-cmp-ab="2" />
       </body>
     </html>
   );
