@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Gaegu } from "next/font/google";
-import Script from "next/script";
 import { Providers } from "./providers";
 import { SplashScreen } from "@/components/SplashScreen";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
@@ -77,6 +76,31 @@ export default function RootLayout({
               "(function(){try{if(localStorage.getItem('theme')==='dark'){document.documentElement.classList.add('dark');var m=document.querySelector('meta[name=color-scheme]');if(m)m.setAttribute('content','dark')}}catch(e){}})()",
           }}
         />
+        {/* Travelpayouts Drive — 사이트 소유 확인용 스니펫(작업지시서
+            2026-08-17, "Travelpayouts Drive 스크립트 설치"). `next/script`로
+            두 차례(afterInteractive → beforeInteractive) 시도했으나, App
+            Router의 `next/script`는 어떤 strategy를 쓰든 원시
+            `<script src>` 태그를 초기 HTML에 내보내지 않는다 — 대신
+            `<link rel=preload as=script>` + 자체 로더 큐(`__next_s`) 푸시로
+            변환해 하이드레이션 이후에야 DOM에 태그를 만든다. Travelpayouts의
+            검증기가 원본 벤더 스니펫(문서에 직접 박힌 IIFE) 형태를 전제로
+            한다면 이 변환이 검증 실패의 원인일 수 있어, `next/script`를
+            거치지 않고 벤더가 준 IIFE를 그대로 인라인 스크립트로 넣는다 —
+            엘리먼트 하나를 만들어 head에 붙이는 것뿐이고 실제 로드는
+            `async`라 성능 부담은 없다(위 다크모드 초기화 스크립트와 같은
+            패턴). 원본의 나머지 속성(nowprocket, data-noptimize 등)은 전부
+            WordPress 최적화 플러그인 우회용 힌트라 Next.js와 무관해 넣지
+            않았고, data-cmp-ab만 주입되는 스크립트 자체에 실제로 붙던
+            값이라 유지. Money Script(전체 링크 자동 제휴화)는 의도적으로
+            설치하지 않음 — bookingProviders()가 이미 딥링크를 직접
+            관리하고 lodging_cta_events로 전환을 추적 중이라, 자동 변환을
+            얹으면 통제를 잃고 그 추적과 충돌한다. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){var s=document.createElement('script');s.async=1;s.setAttribute('data-cmp-ab','2');s.id='tp-drive';s.src='https://emrldtp.com/NTYzMDg1.js?t=563085';document.head.appendChild(s);})();",
+          }}
+        />
       </head>
       <body className="h-full bg-slate-200 dark:bg-slate-950">
         {/* Fetch the brand logo ASAP so it's ready for the splash (React hoists this to <head>). */}
@@ -84,23 +108,6 @@ export default function RootLayout({
         <ServiceWorkerRegister />
         <SplashScreen />
         <Providers>{children}</Providers>
-        {/* Travelpayouts Drive — 사이트 소유 확인용 스니펫(작업지시서
-            2026-08-17, "Travelpayouts Drive 스크립트 설치"). 처음엔
-            afterInteractive로 넣었다 — 홈 화면이 이미 preload 8개(폰트
-            2·이미지 5·스크립트 1) + 738KB 로고를 크리티컬 패스에 들고 있어
-            원본이 권하는 <head> 최상단 배치를 그대로 따르면 LCP가 직접
-            밀리기 때문. 그런데 배포본에서 요청 자체가 광고 차단 확장에
-            막혀 로드 여부를 판단하기 어려운 상태가 나와, beforeInteractive로
-            올려 원본 안내(다른 스크립트보다 앞)에 더 가깝게 맞췄다 —
-            App Router에서 beforeInteractive는 루트 layout.tsx에서만
-            유효하다(여기가 그 위치). 원본의 나머지 속성(nowprocket,
-            data-noptimize 등)은 전부 WordPress 최적화 플러그인 우회용
-            힌트라 Next.js와 무관해 넣지 않았고, data-cmp-ab만 주입되는
-            스크립트 자체에 실제로 붙던 값이라 유지. Money Script(전체 링크
-            자동 제휴화)는 의도적으로 설치하지 않음 — bookingProviders()가
-            이미 딥링크를 직접 관리하고 lodging_cta_events로 전환을 추적
-            중이라, 자동 변환을 얹으면 통제를 잃고 그 추적과 충돌한다. */}
-        <Script id="tp-drive" src="https://emrldtp.com/NTYzMDg1.js?t=563085" strategy="beforeInteractive" data-cmp-ab="2" />
       </body>
     </html>
   );
