@@ -107,17 +107,44 @@ export function AppBar() {
   // 상태가 되는 순간 한 번, 서버에 저장된 이 계정의 계획들(과 진행 중인
   // 계획 초안)을 가져온다 — 이미 로컬에 있던(동기화된) 건 서버 최신 내용으로
   // 갱신되고, 로컬에 없던 것만 새로 채워진다.
+  //
+  // 게스트→계정 이관(작업지시서 2026-08-17, "반대 방향") — 위 pull과는 반대
+  // 방향으로, 게스트 상태에서 이미 만들어둔 "이름 붙은" 저장 계획들
+  // (savedPlans, remoteId 없음 = 이 기기에만 있던 것)은 여기서 먼저 서버로
+  // 올려야 한다. 그러지 않으면 hydrateSavedPlansFromServer는 remoteId 없는
+  // 항목을 절대 건드리지 않으므로(그 함수 자체 문서 참고) 이 계정에는 영원히
+  // 안 보이는 로컬 전용 상태로 남는다 — 로그인하는 순간 작업이 사라진
+  // 것처럼 느껴지는 원인. "지금 화면에 열려 있는" 계획/진행 중인 계획
+  // 초안은 이 이관 대상에서 제외한다 — 그건 아래 autoSyncTimer 이펙트가
+  // session 변화에 반응해 이미 동일한 로그인 시점에 (savePlanAs로 라이브
+  // 상태를 먼저 최신화한 뒤) 동기화하므로, 여기서 예전 스냅샷을 따로
+  // 올리면 오히려 그 사이의 최신 편집 내용을 놓친 채 덮어쓸 수 있다.
   const hydratedRef = useRef(false);
   useEffect(() => {
     if (!session?.user || hydratedRef.current) return;
     hydratedRef.current = true;
-    fetchUserItineraries()
-      .then(({ itineraries, draft }) => {
-        hydrateSavedPlansFromServer(itineraries);
-        hydrateDraftFromServer(draft);
-      })
-      .catch(() => {});
-  }, [session, hydrateSavedPlansFromServer, hydrateDraftFromServer]);
+    const migrateGuestPlans = async () => {
+      const state = useItineraryStore.getState();
+      const unsynced = state.savedPlans.filter((p) => p.remoteId == null && p.id !== state.activePlanId && p.items.length > 0);
+      await Promise.all(
+        unsynced.map((p) =>
+          syncPlanToServer(p.id, p.region, p.items, p.name, undefined)
+            .then(({ id, shareToken }) => setPlanRemoteInfo(p.id, id, shareToken))
+            .catch(() => {}),
+        ),
+      );
+    };
+    migrateGuestPlans()
+      .catch(() => {})
+      .finally(() => {
+        fetchUserItineraries()
+          .then(({ itineraries, draft }) => {
+            hydrateSavedPlansFromServer(itineraries);
+            hydrateDraftFromServer(draft);
+          })
+          .catch(() => {});
+      });
+  }, [session, hydrateSavedPlansFromServer, hydrateDraftFromServer, setPlanRemoteInfo]);
 
   // 일정 자동 저장 — "계획 저장"을 따로 누르지 않아도, 로그인 상태에서
   // 일정에 장소를 추가/수정/삭제하면 잠시 후 자동으로 서버에 반영해 다른

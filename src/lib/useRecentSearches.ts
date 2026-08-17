@@ -68,12 +68,25 @@ export function useRecentSearches() {
 
   const clearRecent = useCallback(() => {
     setRecent([]);
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // see addRecent
-    }
+    clearRecentSearchesStorage();
   }, []);
 
   return { recent, addRecent, clearRecent };
+}
+
+/**
+ * Removes the recent-search-history key directly, without going through the
+ * hook — for callers outside a component render (e.g. the logout handler in
+ * MyClient.tsx), which have no in-memory `recent` state to also reset and
+ * would otherwise need to needlessly mount `useRecentSearches()` just to
+ * call `clearRecent`. Search history reveals what someone was planning, so
+ * this must run on logout the same as the itinerary store's personal data
+ * (작업지시서 2026-08-17, "로그아웃 데이터 잔존").
+ */
+export function clearRecentSearchesStorage(): void {
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // see addRecent
+  }
 }
