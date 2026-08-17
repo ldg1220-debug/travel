@@ -82,6 +82,8 @@ import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
+import { ShareImageSheet } from "@/components/ShareImageSheet";
+import type { ShareImageData } from "@/components/ShareImageCapture";
 import { ROUTE_OPTIMIZED_ONCE_KEY } from "@/lib/tripStatus";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { nudgeKakaoMapResize, getKakaoMaps, type KakaoMapInstance } from "@/lib/maps/kakao-map";
@@ -552,7 +554,6 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const { data: session } = useSession();
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginReason, setLoginReason] = useState<string | null>(null);
-  const [sharing, setSharing] = useState(false);
   // `currentCity` is only a best-guess label (updated whenever a discover
   // spot/route gets scheduled) and can be stale — e.g. left over from
   // browsing a different city before this plan was ever saved. Once the
@@ -560,7 +561,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // recipient should see, not that guess (see the same fix in AppBar.tsx).
   const activePlan = savedPlans.find((p) => p.id === activePlanId);
   const planTitle = activePlan?.name ?? currentCity;
-  const handleShareToKakao = async () => {
+
+  // "카카오톡 공유" — 스크랩북 모티프 작업지시서(파트 B-2) 반영. 클릭
+  // 즉시 공유하는 대신, 먼저 전용 스크랩북 레이아웃 공유 이미지 시트를
+  // 연다(ShareImageSheet) — 실제 카카오 전송은 그 시트가 이미지를 만들고
+  // 업로드한 뒤 이 함수가 넘겨주는 `shareViaKakaoWithImage`로 위임한다.
+  // "이미지로 저장"(handleCaptureSchedule, 정밀 그리드)은 완전히 별개
+  // 경로로 그대로 둔다 — 사용자 피드백: 두 버튼은 이름부터 용도가 다르다
+  // ("저장"은 나를 위한 정확한 시간표, "공유"는 남에게 보내는 예쁜 요약).
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const handleShareToKakao = () => {
     if (!session?.user) {
       setLoginReason("카카오톡으로 공유하려면 로그인해주세요.");
       setLoginOpen(true);
@@ -570,37 +580,33 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       showToast("공유할 일정이 없어요");
       return;
     }
-    setSharing(true);
-    try {
-      // Reusing the active plan's own remoteId (if it has one from an
-      // earlier save/share) updates that plan's own server row and link
-      // instead of always creating a fresh row — otherwise every share
-      // from an account collided on "the user's one itinerary," so
-      // sharing a second, different plan silently overwrote and reused
-      // the same link a previous recipient already had open.
-      const { id, shareToken: token } = await syncPlanToServer(
-        activePlan?.id ?? "unsaved-share",
-        region,
-        items,
-        planTitle,
-        activePlan?.remoteId,
-      );
-      if (activePlan) setPlanRemoteInfo(activePlan.id, id, token);
-      const url = `${window.location.origin}/planner/${token}`;
-      const dates = [...new Set(items.map((i) => i.date))].sort();
-      const dateRangeLabel =
-        dates.length === 0 ? "" : dates.length === 1 ? formatDateLabelShort(dates[0]) : `${formatDateLabelShort(dates[0])} ~ ${formatDateLabelShort(dates[dates.length - 1])}`;
-      await shareToKakao({
-        title: planTitle ? `${planTitle} 여행 계획` : "여행 계획",
-        description: dateRangeLabel,
-        url,
-      });
-      trackFeatureEvent("plan_share", "planner");
-    } catch {
-      showToast("카카오톡 공유에 실패했어요");
-    } finally {
-      setSharing(false);
-    }
+    setShareSheetOpen(true);
+  };
+  const shareViaKakaoWithImage = async (imageUrl: string) => {
+    // Reusing the active plan's own remoteId (if it has one from an
+    // earlier save/share) updates that plan's own server row and link
+    // instead of always creating a fresh row — otherwise every share
+    // from an account collided on "the user's one itinerary," so sharing
+    // a second, different plan silently overwrote and reused the same
+    // link a previous recipient already had open.
+    const { id, shareToken: token } = await syncPlanToServer(
+      activePlan?.id ?? "unsaved-share",
+      region,
+      items,
+      planTitle,
+      activePlan?.remoteId,
+    );
+    if (activePlan) setPlanRemoteInfo(activePlan.id, id, token);
+    const url = `${window.location.origin}/planner/${token}`;
+    const dates = [...new Set(items.map((i) => i.date))].sort();
+    const dateRangeLabel =
+      dates.length === 0 ? "" : dates.length === 1 ? formatDateLabelShort(dates[0]) : `${formatDateLabelShort(dates[0])} ~ ${formatDateLabelShort(dates[dates.length - 1])}`;
+    await shareToKakao({
+      title: planTitle ? `${planTitle} 여행 계획` : "여행 계획",
+      description: dateRangeLabel,
+      url,
+      imageUrl,
+    });
   };
 
   const scheduleByDate = useMemo(() => {
@@ -610,6 +616,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     }
     return map;
   }, [items, visibleDates]);
+
+  // 공유 이미지는 activeDate에 일정이 있으면 그 날짜, 없으면 일정이 있는
+  // 첫 보이는 날짜를 쓴다 — 완전히 빈 날짜를 공유하는 상황을 피한다.
+  const shareImageDate = scheduleByDate[activeDate]?.length ? activeDate : (visibleDates.find((d) => scheduleByDate[d]?.length) ?? activeDate);
+  const shareImageDates = [...new Set(items.map((i) => i.date))].sort();
+  const shareImageData: ShareImageData = {
+    cityName: planTitle || "",
+    date: shareImageDate,
+    dayLabel: shareImageDates.length > 1 ? `Day ${shareImageDates.indexOf(shareImageDate) + 1}/${shareImageDates.length}` : undefined,
+    items: (scheduleByDate[shareImageDate] ?? []).map((it, i) => ({ time: it.time, name: it.name, order: i + 1 })),
+  };
 
   // A stop can now run past midnight (e.g. 22:00 → next-day 06:00) — for
   // each visible date, find the previous day's stop (if any) whose
@@ -2098,11 +2115,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   </button>
                   <button
                     onClick={handleShareToKakao}
-                    disabled={sharing || items.length === 0}
+                    disabled={items.length === 0}
                     className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3.5 py-2 text-[13.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     <CordixIcon name="share" size={15} />
-                    {sharing ? "공유 중…" : "카카오톡 공유"}
+                    카카오톡 공유
                   </button>
                   {clearConfirmOpen ? (
                     <div className="flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3.5 py-2">
@@ -2835,6 +2852,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           </div>
         </div>
       )}
+
+      <ShareImageSheet
+        open={shareSheetOpen}
+        data={shareImageData}
+        onClose={() => setShareSheetOpen(false)}
+        onShareViaKakao={shareViaKakaoWithImage}
+        onTrack={(format) => trackFeatureEvent("plan_share", "planner", { format })}
+      />
     </DndContext>
   );
 }
