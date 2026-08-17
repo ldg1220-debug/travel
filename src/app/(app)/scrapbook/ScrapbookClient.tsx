@@ -11,7 +11,7 @@ import { LoginModal } from "@/components/LoginModal";
 import { ReviewComposer } from "@/components/ReviewComposer";
 import { TripPostComposer } from "@/components/TripPostComposer";
 import { useItineraryStore } from "@/store/itineraryStore";
-import { formatDateLabel } from "@/lib/timeline";
+import { formatDateLabel, formatDateLabelShort } from "@/lib/timeline";
 import { syncPlanToServer } from "@/lib/planSync";
 import { fetchMyTripPosts, type TripPost, type Visibility } from "@/lib/api";
 import type { SavedPlan } from "@/lib/types";
@@ -63,6 +63,25 @@ function coverGradient(planId: string): string {
   let hash = 0;
   for (let i = 0; i < planId.length; i++) hash = (hash * 31 + planId.charCodeAt(i)) >>> 0;
   return COVER_GRADIENTS[hash % COVER_GRADIENTS.length];
+}
+
+// ─────────────────────────────────────────────────────────────
+// "도착 스탬프" — 스크랩북 모티프 작업지시서(2026-08-14, 파트 B) B-1. 완료된
+// 여행(다녀온 여행 탭)에만 붙는 원형 배지 — 진행 중/초안(여행 계획 탭)엔 안
+// 붙어서, 스탬프의 있고 없음 자체가 상태 구분자다. 실제 데이터만 표시하고
+// 절대 가짜 값을 채우지 않는다(#163 원칙) — 계획 없이 쓴 후기(TripPost)는
+// 도시 필드가 없어서 city가 null이면 날짜만 찍힌 스탬프로 우아하게 축소된다.
+function ArrivalStamp({ city, dateLabel }: { city: string | null; dateLabel: string }) {
+  return (
+    <div
+      className="absolute left-2 top-2 z-10 flex h-14 w-14 -rotate-12 flex-col items-center justify-center rounded-full border-2 border-dashed border-brand-100 bg-warm-surface/90 text-center shadow-sm"
+      aria-hidden
+    >
+      <CordixIcon name="pin" size={11} stroke="currentColor" accent="currentColor" className="text-brand-700" />
+      {city && <span className="mt-0.5 max-w-[44px] truncate text-[7.5px] font-bold uppercase tracking-wide leading-none text-brand-800">{city}</span>}
+      <span className="text-[7px] font-semibold leading-none text-brand-700">{dateLabel}</span>
+    </div>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -348,6 +367,7 @@ function ScrapbookPageInner() {
                         key={`plan-${item.plan.id}`}
                         plan={item.plan}
                         coverSrc={coverSrcForPlan(item.plan)}
+                        variant="written"
                         confirming={confirmDeleteId === item.plan.id}
                         reviewSyncing={syncingPlanId === item.plan.id}
                         onOpen={() => router.push(`/trip/${item.post.id}`)}
@@ -375,6 +395,7 @@ function ScrapbookPageInner() {
                     key={plan.id}
                     plan={plan}
                     coverSrc={coverSrcForPlan(plan)}
+                    variant="notWritten"
                     confirming={confirmDeleteId === plan.id}
                     reviewSyncing={syncingPlanId === plan.id}
                     onOpen={() => openPlan(plan)}
@@ -526,6 +547,7 @@ function NewPostChooser({
 function TripCard({
   plan,
   coverSrc,
+  variant,
   confirming,
   reviewSyncing,
   onOpen,
@@ -538,6 +560,8 @@ function TripCard({
   plan: SavedPlan;
   /** A real photo to use as the card cover — the linked trip post's own uploaded photo if there is one, else a live representative-place lookup. Null falls back to the plain gradient. */
   coverSrc: string | null;
+  /** "written"(다녀온 여행 탭 — 후기 있음)만 도착 스탬프가 붙는다. "notWritten"(여행 계획 탭)은 스탬프 없음 — 그 자체가 상태 구분자. */
+  variant: "written" | "notWritten";
   confirming: boolean;
   reviewSyncing: boolean;
   onOpen: () => void;
@@ -555,82 +579,93 @@ function TripCard({
   const hasPhoto = Boolean(coverSrc) && !coverFailed;
 
   return (
-    <div className="group overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200">
-      {/* cover */}
-      <button
-        onClick={onOpen}
-        className={`relative block h-44 w-full text-left ${hasPhoto ? "bg-slate-200" : `bg-gradient-to-br ${coverGradient(plan.id)}`}`}
-      >
-        {hasPhoto ? (
-          // eslint-disable-next-line @next/next/no-img-element -- representative photo (uploaded blob URL or live Places proxy)
-          <img src={coverSrc!} alt="" loading="lazy" onError={() => setCoverFailed(true)} className="absolute inset-0 h-full w-full object-cover" />
-        ) : (
-          <div className="absolute inset-0 opacity-25 [background-image:radial-gradient(circle_at_25%_20%,white,transparent_45%)]" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
-
-        <div className="absolute right-3 top-3">
-          <Badge className={`gap-1 border-none text-[11px] font-semibold backdrop-blur ${isShared ? "bg-white/85 text-success-700" : "bg-black/35 text-white"}`}>
-            {isShared ? <CordixIcon name="globe" size={11} /> : <CordixIcon name="lock" size={11} />}
-            {isShared ? "공유됨" : "나만 보기"}
-          </Badge>
-        </div>
-
-        <div className="absolute bottom-3 left-4 right-4">
-          <p className="flex items-center gap-1 text-[11px] font-medium text-white/85">
-            <Calendar size={11} /> {dateLabel}
-          </p>
-          <h3 className="mt-1 text-xl font-bold tracking-tight text-white drop-shadow-sm">{plan.name}</h3>
-        </div>
-      </button>
-
-      {/* body */}
-      <div className="px-4 py-4">
-        <button onClick={onOpen} className="flex w-full items-start gap-1.5 text-left text-[12.5px] text-slate-600">
-          <CordixIcon name="pin" size={14} className="mt-0.5 shrink-0 text-brand-600" />
-          <span className="font-medium leading-snug">{tripRouteLabel(plan)}</span>
-        </button>
-
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button
-            onClick={onReview}
-            disabled={reviewSyncing}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 py-2 text-[12.5px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-60"
-          >
-            <CordixIcon name="pencil" size={13} /> {reviewSyncing ? "준비 중…" : "장소 후기"}
-          </button>
-          <button
-            onClick={onTripPost}
-            disabled={reviewSyncing}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50/60 py-2 text-[12.5px] font-semibold text-brand-700 transition-colors hover:bg-brand-50 disabled:opacity-60"
-          >
-            <CordixIcon name="pencil" size={13} /> {reviewSyncing ? "준비 중…" : "여행 후기"}
-          </button>
-        </div>
-
-        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
-          <span className="text-[12.5px] font-medium text-slate-500">
-            {dayCount > 0 ? `${dayCount}일 · ${plan.items.length}개 일정` : "일정 없음"}
-          </span>
-
-          {confirming ? (
-            <div className="flex items-center gap-2.5">
-              <button onClick={onDeleteConfirm} className="text-[12.5px] font-semibold text-rose-500">
-                삭제
-              </button>
-              <button onClick={onDeleteCancel} className="text-[12.5px] text-slate-400">
-                취소
-              </button>
-            </div>
+    <div className="group relative rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200">
+      {/* cover — clips only itself (rounded-t-3xl), not the whole card, so the
+          perforation notches below can sit ON the card's own outer edge
+          (classic ticket-stub technique) without getting clipped off. */}
+      <div className="overflow-hidden rounded-t-3xl">
+        <button
+          onClick={onOpen}
+          className={`relative block h-44 w-full text-left ${hasPhoto ? "bg-slate-200" : `bg-gradient-to-br ${coverGradient(plan.id)}`}`}
+        >
+          {hasPhoto ? (
+            // eslint-disable-next-line @next/next/no-img-element -- representative photo (uploaded blob URL or live Places proxy)
+            <img src={coverSrc!} alt="" loading="lazy" onError={() => setCoverFailed(true)} className="absolute inset-0 h-full w-full object-cover" />
           ) : (
-            <button
-              onClick={onDeleteRequest}
-              aria-label={`${plan.name} 삭제`}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-rose-50 hover:text-rose-500"
-            >
-              <CordixIcon name="trash" size={14} />
-            </button>
+            <div className="absolute inset-0 opacity-25 [background-image:radial-gradient(circle_at_25%_20%,white,transparent_45%)]" />
           )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
+
+          <div className="absolute right-3 top-3">
+            <Badge className={`gap-1 border-none text-[11px] font-semibold backdrop-blur ${isShared ? "bg-white/85 text-success-700" : "bg-black/35 text-white"}`}>
+              {isShared ? <CordixIcon name="globe" size={11} /> : <CordixIcon name="lock" size={11} />}
+              {isShared ? "공유됨" : "나만 보기"}
+            </Badge>
+          </div>
+
+          <div className="absolute bottom-3 left-4 right-4">
+            <p className="flex items-center gap-1 text-[11px] font-medium text-white/85">
+              <Calendar size={11} /> {dateLabel}
+            </p>
+            <h3 className="mt-1 text-xl font-bold tracking-tight text-white drop-shadow-sm">{plan.name}</h3>
+          </div>
+        </button>
+        {variant === "written" && <ArrivalStamp city={plan.currentCity || null} dateLabel={formatDateLabelShort(end)} />}
+      </div>
+
+      {/* body — separated from the cover by a dashed "perforation" line with
+          punched-out notches at each end (page-background-colored circles),
+          evoking a torn ticket stub. */}
+      <div className="relative border-t border-dashed border-warm-hairline">
+        <span className="absolute -left-2 top-0 h-4 w-4 -translate-y-1/2 rounded-full bg-slate-50" aria-hidden />
+        <span className="absolute -right-2 top-0 h-4 w-4 -translate-y-1/2 rounded-full bg-slate-50" aria-hidden />
+        <div className="px-4 py-4">
+          <button onClick={onOpen} className="flex w-full items-start gap-1.5 text-left text-[12.5px] text-slate-600">
+            <CordixIcon name="pin" size={14} className="mt-0.5 shrink-0 text-brand-600" />
+            <span className="font-medium leading-snug">{tripRouteLabel(plan)}</span>
+          </button>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              onClick={onReview}
+              disabled={reviewSyncing}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 py-2 text-[12.5px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-60"
+            >
+              <CordixIcon name="pencil" size={13} /> {reviewSyncing ? "준비 중…" : "장소 후기"}
+            </button>
+            <button
+              onClick={onTripPost}
+              disabled={reviewSyncing}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50/60 py-2 text-[12.5px] font-semibold text-brand-700 transition-colors hover:bg-brand-50 disabled:opacity-60"
+            >
+              <CordixIcon name="pencil" size={13} /> {reviewSyncing ? "준비 중…" : "여행 후기"}
+            </button>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+            <span className="text-[12.5px] font-medium text-slate-500">
+              {dayCount > 0 ? `${dayCount}일 · ${plan.items.length}개 일정` : "일정 없음"}
+            </span>
+
+            {confirming ? (
+              <div className="flex items-center gap-2.5">
+                <button onClick={onDeleteConfirm} className="text-[12.5px] font-semibold text-rose-500">
+                  삭제
+                </button>
+                <button onClick={onDeleteCancel} className="text-[12.5px] text-slate-400">
+                  취소
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={onDeleteRequest}
+                aria-label={`${plan.name} 삭제`}
+                className="flex h-7 w-7 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-rose-50 hover:text-rose-500"
+              >
+                <CordixIcon name="trash" size={14} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -648,40 +683,49 @@ function PostOnlyCard({ post, onOpen }: { post: TripPost; onOpen: () => void }) 
   const hasPhoto = Boolean(post.images[0]) && !coverFailed;
 
   return (
-    <div className="group overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200">
-      <button
-        onClick={onOpen}
-        className={`relative block h-44 w-full text-left ${hasPhoto ? "bg-slate-200" : `bg-gradient-to-br ${coverGradient(String(post.id))}`}`}
-      >
-        {hasPhoto ? (
-          // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
-          <img src={post.images[0]} alt="" loading="lazy" onError={() => setCoverFailed(true)} className="absolute inset-0 h-full w-full object-cover" />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center opacity-70">
-            <CordixIcon name="pencil" size={40} stroke="#fff" accent="#fff" />
+    <div className="group relative rounded-3xl border border-slate-200/70 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200">
+      <div className="overflow-hidden rounded-t-3xl">
+        <button
+          onClick={onOpen}
+          className={`relative block h-44 w-full text-left ${hasPhoto ? "bg-slate-200" : `bg-gradient-to-br ${coverGradient(String(post.id))}`}`}
+        >
+          {hasPhoto ? (
+            // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
+            <img src={post.images[0]} alt="" loading="lazy" onError={() => setCoverFailed(true)} className="absolute inset-0 h-full w-full object-cover" />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center opacity-70">
+              <CordixIcon name="pencil" size={40} stroke="#fff" accent="#fff" />
+            </div>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
+
+          <div className="absolute right-3 top-3">
+            <Badge className="gap-1 border-none bg-black/35 text-[11px] font-semibold text-white backdrop-blur">
+              <CordixIcon name="folder" size={11} /> 계획 없음
+            </Badge>
           </div>
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
 
-        <div className="absolute right-3 top-3">
-          <Badge className="gap-1 border-none bg-black/35 text-[11px] font-semibold text-white backdrop-blur">
-            <CordixIcon name="folder" size={11} /> 계획 없음
-          </Badge>
-        </div>
-
-        <div className="absolute bottom-3 left-4 right-4">
-          <p className="flex items-center gap-1 text-[11px] font-medium text-white/85">
-            <CordixIcon name={VISIBILITY_ICON[post.visibility]} size={11} /> {VISIBILITY_LABEL[post.visibility]} ·{" "}
-            {formatDateLabel(post.createdAt.slice(0, 10))}
-          </p>
-          <h3 className="mt-1 truncate text-xl font-bold tracking-tight text-white drop-shadow-sm">{post.title}</h3>
-        </div>
-      </button>
-
-      {post.content && (
-        <button onClick={onOpen} className="block w-full px-4 py-4 text-left">
-          <p className="line-clamp-2 text-[12.5px] leading-relaxed text-slate-500">{post.content}</p>
+          <div className="absolute bottom-3 left-4 right-4">
+            <p className="flex items-center gap-1 text-[11px] font-medium text-white/85">
+              <CordixIcon name={VISIBILITY_ICON[post.visibility]} size={11} /> {VISIBILITY_LABEL[post.visibility]} ·{" "}
+              {formatDateLabel(post.createdAt.slice(0, 10))}
+            </p>
+            <h3 className="mt-1 truncate text-xl font-bold tracking-tight text-white drop-shadow-sm">{post.title}</h3>
+          </div>
         </button>
+        {/* 계획 없이 쓴 후기라 도시 필드가 없다 — 날짜만 찍힌 스탬프로 축소(가짜 도시명 금지). 이 목록엔 항상 후기가 있는(=완료된) 여행만 나오므로 조건 없이 항상 찍는다. */}
+        <ArrivalStamp city={null} dateLabel={formatDateLabelShort(post.createdAt.slice(0, 10))} />
+      </div>
+
+      {/* 절취선은 뜯어낼 본문이 있을 때만 — 내용이 없으면 커버만 있는 기존 모습 유지(빈 절취선이 어색해 보이는 걸 방지). */}
+      {post.content && (
+        <div className="relative border-t border-dashed border-warm-hairline">
+          <span className="absolute -left-2 top-0 h-4 w-4 -translate-y-1/2 rounded-full bg-slate-50" aria-hidden />
+          <span className="absolute -right-2 top-0 h-4 w-4 -translate-y-1/2 rounded-full bg-slate-50" aria-hidden />
+          <button onClick={onOpen} className="block w-full px-4 py-4 text-left">
+            <p className="line-clamp-2 text-[12.5px] leading-relaxed text-slate-500">{post.content}</p>
+          </button>
+        </div>
       )}
     </div>
   );
