@@ -215,18 +215,24 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
             <p className="mt-1 max-w-[80%] text-[13px] text-orange-50 sm:max-w-[65%] sm:text-sm">
               최근 여행: {state.lastPlan.currentCity} · {state.lastPlan.items.length}곳 다녀왔어요
             </p>
+            {/* AI 코스를 기본(주 버튼)으로 — "새로운 여행을 시작한다"는 의도는
+                아래 "new" 상태와 다르지 않은데, 그쪽은 이미 AI 코스를 주
+                버튼으로 두고 있어(233행 부근) 여기만 반대였다(빈 플래너로
+                바로 보내는 "새 여행 만들기"가 주 버튼). 사용자 피드백:
+                "새 여행 만들기 눌렀을 때 지금의 AI 코스가 되는 게 맞지
+                않냐" — 두 상태의 버튼 위계를 통일한다. */}
             <div className="mt-3 flex flex-wrap gap-2">
               <button
-                onClick={goToNewPlan}
+                onClick={goToCourse}
                 className="inline-flex items-center gap-1 rounded-full bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-blue-900 transition-colors hover:bg-blue-50"
               >
-                새 여행 만들기 <ChevronRight size={14} />
+                <Sparkles size={13} /> AI 코스 추천받기
               </button>
               <button
-                onClick={goToCourse}
+                onClick={goToNewPlan}
                 className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3.5 py-1.5 text-[12.5px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
               >
-                <Sparkles size={13} /> AI 코스
+                직접 계획 짜기 <ChevronRight size={14} />
               </button>
             </div>
           </>
