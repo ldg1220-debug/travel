@@ -19,6 +19,18 @@ const MAP_SCRIPT_HOSTS =
 // for tile/place data, beyond the script hosts above.
 const MAP_CONNECT_HOSTS =
   "https://maps.googleapis.com https://*.googleapis.com https://maps.gstatic.com https://*.gstatic.com https://dapi.kakao.com https://*.daumcdn.net https://*.kakaocdn.net";
+// Travelpayouts Drive — 사이트 소유 확인 스크립트(layout.tsx의 인라인
+// IIFE가 붙이는 <script src>, 작업지시서 2026-08-17). 이 CSP에 없어서
+// 브라우저가 로드 자체를 차단하고 있었다(dev 콘솔에서 "Refused to load
+// the script ... violates ... script-src" 직접 확인) — 배포본에서
+// "요청이 광고 차단 확장에 막힌다"고 오판했던 실패의 실제 원인이 이거였을
+// 가능성이 높다(afterInteractive→beforeInteractive→원시 인라인, 세 번
+// 전략을 바꿔도 CSP 위반은 전략과 무관하게 계속 발생했을 것). 이 스크립트
+// 자체가 클릭·검색 추적 목적으로 자기 도메인에 추가로 fetch/beacon을
+// 보낼 수 있어(작업지시서 3장 "기능 잠금 해제 — 클릭·검색 추적") connect-src
+// 에도 같이 열어둔다 — 실제로 다른 호스트로 더 나가는 게 확인되면 그때
+// 추가한다.
+const TP_DRIVE_HOST = "https://emrldtp.com";
 
 // 'unsafe-inline'/'unsafe-eval' are unfortunately required here — Next.js's
 // own hydration script is inline, and the Google Maps JS SDK injects both
@@ -29,11 +41,11 @@ const MAP_CONNECT_HOSTS =
 // execute code, so the risk/benefit of locking that one down is poor.
 const APP_CSP = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' 'unsafe-eval' ${MAP_SCRIPT_HOSTS}`,
+  `script-src 'self' 'unsafe-inline' 'unsafe-eval' ${MAP_SCRIPT_HOSTS} ${TP_DRIVE_HOST}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' ${MAP_CONNECT_HOSTS}`,
+  `connect-src 'self' ${MAP_CONNECT_HOSTS} ${TP_DRIVE_HOST}`,
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
