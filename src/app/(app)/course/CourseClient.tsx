@@ -723,6 +723,31 @@ export function CourseBuilderPage() {
                   )}
                 </div>
 
+                {/* 1박 이상일 때만 — 아래 "도착/출발 시각" 입력이 어느 날짜의
+                    시각인지 미리 알 수 있게, 실제 여행 날짜를 달력으로 먼저
+                    정한다(사용자 피드백: "1박 이상 골랐을 때 날짜 고르는
+                    건 달력식이어야 하는데 시간만 있고 날짜는 없었다"). 기존
+                    multiStartDate/multiDatePickerOpen은 원래 AI가 동선을 다
+                    짠 뒤(다일정 미리보기 시트)에만 노출됐는데 — 그 상태를
+                    그대로 재사용해 진입 시점만 앞당긴다. 미리보기 시트의
+                    "Day 1 시작일" 버튼은 그대로 남겨 나중에 다시 바꿀 수
+                    있게 한다. */}
+                {aiDays > 1 && (
+                  <div>
+                    <p className="mb-1.5 text-[11px] font-semibold text-slate-500">여행 날짜</p>
+                    <button
+                      type="button"
+                      onClick={() => setMultiDatePickerOpen(true)}
+                      className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-[12.5px] font-semibold text-slate-600 hover:border-brand-400"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <CalendarDays size={13} className="text-brand-600" /> Day 1 (출발일)
+                      </span>
+                      <span>{formatDateLabel(multiStartDate)}</span>
+                    </button>
+                  </div>
+                )}
+
                 <div>
                   <p className="mb-1.5 text-[11px] font-semibold text-slate-500">이동 방법</p>
                   <div className="flex gap-1.5">
