@@ -2004,8 +2004,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       </button>
                     )}
                     {/* 일정을 짜는 중이라는 건 곧 숙소를 예약할 사람이라는
-                        뜻 — 그 순간 바로 이 도시 숙소 딥링크를 보여준다. */}
-                    {currentCity && (
+                        뜻 — 그 순간 바로 이 도시 숙소 딥링크를 보여준다.
+                        승인된 제휴 프로그램이 하나도 없으면(lodgingProviders
+                        가 빈 배열, affiliates.ts 참고) 이 CTA 자체를 숨긴다 —
+                        눌러도 빈 팝업만 뜨는 걸 막기 위함. */}
+                    {currentCity && lodgingProviders.length > 0 && (
                       <button onClick={() => openLodgingPicker("header")} aria-label={`${currentCity} 숙소 예약`}>
                         <Badge className="gap-1 rounded-full border-brand-200 bg-brand-50 px-2.5 py-1 text-[13px] font-bold text-brand-800 hover:bg-brand-100">
                           <CordixIcon name="bed" size={13} stroke="#732A00" accent="#732A00" />
@@ -2170,7 +2173,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   더 맞는 자리에도 같은 CTA를 하나 더 둔다(상단 배지와
                   나란히 — 어느 쪽이 더 잘 눌리는지는 logLodgingCtaEvent로
                   비교). */}
-              {!monthViewOpen && schedule.length >= 2 && currentCity && (
+              {!monthViewOpen && schedule.length >= 2 && currentCity && lodgingProviders.length > 0 && (
                 <div className="px-4 pb-1 pt-2">
                   <button
                     onClick={() => openLodgingPicker("timeline")}
@@ -2662,10 +2665,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         )}
 
         {/* 숙소 예약 팝업 — discover의 LivePlaceCard와 같은 제휴 딥링크
-            버튼(src/lib/affiliates.ts)을 도시 단위로 보여준다. 제휴 id가
-            아직 없는 곳은 그냥 일반 검색 링크로 열려서(hasAffiliateLink
-            참고), 프로그램 승인 전에도 자연스럽게 동작한다. */}
-        {lodgingPickerPlacement && currentCity && (
+            버튼(src/lib/affiliates.ts)을 도시 단위로 보여준다. 승인된
+            프로그램만 목록에 오르므로(affiliates.ts 참고) 여기 뜨는 건
+            전부 실제 제휴 링크 — hasAffiliateLink 배지는 사실상 항상
+            true지만 방어적으로 남겨둔다. */}
+        {lodgingPickerPlacement && currentCity && lodgingProviders.length > 0 && (
           <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setLodgingPickerPlacement(null)} />
             <div className="relative w-full max-w-sm rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">

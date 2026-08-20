@@ -9,9 +9,15 @@ import type { Region } from "./types";
  * 필요한 2단계 작업.
  *
  * 제휴 id는 아래 NEXT_PUBLIC_* env에서 읽는다 (링크를 브라우저에서 조립하므로
- * public 이어야 함). **id가 없으면** 버튼은 그냥 일반 검색 링크로 동작하고
- * "제휴" 표기도 뜨지 않으므로, 프로그램 승인 전에 붙여도 앱이 깨지거나
- * 오해를 주지 않는다 — 승인 후 id만 채우면 자동으로 수익화 모드로 전환된다.
+ * public 이어야 함).
+ *
+ * **id가 없는 프로그램은 목록에서 아예 빠진다**(2026-08 정책 변경 — 사용자
+ * 지시: "어필리에이트 없는건 나중에 계정 승인되면 노출시키는걸로하고 지금은
+ * 안보이게해"). 예전엔 승인 전에도 일반 검색 링크로 계속 노출했었지만,
+ * 승인 안 된 곳까지 버튼으로 보여주는 게 오히려 불필요하다고 판단 —
+ * 승인 후 env만 채우면 자동으로 목록에 나타난다. 이 필터링 때문에 지금
+ * 당장은(트립닷컴 env를 아직 안 채웠다면) `bookingProviders()`가 빈
+ * 배열을 반환할 수 있다 — 호출부는 전부 이 경우를 빈 상태로 처리해야 한다.
  *
  * ⚠️ 각 사의 정확한 제휴 파라미터/URL 규격은 프로그램마다 다르고 바뀌므로
  * 대시보드에서 최종 확인이 필요하다. 아래는 흔한 형태의 템플릿이다.
@@ -118,7 +124,8 @@ export function bookingProviders(placeName: string, region: Region, city?: strin
       isAffiliate: yeogiAff,
     });
   }
-  return list;
+  // 승인 안 된(제휴 id 없는) 프로그램은 노출하지 않는다 — 위 doc 참고.
+  return list.filter((p) => p.isAffiliate);
 }
 
 /** True if any provider link is a real (commissioned) affiliate link — gates the "제휴" disclosure. */

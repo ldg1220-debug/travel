@@ -841,7 +841,10 @@ export function CourseBuilderPage() {
                   </>
                 )}
 
-                {aiCity && (
+                {/* 승인된 제휴 프로그램이 없으면(lodgingProviders 빈 배열,
+                    affiliates.ts 참고) 이 CTA를 숨긴다 — 눌러도 빈 팝업만
+                    뜨는 걸 막기 위함. */}
+                {aiCity && lodgingProviders.length > 0 && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1173,8 +1176,8 @@ export function CourseBuilderPage() {
       )}
 
       {/* 숙소 예약 CTA — "세부 설정" 안내에서 열림. 플래너의 같은 팝업과
-          같은 패턴(제휴 있으면 배지, 없으면 그냥 일반 검색 링크). */}
-      {lodgingOpen && aiCity && (
+          같은 패턴 — 목록엔 승인된 제휴 프로그램만 오른다(affiliates.ts). */}
+      {lodgingOpen && aiCity && lodgingProviders.length > 0 && (
         <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center" onClick={() => setLodgingOpen(false)}>
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
           <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
