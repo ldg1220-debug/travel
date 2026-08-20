@@ -56,8 +56,15 @@ export function isLodging(category: string): boolean {
 /**
  * Booking deep-links for one lodging, branched by region:
  *  - overseas → 아고다 · 트립닷컴 · 호텔스닷컴
- *  - domestic → 아고다 · 야놀자 · 여기어때
+ *  - domestic → 아고다 · 트립닷컴 · 야놀자 · 여기어때
  * `placeName` (optionally + city) is used as the search text.
+ *
+ * 트립닷컴은 원래 해외 전용이었다(국내 숙소를 트립닷컴으로 찾는 실사용은
+ * 드물다는 가정) — 2026-08 기준 승인된 제휴 프로그램이 트립닷컴뿐이고
+ * 아고다는 계속 미승인 상태라(사용자 확인), 우선 트립닷컴·트래블페이아웃
+ * 위주로 실제 수익화되는 쪽을 먼저 태우기로 하고 국내에도 노출 범위를
+ * 넓혔다. 아고다/야놀자/여기어때는 그대로 두되(id 없으면 일반 검색 링크로
+ * 안전하게 폴백), 승인되는 대로 자동으로 제휴 모드가 켜진다.
  */
 export function bookingProviders(placeName: string, region: Region, city?: string): BookingProvider[] {
   const text = city ? `${placeName} ${city}` : placeName;
@@ -73,17 +80,18 @@ export function bookingProviders(placeName: string, region: Region, city?: strin
     isAffiliate: agodaAff,
   });
 
+  const tripAff = Boolean(AFFILIATE.tripAllianceId);
+  list.push({
+    key: "trip",
+    label: "트립닷컴",
+    brand: "#2577e3",
+    url: `https://www.trip.com/hotels/list?keyword=${q}${
+      tripAff ? `&Allianceid=${encodeURIComponent(AFFILIATE.tripAllianceId)}&SID=${encodeURIComponent(AFFILIATE.tripSid)}` : ""
+    }`,
+    isAffiliate: tripAff,
+  });
+
   if (region === "international") {
-    const tripAff = Boolean(AFFILIATE.tripAllianceId);
-    list.push({
-      key: "trip",
-      label: "트립닷컴",
-      brand: "#2577e3",
-      url: `https://www.trip.com/hotels/list?keyword=${q}${
-        tripAff ? `&Allianceid=${encodeURIComponent(AFFILIATE.tripAllianceId)}&SID=${encodeURIComponent(AFFILIATE.tripSid)}` : ""
-      }`,
-      isAffiliate: tripAff,
-    });
     const hotelsAff = Boolean(AFFILIATE.hotelsAffiliate);
     list.push({
       key: "hotels",
