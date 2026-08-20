@@ -649,3 +649,10 @@ CREATE INDEX IF NOT EXISTS feature_events_created_at_idx ON feature_events (crea
 CREATE INDEX IF NOT EXISTS feature_events_event_created_idx ON feature_events (event, created_at);
 CREATE INDEX IF NOT EXISTS feature_events_session_idx ON feature_events (session_id, created_at);
 ALTER TABLE feature_events ENABLE ROW LEVEL SECURITY;
+
+-- 작업지시서 2026-08-14 "숙박 제휴 링크: 카테고리 게이팅" 5장 — 트립닷컴
+-- 같은 호텔 중심 OTA는 캠핑장/글램핑류에 재고가 없어 affiliates.ts에서
+-- 카테고리 기반으로 노출을 막았는데(isCampgroundType), 이 게이팅이 실제로
+-- 맞게 동작하는지(캠핑장 카테고리에서 트립닷컴 클릭이 실제로 0인지)
+-- 검증하려면 클릭 시점의 스팟 카테고리가 함께 남아야 한다.
+ALTER TABLE lodging_cta_events ADD COLUMN IF NOT EXISTS spot_category TEXT;

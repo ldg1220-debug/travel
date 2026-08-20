@@ -1425,16 +1425,20 @@ export function logLodgingCtaEvent(
   // "course" = 코스 만들기의 "세부 설정" 시작·종료 위치 입력란에 붙은
   // "숙소 정하셨나요?" CTA — 아직 숙소를 안 정한 사용자가 동선을 짜기
   // *직전*에 뜨는 지점이라 플래너의 header/timeline보다도 의도가 높을
-  // 것으로 보고 별도 placement로 남겨 비교한다.
-  placement: "header" | "timeline" | "course",
+  // 것으로 보고 별도 placement로 남겨 비교한다. "card" = discover의 숙박
+  // 카드에 바로 붙은 예약 버튼 — 유일하게 특정 스팟(spotCategory)에 묶인
+  // placement라, 카테고리 게이팅(affiliates.ts) 검증은 이 placement에서만
+  // 의미가 있다.
+  placement: "header" | "timeline" | "course" | "card",
   city: string,
   region: Region,
   provider?: string,
   isAffiliate?: boolean,
+  spotCategory?: string,
 ): void {
   fetch("/api/track/lodging-cta", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind, placement, city, region, provider, isAffiliate }),
+    body: JSON.stringify({ kind, placement, city, region, provider, isAffiliate, spotCategory }),
   }).catch(() => {});
 }

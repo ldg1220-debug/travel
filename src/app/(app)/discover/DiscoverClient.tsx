@@ -48,7 +48,7 @@ import { FolderChips } from "@/components/FolderChips";
 import { SchedulePlanPickerModal, type SchedulePlanTarget } from "@/components/SchedulePlanPickerModal";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
-import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch, fetchSpotMetrics, type SpotMetrics } from "@/lib/api";
+import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch, fetchSpotMetrics, logLodgingCtaEvent, type SpotMetrics } from "@/lib/api";
 import { useUserLocation } from "@/lib/useUserLocation";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
@@ -1956,7 +1956,7 @@ function LivePlaceCard({
   onHoverChange?: (hovered: boolean) => void;
 }) {
   const lodging = isLodging(place.category);
-  const providers = lodging ? bookingProviders(place.name, region) : [];
+  const providers = lodging ? bookingProviders(place.name, region, undefined, place.category) : [];
   const showAffiliate = hasAffiliateLink(providers);
   // Kakao Local (국내) search never returns a photo of its own — unlike
   // Google Places, its keyword API has no photo field at all. Falls back to
@@ -2062,9 +2062,19 @@ function LivePlaceCard({
                   key={p.key}
                   href={p.url}
                   target="_blank"
-                  // sponsored+nofollow per Google's affiliate-link policy; noreferrer for privacy.
-                  rel="sponsored nofollow noreferrer"
-                  onClick={(e) => e.stopPropagation()}
+                  // sponsored+nofollow per Google's affiliate-link policy — only for
+                  // real affiliate links; the non-commissioned Naver fallback (캠핑장류
+                  // 게이팅, affiliates.ts) is a plain organic link, not sponsored content.
+                  rel={p.isAffiliate ? "sponsored nofollow noreferrer" : "nofollow noreferrer"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // "card" placement는 유일하게 특정 스팟에 묶여
+                    // spotCategory를 같이 남긴다 — 캠핑장류 게이팅
+                    // (affiliates.ts isCampgroundType)이 실제로 맞게
+                    // 작동하는지 클릭 데이터로 검증하기 위함(작업지시서
+                    // 2026-08-14 5장).
+                    logLodgingCtaEvent("click", "card", place.name, region, p.label, p.isAffiliate, place.category);
+                  }}
                   style={{ color: p.brand, borderColor: `${p.brand}55` }}
                   className="rounded-full border bg-white px-2 py-1 text-[10.5px] font-semibold transition-colors hover:bg-slate-50"
                 >

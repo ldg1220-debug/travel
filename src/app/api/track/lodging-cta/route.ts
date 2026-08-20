@@ -11,8 +11,11 @@ import { withApiErrorHandling } from "@/lib/server/apiHandler";
  * best available signal: how many people open the picker (`kind: "open"`)
  * vs. how many actually click through to a provider (`kind: "click"`) —
  * enough to replace the revenue model's assumed conversion rate with a real
- * one after a couple weeks. `placement` ("header" | "timeline") lets the
- * two CTA locations be compared against each other.
+ * one after a couple weeks. `placement` ("header" | "timeline" | "course" |
+ * "card") lets the CTA locations be compared against each other —
+ * `spotCategory` (only ever set from "card", the one placement tied to a
+ * specific spot) lets category-based provider gating (affiliates.ts
+ * isCampgroundType) be verified against real clicks.
  */
 interface LodgingCtaBody {
   kind: "open" | "click";
@@ -21,6 +24,8 @@ interface LodgingCtaBody {
   region: string;
   provider?: string;
   isAffiliate?: boolean;
+  /** discover 카드처럼 특정 스팟에 묶인 이벤트일 때의 그 스팟 카테고리 — 카테고리 게이팅(affiliates.ts isCampgroundType)이 실제로 맞게 작동하는지 클릭 데이터로 검증하기 위함. 도시 단위 CTA(header/timeline/course)는 특정 스팟이 없어 계속 비워둠. */
+  spotCategory?: string;
 }
 
 export const POST = withApiErrorHandling(async (request: NextRequest) => {
@@ -42,9 +47,18 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
   }
 
   await pool.query(
-    `insert into lodging_cta_events ("userId", kind, placement, city, region, provider, is_affiliate)
-     values ($1, $2, $3, $4, $5, $6, $7)`,
-    [userId, body.kind, body.placement.slice(0, 40), body.city.slice(0, 100), body.region, body.provider?.slice(0, 40) ?? null, body.isAffiliate ?? null],
+    `insert into lodging_cta_events ("userId", kind, placement, city, region, provider, is_affiliate, spot_category)
+     values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      userId,
+      body.kind,
+      body.placement.slice(0, 40),
+      body.city.slice(0, 100),
+      body.region,
+      body.provider?.slice(0, 40) ?? null,
+      body.isAffiliate ?? null,
+      body.spotCategory?.slice(0, 60) ?? null,
+    ],
   );
   return NextResponse.json({ ok: true });
 });
