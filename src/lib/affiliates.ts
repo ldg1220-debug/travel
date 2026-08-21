@@ -1,4 +1,5 @@
 import type { Region } from "./types";
+import { resolveTripComCity } from "./tripComCityIds";
 
 /**
  * 숙소 예약 제휴 딥링크 (수익구조).
@@ -22,7 +23,9 @@ import type { Region } from "./types";
  * ⚠️ 각 사의 정확한 제휴 파라미터/URL 규격은 프로그램마다 다르고 바뀌므로
  * 대시보드에서 최종 확인이 필요하다. 아래는 흔한 형태의 템플릿이다.
  *   - 아고다:   cid
- *   - 트립닷컴: Allianceid + SID
+ *   - 트립닷컴: Allianceid + SID — 단, kr.trip.com/hotels/list는 city
+ *     (cityId)가 반드시 있어야 동작한다(없으면 keyword가 뭐든 결과
+ *     0건). tripComCityIds.ts 참고.
  *   - 호텔스닷컴(Expedia): aid/camref
  *   - 야놀자 / 여기어때: 국내 제휴(파트너 코드) — 링크프라이스 등 CPS 네트워크
  *     경유가 일반적이라, 그 경우 이 링크를 네트워크 추적 URL로 감싸면 된다.
@@ -80,7 +83,9 @@ function isCampgroundType(placeName: string, category?: string): boolean {
  * `placeName` (optionally + city) is used as the search text. `category`
  * (Google primaryType이나 Kakao category_group_name, 있는 만큼만) is used
  * purely for the campground gating below — 호출부가 모르면 안 넘겨도 된다
- * (그러면 게이팅 없이 항상 노출, 기존 동작 그대로).
+ * (그러면 게이팅 없이 항상 노출, 기존 동작 그대로). `address`는 트립닷컴
+ * cityId 매칭 전용 힌트(있는 만큼만) — keyword 텍스트에는 안 섞인다,
+ * 전체 도로명주소를 검색어에 넣으면 오히려 검색 품질이 떨어진다.
  *
  * 트립닷컴은 원래 해외 전용이었다(국내 숙소를 트립닷컴으로 찾는 실사용은
  * 드물다는 가정) — 2026-08 기준 승인된 제휴 프로그램이 트립닷컴뿐이고
@@ -89,16 +94,23 @@ function isCampgroundType(placeName: string, category?: string): boolean {
  * 넓혔다. 아고다/야놀자/여기어때는 그대로 두되(id 없으면 일반 검색 링크로
  * 안전하게 폴백), 승인되는 대로 자동으로 제휴 모드가 켜진다.
  *
- * 캠핑장류(isCampgroundType)로 판정되면 트립닷컴은 아예 목록에서 빠지고,
- * 대신 커미션은 없지만 실제로 쓸모 있는 "네이버에서 예약 정보 보기" 링크가
- * 붙는다 — 국내 캠핑장·글램핑은 네이버 예약 연동이 흔해서 검색 결과가
- * 완전히 비어버리는 것보다 낫다(작업지시서 "숨겼을 때 대체 동작" 1안).
+ * 트립닷컴은 다음 중 하나라도 해당하면 아예 목록에서 빠지고, 대신
+ * 커미션은 없지만 실제로 쓸모 있는 "네이버에서 예약 정보 보기" 링크가
+ * 붙는다(작업지시서 "숨겼을 때 대체 동작" 1안):
+ *  - 캠핑장류(isCampgroundType) — 트립닷컴(호텔 중심 OTA)은 한국
+ *    캠핑장·글램핑·카라반 재고가 사실상 없다.
+ *  - cityId 매핑 없음(tripComCityIds.ts) — 실측 결과 `/hotels/list`는
+ *    `city`(cityId) 없이는 keyword가 뭐든 검색 결과 0건을 반환한다(서울
+ *    롯데호텔조차 0건으로 확인됨). cityId를 추측해서 채우는 대신, 검증된
+ *    도시만 링크를 만들고 나머지는 숨긴다.
  */
-export function bookingProviders(placeName: string, region: Region, city?: string, category?: string): BookingProvider[] {
+export function bookingProviders(placeName: string, region: Region, city?: string, category?: string, address?: string): BookingProvider[] {
   const text = city ? `${placeName} ${city}` : placeName;
   const q = encodeURIComponent(text);
   const list: BookingProvider[] = [];
   const campground = isCampgroundType(placeName, category);
+  const tripCity = resolveTripComCity(placeName, city, address);
+  const tripUsable = !campground && tripCity != null;
 
   const agodaAff = Boolean(AFFILIATE.agodaCid);
   list.push({
@@ -109,13 +121,16 @@ export function bookingProviders(placeName: string, region: Region, city?: strin
     isAffiliate: agodaAff,
   });
 
-  if (!campground) {
+  if (tripUsable) {
     const tripAff = Boolean(AFFILIATE.tripAllianceId);
+    // kr.trip.com(www 아님) — www.trip.com은 lang="en-XX"로 렌더되는 게
+    // 실측 확인됨, kr. 서브도메인이라야 한국어(ko-KR)로 열린다. locale/curr
+    // 쿼리도 같은 이유로 명시.
     list.push({
       key: "trip",
       label: "트립닷컴",
       brand: "#2577e3",
-      url: `https://www.trip.com/hotels/list?keyword=${q}${
+      url: `https://kr.trip.com/hotels/list?city=${tripCity.id}&keyword=${q}&locale=ko-KR&curr=KRW${
         tripAff ? `&Allianceid=${encodeURIComponent(AFFILIATE.tripAllianceId)}&SID=${encodeURIComponent(AFFILIATE.tripSid)}` : ""
       }`,
       isAffiliate: tripAff,
@@ -152,11 +167,12 @@ export function bookingProviders(placeName: string, region: Region, city?: strin
   // 승인 안 된(제휴 id 없는) 프로그램은 노출하지 않는다 — 위 doc 참고.
   const filtered = list.filter((p) => p.isAffiliate);
 
-  // 캠핑장류는 트립닷컴이 빠지면서(위) 지금은 국내 제휴 프로그램이 하나도
-  // 없어 목록이 통째로 비게 된다 — "예약을 어디서 하지" 없이 최소한의
-  // 검색 경로는 남겨둔다. 커미션은 없으므로(isAffiliate: false) 위
-  // 필터에는 안 걸리게 필터 이후에 붙인다.
-  if (campground) {
+  // 트립닷컴이 위 두 사유(캠핑장류 · cityId 매핑 없음) 중 하나로 빠졌으면,
+  // 특히 국내는 지금 다른 제휴 프로그램도 대부분 미승인이라 목록이 통째로
+  // 비어버릴 수 있다 — "예약을 어디서 하지" 없이 최소한의 검색 경로는
+  // 남겨둔다. 커미션은 없으므로(isAffiliate: false) 위 필터에는 안 걸리게
+  // 필터 이후에 붙인다.
+  if (!tripUsable) {
     filtered.push({
       key: "naver",
       label: "네이버에서 예약 정보 보기",

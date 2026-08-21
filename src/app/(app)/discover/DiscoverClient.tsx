@@ -1956,7 +1956,7 @@ function LivePlaceCard({
   onHoverChange?: (hovered: boolean) => void;
 }) {
   const lodging = isLodging(place.category);
-  const providers = lodging ? bookingProviders(place.name, region, undefined, place.category) : [];
+  const providers = lodging ? bookingProviders(place.name, region, undefined, place.category, place.address) : [];
   const showAffiliate = hasAffiliateLink(providers);
   // Kakao Local (국내) search never returns a photo of its own — unlike
   // Google Places, its keyword API has no photo field at all. Falls back to
