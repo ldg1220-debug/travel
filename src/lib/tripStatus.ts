@@ -40,7 +40,12 @@ export function deriveTripStatus(
   today: string = todayISODate(),
 ): TripStatus | null {
   const candidates: { planId: string | null; city: string; items: ItineraryItem[] }[] = [
-    ...savedPlans.map((p) => ({ planId: p.id, city: p.currentCity, items: p.items })),
+    // currentCity is "" for a plan hydrated from another device that this
+    // one has never seen before (서버엔 city 필드가 없다 — itineraryStore.ts
+    // hydrateSavedPlansFromServer 참고) — falls back to the plan's own name
+    // so the hero never shows a blank city, without ever feeding a title
+    // into bookingProviders()'s city matching (that stays untouched, "").
+    ...savedPlans.map((p) => ({ planId: p.id, city: p.currentCity || p.name, items: p.items })),
     ...(draftItems.length > 0 ? [{ planId: null, city: draftCity, items: draftItems }] : []),
   ];
 

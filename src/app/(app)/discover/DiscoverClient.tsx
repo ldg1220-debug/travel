@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CordixIcon } from "@/components/icons/CordixIcon";
+import { AffiliateDisclosureNote } from "@/components/AffiliateDisclosureNote";
 import { EmptyStateCard } from "@/components/EmptyStateCard";
 import { ScheduleModal } from "@/components/ScheduleModal";
 import { PlaceDetailOverlay } from "@/app/(app)/planner/PlaceDetailOverlay";
@@ -2056,6 +2057,7 @@ function LivePlaceCard({
               <CordixIcon name="bed" size={11} className="text-brand-500" /> 최저가 예약
               {showAffiliate && <span className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-400">제휴</span>}
             </div>
+            {showAffiliate && <AffiliateDisclosureNote className="mb-1 text-[9px] font-normal text-slate-400" />}
             <div className="flex flex-wrap gap-1">
               {providers.map((p) => (
                 <a
