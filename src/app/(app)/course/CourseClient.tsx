@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays, RefreshCw, MapPin, Settings2, ChevronDown, BedDouble, ExternalLink, Pin } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
+import { AffiliateDisclosureNote } from "@/components/AffiliateDisclosureNote";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { PlacePager } from "@/components/PlacePager";
@@ -1187,7 +1188,7 @@ export function CourseBuilderPage() {
                 <X size={16} />
               </button>
             </div>
-            {hasAffiliateLink(lodgingProviders) && <p className="mb-3 text-[11px] text-slate-400">일부 링크는 제휴 링크로, 예약 시 트레쥴에 수수료가 지급될 수 있어요.</p>}
+            {hasAffiliateLink(lodgingProviders) && <AffiliateDisclosureNote className="mb-3 text-[11px] text-slate-400" />}
             <div className="mt-3 space-y-2">
               {lodgingProviders.map((p) => (
                 <a

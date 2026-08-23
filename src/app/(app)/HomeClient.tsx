@@ -213,7 +213,7 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
               다음 여행은 어디로 떠날까요?
             </h1>
             <p className="mt-1 max-w-[80%] text-[13px] text-orange-50 sm:max-w-[65%] sm:text-sm">
-              최근 여행: {state.lastPlan.currentCity} · {state.lastPlan.items.length}곳 다녀왔어요
+              최근 여행: {state.lastPlan.currentCity || state.lastPlan.name} · {state.lastPlan.items.length}곳 다녀왔어요
             </p>
             {/* AI 코스를 기본(주 버튼)으로 — "새로운 여행을 시작한다"는 의도는
                 아래 "new" 상태와 다르지 않은데, 그쪽은 이미 AI 코스를 주
@@ -450,7 +450,7 @@ function PlanCover({ plan }: { plan: SavedPlan }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element -- remote Places photo behind our own redirect proxy, same as SpotCard
     <img
-      src={`/api/discover/spot-photo?q=${encodeURIComponent(`${firstItemName} ${plan.currentCity}`)}`}
+      src={`/api/discover/spot-photo?q=${encodeURIComponent(`${firstItemName} ${plan.currentCity || plan.name}`)}`}
       alt=""
       loading="lazy"
       onError={() => setFailed(true)}

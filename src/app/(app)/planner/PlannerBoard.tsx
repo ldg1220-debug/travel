@@ -39,6 +39,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
+import { AffiliateDisclosureNote } from "@/components/AffiliateDisclosureNote";
 import { bookingProviders, hasAffiliateLink } from "@/lib/affiliates";
 import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
@@ -2665,10 +2666,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         )}
 
         {/* 숙소 예약 팝업 — discover의 LivePlaceCard와 같은 제휴 딥링크
-            버튼(src/lib/affiliates.ts)을 도시 단위로 보여준다. 승인된
-            프로그램만 목록에 오르므로(affiliates.ts 참고) 여기 뜨는 건
-            전부 실제 제휴 링크 — hasAffiliateLink 배지는 사실상 항상
-            true지만 방어적으로 남겨둔다. */}
+            버튼(src/lib/affiliates.ts)을 도시 단위로 보여준다. 캠핑장류·
+            cityId 미매핑이면 커미션 없는 네이버 대체 링크만 남을 수 있어
+            (PR #204/#205) hasAffiliateLink가 항상 true는 아니다 — 배지·
+            대가성 고지 둘 다 실제 제휴 링크가 하나라도 있을 때만 뜨게
+            조건부로 둔다. */}
         {lodgingPickerPlacement && currentCity && lodgingProviders.length > 0 && (
           <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setLodgingPickerPlacement(null)} />
@@ -2690,6 +2692,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 </button>
               </div>
               <p className="mb-3 text-[12.5px] text-slate-500">이 여행 지역 기준으로 숙소를 검색해요.</p>
+              {hasAffiliateLink(lodgingProviders) && <AffiliateDisclosureNote className="mb-3 text-[11px] text-slate-400" />}
               <div className="grid grid-cols-1 gap-2">
                 {lodgingProviders.map((p) => (
                   <a

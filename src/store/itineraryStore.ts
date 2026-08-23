@@ -653,14 +653,29 @@ export const useItineraryStore = create<ItineraryState>()(
         // identical gray cards. Synthesize one minimal marker per item
         // instead, same as the live shared-link viewer already does, so each
         // place still gets its own stable hashed color/icon.
-        const toSavedPlan = (r: NonNullable<ReturnType<typeof remoteById.get>>, localId: string): SavedPlan => ({
+        //
+        // `currentCity` — the server's itineraries row has no city field at
+        // all (only title/region/placesData), so there's nothing real to
+        // hydrate it from. `knownCity` lets the caller pass through
+        // whatever the LOCAL copy already had (see survivors below); for a
+        // plan this device has never seen before there's genuinely no known
+        // city, so it's left `""` rather than defaulting to `r.title` —
+        // that used to silently turn a plan named "2025 09 도쿄" into a
+        // "city" of literally "2025 09 도쿄" (작업지시서 2026-08-23), which
+        // fed straight into bookingProviders()'s Trip.com city lookup and
+        // broke it for every hydrated plan (a plan named "엄마랑 가는 여행"
+        // would've broken identically). An empty currentCity is honest —
+        // every currentCity-gated UI already treats "" as "unknown" and
+        // falls back gracefully (no lodging CTA / Trip.com's own
+        // cityId-missing fallback to Naver, see tripComCityIds.ts).
+        const toSavedPlan = (r: NonNullable<ReturnType<typeof remoteById.get>>, localId: string, knownCity = ""): SavedPlan => ({
           id: localId,
           name: r.title,
           savedAt: Date.now(),
           items: r.placesData,
           places: placesFromItems(r.placesData),
           activeDate: r.placesData[0]?.date ?? todayISODate(),
-          currentCity: r.title,
+          currentCity: knownCity,
           region: r.region,
           remoteId: r.id,
           shareToken: r.shareToken,
@@ -672,10 +687,13 @@ export const useItineraryStore = create<ItineraryState>()(
         // only being checked for existence — otherwise an edit synced from
         // another device would never show up here beyond the first time this
         // plan was ever pulled down. Unsynced plans (no remoteId) are never
-        // touched here.
+        // touched here. Passes the survivor's own currentCity through
+        // (see toSavedPlan's knownCity doc above) so a real city already
+        // known locally isn't wiped out just because this plan also
+        // happens to be synced.
         const survivors = state.savedPlans
           .filter((p) => p.remoteId == null || remoteById.has(p.remoteId))
-          .map((p) => (p.remoteId != null && remoteById.has(p.remoteId) ? toSavedPlan(remoteById.get(p.remoteId)!, p.id) : p));
+          .map((p) => (p.remoteId != null && remoteById.has(p.remoteId) ? toSavedPlan(remoteById.get(p.remoteId)!, p.id, p.currentCity) : p));
         const knownRemoteIds = new Set(survivors.map((p) => p.remoteId).filter((id): id is number => id != null));
         const newPlans: SavedPlan[] = remote
           .filter((r) => !knownRemoteIds.has(r.id))
@@ -746,7 +764,10 @@ export const useItineraryStore = create<ItineraryState>()(
           items: remote.placesData,
           places: placesFromItems(remote.placesData),
           activeDate: remote.placesData[0]?.date ?? todayISODate(),
-          currentCity: remote.title,
+          // 서버 draft row엔 city 필드가 없다 — 로컬에 이미 알고 있던 값을
+          // 그대로 유지하고(hydrateSavedPlansFromServer의 knownCity와 같은
+          // 이유), 처음 보는 draft라면 "" (제목을 city로 잘못 쓰지 않음).
+          currentCity: state.draft?.currentCity ?? "",
           region: remote.region,
           remoteId: remote.id,
           shareToken: remote.shareToken,
