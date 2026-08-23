@@ -115,6 +115,7 @@ export function CourseBuilderPage() {
   const addPlaces = useItineraryStore((s) => s.addPlaces);
   const addItem = useItineraryStore((s) => s.addItem);
   const setCurrentCity = useItineraryStore((s) => s.setCurrentCity);
+  const setRegion = useItineraryStore((s) => s.setRegion);
 
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
 
@@ -214,6 +215,16 @@ export function CourseBuilderPage() {
   // affiliates.ts/PlacesSearchInput은 "international"/"domestic"(Region)을
   // 쓰고, 코스 만들기 쪽은 처음부터 "overseas"/"domestic"(DiscoverScope)을
   // 써왔다 — 이름만 다를 뿐 같은 이분법이라 여기서 한 번만 변환한다.
+  //
+  // 이 지역 변수와는 별개로, 실제로 장소를 일정에 커밋하는 4곳
+  // (buildWithDates/buildRouteOnly/AI 코스 단일·다일정 적용)에서는 스토어의
+  // setRegion(region)도 같이 호출한다 — DiscoverClient는 좌표 기반으로
+  // 자동으로 region을 갱신하는데 CourseClient만 그러지 않아서, 코스로
+  // 만든 계획의 region이 실제로 짠 지역과 무관하게 "이전에 스토어에 남아
+  // 있던 값" 그대로 저장되는 버그가 있었다(작업지시서 2026-08-23 PR #206
+  // 배포 실측 — "2025 09 도쿄"·"후쿠오카" 계획이 region="domestic"으로 잘못
+  // 저장된 사례). bookingProviders(city, region)의 두 번째 인자가 이 값을
+  // 쓰므로, 틀리면 승인 후 해외 계획에 국내 전용 제공사가 뜨는 등 표면화된다.
   const region: Region = scope === "overseas" ? "international" : "domestic";
   const lodgingProviders = useMemo(() => (aiCity ? bookingProviders(aiCity, region) : []), [aiCity, region]);
 
@@ -310,6 +321,7 @@ export function CourseBuilderPage() {
       });
     });
     if (city) setCurrentCity(city);
+    setRegion(region);
     setFinishOpen(false);
     router.push("/planner");
   };
@@ -320,6 +332,7 @@ export function CourseBuilderPage() {
     if (orderedPicks.length === 0) return;
     orderedPicks.forEach(({ place }) => upsertSavedPlace(place));
     if (city) setCurrentCity(city);
+    setRegion(region);
     setFinishOpen(false);
     router.push("/saved-places");
   };
@@ -404,6 +417,7 @@ export function CourseBuilderPage() {
       });
     });
     if (aiCity) setCurrentCity(aiCity);
+    setRegion(region);
     setAiCourse(null);
     trackFeatureEvent("course_save", "course", { scope, days: 1 });
     router.push("/planner");
@@ -454,6 +468,7 @@ export function CourseBuilderPage() {
       });
     });
     if (aiCity) setCurrentCity(aiCity);
+    setRegion(region);
     setAiMultiCourse(null);
     trackFeatureEvent("course_save", "course", { scope, days: aiMultiCourse.length });
     router.push("/planner");

@@ -239,7 +239,15 @@ export function AppBar() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+      {/* Target API 36(Android 16) edge-to-edge 강제 대응(작업지시서
+          2026-08-23) — h-14 대신 min-h-14 + padding-top으로 시스템 상태
+          표시줄 높이(env(safe-area-inset-top))만큼 바가 아래로 밀리지 않고
+          "커지게" 한다(고정 높이에 padding만 얹으면 아이콘이 눌려 보임).
+          웹 브라우저에선 이 값이 항상 0이라 기존 모습 그대로다. */}
+      <header
+        className="sticky top-0 z-40 flex min-h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95"
+        style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+      >
         <div className="flex min-w-0 items-center gap-1">
           {/* 모바일: 왼쪽 슬롯은 비운다(햄버거 제거, BottomTabBar가 대신함) —
               센터 타이틀이 시각적으로 가운데 오도록 오른쪽 아이콘 폭만큼

@@ -7,7 +7,12 @@
  */
 export default function DeleteAccountPage() {
   return (
-    <div className="min-h-dvh bg-slate-50 px-5 py-12 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    // Target API 36 edge-to-edge 대응(작업지시서 2026-08-23) — 원래
+    // py-12(3rem)이던 상하 padding에 safe-area-inset을 더한다.
+    <div
+      className="min-h-dvh bg-slate-50 px-5 font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100"
+      style={{ paddingTop: "calc(3rem + env(safe-area-inset-top, 0px))", paddingBottom: "calc(3rem + env(safe-area-inset-bottom, 0px))" }}
+    >
       <div className="mx-auto max-w-lg">
         <h1 className="text-2xl font-bold tracking-tight">계정 삭제 안내 — 트레쥴(Tradule)</h1>
         <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">

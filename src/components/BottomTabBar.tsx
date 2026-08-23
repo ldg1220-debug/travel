@@ -40,6 +40,16 @@ import { useItineraryStore } from "@/store/itineraryStore";
  * 그 값을 읽는다 — 다른 라우트에서는 항상 펼쳐진 채다. 스페이서와 실제
  * 바가 같은 `collapsed` 조건으로 동시에 접혀서, "바는 안 보이는데 빈
  * 공간은 그대로 남는" 어긋남이 생기지 않는다.
+ *
+ * **Target API 36(Android 16) edge-to-edge 대응(2026-08-23)** — API 36부터
+ * `windowOptOutEdgeToEdgeEnforcement`로도 못 빠져나가는 edge-to-edge가
+ * 강제된다. `fixed bottom-0`는 화면 물리적 맨 아래(제스처 내비게이션 바
+ * 영역까지)에 그대로 붙어버려서, 탭 터치 타겟이 제스처 바 밑에 깔려
+ * 눌리지 않거나 잘려 보이는 문제가 생긴다. `env(safe-area-inset-bottom)`
+ * 만큼 바(padding-bottom으로) 스페이서(height로) 둘 다 키워서, 탭
+ * 자체는 안전 영역 위에 그대로 남고 `<main>`도 그만큼 더 줄어들게
+ * 한다 — 웹 브라우저에선 이 값이 항상 0이라 기존 모습 그대로다.
+ * `viewport-fit=cover`(layout.tsx)가 먼저 있어야 env()가 실제 값을 준다.
  */
 export function BottomTabBar() {
   const pathname = usePathname() ?? "/";
@@ -51,12 +61,20 @@ export function BottomTabBar() {
     <>
       {/* 레이아웃 공간 확보용 — 시각적으로 안 보이지만 flex 형제 자리를
           차지해 <main>을 실제로 줄여준다. */}
-      <div aria-hidden className={`shrink-0 overflow-hidden transition-[height] duration-200 ease-out md:hidden ${collapsed ? "h-0" : "h-14"}`} />
+      <div
+        aria-hidden
+        className="shrink-0 overflow-hidden transition-[height] duration-200 ease-out md:hidden"
+        style={{ height: collapsed ? "0px" : "calc(3.5rem + env(safe-area-inset-bottom, 0px))" }}
+      />
       <nav
         aria-label="주요 메뉴"
         className={`fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white transition-[max-height,opacity] duration-200 ease-out md:hidden dark:border-slate-800 dark:bg-slate-900 ${
-          collapsed ? "max-h-0 overflow-hidden opacity-0" : "max-h-20 opacity-100"
+          collapsed ? "overflow-hidden opacity-0" : "opacity-100"
         }`}
+        style={{
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          maxHeight: collapsed ? "0px" : "calc(5rem + env(safe-area-inset-bottom, 0px))",
+        }}
       >
         {NAV_TABS.map((tab) => {
           const active = tab.isActive(pathname);

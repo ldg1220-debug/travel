@@ -20,17 +20,31 @@
      application, the package attribute will need to reflect the correct path in order to use
      the abbreviated format. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="kr.co.tradule.app">
 
-    
+
         <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    
 
-    
 
-    
 
-    
+
+
+
+    <!-- androidbrowserhelper:locationdelegation(build.gradle 의존성)이 자기
+         매니페스트에서 COARSE·FINE 둘 다 선언해 최종 병합 결과에 FINE이
+         딸려 들어온다 — 이 앱의 웹 쪽 geolocation 호출(useUserLocation.ts,
+         "내 주변순" 정렬 전용)은 enableHighAccuracy를 요청하지 않으므로
+         FINE이 실제로 필요 없다(작업지시서 2026-08-23 "Play 스토어 출시
+         준비" 3장 — Play 데이터 세이프티 신고 부담과 사용자에게 보이는
+         권한 문구를 줄이려면 COARSE만으로 충분하다는 지적). tools:node
+         ="remove"로 병합 결과에서 FINE만 제거하고 COARSE는 그대로 둔다.
+         ⚠️ 이 변경은 이 샌드박스에 Android SDK/Gradle이 없어 직접
+         빌드 검증하지 못했다 — 실제 AAB를 만들기 전에 로컬 Android
+         Studio에서 매니페스트 병합 결과(Merged Manifest 탭)를 확인할 것. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove"/>
+
+
 
     <application
         android:name="Application"

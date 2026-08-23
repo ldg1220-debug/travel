@@ -49,6 +49,12 @@ export const viewport = {
   initialScale: 1,
   // Matches the manifest theme_color — tints the mobile browser chrome / status bar.
   themeColor: "#FF8A3D",
+  // Target API 36(Android 16) 대응(작업지시서 2026-08-23) — edge-to-edge가
+  // 강제되면서 env(safe-area-inset-*)로 상태 표시줄/제스처 내비게이션
+  // 바 영역을 직접 계산해야 하는데, 이 값 없인 그 함수가 전부 0px만
+  // 반환한다. BottomTabBar.tsx/AppBar.tsx의 safe-area 패딩이 이 설정에
+  // 의존한다 — 반드시 먼저 있어야 함.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
