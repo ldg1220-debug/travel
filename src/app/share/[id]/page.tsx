@@ -39,7 +39,13 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
   const dates = [...byDate.keys()].sort();
 
   return (
-    <main className="min-h-dvh bg-slate-100 flex justify-center px-4 py-10">
+    // Target API 36 edge-to-edge 대응(작업지시서 2026-08-23) — 원래
+    // py-10(2.5rem)이던 상하 padding에 safe-area-inset을 더해, 카드가
+    // 상태 표시줄·제스처 내비게이션 바 밑에 깔리지 않게 한다.
+    <main
+      className="min-h-dvh bg-slate-100 flex justify-center px-4"
+      style={{ paddingTop: "calc(2.5rem + env(safe-area-inset-top, 0px))", paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom, 0px))" }}
+    >
       <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-6">
         <div className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">
           {itinerary.region === "domestic" ? "🇰🇷 국내" : "✈️ 해외"} · shared itinerary

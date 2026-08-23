@@ -829,7 +829,23 @@ export const useItineraryStore = create<ItineraryState>()(
       // 문자 그대로 480이 박혀 있고, version이 안 바뀌면 migrate가 아예
       // 안 돌아 zustand의 얕은 병합이 새 기본값을 그대로 덮어썼다. 아래
       // migrate의 version < 9 분기가 그 남은 480을 한 번 320으로 고쳐쓴다.
-      version: 9,
+      //
+      // v10: hydrateSavedPlansFromServer/hydrateDraftFromServer가 예전엔
+      // 서버에 없는 city 필드를 plan.name(제목)으로 채우고 있었던 버그의
+      // 뒤처리(작업지시서 2026-08-23, PR #206 배포 실측) — 코드 수정
+      // 자체는 새로 하이드레이션되는 플랜만 고친다. 이미 로컬에
+      // `currentCity === name`으로 저장돼버린 기존 플랜/초안은 "로컬에
+      // 이미 아는 도시가 있으면 보존"하는 정상 로직 때문에 영영 안 고쳐져,
+      // 트립닷컴 버튼이 계속 안 뜬다. 아래 migrate의 version < 10 분기가
+      // 정확히 이 패턴(제목과 도시가 완전히 같음)일 때만 currentCity를 ""로
+      // 정리한다 — "cityId 매칭 실패면 정리" 같은 더 넓은 조건은 쓰지
+      // 않는다. "동래"·"강릉"처럼 트립닷컴 매핑엔 없지만 실제로 올바른
+      // 도시명까지 함께 지워버릴 수 있어서다. 계획 제목을 실제로 도시명
+      // 그대로 지은 경우(예: "도쿄")는 이 조건에도 걸리지만, 그 경우
+      // currentCity가 어차피 같은 값이라 지워도 손해가 없다(사람이 보는
+      // 자리는 plan.name으로 표시 폴백되고, 다시 편집하면 setCurrentCity로
+      // 정상 채워진다).
+      version: 10,
       partialize: (state) => ({
         items: state.items,
         places: state.places,
@@ -873,6 +889,16 @@ export const useItineraryStore = create<ItineraryState>()(
         // including coincidentally 480 chosen by hand) is left alone.
         if (version < 9 && migrated.plannerMapHeight === LEGACY_PLANNER_MAP_HEIGHT_DEFAULT) {
           migrated.plannerMapHeight = DEFAULT_PLANNER_MAP_HEIGHT;
+        }
+        // v10 — see the version-bump comment above. Only the exact
+        // title-leaked-into-city pattern (currentCity === name) is cleared;
+        // a currentCity that merely fails today's narrow Trip.com cityId
+        // mapping (e.g. "동래", "강릉") is left untouched.
+        if (version < 10) {
+          migrated.savedPlans = migrated.savedPlans.map((p) => (p.currentCity === p.name ? { ...p, currentCity: "" } : p));
+          if (migrated.draft && migrated.draft.currentCity === migrated.draft.name) {
+            migrated.draft = { ...migrated.draft, currentCity: "" };
+          }
         }
         return migrated;
       },

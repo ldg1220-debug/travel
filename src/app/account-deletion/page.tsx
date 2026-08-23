@@ -28,7 +28,14 @@ export default async function AccountDeletionPage({
           };
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-50 px-5 font-sans dark:bg-slate-950">
+    // Target API 36 edge-to-edge 대응(작업지시서 2026-08-23) — 이메일 확인
+    // 링크로 바로 진입하는 화면이라 상하 여백이 없었다. 카드는 어차피
+    // 가운데 정렬이라 평소엔 안전 영역과 안 겹치지만, 화면이 낮은 기기에서
+    // 카드가 커지면 겹칠 수 있어 최소한의 safe-area 패딩을 둔다.
+    <div
+      className="flex min-h-dvh items-center justify-center bg-slate-50 px-5 font-sans dark:bg-slate-950"
+      style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+    >
       <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <h1 className="text-lg font-bold text-slate-800 dark:text-slate-100">{content.title}</h1>
         <p className="mt-3 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400">{content.body}</p>
