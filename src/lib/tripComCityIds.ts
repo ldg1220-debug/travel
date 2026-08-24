@@ -30,6 +30,10 @@ export const TRIP_COM_CITY_IDS: Record<string, TripComCity> = {
   제주: { id: 737, slug: "jeju", label: "제주" },
   인천: { id: 410, slug: "incheon", label: "인천" },
   수원: { id: 5980, slug: "suwon", label: "수원" },
+  // ⚠️ discover 지역 트리에 대응 노드 없음(2026-08-24 기준, PR #209 후속
+  // 검증). 동작에는 해가 없다 — resolveTripComCity가 정상 매칭하고,
+  // 트리에 도시가 추가되는 순간 그대로 동작한다. cityId는 실측으로
+  // 검증된 값이니 삭제하지 말 것.
   성남: { id: 61636, slug: "seongnam", label: "성남" },
   대전: { id: 61292, slug: "daejeon", label: "대전" },
   부산: { id: 253, slug: "busan", label: "부산" },
@@ -38,20 +42,21 @@ export const TRIP_COM_CITY_IDS: Record<string, TripComCity> = {
   오사카: { id: 219, slug: "osaka", label: "오사카" },
   방콕: { id: 359, slug: "bangkok", label: "방콕" },
   다낭: { id: 1356, slug: "da-nang", label: "다낭" },
+  // ⚠️ 아래 4곳도 discover 지역 트리에 대응 노드 없음(위 성남과 같은 사유).
   싱가포르: { id: 73, slug: "singapore", label: "싱가포르" },
   파리: { id: 192, slug: "paris", label: "파리" },
   런던: { id: 338, slug: "london", label: "런던" },
   로마: { id: 343, slug: "rome", label: "로마" },
   뉴욕: { id: 633, slug: "new-york", label: "뉴욕" },
-  로스앤젤레스: { id: 347, slug: "los-angeles", label: "로스앤젤레스" },
+  로스앤젤레스: { id: 347, slug: "los-angeles", label: "로스앤젤레스" }, // ⚠️ 트리 노드 없음
   호놀룰루: { id: 757, slug: "honolulu", label: "호놀룰루" },
   상하이: { id: 2, slug: "shanghai", label: "상하이" },
   베이징: { id: 1, slug: "beijing", label: "베이징" },
-  칭다오: { id: 7, slug: "qingdao", label: "칭다오" },
+  칭다오: { id: 7, slug: "qingdao", label: "칭다오" }, // ⚠️ 트리 노드 없음
   도쿄: { id: 228, slug: "tokyo", label: "도쿄" },
   후쿠오카: { id: 248, slug: "fukuoka", label: "후쿠오카" },
   광저우: { id: 32, slug: "guangzhou", label: "광저우" },
-  심천: { id: 30, slug: "shenzhen", label: "심천" },
+  심천: { id: 30, slug: "shenzhen", label: "심천" }, // ⚠️ 트리 노드 없음
 };
 
 /**
@@ -62,11 +67,21 @@ export const TRIP_COM_CITY_IDS: Record<string, TripComCity> = {
  * "경남 창원시 마산합포구 ..." 같은 전체 주소 등) 하나의 엄격한 파서로
  * 다 처리하기 어렵기 때문 — 오탐 위험은 매핑 테이블 자체가 짧고 서로
  * 겹치지 않는 이름들이라 낮다.
+ *
+ * 매치된 이름 중 **가장 긴(가장 구체적인) 것**을 우선한다 — 선언 순서상
+ * 먼저 걸리는 걸 그냥 반환하면 안 된다. "제주특별자치도 서귀포시 ..."
+ * 처럼 상위 지역명(제주)과 하위 지역명(서귀포)이 한 주소에 같이 들어
+ * 있는 경우가 실재해서(작업지시서 2026-08-24 후속 검증, PR #209 병합
+ * 후 서귀포 ID 추가로 처음 드러남), 짧은 이름이 먼저 선언돼 있으면
+ * 더 구체적인 도시가 있어도 그 상위 지역으로 조용히 잘못 매칭된다.
  */
 export function resolveTripComCity(...hints: (string | undefined)[]): TripComCity | null {
   const joined = hints.filter(Boolean).join(" ");
+  let best: { name: string; city: TripComCity } | null = null;
   for (const [name, city] of Object.entries(TRIP_COM_CITY_IDS)) {
-    if (joined.includes(name)) return city;
+    if (joined.includes(name) && (!best || name.length > best.name.length)) {
+      best = { name, city };
+    }
   }
-  return null;
+  return best?.city ?? null;
 }

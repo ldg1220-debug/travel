@@ -42,4 +42,17 @@ describe("resolveTripComCity", () => {
     expect(resolveTripComCity("광저우")).toEqual(TRIP_COM_CITY_IDS["광저우"]);
     expect(resolveTripComCity("심천")).toEqual(TRIP_COM_CITY_IDS["심천"]);
   });
+
+  it("prefers the longer/more specific match when a shorter name is a substring of a longer one (PR #209 후속 검증 — 서귀포/제주 회귀)", () => {
+    // "제주특별자치도 서귀포시 ..."에는 "제주"와 "서귀포"가 둘 다
+    // 부분 문자열로 들어있다 — 선언 순서상 "제주"가 먼저 걸려도
+    // 더 구체적인 "서귀포"가 이겨야 한다.
+    expect(resolveTripComCity(undefined, undefined, "제주특별자치도 서귀포시 색달동")).toEqual(TRIP_COM_CITY_IDS["서귀포"]);
+    // 반대로 진짜 제주시 주소는 여전히 제주로 매칭돼야 한다("서귀포"가
+    // 안 들어있으니 이 경우는 애초에 모호하지 않다).
+    expect(resolveTripComCity(undefined, undefined, "제주특별자치도 제주시 애월읍")).toEqual(TRIP_COM_CITY_IDS["제주"]);
+    // 부산은 주소에 상위/하위 지역명이 겹치지 않는 사례라 원래도
+    // 안전했다 — 회귀 방지용으로 같이 고정.
+    expect(resolveTripComCity(undefined, undefined, "부산광역시 해운대구")).toEqual(TRIP_COM_CITY_IDS["부산"]);
+  });
 });
