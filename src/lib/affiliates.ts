@@ -128,7 +128,7 @@ export function bookingProviders(placeName: string, region: Region, city?: strin
     // 쿼리도 같은 이유로 명시.
     list.push({
       key: "trip",
-      label: "트립닷컴",
+      label: `트립닷컴에서 ${tripCity.label} 숙소 보기`,
       brand: "#2577e3",
       url: `https://kr.trip.com/hotels/list?city=${tripCity.id}&keyword=${q}&locale=ko-KR&curr=KRW${
         tripAff ? `&Allianceid=${encodeURIComponent(AFFILIATE.tripAllianceId)}&SID=${encodeURIComponent(AFFILIATE.tripSid)}` : ""

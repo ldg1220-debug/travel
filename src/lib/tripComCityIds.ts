@@ -17,31 +17,41 @@
 export interface TripComCity {
   id: number;
   slug: string;
+  /** 한글 표기 — 이 항목의 키(TRIP_COM_CITY_IDS의 속성명)와 항상 같다.
+   * 버튼 라벨("트립닷컴에서 {도시} 숙소 보기")처럼 맵의 키를 따로
+   * 들고 다니기 번거로운 호출부를 위해 값 쪽에도 중복해서 둔다. */
+  label: string;
 }
 
 export const TRIP_COM_CITY_IDS: Record<string, TripComCity> = {
   // 국내 — 주요 도시만 커버(김해·창원 등 중소도시는 트립닷컴에 도시
   // 페이지가 없을 가능성이 높다고 작업지시서가 명시).
-  서울: { id: 274, slug: "seoul" },
-  제주: { id: 737, slug: "jeju" },
-  인천: { id: 410, slug: "incheon" },
-  수원: { id: 5980, slug: "suwon" },
-  성남: { id: 61636, slug: "seongnam" },
-  대전: { id: 61292, slug: "daejeon" },
+  서울: { id: 274, slug: "seoul", label: "서울" },
+  제주: { id: 737, slug: "jeju", label: "제주" },
+  인천: { id: 410, slug: "incheon", label: "인천" },
+  수원: { id: 5980, slug: "suwon", label: "수원" },
+  성남: { id: 61636, slug: "seongnam", label: "성남" },
+  대전: { id: 61292, slug: "daejeon", label: "대전" },
+  부산: { id: 253, slug: "busan", label: "부산" },
+  서귀포: { id: 35796, slug: "seogwipo", label: "서귀포" },
   // 해외
-  오사카: { id: 219, slug: "osaka" },
-  방콕: { id: 359, slug: "bangkok" },
-  다낭: { id: 1356, slug: "da-nang" },
-  싱가포르: { id: 73, slug: "singapore" },
-  파리: { id: 192, slug: "paris" },
-  런던: { id: 338, slug: "london" },
-  로마: { id: 343, slug: "rome" },
-  뉴욕: { id: 633, slug: "new-york" },
-  로스앤젤레스: { id: 347, slug: "los-angeles" },
-  호놀룰루: { id: 757, slug: "honolulu" },
-  상하이: { id: 2, slug: "shanghai" },
-  베이징: { id: 1, slug: "beijing" },
-  칭다오: { id: 7, slug: "qingdao" },
+  오사카: { id: 219, slug: "osaka", label: "오사카" },
+  방콕: { id: 359, slug: "bangkok", label: "방콕" },
+  다낭: { id: 1356, slug: "da-nang", label: "다낭" },
+  싱가포르: { id: 73, slug: "singapore", label: "싱가포르" },
+  파리: { id: 192, slug: "paris", label: "파리" },
+  런던: { id: 338, slug: "london", label: "런던" },
+  로마: { id: 343, slug: "rome", label: "로마" },
+  뉴욕: { id: 633, slug: "new-york", label: "뉴욕" },
+  로스앤젤레스: { id: 347, slug: "los-angeles", label: "로스앤젤레스" },
+  호놀룰루: { id: 757, slug: "honolulu", label: "호놀룰루" },
+  상하이: { id: 2, slug: "shanghai", label: "상하이" },
+  베이징: { id: 1, slug: "beijing", label: "베이징" },
+  칭다오: { id: 7, slug: "qingdao", label: "칭다오" },
+  도쿄: { id: 228, slug: "tokyo", label: "도쿄" },
+  후쿠오카: { id: 248, slug: "fukuoka", label: "후쿠오카" },
+  광저우: { id: 32, slug: "guangzhou", label: "광저우" },
+  심천: { id: 30, slug: "shenzhen", label: "심천" },
 };
 
 /**
