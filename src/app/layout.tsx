@@ -42,6 +42,14 @@ export const metadata: Metadata = {
   applicationName: "Tradule",
   // Enables the iOS "Add to Home Screen" standalone (fullscreen, no Safari chrome) experience.
   appleWebApp: { capable: true, title: "Tradule", statusBarStyle: "default" },
+  // Google Search Console 소유권 확인(작업지시서 2026-08-25, "서치콘솔
+  // 등록 완료 + 트래블페이아웃 실사 결과"). 배포되면 서버 렌더 HTML에
+  // <meta name="google-site-verification" content="..."> 로 나와야
+  // Search Console 쪽에서 "확인" 처리가 가능하다. 네이버 서치어드바이저
+  // 소유확인 코드는 동근님이 네이버 로그인 후 직접 발급받아야 해서(자동화
+  // 불가 — 접근 자체가 막혀 있음) 아직 없다. 받으면 `other:
+  // { "naver-site-verification": "<코드>" }`로 여기 추가할 것.
+  verification: { google: "GVL6mMoCWiTOKTMLgGSBt2Edqw7uOAA6_cD1iea8NMg" },
 };
 
 export const viewport = {
