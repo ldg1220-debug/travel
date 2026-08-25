@@ -1,8 +1,8 @@
 "use client";
 
 import { X } from "lucide-react";
-import { TermsBody } from "@/app/(app)/terms/page";
-import { PrivacyBody } from "@/app/(app)/privacy/page";
+import { TermsBody } from "@/app/(app)/terms/TermsBody";
+import { PrivacyBody } from "@/app/(app)/privacy/PrivacyBody";
 
 /**
  * 이용약관/개인정보처리방침을 앱 안에서 바로 보여주는 뷰어 — 가입 동의
