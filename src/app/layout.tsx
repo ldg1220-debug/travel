@@ -43,13 +43,31 @@ export const metadata: Metadata = {
   // Enables the iOS "Add to Home Screen" standalone (fullscreen, no Safari chrome) experience.
   appleWebApp: { capable: true, title: "Tradule", statusBarStyle: "default" },
   // Google Search Console 소유권 확인(작업지시서 2026-08-25, "서치콘솔
-  // 등록 완료 + 트래블페이아웃 실사 결과"). 배포되면 서버 렌더 HTML에
-  // <meta name="google-site-verification" content="..."> 로 나와야
-  // Search Console 쪽에서 "확인" 처리가 가능하다. 네이버 서치어드바이저
-  // 소유확인 코드는 동근님이 네이버 로그인 후 직접 발급받아야 해서(자동화
-  // 불가 — 접근 자체가 막혀 있음) 아직 없다. 받으면 `other:
-  // { "naver-site-verification": "<코드>" }`로 여기 추가할 것.
-  verification: { google: "GVL6mMoCWiTOKTMLgGSBt2Edqw7uOAA6_cD1iea8NMg" },
+  // 등록 완료 + 트래블페이아웃 실사 결과") — 이미 확인 완료 상태이니
+  // 이 값을 지우면 인증이 풀린다. 네이버 서치어드바이저 소유확인 코드는
+  // 작업지시서(2026-08-26, "네이버 소유확인 코드 + 메타 태그 보완")로
+  // 발급받아 추가.
+  verification: {
+    google: "GVL6mMoCWiTOKTMLgGSBt2Edqw7uOAA6_cD1iea8NMg",
+    other: { "naver-site-verification": "15e3a9e73653e01ed14ba8d92669dc5580cf46fa" },
+  },
+  // 작업지시서(2026-08-26) 2항 — /opengraph-image는 이미 정상 배포돼
+  // 있었지만 태그가 없었다: 홈이 자기 openGraph를 따로 정의하면서 Next의
+  // 메타데이터 병합 규칙(중첩 필드는 얕은 병합 — 자식 세그먼트가 openGraph를
+  // 정의하면 부모 openGraph 전체가 통째로 교체됨, 딥 머지 아님)에 따라
+  // 여기 있던 값이 있었어도 홈에서는 조용히 사라졌을 것이다. 그래서 이미지는
+  // 여기(레이아웃, /privacy·/terms·/discover 등 자기 openGraph가 없는
+  // 페이지의 기본값)와 홈 page.tsx 양쪽에 각각 명시한다.
+  openGraph: {
+    siteName: "Tradule 트레쥴",
+    locale: "ko_KR",
+    type: "website",
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "Tradule 트레쥴" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/opengraph-image"],
+  },
 };
 
 export const viewport = {
