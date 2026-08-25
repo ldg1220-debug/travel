@@ -42,8 +42,7 @@ export const TRIP_COM_CITY_IDS: Record<string, TripComCity> = {
   오사카: { id: 219, slug: "osaka", label: "오사카" },
   방콕: { id: 359, slug: "bangkok", label: "방콕" },
   다낭: { id: 1356, slug: "da-nang", label: "다낭" },
-  // ⚠️ 아래 4곳도 discover 지역 트리에 대응 노드 없음(위 성남과 같은 사유).
-  싱가포르: { id: 73, slug: "singapore", label: "싱가포르" },
+  싱가포르: { id: 73, slug: "singapore", label: "싱가포르" }, // ⚠️ 트리 노드 없음(위 성남과 같은 사유)
   파리: { id: 192, slug: "paris", label: "파리" },
   런던: { id: 338, slug: "london", label: "런던" },
   로마: { id: 343, slug: "rome", label: "로마" },

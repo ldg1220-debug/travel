@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allSpots, isPlaceholderSpot, parseSearchQuery, regionHierarchy, resolveLeafCityCoords } from "./discoverData";
+import { allSpots, isPlaceholderSpot, OVERSEAS_LOCALITY_NAMES, parseSearchQuery, regionHierarchy, resolveLeafCityCoords } from "./discoverData";
 
 describe("parseSearchQuery", () => {
   it("strips a trailing intent keyword and tags the category", () => {
@@ -181,5 +181,22 @@ describe("resolveLeafCityCoords", () => {
 
   it("카탈로그에 없는 도시는 null (실존 큐레이션 도시는 애초에 이 경로를 안 탐)", () => {
     expect(resolveLeafCityCoords("domestic", ["강원", "존재안함"])).toBeNull();
+  });
+});
+
+// 작업지시서 2026-08-24, "숙소 CTA 제보 4건 진단" 4항 — 국내 스코프
+// 검색이 Kakao 리터럴 매칭으로 빠지면서 "도쿄 숙소" 같은 질의에 한국
+// 상호가 섞여 나오던 문제의 게이팅 근거 카탈로그.
+describe("OVERSEAS_LOCALITY_NAMES", () => {
+  it("WORLD_CITIES/스팟 카탈로그의 실제 국가·도시 이름을 담고 있다", () => {
+    expect(OVERSEAS_LOCALITY_NAMES.has("도쿄")).toBe(true);
+    expect(OVERSEAS_LOCALITY_NAMES.has("일본")).toBe(true);
+    expect(OVERSEAS_LOCALITY_NAMES.has("오사카")).toBe(true);
+  });
+
+  it("국내 지명은 포함하지 않는다", () => {
+    expect(OVERSEAS_LOCALITY_NAMES.has("서울")).toBe(false);
+    expect(OVERSEAS_LOCALITY_NAMES.has("부산")).toBe(false);
+    expect(OVERSEAS_LOCALITY_NAMES.has("서귀포")).toBe(false);
   });
 });
