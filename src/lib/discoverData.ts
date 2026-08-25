@@ -1161,6 +1161,35 @@ const COUNTRY_CONTINENT: Record<string, string> = {
   뉴질랜드: "오세아니아",
 };
 
+/**
+ * 알려진 해외 국가·도시 한글 이름 전체 — WORLD_CITIES와 실제 해외 스팟
+ * 카탈로그(allSpots("overseas"))의 "국가 · 도시" region에서 뽑는다.
+ * 새로 지어내는 목록이 아니라 이미 이 파일에 있는 검증된 카탈로그의
+ * 부산물이다.
+ *
+ * 용도(작업지시서 2026-08-24, "숙소 CTA 제보 4건 진단" 4항): `/api/places/
+ * search`가 국내 스코프일 때 Kakao Local 키워드 검색으로 빠지는데, 이건
+ * 리터럴 문자열 매칭이라 "도쿄"라는 이름의 국내 상호(모텔·이자카야 등)를
+ * 그대로 반환해버린다 — "도쿄 숙소" 검색에 도쿄가 아니라 한국 업소가
+ * 섞여 나온 제보의 원인. 호출부는 카테고리 단어를 뗀 검색어 **전체**가
+ * 이 집합의 이름과 완전히 일치할 때만 걸러야 한다(부분 문자열 포함 금지)
+ * — 그래야 "도쿄라멘"처럼 도쿄를 이름에 쓰는 실제 국내 브랜드까지
+ * 오탐으로 걸러내는 걸 피할 수 있다.
+ */
+export const OVERSEAS_LOCALITY_NAMES: ReadonlySet<string> = (() => {
+  const names = new Set<string>();
+  for (const [country, city] of WORLD_CITIES) {
+    names.add(country);
+    names.add(city);
+  }
+  for (const spot of allSpots("overseas")) {
+    const [country, city] = spot.region.split(" · ");
+    if (country) names.add(country);
+    if (city) names.add(city);
+  }
+  return names;
+})();
+
 export interface RegionNode {
   label: string;
   children: RegionNode[];

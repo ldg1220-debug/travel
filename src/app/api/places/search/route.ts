@@ -6,6 +6,7 @@ import type { Place, Region } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { sortKakaoByRelevance } from "@/lib/kakaoRelevance";
 import { parseUserLocation } from "@/lib/parseUserLocation";
+import { OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
 
 export const dynamic = "force-dynamic";
 
@@ -534,6 +535,18 @@ async function searchDomestic(
   if (pageToken) {
     const page = await domesticGoogleFallback(query, pageToken);
     return { places: page.places, source: "google", nextPageToken: page.nextPageToken };
+  }
+  // 국내 스코프인데 검색어(카테고리 단어 제외)가 알려진 해외 지명과
+  // 완전히 일치하면 Kakao 리터럴 검색을 아예 건너뛴다 — Kakao Local
+  // 키워드 검색은 문자열 그대로 매칭이라 "도쿄 숙소"처럼 검색해도
+  // "도쿄"라는 이름의 국내 상호(모텔·이자카야 등)를 그대로 돌려준다
+  // (작업지시서 2026-08-24, "숙소 CTA 제보 4건 진단" 4항 — 재현은
+  // 못 했지만 코드 경로 자체는 이 파일에서 실제로 확인됨). "전체 일치"만
+  // 보는 이유는 "도쿄라멘"처럼 도쿄를 이름에 쓰는 실제 국내 브랜드까지
+  // 부분 문자열로 걸러내는 오탐을 피하기 위함 — "내 주변순"/"X 근처 Y"는
+  // 애초에 지명 단독 질의가 아니라 대상 밖이라 여기서 걸지 않는다.
+  if (!userLocation && !near && OVERSEAS_LOCALITY_NAMES.has(toLocalityBase(query))) {
+    return { places: [], source: "kakao" };
   }
   console.log("[places/search] Using Kakao API Key:", apiKey ? "Set" : "Missing");
   if (apiKey) {
