@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays, RefreshCw, MapPin, Settings2, ChevronDown, BedDouble, ExternalLink, Pin } from "lucide-react";
+import { ChevronLeft, Check, Plus, Sparkles, X, CalendarDays, RefreshCw, MapPin, Settings2, ChevronDown, BedDouble, ExternalLink, Pin, Wifi } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { AffiliateDisclosureNote } from "@/components/AffiliateDisclosureNote";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
   type CourseAnchor,
 } from "@/lib/api";
 import { bookingProviders, hasAffiliateLink } from "@/lib/affiliates";
+import { esimAffiliateLinks } from "@/lib/travelpayoutsEsim";
 import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
 import { useUserLocation } from "@/lib/useUserLocation";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
@@ -877,6 +878,37 @@ export function CourseBuilderPage() {
                       </span>
                     </span>
                   </button>
+                )}
+
+                {/* 해외 코스 전용 eSIM 배너(작업지시서 2026-08-26,
+                    "검색 카테고리 분류 개선 + 트래블페이아웃 제휴 링크
+                    형식" A-5 1번) — 트립닷컴처럼 도시 매핑이 필요 없어
+                    (목적지가 각 서비스 홈페이지 고정) 해외 코스면 항상
+                    뜬다. 숙소 CTA와 달리 lodgingProviders 승인 여부와
+                    무관 — 별도 프로그램. */}
+                {region === "international" && aiCity && (
+                  <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2.5">
+                    <div className="mb-1.5 flex items-center gap-1.5">
+                      <Wifi size={15} className="shrink-0 text-brand-600" />
+                      <span className="text-[12.5px] font-bold text-brand-800">해외 데이터, eSIM으로 미리 준비하세요</span>
+                    </div>
+                    <AffiliateDisclosureNote className="mb-1.5 text-[10px] text-brand-600/70" />
+                    <div className="flex gap-1.5">
+                      {esimAffiliateLinks("course_esim").map((p) => (
+                        <a
+                          key={p.key}
+                          href={p.url}
+                          target="_blank"
+                          rel="sponsored noopener noreferrer"
+                          onClick={() => logLodgingCtaEvent("click", "course_esim", aiCity, region, p.label, true, undefined, "esim")}
+                          className="flex-1 rounded-lg border bg-white px-2.5 py-1.5 text-center text-[12px] font-semibold transition-colors hover:bg-slate-50"
+                          style={{ borderColor: p.brand, color: p.brand }}
+                        >
+                          {p.label}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             )}

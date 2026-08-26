@@ -217,6 +217,17 @@ const LIVE_BUCKET_BY_TYPE: Record<string, LiveBucketKey> = {
   숙박: "숙소",
   음식점: "음식점",
   카페: "카페",
+  // 작업지시서(2026-08-26, "검색 카테고리 분류 개선") C-1 — 프로덕션
+  // 실측(질의 12회)으로 "기타"에 빠지는 걸 확인한 Google primaryType
+  // 전체 목록. 정규식을 느슨하게 넓히는 대신 관측된 값만 정확히
+  // 추가한다(museum·gallery·restaurant 접미사는 아래 정규식 폴백이
+  // 이미 부분 문자열로 잡고 있어 이 항목들만 빠져 있었다).
+  historical_place: "관광지",
+  cultural_landmark: "관광지",
+  botanical_garden: "관광지",
+  nature_preserve: "관광지",
+  visitor_center: "관광지",
+  ice_cream_shop: "카페",
 };
 function liveCategoryBucket(category: string): LiveBucketKey {
   const mapped = LIVE_BUCKET_BY_TYPE[category];

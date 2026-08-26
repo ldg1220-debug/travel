@@ -656,3 +656,12 @@ ALTER TABLE feature_events ENABLE ROW LEVEL SECURITY;
 -- 맞게 동작하는지(캠핑장 카테고리에서 트립닷컴 클릭이 실제로 0인지)
 -- 검증하려면 클릭 시점의 스팟 카테고리가 함께 남아야 한다.
 ALTER TABLE lodging_cta_events ADD COLUMN IF NOT EXISTS spot_category TEXT;
+
+-- 작업지시서 2026-08-26 "검색 카테고리 분류 개선 + 트래블페이아웃 제휴
+-- 링크 형식" A-4 — 지금까지는 숙박(트립닷컴 등) CTA만 이 테이블에
+-- 찍혔는데, eSIM(Airalo·Yesim)이 붙으면서 상품군이 갈린다. 테이블·컬럼을
+-- 통째로 rename하는 대신(운영 중인 테이블이라 위험도가 더 큼) product
+-- 컬럼을 추가하는 쪽을 택했다 — 기존 쿼리·관리자 대시보드·기존
+-- lodging_cta_events 행은 전부 DEFAULT 'lodging'으로 그대로 맞는다.
+ALTER TABLE lodging_cta_events ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT 'lodging';
+CREATE INDEX IF NOT EXISTS lodging_cta_events_product_idx ON lodging_cta_events (product);

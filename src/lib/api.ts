@@ -1428,17 +1428,21 @@ export function logLodgingCtaEvent(
   // 것으로 보고 별도 placement로 남겨 비교한다. "card" = discover의 숙박
   // 카드에 바로 붙은 예약 버튼 — 유일하게 특정 스팟(spotCategory)에 묶인
   // placement라, 카테고리 게이팅(affiliates.ts) 검증은 이 placement에서만
-  // 의미가 있다.
-  placement: "header" | "timeline" | "course" | "card",
+  // 의미가 있다. "course_esim"은 해외 코스 화면의 eSIM 배너(작업지시서
+  // 2026-08-26 A-4·A-5).
+  placement: "header" | "timeline" | "course" | "card" | "course_esim",
   city: string,
   region: Region,
   provider?: string,
   isAffiliate?: boolean,
   spotCategory?: string,
+  // 작업지시서 2026-08-26 A-4 — 숙박 외 제휴가 붙으며 필요해진 상품군
+  // 구분. 생략하면 서버가 기존 동작 그대로 "lodging"으로 채운다.
+  product?: "lodging" | "esim" | "activity",
 ): void {
   fetch("/api/track/lodging-cta", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind, placement, city, region, provider, isAffiliate, spotCategory }),
+    body: JSON.stringify({ kind, placement, city, region, provider, isAffiliate, spotCategory, product }),
   }).catch(() => {});
 }
