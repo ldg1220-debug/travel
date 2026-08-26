@@ -221,6 +221,14 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
             <h1 className="max-w-[80%] text-2xl font-bold tracking-tight text-white sm:max-w-[65%] sm:text-3xl">
               다음 여행은 어디로 떠날까요?
             </h1>
+            {/* state.lastPlan은 savedPlans의 한 원소(스냅샷) — 전역
+                itineraryStore.currentCity가 아니다. 탐색이 오염시킬 수
+                있는 건 그 전역 필드뿐이라(작업지시서 2026-08-26, "탐색이
+                진행 중인 계획을 덮어쓰는 문제") 여기는 원래부터 안전하다.
+                같은 작업지시서 후속판(2026-08-26, "PR #216 검증 + 후속
+                2건") 3항이 "전역 currentCity 소비처가 남아있다"고
+                지목했는데, 재확인 결과 이 자리는 아니었다 — 혼동 방지용
+                주석. */}
             <p className="mt-1 max-w-[80%] text-[13px] text-orange-50 sm:max-w-[65%] sm:text-sm">
               최근 여행: {state.lastPlan.currentCity || state.lastPlan.name} · {state.lastPlan.items.length}곳 다녀왔어요
             </p>
