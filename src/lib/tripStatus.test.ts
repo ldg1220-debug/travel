@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyPlan, deriveTripStatus, hasCompletedTrip } from "./tripStatus";
+import { activePlanCityLabel, classifyPlan, deriveTripStatus, hasCompletedTrip } from "./tripStatus";
 import type { ItineraryItem, SavedPlan } from "./types";
 
 const TODAY = "2026-08-14";
@@ -55,6 +55,37 @@ describe("deriveTripStatus", () => {
   it("falls back to the draft (unsaved) itinerary when there are no saved plans", () => {
     const status = deriveTripStatus([], [item("2026-08-16")], "도쿄", TODAY);
     expect(status).toMatchObject({ kind: "upcoming", planId: null, city: "도쿄" });
+  });
+});
+
+// 작업지시서(2026-08-26, "탐색이 진행 중인 계획을 덮어쓰는 문제") — 도쿄
+// 계획이 활성 상태에서 탐색으로 "마산" 검색을 하면 itineraryStore의 라이브
+// top-level currentCity가 오염되는 구조적 문제가 있다. activePlanCityLabel은
+// 그 라이브 값을 직접 읽지 않고 계획 자신의 스냅샷에서 파생해 이 증상을
+// 차단하는 방어선 — 아래 시나리오들이 지시서 5장의 회귀 테스트 표와 대응한다.
+describe("activePlanCityLabel", () => {
+  it("도쿄 계획이 활성 상태일 때, 탐색이 오염시킨 라이브 currentCity를 무시하고 그 계획 자신의 도시를 쓴다 (시나리오 1~3)", () => {
+    const tokyo = plan("1", "도쿄", [item("2026-08-20")]);
+    // "마산 카라반"을 검색해 라이브 currentCity가 오염된 상태를 흉내낸다 —
+    // activePlanId가 "1"(도쿄 계획)로 열려 있는데 top-level currentCity만
+    // "마산"으로 바뀐 시나리오.
+    expect(activePlanCityLabel([tokyo], "1", null, "마산")).toBe("도쿄");
+  });
+
+  it("activePlanId가 없는 draft 상태에서는 draft 스냅샷의 currentCity를 우선한다", () => {
+    const draft = plan("draft", "도쿄", [item("2026-08-20")]);
+    // 라이브 currentCity가 탐색으로 "마산"이 됐어도 draft 스냅샷은
+    // 아이템이 안 바뀌는 한 갱신되지 않는다(오토싱크가 items에만 물려있음).
+    expect(activePlanCityLabel([], null, draft, "마산")).toBe("도쿄");
+  });
+
+  it("draft가 아직 한 번도 동기화되지 않은 세션 최초 순간에는 라이브 값을 그대로 쓴다", () => {
+    expect(activePlanCityLabel([], null, null, "도쿄")).toBe("도쿄");
+  });
+
+  it("activePlanId가 가리키는 계획의 currentCity가 비어 있으면 계획 이름으로 대체한다", () => {
+    const untitled: SavedPlan = { id: "1", name: "제주", savedAt: 0, items: [item("2026-08-20")], places: [], activeDate: "2026-08-20", currentCity: "", region: "domestic" };
+    expect(activePlanCityLabel([untitled], "1", null, "마산")).toBe("제주");
   });
 });
 

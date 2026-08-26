@@ -80,6 +80,44 @@ export function deriveTripStatus(
 }
 
 /**
+ * "진행 중인 계획"의 도시 라벨 — 홈이 라이브 top-level `currentCity`를
+ * 직접 읽지 않고 그 계획 자신의 저장된 스냅샷에서 파생하게 한다
+ * (작업지시서 2026-08-26, "탐색이 진행 중인 계획을 덮어쓰는 문제" 3-3).
+ *
+ * itineraryStore.ts의 top-level `currentCity`는 활성 계획(draft 또는
+ * activePlanId로 열린 계획)의 라이브 작업 상태를 담는 필드인데,
+ * DiscoverClient의 "그냥 둘러보기" 액션이 같은 필드에 조건 없이 쓰기를
+ * 하고 있어("마산 카라반" 검색 → itineraryStore.currentCity = "마산")
+ * 그대로 읽으면 탐색만 했는데 홈의 진행 중인 계획이 바뀐 것처럼 보이는
+ * 증상이 재현된다.
+ *
+ * 이 함수는 대신 activePlanId가 있으면 그 저장된 계획 자체의
+ * currentCity/name을, 없으면 draft 스냅샷의 currentCity를 쓴다 — 둘 다
+ * 아이템이 실제로 바뀔 때만 갱신되는 값이라(itineraryStore.ts
+ * syncDraftFromWorkingState/AppBar.tsx의 디바운스 오토싱크가 `items`
+ * 변화에만 물려 있다, 탐색 중 라이브 currentCity만 바뀌는 것으로는
+ * 이 스냅샷이 갱신되지 않는다) 순수 탐색으로는 오염되지 않는다 —
+ * DiscoverClient의 쓰기 자체를 막는 구조 수정과는 별개로, 그 수정이
+ * 끝나기 전에도 이미 증상을 차단하는 방어선이다.
+ *
+ * `draft`가 아직 한 번도 동기화되지 않은 세션 최초 순간(아이템을 막 담아
+ * 오토싱크가 아직 한 번도 안 돈 찰나)에는 draft가 null일 수 있는데, 그
+ * 창은 탐색이 끼어들 시간이 없었으므로 라이브 값을 그대로 써도 안전하다.
+ */
+export function activePlanCityLabel(
+  savedPlans: SavedPlan[],
+  activePlanId: string | null,
+  draft: SavedPlan | null,
+  liveCurrentCity: string,
+): string {
+  if (activePlanId) {
+    const plan = savedPlans.find((p) => p.id === activePlanId);
+    if (plan) return plan.currentCity || plan.name;
+  }
+  return draft?.currentCity ?? liveCurrentCity;
+}
+
+/**
  * "동선 자동 정리를 써본 적 있다"는 실제로 서버에 저장할 값이 아니라
  * (Phase 1 온보딩 스테퍼 3단계의 완료 신호일 뿐) localStorage 한 줄이면
  * 충분하다 — 작업지시서 2-2 "진행 상태는 서버 저장 불필요". 이 키는
