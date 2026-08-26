@@ -86,6 +86,38 @@ jobs:
           BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: printf 'n\n' | npx --yes @bubblewrap/cli build
 
+      # Reads the *actual signed APK's* merged manifest, not the manifest
+      # source — catches the real failure mode this project has hit before:
+      # AndroidManifest.xml's `tools:node="remove"` on ACCESS_FINE_LOCATION
+      # (see that file) getting silently lost in a future Gradle/manifest-
+      # merger change, or overridden by androidbrowserhelper's own manifest
+      # merging in a later dependency bump. Runs on every build instead of
+      # relying on someone remembering to dump the manifest by hand before
+      # each Play Store upload (작업지시서 2026-08-26 "AAB 매니페스트 검증 +
+      # 출시 절차"). The full permission dump also becomes this build's
+      # source-of-truth log for the Play Console data-safety questionnaire.
+      - name: Verify final manifest (permissions, package, versions)
+        run: |
+          APK="app-release-signed.apk"
+          AAPT2="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name aapt2 | sort -V | tail -1)"
+          if [ -z "$AAPT2" ]; then
+            echo "::error::aapt2를 build-tools 아래에서 찾지 못했습니다"
+            exit 1
+          fi
+          echo "using aapt2: $AAPT2"
+          echo
+          echo "== aapt2 dump badging (package / versionCode / targetSdk) =="
+          "$AAPT2" dump badging "$APK" | tee badging.txt
+          echo
+          echo "== aapt2 dump permissions (전체 권한 목록 — 데이터 세이프티 설문 대조용) =="
+          "$AAPT2" dump permissions "$APK" | tee permissions.txt
+          echo
+          if grep -q 'android.permission.ACCESS_FINE_LOCATION' permissions.txt; then
+            echo "::error::ACCESS_FINE_LOCATION이 최종 서명된 APK에 남아 있습니다 — AndroidManifest.xml의 tools:node=\"remove\"가 유실됐을 가능성이 큽니다. Play 데이터 세이프티 신고 전 반드시 원인을 확인하세요."
+            exit 1
+          fi
+          echo "ACCESS_FINE_LOCATION 없음 — 확인 완료"
+
       - uses: actions/upload-artifact@v4
         with:
           name: tradule-android-release
