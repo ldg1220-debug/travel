@@ -70,6 +70,7 @@ import type {
 } from "@/lib/discoverData";
 import type { Place, PlaceIcon, Region } from "@/lib/types";
 import { bookingProviders, isLodging, hasAffiliateLink } from "@/lib/affiliates";
+import { liveCategoryBucket, type LiveBucketKey } from "@/lib/liveCategoryBucket";
 
 // Always client-only — see RoutePreviewMap.tsx / lib/maps/mapResize.ts.
 const RoutePreviewMap = dynamic(() => import("./RoutePreviewMap"), { ssr: false });
@@ -156,12 +157,23 @@ const LIVE_TYPE_LABELS: Record<string, string> = {
   market: "시장",
   park: "공원",
   museum: "박물관",
+  // 작업지시서(2026-08-26, "PR #216 검증 + 후속 2건") 4항 — 프로덕션
+  // 실측으로 확인된 개별 관측값(카드 뱃지용 세부 라벨). 이게 없어도
+  // 버킷 분류(liveCategoryBucket)는 접미사 규칙으로 이미 정상 동작하고,
+  // 카드 뱃지도 `category.replace(/_/g, " ")`로 읽을 수 있는 문구가
+  // 나오긴 했지만(예: "chicken restaurant"), 한글로 다듬는다.
+  chicken_restaurant: "치킨",
+  korean_barbecue_restaurant: "고기구이",
+  coffee_stand: "카페",
+  wine_bar: "와인바",
+  indoor_playground: "실내놀이터",
 };
 const liveTypeLabel = (category: string) => LIVE_TYPE_LABELS[category] ?? category.replace(/_/g, " ");
 
 /** "그 외 종합 결과" 테마 그룹 — 관광지/테마파크/음식점/술집/카페/숙소 순서로 묶어
- * 보여주고, 어느 카테고리에도 안 걸리는 결과는 기타로 모은다. */
-type LiveBucketKey = "관광지" | "테마파크" | "음식점" | "술집" | "카페" | "숙소" | "기타";
+ * 보여주고, 어느 카테고리에도 안 걸리는 결과는 기타로 모은다. `LiveBucketKey`/
+ * `liveCategoryBucket`은 src/lib/liveCategoryBucket.ts로 뺐다(단위 테스트로
+ * 고정하기 위함, 작업지시서 2026-08-26 "PR #216 검증 + 후속 2건" 4항). */
 const LIVE_BUCKET_GROUPS: { key: LiveBucketKey; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { key: "관광지", label: "관광지", icon: Landmark },
   { key: "테마파크", label: "테마파크", icon: Tent },
@@ -171,81 +183,6 @@ const LIVE_BUCKET_GROUPS: { key: LiveBucketKey; label: string; icon: React.Compo
   { key: "숙소", label: "숙소", icon: Hotel },
   { key: "기타", label: "기타", icon: MapPin },
 ];
-/** Google `primaryType`(영문) / Kakao `category_group_name`(국문) 원시 카테고리
- * 문자열을 위 6+1개 테마 버킷으로 매핑한다. 정확히 일치하는 값이 없으면
- * 키워드 휴리스틱으로 한 번 더 시도하고, 그래도 안 걸리면 기타로 보낸다. */
-const LIVE_BUCKET_BY_TYPE: Record<string, LiveBucketKey> = {
-  amusement_park: "테마파크",
-  water_park: "테마파크",
-  theme_park: "테마파크",
-  aquarium: "테마파크",
-  zoo: "테마파크",
-  restaurant: "음식점",
-  japanese_restaurant: "음식점",
-  sushi_restaurant: "음식점",
-  ramen_restaurant: "음식점",
-  yakiniku_restaurant: "음식점",
-  tonkatsu_restaurant: "음식점",
-  korean_restaurant: "음식점",
-  chinese_restaurant: "음식점",
-  italian_restaurant: "음식점",
-  french_restaurant: "음식점",
-  seafood_restaurant: "음식점",
-  barbecue_restaurant: "음식점",
-  fast_food_restaurant: "음식점",
-  izakaya_restaurant: "술집",
-  bar: "술집",
-  pub: "술집",
-  night_club: "술집",
-  cafe: "카페",
-  coffee_shop: "카페",
-  bakery: "카페",
-  dessert_shop: "카페",
-  hotel: "숙소",
-  lodging: "숙소",
-  resort_hotel: "숙소",
-  motel: "숙소",
-  tourist_attraction: "관광지",
-  shopping_mall: "관광지",
-  market: "관광지",
-  park: "관광지",
-  museum: "관광지",
-  art_gallery: "관광지",
-  관광명소: "관광지",
-  문화시설: "관광지",
-  공원: "관광지",
-  숙박: "숙소",
-  음식점: "음식점",
-  카페: "카페",
-  // 작업지시서(2026-08-26, "검색 카테고리 분류 개선") C-1 — 프로덕션
-  // 실측(질의 12회)으로 "기타"에 빠지는 걸 확인한 Google primaryType
-  // 전체 목록. 정규식을 느슨하게 넓히는 대신 관측된 값만 정확히
-  // 추가한다(museum·gallery·restaurant 접미사는 아래 정규식 폴백이
-  // 이미 부분 문자열로 잡고 있어 이 항목들만 빠져 있었다).
-  historical_place: "관광지",
-  cultural_landmark: "관광지",
-  botanical_garden: "관광지",
-  nature_preserve: "관광지",
-  visitor_center: "관광지",
-  ice_cream_shop: "카페",
-};
-// 작업지시서(2026-08-26, "지역 페이지 본체 설계") 2-4 — 접미사 규칙으로
-// 일반화하면 여기 나열 안 된 새 Google primaryType이 나와도 자동으로
-// 잡힌다(예: 관측하지 못한 *_hotel/*_landmark류). 개별 관측값 나열
-// (LIVE_BUCKET_BY_TYPE)보다 넓게 잡지만, 실제로 지시서가 명시한 접미사
-// 패턴만 반영했다 — 임의로 확장하지 않음.
-function liveCategoryBucket(category: string): LiveBucketKey {
-  const mapped = LIVE_BUCKET_BY_TYPE[category];
-  if (mapped) return mapped;
-  if (/술집|호프|이자카야|포차|와인바|맥주|pub|bar|night_club/i.test(category)) return "술집";
-  if (/카페|디저트|베이커리|cafe|coffee|dessert|bakery|ice_cream/i.test(category)) return "카페";
-  if (/테마파크|놀이공원|워터파크|아쿠아리움|동물원|amusement|theme_park|water_park|aquarium|zoo|playground/i.test(category)) return "테마파크";
-  if (/숙박|호텔|모텔|hotel|lodging|motel|resort|guest_house|hostel|bed_and_breakfast/i.test(category)) return "숙소";
-  if (/음식|식당|맛집|restaurant|food/i.test(category)) return "음식점";
-  if (/관광|박물관|미술관|공원|명소|시장|쇼핑|tourist|museum|park|market|mall|gallery|landmark/i.test(category)) return "관광지";
-  return "기타";
-}
-
 const SPOT_ICONS: Record<SpotIconKey, React.ComponentType<{ size?: number; className?: string }>> = {
   coffee: Coffee,
   camera: Camera,
