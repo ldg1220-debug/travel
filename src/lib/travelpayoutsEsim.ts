@@ -26,17 +26,23 @@ interface EsimProviderDef {
   rateLabel: string;
   campaignId: string;
   p: string;
-  /** 공식 홈페이지. WebSearch로 교차 확인(Wikipedia·공식 앱스토어 리스팅
-   * 등 복수 출처)한 값 — 이 샌드박스의 네트워크 정책상 직접 fetch로
-   * 재확인은 못 했다(egress 차단). Trip.com cityId 같은 내부 전용 값이
-   * 아니라 공개적으로 잘 알려진 회사 최상위 도메인이라 위험도가 낮다고
-   * 판단했다. */
+  /** 목적지 홈페이지. */
   homepage: string;
 }
 
 const ESIM_PROVIDERS: EsimProviderDef[] = [
+  // airalo.com 그대로 두면 됨 — 작업지시서(2026-08-26, "지역 페이지 본체
+  // 설계") 1항이 end-to-end로 확인: 방문 시 /ko로 자동 전환됨.
   { key: "airalo", label: "Airalo", brand: "#182233", rateLabel: "eSIM 12%", campaignId: "541", p: "8310", homepage: "https://www.airalo.com/" },
-  { key: "yesim", label: "Yesim", brand: "#00b894", rateLabel: "eSIM 최대 18%", campaignId: "224", p: "5998", homepage: "https://yesim.app/" },
+  // ⚠️ yesim.app이 아니라 yesim.tech/ko/ — 이전 버전은 WebSearch로 찾은
+  // yesim.app을 썼는데, 작업지시서가 실제로 클릭까지 해서(end-to-end)
+  // yesim.app은 영어/USD로 열리고, 트래블페이아웃에 제휴 등록된 도메인은
+  // yesim.tech라는 걸 확인했다 — 등록 도메인이 아닌 곳으로 보내면
+  // 어트리뷰션이 깨질 수 있다는 지적. yesim.tech의 hreflang="ko"가
+  // yesim.app을 가리키는 것도 확인했지만(다른 도메인이라 그것도 안 씀)
+  // 그 이유로 yesim.tech/ko/(같은 도메인의 한국어 경로, 한국어·추적
+  // 파라미터 정상 부착 확인됨)를 쓴다.
+  { key: "yesim", label: "Yesim", brand: "#00b894", rateLabel: "eSIM 최대 18%", campaignId: "224", p: "5998", homepage: "https://yesim.tech/ko/" },
 ];
 
 export interface EsimLink {

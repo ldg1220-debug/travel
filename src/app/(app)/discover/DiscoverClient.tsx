@@ -229,15 +229,20 @@ const LIVE_BUCKET_BY_TYPE: Record<string, LiveBucketKey> = {
   visitor_center: "관광지",
   ice_cream_shop: "카페",
 };
+// 작업지시서(2026-08-26, "지역 페이지 본체 설계") 2-4 — 접미사 규칙으로
+// 일반화하면 여기 나열 안 된 새 Google primaryType이 나와도 자동으로
+// 잡힌다(예: 관측하지 못한 *_hotel/*_landmark류). 개별 관측값 나열
+// (LIVE_BUCKET_BY_TYPE)보다 넓게 잡지만, 실제로 지시서가 명시한 접미사
+// 패턴만 반영했다 — 임의로 확장하지 않음.
 function liveCategoryBucket(category: string): LiveBucketKey {
   const mapped = LIVE_BUCKET_BY_TYPE[category];
   if (mapped) return mapped;
-  if (/술집|호프|이자카야|포차|와인바|맥주|pub|bar/i.test(category)) return "술집";
-  if (/카페|디저트|베이커리|cafe|coffee|dessert|bakery/i.test(category)) return "카페";
-  if (/테마파크|놀이공원|워터파크|아쿠아리움|동물원|amusement|theme_park|water_park|aquarium|zoo/i.test(category)) return "테마파크";
-  if (/숙박|호텔|모텔|hotel|lodging|motel|resort/i.test(category)) return "숙소";
+  if (/술집|호프|이자카야|포차|와인바|맥주|pub|bar|night_club/i.test(category)) return "술집";
+  if (/카페|디저트|베이커리|cafe|coffee|dessert|bakery|ice_cream/i.test(category)) return "카페";
+  if (/테마파크|놀이공원|워터파크|아쿠아리움|동물원|amusement|theme_park|water_park|aquarium|zoo|playground/i.test(category)) return "테마파크";
+  if (/숙박|호텔|모텔|hotel|lodging|motel|resort|guest_house|hostel|bed_and_breakfast/i.test(category)) return "숙소";
   if (/음식|식당|맛집|restaurant|food/i.test(category)) return "음식점";
-  if (/관광|박물관|미술관|공원|명소|시장|쇼핑|tourist|museum|park|market|mall|gallery/i.test(category)) return "관광지";
+  if (/관광|박물관|미술관|공원|명소|시장|쇼핑|tourist|museum|park|market|mall|gallery|landmark/i.test(category)) return "관광지";
   return "기타";
 }
 

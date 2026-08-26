@@ -12,8 +12,11 @@ describe("esimAffiliateLinks", () => {
     );
 
     const yesim = links.find((l) => l.key === "yesim")!;
+    // yesim.app이 아니라 yesim.tech/ko/ — 작업지시서(2026-08-26, "지역
+    // 페이지 본체 설계") 1항의 end-to-end 검증: 제휴 등록 도메인은
+    // yesim.tech, /ko/ 경로라야 한국어로 열림.
     expect(yesim.url).toBe(
-      "https://tp.media/r?campaign_id=224&marker=765548&p=5998&sub_id=course_esim&trs=563085&u=https%3A%2F%2Fyesim.app%2F",
+      "https://tp.media/r?campaign_id=224&marker=765548&p=5998&sub_id=course_esim&trs=563085&u=https%3A%2F%2Fyesim.tech%2Fko%2F",
     );
   });
 

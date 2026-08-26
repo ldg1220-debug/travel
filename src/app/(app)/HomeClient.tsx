@@ -11,7 +11,7 @@ import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
-import { classifyPlan, deriveTripStatus, hasCompletedTrip, ROUTE_OPTIMIZED_ONCE_KEY, type PlanBadge, type TripStatus } from "@/lib/tripStatus";
+import { activePlanCityLabel, classifyPlan, deriveTripStatus, hasCompletedTrip, ROUTE_OPTIMIZED_ONCE_KEY, type PlanBadge, type TripStatus } from "@/lib/tripStatus";
 import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
 import { colorForId } from "@/lib/placeStyle";
 import type { SavedPlan } from "@/lib/types";
@@ -114,10 +114,19 @@ function useHeroState(): HeroState | null {
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const items = useItineraryStore((s) => s.items);
   const currentCity = useItineraryStore((s) => s.currentCity);
+  const activePlanId = useItineraryStore((s) => s.activePlanId);
+  const draft = useItineraryStore((s) => s.draft);
 
   if (!mounted) return null;
 
-  const trip = deriveTripStatus(savedPlans, items, currentCity);
+  // activePlanId가 있을 땐 savedPlans 쪽 후보(스냅샷 기반, 이미 안전함)만
+  // 쓴다 — 라이브 top-level items/currentCity로 만드는 이 draft 후보는
+  // 그 경우 중복이자 오염 경로라 아예 안 만든다(작업지시서 2026-08-26,
+  // "탐색이 진행 중인 계획을 덮어쓰는 문제"). activePlanId가 없으면(진짜
+  // draft) 도시만 activePlanCityLabel로 스냅샷을 우선해 탐색 오염을 피한다.
+  const trip = activePlanId
+    ? deriveTripStatus(savedPlans, [], "")
+    : deriveTripStatus(savedPlans, items, activePlanCityLabel(savedPlans, activePlanId, draft, currentCity));
   if (trip) return { kind: "active", trip };
 
   if (hasCompletedTrip(savedPlans)) {
@@ -476,6 +485,8 @@ function TripListSection() {
 
   const items = useItineraryStore((s) => s.items);
   const currentCity = useItineraryStore((s) => s.currentCity);
+  const activePlanId = useItineraryStore((s) => s.activePlanId);
+  const draft = useItineraryStore((s) => s.draft);
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
   const setActiveDate = useItineraryStore((s) => s.setActiveDate);
@@ -484,6 +495,11 @@ function TripListSection() {
 
   if (!mounted) return null;
 
+  // 라이브 top-level currentCity를 그대로 쓰지 않는다 — DiscoverClient의
+  // "그냥 둘러보기"가 그 필드에 조건 없이 쓰기를 해서, 그대로 읽으면
+  // 탐색만 했는데 이 카드가 바뀐 것처럼 보이는 증상이 재현된다(작업지시서
+  // 2026-08-26, "탐색이 진행 중인 계획을 덮어쓰는 문제").
+  const currentPlanCity = activePlanCityLabel(savedPlans, activePlanId, draft, currentCity);
   const hasAnything = items.length > 0 || savedPlans.length > 0 || savedPlaces.length > 0;
   const earliestItemDate = items.length > 0 ? items.slice().sort((a, b) => a.date.localeCompare(b.date))[0].date : null;
   const VISIBLE_PLANS = 4;
@@ -533,7 +549,7 @@ function TripListSection() {
               <p className="flex items-center gap-1.5 text-[12px] font-semibold text-brand-600">
                 <Calendar size={13} /> 진행 중인 계획
               </p>
-              <p className="mt-1.5 truncate text-lg font-bold">{items.length > 0 ? currentCity : "새 여행"}</p>
+              <p className="mt-1.5 truncate text-lg font-bold">{items.length > 0 ? currentPlanCity : "새 여행"}</p>
               <p className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">
                 {items.length > 0 ? `일정 ${items.length}곳 · 이어서 계획하기` : "타임라인이 비어있어요"}
               </p>
