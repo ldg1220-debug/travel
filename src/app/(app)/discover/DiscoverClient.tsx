@@ -242,6 +242,15 @@ function spotToPlace(spot: DiscoverSpot): Place {
     lat: spot.lat,
     lng: spot.lng,
     icon: SPOT_ICON_TO_PLACE_ICON[spot.iconKey] ?? "pin",
+    // 큐레이션 스팟도 discoverData.ts에 실제 rating/reviewCount를 갖고 있고
+    // SpotCard 자체는 이미 이 값을 보여준다(spot.rating ?? metrics?.rating,
+    // 위 SpotCard 참고) — 그런데 카드를 눌러 여는 PlaceDetailOverlay엔 이
+    // 값이 안 넘어가 "카드엔 4.6·리뷰 46.7k가 보이는데 상세엔 평점 자체가
+    // 없음"이 되는 실제 버그였다(마케팅 스크린샷 준비 중 발견). 라이브
+    // Google 결과만 rating을 갖는다는 Place 타입 주석은 이제 정확하지
+    // 않다 — 큐레이션 스팟도 실측 rating을 갖는다.
+    rating: spot.rating,
+    reviewCount: spot.reviewCount,
   };
 }
 
