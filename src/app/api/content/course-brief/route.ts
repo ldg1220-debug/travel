@@ -4,9 +4,9 @@ import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
 import { haversineKm } from "@/lib/server/courseRoute";
-import { MODE_SPEED_KMH, cuisineKeyword, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
+import { MODE_SPEED_KMH, cuisineKeyword, googleTop, sameShop, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
-import { OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
+import { allSpots, OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
 
 /**
  * 트레쥴 콘텐츠 API — 블로그 자동 발행 파이프라인(AutoPipeline, 별도
@@ -20,6 +20,11 @@ import { OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
  * 없고, 이 라우트 자체는 course_cache를 재사용해 (region, days) 단위로
  * 응답 전체를 캐시한다 — 반복 호출이 매번 취향 큐레이션(LLM 호출 포함)과
  * DP 조립을 다시 하지 않도록.
+ *
+ * 국내(Kakao) 결과는 애초에 rating이 없어(프로덕션 실측 2026-09-01)
+ * discoverData.ts 카탈로그 조인 → 그래도 없으면 Google Places 라이브
+ * 조회(place_candidate_cache 재사용, 30일 캐시)로 보강한다 — 아래
+ * enrichSpots 참고.
  */
 
 export const dynamic = "force-dynamic";
@@ -47,7 +52,6 @@ interface CourseBrief {
 
 const DEFAULT_THEME: CourseTheme = "balanced";
 const DEFAULT_RADIUS: TravelRadius = 60;
-const DEFAULT_MODE: TravelMode = "car";
 
 // course_cache.id는 UUID 컬럼(schema.sql)이라 courseRecommendV2처럼
 // randomUUID()를 쓰면 매번 다른 행이 되어 캐시가 안 된다 — 대신 (scope,
@@ -95,37 +99,197 @@ function stopsOf(result: Awaited<ReturnType<typeof generateCourseV2>>): FinalSto
   return "course" in result ? result.course : [];
 }
 
+// 구간 거리 기준 이동수단 분기(작업지시서 2026-09-01 §3 — 실측에서
+// "황리단길 → 황남시장 1분 car"처럼 도보 거리인데 car로 나와 부자연스러운
+// 문구가 나온 문제). 1km 미만은 반드시 walk, 그 위는 대중교통이 실질적인
+// 국내 대비 해외에서만 transit을 쓰고 국내는 car로 — courseRecommendV2가
+// mode="car"를 기본으로 코스를 짜는 국내 특성과 맞춘다.
+const WALK_MAX_KM = 1;
+const TRANSIT_OR_CAR_MAX_KM = 5;
+function modeForDistance(km: number, scope: "domestic" | "overseas"): TravelMode {
+  if (km < WALK_MAX_KM) return "walk";
+  if (km <= TRANSIT_OR_CAR_MAX_KM) return scope === "overseas" ? "transit" : "car";
+  return "car";
+}
+
+// 국내 평점 카탈로그 조인(작업지시서 2026-09-01 §2 — 국내는 Kakao 결과라
+// rating이 애초에 없다). discoverData.ts의 큐레이션 카탈로그(allSpots)는
+// scripts/match-spot-place-ids.ts로 좌표까지 확인해 채운 실측 rating을
+// 이미 들고 있으므로, 여기서 새로 Google을 조회하지 않고 그 값을 조인만
+// 한다 — "이미 있는 데이터를 조인만 하면 됩니다"(지시서). 매칭 없으면
+// null을 유지한다(추정값 금지).
+//
+// 매칭 기준은 오탐(다른 곳의 rating을 잘못 붙이는 것)을 우선 피하도록
+// 보수적으로 잡았다: 1km 밖은 아예 후보에서 제외하고, 그 안에서도
+// 이름이 courseRecommend.ts의 sameShop()(같은 브랜드 판정)으로 맞거나
+// 공백·기호를 뺀 이름이 완전히 같을 때만, 혹은 좌표가 60m 이내로
+// 사실상 같은 자리일 때만 인정한다. 여러 후보가 걸리면 가장 가까운
+// 쪽을 쓴다.
+const CATALOG_EXACT_MAX_KM = 1;
+const CATALOG_COORD_ONLY_MAX_KM = 0.06;
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase().replace(/[\s·・,，.\-–—!！?？'"|｜/()（）[\]【】「」]/g, "");
+}
+function catalogRatingFor(scope: "domestic" | "overseas", stop: FinalStop): { rating: number; reviewCount: number | null } | null {
+  let best: { rating: number; reviewCount: number | null } | null = null;
+  let bestDistKm = Infinity;
+  for (const spot of allSpots(scope)) {
+    if (spot.rating == null) continue;
+    const distKm = haversineKm({ lat: spot.lat, lng: spot.lng }, { lat: stop.lat, lng: stop.lng });
+    if (distKm > CATALOG_EXACT_MAX_KM) continue;
+    const nameMatches = normalizeForMatch(spot.name) === normalizeForMatch(stop.name) || sameShop(spot.name, stop.name);
+    const coordMatches = distKm <= CATALOG_COORD_ONLY_MAX_KM;
+    if (!nameMatches && !coordMatches) continue;
+    if (distKm < bestDistKm) {
+      bestDistKm = distKm;
+      best = { rating: spot.rating, reviewCount: spot.reviewCount ?? null };
+    }
+  }
+  return best;
+}
+
+// 카탈로그에도 없는 국내(Kakao) 결과의 마지막 보강 — place_candidate_cache를
+// 그대로 재사용해 (지역, 이름) 단위로 Google Text Search 결과를 캐시한다.
+// TTL은 spot_place_metrics가 이미 지키는 Google ToS 콘텐츠 보관 한도(30일)와
+// 맞췄다. 매칭 실패(=null)도 캐시한다 — 안 그러면 애초에 Google에 없는
+// 이름(예: 아주 작은 로컬 식당)을 요청마다 재조회하게 되어 캐시가 의미가
+// 없어진다.
+const RATING_ENRICH_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// 같은 물리적 장소로 볼 수 있는 한계 — Kakao/Google 좌표는 같은 곳이면
+// 보통 수십~수백m 안쪽으로 겹치므로, 지역명까지 넣은 검색어의 상위 결과
+// 중 이 거리 안에서 이름까지 맞는 것만 신뢰한다(다른 지역 동명 업체
+// 오매칭 방지).
+const LIVE_MATCH_MAX_KM = 3;
+
+function ratingEnrichCacheKey(region: string, name: string): string {
+  return `content-brief-rating:${normalizeForMatch(region)}:${normalizeForMatch(name)}`;
+}
+
+interface RatingEnrichPayload {
+  rating: number | null;
+  reviewCount: number | null;
+}
+
+async function readRatingEnrichCache(key: string): Promise<RatingEnrichPayload | null> {
+  try {
+    const result = await pool.query<{ payload: RatingEnrichPayload; created_at: string }>(
+      `select payload, created_at from place_candidate_cache where cache_key = $1`,
+      [key],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    if (Date.now() - new Date(row.created_at).getTime() > RATING_ENRICH_CACHE_TTL_MS) return null;
+    return row.payload;
+  } catch (err) {
+    console.error("[content/course-brief] rating-enrich cache read failed:", err);
+    return null;
+  }
+}
+
+async function writeRatingEnrichCache(key: string, payload: RatingEnrichPayload): Promise<void> {
+  try {
+    await pool.query(
+      `insert into place_candidate_cache (cache_key, payload) values ($1, $2)
+       on conflict (cache_key) do update set payload = excluded.payload, created_at = now()`,
+      [key, JSON.stringify(payload)],
+    );
+  } catch (err) {
+    console.error("[content/course-brief] rating-enrich cache write failed:", err);
+  }
+}
+
+/** 캐시 미스일 때만 실제로 Google Places Text Search 1건을 태운다(요청당 최대 스톱 수만큼) — 그 결과는 곧바로 위 캐시에 적재된다. */
+async function liveDomesticRatingFor(region: string, stop: FinalStop): Promise<RatingEnrichPayload> {
+  const key = ratingEnrichCacheKey(region, stop.name);
+  const cached = await readRatingEnrichCache(key);
+  if (cached) return cached;
+
+  let result: RatingEnrichPayload = { rating: null, reviewCount: null };
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (apiKey) {
+    try {
+      const candidates = await googleTop(`${region} ${stop.name}`, apiKey);
+      const match = candidates.find((c) => {
+        if (c.rating == null || !c.location) return false;
+        const distKm = haversineKm({ lat: c.location.latitude, lng: c.location.longitude }, { lat: stop.lat, lng: stop.lng });
+        if (distKm > LIVE_MATCH_MAX_KM) return false;
+        const name = c.displayName?.text ?? "";
+        return normalizeForMatch(name) === normalizeForMatch(stop.name) || sameShop(name, stop.name);
+      });
+      if (match) {
+        result = { rating: match.rating ?? null, reviewCount: match.userRatingCount ?? null };
+      }
+    } catch (err) {
+      console.error("[content/course-brief] live google rating lookup failed:", err);
+    }
+  }
+  await writeRatingEnrichCache(key, result);
+  return result;
+}
+
 /**
- * 하루치 스톱 배열을 API 응답의 spots 조각(순서·구간 이동시간 포함)으로
- * 변환한다. order는 baseOrder부터 이어서 매긴다(2일치를 이어붙일 때
- * order가 1..N으로 연속되도록) — 스펙엔 날짜 구분 필드가 없어(계약
- * 그대로 유지) 이렇게 이어붙이는 것 외엔 표현할 방법이 없다. 그래서
- * "하루" 단위의 총 이동거리·구간 이동시간만 정확히 계산하고, 날짜가
- * 바뀌는 경계(예: 1일차 마지막 → 2일차 첫 곳)는 실제로 연속된 동선이
- * 아니므로 toNextMinutes를 null로 두고 totalDistanceKm 합산에서도
+ * 하루치 스톱 배열을 API 응답의 spots 조각(순서·구간 이동시간·이동수단·
+ * 평점 보강 포함)으로 변환한다. order는 baseOrder부터 이어서 매긴다(2일치를
+ * 이어붙일 때 order가 1..N으로 연속되도록) — 스펙엔 날짜 구분 필드가
+ * 없어(계약 그대로 유지) 이렇게 이어붙이는 것 외엔 표현할 방법이 없다.
+ * 그래서 "하루" 단위의 총 이동거리·구간 이동시간만 정확히 계산하고,
+ * 날짜가 바뀌는 경계(예: 1일차 마지막 → 2일차 첫 곳)는 실제로 연속된
+ * 동선이 아니므로 toNextMinutes를 null로 두고 totalDistanceKm 합산에서도
  * 제외한다.
+ *
+ * 평점 보강 우선순위(국내만 — 해외는 이미 Google 결과라 rating을 갖고
+ * 있다): ① courseRecommendV2가 준 rating(있으면 그대로) → ② 정적
+ * 카탈로그(discoverData.ts) 조인, API 호출 없음 → ③ 그래도 없으면 Google
+ * Places 라이브 조회(캐시 경유). 세 단계 모두 실패하면 null을 유지한다
+ * (추정값 금지).
  */
-function toSpots(stops: FinalStop[], baseOrder: number, mode: TravelMode): { spots: CourseBriefSpot[]; distanceKm: number } {
+async function enrichSpots(
+  stops: FinalStop[],
+  baseOrder: number,
+  scope: "domestic" | "overseas",
+  region: string,
+): Promise<{ spots: CourseBriefSpot[]; distanceKm: number }> {
   let distanceKm = 0;
-  const spots: CourseBriefSpot[] = stops.map((stop, i) => {
+  const legs = stops.map((stop, i) => {
     let toNextMinutes: number | null = null;
+    let toNextMode: TravelMode = "car";
     if (i < stops.length - 1) {
       const km = haversineKm({ lat: stop.lat, lng: stop.lng }, { lat: stops[i + 1].lat, lng: stops[i + 1].lng });
       distanceKm += km;
-      toNextMinutes = minutesForKm(km, mode);
+      toNextMode = modeForDistance(km, scope);
+      toNextMinutes = minutesForKm(km, toNextMode);
     }
-    return {
-      name: stop.name,
-      category: liveCategoryBucket(stop.category),
-      rating: stop.rating ?? null,
-      reviewCount: stop.reviewCount ?? null,
-      lat: stop.lat,
-      lng: stop.lng,
-      order: baseOrder + i,
-      toNextMinutes,
-      toNextMode: mode,
-    };
+    return { stop, toNextMinutes, toNextMode };
   });
+
+  const spots = await Promise.all(
+    legs.map(async ({ stop, toNextMinutes, toNextMode }, i) => {
+      let rating = stop.rating ?? null;
+      let reviewCount = stop.reviewCount ?? null;
+      if (rating == null) {
+        const catalogMatch = catalogRatingFor(scope, stop);
+        if (catalogMatch) {
+          rating = catalogMatch.rating;
+          reviewCount = catalogMatch.reviewCount;
+        } else if (scope === "domestic") {
+          const live = await liveDomesticRatingFor(region, stop);
+          rating = live.rating;
+          reviewCount = live.reviewCount;
+        }
+      }
+      return {
+        name: stop.name,
+        category: liveCategoryBucket(stop.category),
+        rating,
+        reviewCount,
+        lat: stop.lat,
+        lng: stop.lng,
+        order: baseOrder + i,
+        toNextMinutes,
+        toNextMode,
+      };
+    }),
+  );
   return { spots, distanceKm };
 }
 
@@ -140,7 +304,7 @@ async function buildBrief(scope: "domestic" | "overseas", region: string, days: 
     day1 = { course: [], source: "mock", theme: DEFAULT_THEME };
   }
   const day1Stops = stopsOf(day1);
-  const { spots: day1Spots, distanceKm: day1Distance } = toSpots(day1Stops, 1, DEFAULT_MODE);
+  const { spots: day1Spots, distanceKm: day1Distance } = await enrichSpots(day1Stops, 1, scope, region);
 
   if (days === 1 || day1Stops.length === 0) {
     return { region, days: 1, totalDistanceKm: Math.round(day1Distance * 10) / 10, spots: day1Spots, imageUrl: null, appUrl };
@@ -172,7 +336,7 @@ async function buildBrief(scope: "domestic" | "overseas", region: string, days: 
     day2 = { course: [], source: "mock", theme: DEFAULT_THEME };
   }
   const day2Stops = stopsOf(day2);
-  const { spots: day2Spots, distanceKm: day2Distance } = toSpots(day2Stops, day1Spots.length + 1, DEFAULT_MODE);
+  const { spots: day2Spots, distanceKm: day2Distance } = await enrichSpots(day2Stops, day1Spots.length + 1, scope, region);
 
   return {
     region,

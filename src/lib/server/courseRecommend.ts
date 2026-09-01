@@ -348,7 +348,7 @@ const KAKAO_CATEGORY_CODE: Record<string, string> = {
 // 느슨하게" 대신 "원본 후보를 더 가져오기"로 대응.
 export const POOL_SIZE = 20;
 
-interface GooglePlace {
+export interface GooglePlace {
   id: string;
   displayName?: { text?: string };
   formattedAddress?: string;
@@ -458,7 +458,11 @@ export function sameShop(a: string, b: string): boolean {
   return latinA.some((t) => latinB.includes(t));
 }
 
-async function googleTop(query: string, apiKey: string, includedType?: string): Promise<GooglePlace[]> {
+// course-brief(콘텐츠 API)가 국내(Kakao) 결과의 평점을 라이브로 보강할 때
+// 재사용한다 — 검색 요청 자체는 여기 있는 로직 그대로 쓰고, 호출부에서
+// 캐시하는 방식(courseRecommend.ts 자체의 place_candidate_cache와 같은
+// 패턴)으로 쿼터를 지킨다.
+export async function googleTop(query: string, apiKey: string, includedType?: string): Promise<GooglePlace[]> {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     cache: "no-store",
