@@ -462,10 +462,11 @@ export function sameShop(a: string, b: string): boolean {
 // 재사용한다 — 검색 요청 자체는 여기 있는 로직 그대로 쓰고, 호출부에서
 // 캐시하는 방식(courseRecommend.ts 자체의 place_candidate_cache와 같은
 // 패턴)으로 쿼터를 지킨다.
-export async function googleTop(query: string, apiKey: string, includedType?: string): Promise<GooglePlace[]> {
+export async function googleTop(query: string, apiKey: string, includedType?: string, signal?: AbortSignal): Promise<GooglePlace[]> {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     cache: "no-store",
+    signal,
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
