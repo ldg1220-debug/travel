@@ -72,7 +72,7 @@ export function parseTravelMode(raw: string | null): TravelMode {
 // but-useless. Google Directions API 연동은 코스 조립 한 번에 스팟 수만큼
 // 경로 요청이 쌓여 방금 줄인 Places 비용을 상쇄할 수 있어 지금은 미룬다
 // (계수 기반 근사로 충분히 실용적) — INTEGRATION.md 참고.
-const MODE_SPEED_KMH: Record<TravelMode, number> = {
+export const MODE_SPEED_KMH: Record<TravelMode, number> = {
   walk: 4.8, // 성인 평균 도보 속도(4~5km/h)에서 신호 대기 등을 감안해 살짝 보수적으로.
   transit: 18, // 정차·환승 대기까지 뭉뚱그린 체감 속도 — 실제 주행 구간보다 낮게.
   car: 25, // 기존 AVG_SPEED_KMH 그대로 — 도심 주행/택시 체감 속도.
