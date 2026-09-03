@@ -323,8 +323,8 @@ async function liveDomesticRatingFor(region: string, stop: { name: string; lat: 
   return result;
 }
 
-/** 배열을 최대 limit개씩 동시에 처리한다 — Promise.all의 무제한 동시성 대신 쓴다(작업지시서 §2-3, 동시성 3~5 권장). */
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+/** 배열을 최대 limit개씩 동시에 처리한다 — Promise.all의 무제한 동시성 대신 쓴다(작업지시서 §2-3, 동시성 3~5 권장). 워밍 크론(warm-course-brief)도 지역 배치를 이 함수로 병렬 처리한다. */
+export async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let cursor = 0;
   async function worker(): Promise<void> {
@@ -505,4 +505,29 @@ export async function getCourseBrief(region: string, days: 1 | 2, enrichBudgetMs
   });
   if (cached) return cached;
   return buildBrief(scope, region, days, cacheKey, enrichBudgetMs);
+}
+
+/**
+ * 워밍 크론이 "이번 실행에 어느 지역을 처리할지" 고를 때 쓴다 — 캐시가
+ * 아예 없는 지역(가장 급함) → 캐시가 가장 오래된 지역 순으로 최대
+ * limit개를 고른다. 작업지시서 2026-09-02 "워밍 재설계" §A-3: 58개
+ * 지역을 한 번에 다 채우려던 이전 설계는 Vercel 서버리스 함수 시간
+ * 안에 완주할 수 없어(58 × 지역당 30초 예산 = 최대 29분) 캐시가 전혀
+ * 쌓이지 않았다 — 매 실행마다 작은 배치만 처리해 반드시 완주하는
+ * 쪽으로 바꾼다. TTL(BRIEF_CACHE_TTL_MS, 26시간)이 지난 캐시도 "새로
+ * 만든 것보다 오래됐다"는 점에서 자연히 없는 것과 같은 취급을 받는다
+ * — 별도 로직 없이 정렬 순서만으로 해결된다.
+ */
+export async function pickStaleRegions(regions: string[], limit: number): Promise<string[]> {
+  const keys = regions.map((region) => briefCacheKey(resolveScope(region), region, 1));
+  const result = await pool.query<{ cache_key: string; created_at: string }>(
+    `select cache_key, created_at from place_candidate_cache where cache_key = any($1)`,
+    [keys],
+  );
+  const createdAtByKey = new Map(result.rows.map((row) => [row.cache_key, new Date(row.created_at).getTime()]));
+  return regions
+    .map((region, i) => ({ region, age: createdAtByKey.get(keys[i]) ?? -Infinity })) // 캐시 없음 = 가장 오래된 것으로 취급(맨 앞으로)
+    .sort((a, b) => a.age - b.age)
+    .slice(0, limit)
+    .map((x) => x.region);
 }
