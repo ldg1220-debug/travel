@@ -419,45 +419,66 @@ function assembleDaySpots(stops: FinalStop[], baseOrder: number, scope: CourseBr
 }
 
 // 코스 동선이 그려진 정적 지도(작업지시서 2026-09-05 "트레쥴 다음 작업"
-// §2) — 블로그 글에 코스와 무관한 Pexels 스톡 사진 대신 이 코스만의
-// 지도를 넣는다. Naver 지도 오픈API(비로그인, Client ID/Secret만 필요)
-// 를 쓴다 — NAVER_CLIENT_ID/SECRET이 아직 설정 안 됐거나(지시서 자체가
-// "developers.naver.com 앱에 지도 상품이 있는지 확인 필요"라고 명시했다
-// — 이 세션에선 그 확인도, 실제 호출도 검증하지 못했다) Blob 저장소가
-// 준비 안 됐으면 조용히 null로 남긴다 — course-brief는 애초에 imageUrl을
-// 선택 필드로 정의했고(작업지시서 2026-08-27 §1), 지도가 없다고 API
-// 응답 자체가 막히면 안 된다.
+// §2, 2026-09-06 "지도 제공자 변경") — 블로그 글에 코스와 무관한 Pexels
+// 스톡 사진 대신 이 코스만의 지도를 넣는다.
+//
+// 처음엔 Naver 지도 오픈API로 만들었는데, 그 API(openapi.naver.com)는
+// 2019년에 서비스 종료돼 NCP(Naver Cloud Platform) Maps로 이관됐고,
+// NCP Maps마저 2025-07-01부로 무료 티어가 폐지되고 신규 신청이 막혀
+// 있어(사용자 확인) 쓸 수 없다. Google Static Maps로 교체 — 이미 쓰고
+// 있는 GOOGLE_PLACES_API_KEY를 그대로 재사용해 새 환경변수가 필요
+// 없다(Maps Static API가 같은 GCP 프로젝트에 활성화돼 있어야 하는데,
+// 이건 이 세션에서 확인할 수 없다 — 아래 "검증 못 한 것" 참고).
+//
+// 키가 없거나 Blob 저장소가 준비 안 됐으면 조용히 null로 남긴다 —
+// course-brief는 애초에 imageUrl을 선택 필드로 정의했고(작업지시서
+// 2026-08-27 §1), 지도가 없다고 API 응답 자체가 막히면 안 된다.
 //
 // 라이브 평점 보강과 같은 이유로 이것도 "구조" 캐시 이후, 시간 예산 안의
-// best-effort 단계다 — 외부 호출(Naver + Blob 업로드) 하나가 course-brief
-// 전체를 다시 무응답으로 되돌리면 안 된다(2026-09-01 "응답 시간" 사고를
-// 반복하지 않는다).
+// best-effort 단계다 — 외부 호출(Google + Blob 업로드) 하나가
+// course-brief 전체를 다시 무응답으로 되돌리면 안 된다(2026-09-01
+// "응답 시간" 사고를 반복하지 않는다).
 const MAP_CALL_TIMEOUT_MS = 5000;
 const MAP_WIDTH = 800;
 const MAP_HEIGHT = 500;
+const MAP_SCALE = 2; // 레티나 대응 — 실제 픽셀은 1600×1000
+
+// Google Static Maps의 marker label은 A-Z/0-9 단일 문자만 허용한다 — 그래서
+// 순서 1~9는 그대로 숫자, 10부터(2일차까지 합쳐 최대 12곳)는 A/B/C…로
+// 넘어간다. "번호 라벨"이라는 요청 취지는 하루 기준(보통 5~7곳) 케이스에서는
+// 그대로 지켜지고, 흔치 않은 10번째 이후 스톱만 알파벳으로 대체된다.
+function markerLabel(order: number): string {
+  if (order >= 1 && order <= 9) return String(order);
+  return String.fromCharCode(65 + ((order - 10) % 26));
+}
+
 async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]): Promise<string | null> {
   if (spots.length === 0) return null;
-  const clientId = process.env.NAVER_CLIENT_ID;
-  const clientSecret = process.env.NAVER_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return null;
   if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return null;
 
-  const url = new URL("https://openapi.naver.com/v1/map/staticmap.bin");
-  url.searchParams.set("w", String(MAP_WIDTH));
-  url.searchParams.set("h", String(MAP_HEIGHT));
-  for (const [i, spot] of spots.entries()) {
-    url.searchParams.append("markers", `type:d|size:mid|pos:${spot.lng} ${spot.lat}|label:${i + 1}`);
+  const url = new URL("https://maps.googleapis.com/maps/api/staticmap");
+  url.searchParams.set("size", `${MAP_WIDTH}x${MAP_HEIGHT}`);
+  url.searchParams.set("scale", String(MAP_SCALE));
+  url.searchParams.set("key", apiKey);
+  // 스톱 순서대로 번호 마커 — 한 곳당 markers 파라미터 하나(label은
+  // 그룹 전체에 적용되는 속성이라 스톱마다 값이 다르면 따로 줘야 한다).
+  for (const spot of spots) {
+    url.searchParams.append("markers", `label:${markerLabel(spot.order)}|${spot.lat},${spot.lng}`);
+  }
+  // 동선을 잇는 경로선 — path는 여러 좌표를 하나의 파라미터로 잇는다.
+  if (spots.length > 1) {
+    const points = spots.map((s) => `${s.lat},${s.lng}`).join("|");
+    url.searchParams.set("path", `color:0x0000ffcc|weight:3|${points}`);
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MAP_CALL_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { "X-Naver-Client-Id": clientId, "X-Naver-Client-Secret": clientSecret },
-    });
+    const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) {
-      console.error(`[courseBrief] naver staticmap ${res.status}`);
+      console.error(`[courseBrief] google staticmap ${res.status}`);
       return null;
     }
     const bytes = await res.arrayBuffer();
