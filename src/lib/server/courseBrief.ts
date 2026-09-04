@@ -1,3 +1,4 @@
+import { put } from "@vercel/blob";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
 import { haversineKm } from "@/lib/server/courseRoute";
@@ -39,7 +40,7 @@ export interface CourseBrief {
   days: 1 | 2;
   totalDistanceKm: number;
   spots: CourseBriefSpot[];
-  imageUrl: null;
+  imageUrl: string | null;
   appUrl: string;
 }
 
@@ -417,6 +418,68 @@ function assembleDaySpots(stops: FinalStop[], baseOrder: number, scope: CourseBr
   return { spots, distanceKm };
 }
 
+// 코스 동선이 그려진 정적 지도(작업지시서 2026-09-05 "트레쥴 다음 작업"
+// §2) — 블로그 글에 코스와 무관한 Pexels 스톡 사진 대신 이 코스만의
+// 지도를 넣는다. Naver 지도 오픈API(비로그인, Client ID/Secret만 필요)
+// 를 쓴다 — NAVER_CLIENT_ID/SECRET이 아직 설정 안 됐거나(지시서 자체가
+// "developers.naver.com 앱에 지도 상품이 있는지 확인 필요"라고 명시했다
+// — 이 세션에선 그 확인도, 실제 호출도 검증하지 못했다) Blob 저장소가
+// 준비 안 됐으면 조용히 null로 남긴다 — course-brief는 애초에 imageUrl을
+// 선택 필드로 정의했고(작업지시서 2026-08-27 §1), 지도가 없다고 API
+// 응답 자체가 막히면 안 된다.
+//
+// 라이브 평점 보강과 같은 이유로 이것도 "구조" 캐시 이후, 시간 예산 안의
+// best-effort 단계다 — 외부 호출(Naver + Blob 업로드) 하나가 course-brief
+// 전체를 다시 무응답으로 되돌리면 안 된다(2026-09-01 "응답 시간" 사고를
+// 반복하지 않는다).
+const MAP_CALL_TIMEOUT_MS = 5000;
+const MAP_WIDTH = 800;
+const MAP_HEIGHT = 500;
+async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]): Promise<string | null> {
+  if (spots.length === 0) return null;
+  const clientId = process.env.NAVER_CLIENT_ID;
+  const clientSecret = process.env.NAVER_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
+  if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return null;
+
+  const url = new URL("https://openapi.naver.com/v1/map/staticmap.bin");
+  url.searchParams.set("w", String(MAP_WIDTH));
+  url.searchParams.set("h", String(MAP_HEIGHT));
+  for (const [i, spot] of spots.entries()) {
+    url.searchParams.append("markers", `type:d|size:mid|pos:${spot.lng} ${spot.lat}|label:${i + 1}`);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MAP_CALL_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "X-Naver-Client-Id": clientId, "X-Naver-Client-Secret": clientSecret },
+    });
+    if (!res.ok) {
+      console.error(`[courseBrief] naver staticmap ${res.status}`);
+      return null;
+    }
+    const bytes = await res.arrayBuffer();
+    // 캐시 키(course_cache와 겹치지 않는 place_candidate_cache 네임스페이스와
+    // 같은 관례) 기준 고정 경로 — addRandomSuffix:false로 재생성될 때마다
+    // 같은 자리에 덮어써서, 지역이 다시 워밍/조회될 때마다 blob이 쌓이지
+    // 않게 한다.
+    const pathname = `course-maps/${cacheKey.replace(/^content-brief:/, "").replace(/:/g, "/")}.png`;
+    const blob = await put(pathname, bytes, { access: "private", contentType: "image/png", addRandomSuffix: false });
+    void blob; // put()의 반환 url은 private blob이라 브라우저에서 401 — 우리 프록시 경로를 대신 반환한다.
+    // AutoPipeline 등 외부 소비자가 그대로 fetch/임베드해야 하므로
+    // appUrlFor()와 마찬가지로 절대 URL로 반환한다(상대 경로는 이
+    // 도메인 밖에서 못 씀).
+    return `https://www.tradule.co.kr/api/blob/${pathname.split("/").map(encodeURIComponent).join("/")}`;
+  } catch (err) {
+    console.error("[courseBrief] course map generation failed:", err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // 사용자 요청 경로의 기본 예산 — 6초는 지시서 예시값을 그대로 따랐다.
 // 워밍 크론은 사용자 대기가 없으므로 더 넉넉한 값(30초, 크론 라우트에서
 // 지정)을 따로 준다.
@@ -486,7 +549,8 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
 
   const deadline = Date.now() + enrichBudgetMs;
   const enrichedSpots = await liveEnrichSpots(brief.spots, scope, region, deadline);
-  brief = { ...brief, spots: enrichedSpots };
+  const imageUrl = await generateCourseMapImage(cacheKey, enrichedSpots);
+  brief = { ...brief, spots: enrichedSpots, imageUrl };
 
   await writeBriefCache(cacheKey, brief).catch((err) => {
     console.error("[courseBrief] final cache write failed:", err);
