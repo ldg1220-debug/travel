@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { fetchReports, setUserBanned, updateReport, type Report } from "@/lib/api";
 
@@ -31,10 +32,12 @@ function formatDate(iso: string): string {
 
 /** 관리자 전용 신고 처리 화면 — 접수된 신고를 훑어보고 상태를 갱신하거나, 신고당한 사용자를 정지/해제할 수 있다. */
 export default function AdminReportsPage() {
+  const router = useRouter();
   const { data: session, status } = useSession();
   const [reports, setReports] = useState<Report[] | null>(null);
   const [tab, setTab] = useState("all");
   const [busyId, setBusyId] = useState<number | null>(null);
+  const isNonAdmin = status !== "loading" && !session?.user?.isAdmin;
 
   const load = () => {
     fetchReports().then(setReports);
@@ -44,12 +47,14 @@ export default function AdminReportsPage() {
     if (session?.user?.isAdmin) load();
   }, [session?.user?.isAdmin]);
 
-  if (status !== "loading" && !session?.user?.isAdmin) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-slate-50 px-6 text-center dark:bg-slate-950">
-        <p className="text-[13px] text-slate-400">관리자만 접근할 수 있는 화면이에요.</p>
-      </div>
-    );
+  // 관리자가 아니면 "접근 불가" 화면 대신 홈으로 돌려보낸다 — /admin/page.tsx와
+  // 같은 이유(막다른 안내 문구보다 정상 동작하는 홈이 자연스럽다).
+  useEffect(() => {
+    if (isNonAdmin) router.replace("/");
+  }, [isNonAdmin, router]);
+
+  if (isNonAdmin) {
+    return <div className="min-h-full bg-slate-50 dark:bg-slate-950" />;
   }
 
   const visible = reports?.filter((r) => tab === "all" || r.status === tab) ?? [];

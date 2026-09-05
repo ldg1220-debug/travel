@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { fetchAdminStats, sendAnnouncement, type AdminStats } from "@/lib/api";
 import { isRootAdmin } from "@/lib/server/rootAdmin";
@@ -131,12 +131,14 @@ export default function AdminDashboardPage() {
 }
 
 function AdminDashboardContent() {
+  const router = useRouter();
   const { data: session, status } = useSession();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const searchParams = useSearchParams();
   const isRoot = isRootAdmin(session?.user?.email);
   const [tab, setTab] = useState<"dashboard" | "users">(searchParams.get("tab") === "users" ? "users" : "dashboard");
+  const isNonAdmin = status !== "loading" && !session?.user?.isAdmin;
 
   useEffect(() => {
     if (session?.user?.isAdmin) {
@@ -146,12 +148,15 @@ function AdminDashboardContent() {
     }
   }, [session?.user?.isAdmin]);
 
-  if (status !== "loading" && !session?.user?.isAdmin) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-slate-50 px-6 text-center dark:bg-slate-950">
-        <p className="text-[13px] text-slate-400">관리자만 접근할 수 있는 화면이에요.</p>
-      </div>
-    );
+  // 관리자가 아니면 "접근 불가" 화면 대신 홈으로 돌려보낸다 — 링크를 우연히
+  // 받은 일반 사용자(테스트해보라고 준 지인 등)에게는 막다른 안내 문구보다
+  // 앱이 정상 동작하는 홈이 훨씬 자연스럽다.
+  useEffect(() => {
+    if (isNonAdmin) router.replace("/");
+  }, [isNonAdmin, router]);
+
+  if (isNonAdmin) {
+    return <div className="min-h-full bg-slate-50 dark:bg-slate-950" />;
   }
 
   return (
