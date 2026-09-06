@@ -339,6 +339,18 @@ export interface GenerateCourseOptions {
    * `isLast && anchors.departure` 조건으로 계산해서 넘긴다.
    */
   excludeLargeFacilities?: boolean;
+  /**
+   * LLM 취향 큐레이션(curateTaste, Anthropic 호출 1건당 실측 8~14초)을
+   * 건너뛰고 결정론 큐레이션(deterministicShortlistForSlot, LLM 실패 시
+   * 폴백과 동일한 경로)만 쓴다. courseBrief.ts가 다일정 콘텐츠 생성 시
+   * 2일차부터 이 옵션을 켠다 — 작업지시서 2026-09-06 "PR #231 검증"에서
+   * 해외 다일정이 날짜 수만큼 이 호출을 순차로 쌓아 지연이 누적되는 게
+   * 확인됐고(스팟 후보 조회 자체는 candidateCacheKey가 애초에 scope:city:
+   * slot 기준이라 dayIndex 무관하게 이미 캐시 공유 중이라 재조회가
+   * 원인이 아니었다), LLM 호출 자체가 실제 병목이었다. 기본 UI(실시간
+   * 사용자 요청)는 이 옵션을 쓰지 않아 기존 품질을 그대로 유지한다.
+   */
+  skipLlm?: boolean;
 }
 
 /** dayIndex가 이 값 이상이면 fetchSlotCandidates에 extraQuery(동의어 2차 검색)를 켠다 — 실측(오사카 3박4일)에서 정확히 3일차부터 슬롯 공백이 나 이 값으로 잡았다. */
@@ -444,10 +456,12 @@ export async function generateCourseV2(
       .slice(0, LLM_CANDIDATE_LIMIT)
       .map(({ c }) => c),
   }));
-  const llmShortlists = await curateTaste(city, THEME_LABELS[theme], tasteInputs, resolve, callHaiku).catch((err) => {
-    console.error("[courseRecommendV2] curateTaste threw:", err);
-    return null;
-  });
+  const llmShortlists = options.skipLlm
+    ? null
+    : await curateTaste(city, THEME_LABELS[theme], tasteInputs, resolve, callHaiku).catch((err) => {
+        console.error("[courseRecommendV2] curateTaste threw:", err);
+        return null;
+      });
   const shortlists = llmShortlists ?? tasteInputs.map((s) => deterministicShortlistForSlot(s, resolve));
 
   // 3. 브랜드 중복 사전 제거 — 앵커는 여기 절대 안 들어간다(브랜드 중복

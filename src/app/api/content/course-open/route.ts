@@ -80,7 +80,8 @@ function scheduleDay(spots: CourseBriefSpot[], date: string, idPrefix: string): 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region = (request.nextUrl.searchParams.get("region") ?? "").trim().slice(0, 40);
   if (!region) return NextResponse.json({ error: "missing region" }, { status: 400 });
-  const days: 1 | 2 = request.nextUrl.searchParams.get("days") === "2" ? 2 : 1;
+  const daysParam = request.nextUrl.searchParams.get("days");
+  const days: 1 | 2 | 3 = daysParam === "3" ? 3 : daysParam === "2" ? 2 : 1;
 
   const brief = await getCourseBrief(region, days);
   if (brief.spots.length === 0) {
