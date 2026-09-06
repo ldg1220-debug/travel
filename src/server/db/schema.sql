@@ -665,3 +665,17 @@ ALTER TABLE lodging_cta_events ADD COLUMN IF NOT EXISTS spot_category TEXT;
 -- lodging_cta_events 행은 전부 DEFAULT 'lodging'으로 그대로 맞는다.
 ALTER TABLE lodging_cta_events ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT 'lodging';
 CREATE INDEX IF NOT EXISTS lodging_cta_events_product_idx ON lodging_cta_events (product);
+
+-- 작업지시서 2026-09-05 "AutoPipeline 상식 게이트 + 트레쥴 동선 연동"
+-- §D-3 — 블로그 CTA("이 코스 그대로 가져가기")가 course-brief 결과를
+-- 실제 itineraries 행으로 만들어 기존 /planner/{shareToken} 공유
+-- 페이지를 그대로 열게 한다(src/app/api/content/course-open/route.ts).
+-- itineraries."userId"는 NOT NULL FK라 소유자가 있어야 하는데, 이건
+-- 로그인한 사람이 만든 계획이 아니라 콘텐츠 파이프라인이 만든 계획이라
+-- 실제 사람 계정에 걸 수 없다 — 그래서 이 용도 전용의 고정 시스템
+-- 계정을 하나 심어둔다(email이 UNIQUE라 재실행해도 한 행만 유지).
+-- 이 계정은 로그인할 수 없다(accounts 테이블에 연결된 OAuth provider가
+-- 없음) — 순전히 FK를 만족시키는 소유자 표식일 뿐이다.
+INSERT INTO users (name, email)
+VALUES ('트레쥴 콘텐츠', 'content@tradule.co.kr')
+ON CONFLICT (email) DO NOTHING;
