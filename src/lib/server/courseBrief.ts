@@ -31,6 +31,11 @@ export interface CourseBriefSpot {
   lat: number;
   lng: number;
   order: number;
+  // 이 스팟이 몇 일차인지 — 작업지시서 2026-09-06 "승격 후 실측" §3:
+  // order가 날짜 구분 없는 평면 배열(1..N)이라 AutoPipeline이 블로그
+  // 일차별 타임라인 표를 만들 수 없었다. 순수 추가 필드라 기존 계약을
+  // 깨지 않는다.
+  day: 1 | 2 | 3;
   toNextMinutes: number | null;
   toNextMode: TravelMode;
 }
@@ -62,8 +67,33 @@ export function resolveScope(region: string): CourseBriefScope {
   return OVERSEAS_LOCALITY_NAMES.has(region) ? "overseas" : "domestic";
 }
 
-export function appUrlFor(region: string): string {
+// 세 라우트(course-brief/course-map/course-open)가 공통으로 쓰는 days
+// 파싱 — 작업지시서 2026-09-06 "승격 후 실측" §7-5: 승격 전 프로덕션이
+// days=3 요청을 조용히 days=1로 깎아 응답했다("지원하지 않는 값은 조용히
+// 축소하지 말고 400으로 거절"). 값이 없으면(생략) 1을 기본값으로 쓰고,
+// 1|2|3이 아닌 값(예: "4", "abc")은 null을 돌려줘 호출부가 400을 내게
+// 한다.
+export function parseDays(value: string | null): 1 | 2 | 3 | null {
+  if (value == null) return 1;
+  if (value === "1") return 1;
+  if (value === "2") return 2;
+  if (value === "3") return 3;
+  return null;
+}
+
+/** "코스 만들기" 화면 — course-open이 빈 코스(스팟 0개)일 때 대체 목적지로 쓴다. appUrlFor와 분리해둬야 그쪽이 course-open URL로 바뀌어도 순환 리다이렉트가 안 생긴다. */
+export function courseBuilderUrlFor(region: string): string {
   return `https://www.tradule.co.kr/course?region=${encodeURIComponent(region)}`;
+}
+
+// 작업지시서 2026-09-06 "승격 후 실측" §4 — 기존엔 지역·일수 정보가 없는
+// "/course" 루트를 줘서 "이 코스 그대로 열기"라는 §B-2 요청과 맞지
+// 않았다. course-open이 바로 그 역할(코스를 실제 계획으로 저장하고
+// 공유 페이지로 보냄)을 하므로, appUrl 자체를 그 엔드포인트로 바꾼다
+// (방법 A — course-open 자체 URL로 교체. course-open은 idempotent해서
+// 여러 번 클릭해도 같은 계획으로 수렴한다).
+export function appUrlFor(region: string, days: 1 | 2 | 3): string {
+  return `https://www.tradule.co.kr/api/content/course-open?region=${encodeURIComponent(region)}&days=${days}`;
 }
 
 // 이 응답 캐시는 course_cache가 아니라 place_candidate_cache를 쓴다
@@ -84,6 +114,19 @@ export function briefCacheKey(scope: CourseBriefScope, region: string, days: num
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}`;
 }
 
+// 필드를 새로 추가할 때(ratingSource — 작업지시서 2026-09-05, day —
+// 2026-09-06 "승격 후 실측" §3) TTL이 지나기 전까지는 그 필드 없이
+// 저장된 오래된 payload가 그대로 반환될 수 있다 — 실제로 2026-09-06
+// 검증 문서 §1에서 프리뷰의 경주(캐시 히트) 응답이 ratingSource=undefined로
+// 관측됐다(도메스틱이라 카카오라서가 아니라, ratingSource 필드가 생기기
+// 전에 캐시된 옛 payload였을 뿐). 새 필드를 추가할 때마다 이 목록에
+// 검증을 더한다 — 필수 필드가 없는 캐시는 캐시 미스로 취급해 새로 만든다.
+function isFreshBriefPayload(payload: CourseBrief): boolean {
+  if (typeof payload.ratingSource !== "string") return false;
+  if (!Array.isArray(payload.spots)) return false;
+  return payload.spots.every((s) => typeof (s as { day?: unknown }).day === "number");
+}
+
 export async function readBriefCache(key: string): Promise<CourseBrief | null> {
   const result = await pool.query<{ payload: CourseBrief; created_at: string }>(
     `select payload, created_at from place_candidate_cache where cache_key = $1`,
@@ -92,13 +135,7 @@ export async function readBriefCache(key: string): Promise<CourseBrief | null> {
   const row = result.rows[0];
   if (!row) return null;
   if (Date.now() - new Date(row.created_at).getTime() > BRIEF_CACHE_TTL_MS) return null;
-  // 필드를 새로 추가할 때(예: ratingSource, 작업지시서 2026-09-05) TTL이
-  // 지나기 전까지는 그 필드 없이 저장된 오래된 payload가 그대로 반환될 수
-  // 있다 — 실제로 2026-09-06 검증 문서 §1에서 프리뷰의 경주(캐시 히트)
-  // 응답이 ratingSource=undefined로 관측됐다(도메스틱이라 카카오라서가
-  // 아니라, ratingSource 필드가 생기기 전에 캐시된 옛 payload였을 뿐).
-  // 필수 필드가 없는 캐시는 캐시 미스로 취급해 새로 만든다.
-  if (typeof row.payload.ratingSource !== "string") return null;
+  if (!isFreshBriefPayload(row.payload)) return null;
   return row.payload;
 }
 
@@ -399,7 +436,7 @@ async function liveEnrichSpots(spots: CourseBriefSpot[], scope: CourseBriefScope
  * I/O가 들어가는 라이브 평점 보강은 별도 단계(liveEnrichSpots)로 분리해,
  * 이 함수의 결과만으로도 완결된 코스 구조를 즉시 캐시에 쓸 수 있게 한다.
  */
-function assembleDaySpots(stops: FinalStop[], baseOrder: number, scope: CourseBriefScope, region: string): { spots: CourseBriefSpot[]; distanceKm: number } {
+function assembleDaySpots(stops: FinalStop[], baseOrder: number, scope: CourseBriefScope, region: string, day: 1 | 2 | 3): { spots: CourseBriefSpot[]; distanceKm: number } {
   let distanceKm = 0;
   const spots: CourseBriefSpot[] = stops.map((stop, i) => {
     let toNextMinutes: number | null = null;
@@ -427,6 +464,7 @@ function assembleDaySpots(stops: FinalStop[], baseOrder: number, scope: CourseBr
       lat: stop.lat,
       lng: stop.lng,
       order: baseOrder + i,
+      day,
       toNextMinutes,
       toNextMode,
     };
@@ -583,7 +621,7 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
 }
 
 export async function buildBrief(scope: CourseBriefScope, region: string, days: 1 | 2 | 3, cacheKey: string, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
-  const appUrl = appUrlFor(region);
+  const appUrl = appUrlFor(region, days);
 
   // 실패해도 절대 던지지 않는다(스펙 §1 "에러를 던지지 말 것") — 빈
   // spots로 조용히 폴백해 AutoPipeline이 그 지역을 건너뛰게 한다. 어느
@@ -599,12 +637,12 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   let baseOrder = 1;
   let totalDistanceKm = 0;
   const allSpots: CourseBriefSpot[] = [];
-  for (const stops of dayStops) {
-    const { spots, distanceKm } = assembleDaySpots(stops, baseOrder, scope, region);
+  dayStops.forEach((stops, i) => {
+    const { spots, distanceKm } = assembleDaySpots(stops, baseOrder, scope, region, (i + 1) as 1 | 2 | 3);
     allSpots.push(...spots);
     totalDistanceKm += distanceKm;
     baseOrder += spots.length;
-  }
+  });
   // 요청한 days보다 실제로 채워진 날짜 수가 적을 수 있다(1일차부터 비면
   // dayStops가 아예 비고, 이 경우도 최소 1일로 보고한다 — 기존 동작 유지).
   const actualDays = Math.max(1, dayStops.length) as 1 | 2 | 3;
@@ -655,15 +693,16 @@ export async function getCourseBrief(region: string, days: 1 | 2 | 3, enrichBudg
  */
 export interface WarmTask {
   region: string;
-  days: 1 | 2;
+  days: 1 | 2 | 3;
 }
 
 /**
  * (region, days) 단위로 일반화한 버전 — 작업지시서 2026-09-06 "정정 및
- * 실측" §4-4 "워밍 대상에 days=2 포함"에 대응. 해외는 AutoPipeline의
- * 상식 게이트(REGION_PROFILES, "해외는 minDays>=2가 하드 규칙")상 하루
- * 코스로는 애초에 안 쓰이므로, 워밍 크론이 국내는 days=1을, 해외는
- * days=2를 태스크로 넘긴다.
+ * 실측" §4-4 "워밍 대상에 days=2 포함", 같은 날짜 "승격 후 실측" §7-4
+ * "워밍 대상에 days=3 추가"에 대응. 해외는 AutoPipeline의 상식 게이트
+ * (REGION_PROFILES, "해외는 minDays>=2가 하드 규칙")상 하루 코스로는
+ * 애초에 안 쓰이므로, 워밍 크론이 국내는 days=1을, 해외는 days=2·3을
+ * 태스크로 넘긴다.
  */
 export async function pickStaleTasks(tasks: WarmTask[], limit: number): Promise<WarmTask[]> {
   const keys = tasks.map((t) => briefCacheKey(resolveScope(t.region), t.region, t.days));

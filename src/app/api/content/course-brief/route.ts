@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief } from "@/lib/server/courseBrief";
+import { getCourseBrief, parseDays } from "@/lib/server/courseBrief";
 
 /**
  * 트레쥴 콘텐츠 API — 블로그 자동 발행 파이프라인(AutoPipeline, 별도
@@ -27,9 +27,12 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region = (request.nextUrl.searchParams.get("region") ?? "").trim().slice(0, 40);
   if (!region) return NextResponse.json({ error: "missing region" }, { status: 400 });
   // 작업지시서 2026-09-06 "PR #231 검증" §3 — 3박4일 등 제목과 본문
-  // 일수가 어긋나는 문제를 없애기 위해 days=3을 새로 허용한다.
-  const daysParam = request.nextUrl.searchParams.get("days");
-  const days: 1 | 2 | 3 = daysParam === "3" ? 3 : daysParam === "2" ? 2 : 1;
+  // 일수가 어긋나는 문제를 없애기 위해 days=3을 새로 허용한다. 지원하지
+  // 않는 값은 조용히 깎지 않고 400으로 거절한다(같은 날짜 "승격 후
+  // 실측" §7-5 — 승격 전 프로덕션이 days=3 요청을 조용히 1로 깎아
+  // 응답한 게 뒤늦게 드러난 적이 있다).
+  const days = parseDays(request.nextUrl.searchParams.get("days"));
+  if (days == null) return NextResponse.json({ error: "days must be 1, 2, or 3" }, { status: 400 });
 
   const brief = await getCourseBrief(region, days);
   return NextResponse.json(brief);

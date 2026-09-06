@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { pool } from "@/lib/server/db";
-import { getCourseBrief, resolveScope, type CourseBriefSpot } from "@/lib/server/courseBrief";
+import { courseBuilderUrlFor, getCourseBrief, parseDays, resolveScope, type CourseBriefSpot } from "@/lib/server/courseBrief";
 import { DEFAULT_DURATION_MINUTES, formatTime, shiftISODate, todayISODate } from "@/lib/timeline";
 import type { ItineraryItem, Region } from "@/lib/types";
 
@@ -18,10 +18,19 @@ import type { ItineraryItem, Region } from "@/lib/types";
  * 로그인한 사람이 아니라 콘텐츠 파이프라인이 만든 계획이다. 그래서
  * schema.sql에 심어둔 고정 시스템 계정(CONTENT_OWNER_EMAIL)이 소유자
  * 역할만 한다 — 로그인은 못 하는 계정이고(연결된 OAuth 계정 없음),
- * FK를 만족시키는 표식일 뿐이다. 클릭한 사람은 shareToken을 아는
- * 사람 누구나 보고 고칠 수 있는 기존 capability-URL 모델 그대로
- * 자기 사본을 갖게 된다 — 클릭마다 새 행이 생기므로 서로 다른 방문자가
- * 같은 계획을 공유해 덮어쓰는 일은 없다.
+ * FK를 만족시키는 표식일 뿐이다.
+ *
+ * (region, days) 조합당 itineraries 행 하나로 멱등하다 — 작업지시서
+ * 2026-09-06 "승격 후 실측" §2: 처음엔 호출마다 새 행을 만들었는데,
+ * 이 라우트가 인증 없는 GET이라 크롤러·새로고침·SNS 미리보기 봇이
+ * 그대로 새 레코드 증식 경로가 됐다(194편 블로그에 CTA로 걸리면 그
+ * 자체가 문제). "userId+contentKey" UNIQUE 제약(schema.sql)에 대한
+ * INSERT … ON CONFLICT DO UPDATE … RETURNING으로, 이미 있으면 그
+ * shareToken을 그대로 돌려주고 새 행을 만들지 않는다. 그래서 클릭한
+ * 사람은 shareToken을 아는 사람 누구나 보고 고칠 수 있는 기존
+ * capability-URL 모델 그대로 "그 지역+일수의" 공용 사본을 보게 된다
+ * (기존의 "클릭마다 자기만의 사본" 설계에서 "지역+일수당 하나의 공용
+ * 사본"으로 바뀐 것 — 콘텐츠 CTA의 의도상 이쪽이 맞다).
  */
 
 const CONTENT_OWNER_EMAIL = "content@tradule.co.kr";
@@ -80,14 +89,17 @@ function scheduleDay(spots: CourseBriefSpot[], date: string, idPrefix: string): 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region = (request.nextUrl.searchParams.get("region") ?? "").trim().slice(0, 40);
   if (!region) return NextResponse.json({ error: "missing region" }, { status: 400 });
-  const daysParam = request.nextUrl.searchParams.get("days");
-  const days: 1 | 2 | 3 = daysParam === "3" ? 3 : daysParam === "2" ? 2 : 1;
+  const days = parseDays(request.nextUrl.searchParams.get("days"));
+  if (days == null) return NextResponse.json({ error: "days must be 1, 2, or 3" }, { status: 400 });
 
   const brief = await getCourseBrief(region, days);
   if (brief.spots.length === 0) {
     // 스팟이 하나도 없으면 계획을 만들 수 없다 — 코스 만들기 화면으로
     // 보내 직접 시작하게 한다(빈 계획을 만들어 혼란을 주는 것보다 낫다).
-    return NextResponse.redirect(brief.appUrl, 302);
+    // brief.appUrl은 이제 이 라우트 자신을 가리키므로(courseBrief.ts
+    // appUrlFor 참고) 여기로 리다이렉트하면 무한 루프가 된다 — 별도
+    // 목적지(courseBuilderUrlFor)를 쓴다.
+    return NextResponse.redirect(courseBuilderUrlFor(region), 302);
   }
 
   const owner = await pool.query<{ id: number }>(`select id from users where email = $1`, [CONTENT_OWNER_EMAIL]);
@@ -108,11 +120,21 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
 
   const regionValue: Region = resolveScope(region) === "overseas" ? "international" : "domestic";
 
+  // (region, days) 조합당 하나로 멱등 — 파일 상단 주석 참고. contentKey는
+  // courseBrief.ts의 briefCacheKey/candidateCacheKey와 같은 정규화
+  // 관례(trim+lowercase)를 따른다. shareToken은 매번 새로 만들지만,
+  // 충돌 시(이미 있는 조합) UPDATE 절이 shareToken/placesData를 건드리지
+  // 않으므로 RETURNING은 항상 "최초 생성 시점의" shareToken을 돌려준다
+  // — 같은 URL이 계속 유지된다.
+  const contentKey = `${resolveScope(region)}:${region.trim().toLowerCase()}:${days}`;
   const shareToken = randomUUID();
-  await pool.query(
-    `insert into itineraries ("userId", title, region, "placesData", "shareToken", "isDraft") values ($1, $2, $3, $4, $5, false)`,
-    [ownerId, `${region} 여행 코스`, regionValue, JSON.stringify(placesData), shareToken],
+  const result = await pool.query<{ shareToken: string }>(
+    `insert into itineraries ("userId", title, region, "placesData", "shareToken", "isDraft", "contentKey")
+     values ($1, $2, $3, $4, $5, false, $6)
+     on conflict ("contentKey") do update set updated_at = now()
+     returning "shareToken"`,
+    [ownerId, `${region} 여행 코스`, regionValue, JSON.stringify(placesData), shareToken, contentKey],
   );
 
-  return NextResponse.redirect(`https://www.tradule.co.kr/planner/${shareToken}`, 302);
+  return NextResponse.redirect(`https://www.tradule.co.kr/planner/${result.rows[0].shareToken}`, 302);
 });

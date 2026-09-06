@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief } from "@/lib/server/courseBrief";
+import { getCourseBrief, parseDays } from "@/lib/server/courseBrief";
 
 /**
  * 트레쥴 콘텐츠 API — 동선 지도 이미지 전용 엔드포인트. 작업지시서
@@ -27,8 +27,8 @@ export const maxDuration = 60; // course-brief와 동일(2026-09-06 §4-2로 60�
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region = (request.nextUrl.searchParams.get("region") ?? "").trim().slice(0, 40);
   if (!region) return NextResponse.json({ error: "missing region" }, { status: 400 });
-  const daysParam = request.nextUrl.searchParams.get("days");
-  const days: 1 | 2 | 3 = daysParam === "3" ? 3 : daysParam === "2" ? 2 : 1;
+  const days = parseDays(request.nextUrl.searchParams.get("days"));
+  if (days == null) return NextResponse.json({ error: "days must be 1, 2, or 3" }, { status: 400 });
 
   const brief = await getCourseBrief(region, days);
   if (!brief.imageUrl) {
