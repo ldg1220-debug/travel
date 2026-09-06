@@ -85,6 +85,16 @@ ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "forkedFromId" INTEGER REFERENC
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "likesCount" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "forksCount" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "isDraft" BOOLEAN NOT NULL DEFAULT false;
+-- course-open(/api/content/course-open) 멱등 처리용 — 작업지시서
+-- 2026-09-06 "승격 후 실측" §2: 인증 없는 GET이 호출될 때마다 새 행을
+-- 만들어서, 크롤러·새로고침·SNS 미리보기 봇이 그대로 레코드 증식
+-- 경로가 됐다. "{scope}:{region 소문자}:{days}" 형태의 결정론적 키를
+-- 여기 저장해두고, INSERT … ON CONFLICT("contentKey") DO UPDATE …
+-- RETURNING으로 (region, days) 조합당 정확히 한 행만 남긴다. 일반
+-- 사용자가 직접 만드는 계획은 이 컬럼을 안 쓰므로(NULL) — UNIQUE는
+-- Postgres에서 NULL을 서로 다른 값으로 취급해 여러 NULL 행이 공존할 수
+-- 있어 기존 계획들과 충돌하지 않는다.
+ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "contentKey" VARCHAR(80) UNIQUE;
 
 CREATE INDEX IF NOT EXISTS itineraries_user_id_idx ON itineraries ("userId");
 CREATE INDEX IF NOT EXISTS itineraries_share_token_idx ON itineraries ("shareToken");

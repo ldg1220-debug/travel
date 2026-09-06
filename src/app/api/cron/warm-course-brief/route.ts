@@ -25,26 +25,36 @@ import { flatRegions } from "@/lib/discoverData";
  * 목록(58곳)만 워밍했는데, AutoPipeline에 "쓸 수 있다"고 알려주는
  * regions API는 198곳을 돌려주고 있어 둘이 어긋나 있었다.
  *
- * 일수는 국내 1일 · 해외 2일로 고정한다 — AutoPipeline의 상식 게이트
- * (REGION_PROFILES)상 해외는 minDays>=2가 하드 규칙이라 해외 1일
- * 코스는 애초에 블로그에서 쓰이지 않는다. (course-brief 자체는 days=3
- * 을 지원하지 않는다 — 1 또는 2만 유효하다.)
+ * 일수는 국내 1일 · 해외 2일·3일로 워밍한다 — AutoPipeline의 상식
+ * 게이트(REGION_PROFILES)상 해외는 minDays>=2가 하드 규칙이라 해외 1일
+ * 코스는 애초에 블로그에서 쓰이지 않는다. days=3은 작업지시서
+ * 2026-09-06 "승격 후 실측" §7-4에서 실측(오사카 20.5초, skipLlm 적용
+ * 후)으로 안전성이 확인된 뒤 추가했다.
  */
 
 export const dynamic = "force-dynamic";
-// 배치가 커져도(20개, 동시성 3) 지시서 §4의 실측(5개 배치 20.39초)
-// 기준 여유가 충분하다 — 다만 코스 생성(LLM+DP, 우리가 직접 제어 못
-// 함) 자체가 가끔 느릴 수 있어 안전망으로 크게 잡아둔다. 정상
-// 실행이라면 이 값에 근접할 일이 없어야 한다.
+// 코스 생성(LLM+DP, 우리가 직접 제어 못 함) 자체가 가끔 느릴 수 있어
+// 안전망으로 크게 잡아둔다. 정상 실행이라면 이 값에 근접할 일이 없어야
+// 한다.
 export const maxDuration = 90;
 
-const BATCH_SIZE = 20; // 지시서 2026-09-06 §4-3 — 실측(5개=20.39초) 기준 90초 예산 안에서 여유(약 70초) 확인됨
+// 지시서 2026-09-06 §4-3이 BATCH_SIZE=20을 "실측(5개=20.39초) 기준 90초
+// 예산 안에서 여유(약 70초)"라 봤지만, 그 실측은 days=2(당시 skipLlm
+// 없이 day1·day2 모두 LLM 호출)였다 — 동시성 3에서 20개를 처리하면
+// worst case(전부 cold) ceil(20/3)=7 그룹 × 지역당 최대 십수 초로
+// 90초에 바짝 붙는다. 여기에 이번에 새로 추가하는 overseas days=3
+// 태스크는 배포 직후 전부 캐시가 없어(pickStaleTasks가 "캐시 없음"을
+// 가장 오래된 것으로 취급) 첫 며칠간 배치를 통째로 차지할 수 있다 —
+// "배치가 완주 못 하면 아무것도 안 남는다"(작업지시서 2026-09-02
+// "워밍 재설계")는 교훈을 다시 어기지 않도록 보수적으로 낮춘다.
+const BATCH_SIZE = 12;
 const PER_REGION_ENRICH_BUDGET_MS = 8000; // 지시서 §A-3 권장값
 const WARM_CONCURRENCY = 3; // 지시서 §A-3 권장값
 
 const WARM_TASKS: WarmTask[] = [
   ...flatRegions("domestic").map((r): WarmTask => ({ region: r.name, days: 1 })),
   ...flatRegions("overseas").map((r): WarmTask => ({ region: r.name, days: 2 })),
+  ...flatRegions("overseas").map((r): WarmTask => ({ region: r.name, days: 3 })),
 ];
 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
