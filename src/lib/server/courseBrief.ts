@@ -2,7 +2,7 @@ import { put } from "@vercel/blob";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
 import { haversineKm } from "@/lib/server/courseRoute";
-import { MODE_SPEED_KMH, cuisineKeyword, googleTop, sameShop, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
+import { MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { allSpots, OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
 
@@ -278,6 +278,253 @@ function dedupeWithinList(stops: FinalStop[], scope: CourseBriefScope, region: s
 function dedupeCrossDay(priorDays: FinalStop[][], candidate: FinalStop[], region: string): FinalStop[] {
   const priorStops = priorDays.flat();
   return candidate.filter((b) => !priorStops.some((a) => isDuplicateStop(a, b, region)));
+}
+
+// ---------------------------------------------------------------- 다일정 지리 배분
+//
+// 작업지시서 2026-09-06 "일자 배분이 지리적으로 나뉘지 않습니다"의 진단:
+// 날짜별로 generateCourseV2를 독립 호출(avoidCentroid로 약한 페널티만
+// 줌)하다 보니, 실측(오사카 3일 코스)에서 하루 안에 도시 반대편(키타↔
+// 미나미)을 세 번 왕복하거나 같은 구역(예: 도톤보리/신세카이)이 여러
+// 날에 흩어지는 문제가 나왔다 — order를 균등 3분할한 결과가 곧 날짜
+// 배정이 되는 구조라, order 자체가 지리 순서를 반영하지 않으면 이렇게
+// 된다. 스팟 "선정"(어떤 곳을 고를지 — generateDay/generateCourseV2 몫,
+// 그대로 둔다)과 "배정"(그 스팟들을 어느 날·어느 순서로 방문할지)을
+// 분리해, 배정만 좌표 기준으로 사후에 다시 정한다.
+
+/** 클러스터링/동선 정렬 헬퍼가 필요로 하는 최소 형태 — FinalStop 전체가 아니라 이 형태로 짜야 순수 함수로 단위 테스트하기 쉽다. */
+interface GeoPoint {
+  lat: number;
+  lng: number;
+}
+
+function centroidOf<T extends GeoPoint>(points: T[]): GeoPoint {
+  return {
+    lat: points.reduce((sum, p) => sum + p.lat, 0) / points.length,
+    lng: points.reduce((sum, p) => sum + p.lng, 0) / points.length,
+  };
+}
+
+/** n개를 groups개로 최대한 고르게(각 그룹 floor(n/groups) 또는 그보다 1개 많게) 순서 그대로 나눈다 — 클러스터링이 극단적으로 쏠린 경우의 안전한 대체 수단. groups <= n일 때만 모든 그룹이 비지 않는다(호출부가 보장). */
+function evenSplit<T>(items: T[], groups: number): T[][] {
+  const base = Math.floor(items.length / groups);
+  const remainder = items.length % groups;
+  const result: T[][] = [];
+  let idx = 0;
+  for (let i = 0; i < groups; i++) {
+    const size = base + (i < remainder ? 1 : 0);
+    result.push(items.slice(idx, idx + size));
+    idx += size;
+  }
+  return result;
+}
+
+/**
+ * k-평균 군집화(Lloyd's algorithm)로 좌표만 보고 stops를 k개 그룹으로
+ * 나눈다. 초기 중심은 farthest-point sampling(서로 가장 멀리 떨어진
+ * 점부터 고름)으로 결정론적으로 고른다 — k-means++ 같은 무작위 시드를
+ * 쓰면 같은 입력이 매번 다른 결과를 내 캐시 재현성·테스트 안정성이
+ * 깨진다.
+ *
+ * k-means만으로는 지리적으로 한쪽에 쏠린 도시에서 극단적으로 불균등한
+ * 그룹(예: 12/5/2)이 나올 수 있어, 이후 균형 잡기 패스로 그룹 크기를
+ * 목표치(±1)에 맞춘다 — 블로그 코스는 하루당 방문지 수가 어느 정도
+ * 고르게 나와야 자연스럽다.
+ */
+export function clusterByLocation<T extends GeoPoint>(stops: T[], k: number): T[][] {
+  const n = stops.length;
+  const groups = Math.max(1, Math.min(k, n));
+  if (groups <= 1 || n === 0) return [stops];
+
+  const centroids: GeoPoint[] = [{ lat: stops[0].lat, lng: stops[0].lng }];
+  while (centroids.length < groups) {
+    let farthest = { index: 0, dist: -1 };
+    stops.forEach((s, i) => {
+      const minDist = Math.min(...centroids.map((c) => haversineKm(s, c)));
+      if (minDist > farthest.dist) farthest = { index: i, dist: minDist };
+    });
+    centroids.push({ lat: stops[farthest.index].lat, lng: stops[farthest.index].lng });
+  }
+
+  let assignment = stops.map((s) => {
+    let best = 0;
+    let bestDist = Infinity;
+    centroids.forEach((c, ci) => {
+      const d = haversineKm(s, c);
+      if (d < bestDist) {
+        bestDist = d;
+        best = ci;
+      }
+    });
+    return best;
+  });
+  const MAX_ITERATIONS = 20;
+  for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+    for (let ci = 0; ci < groups; ci++) {
+      const members = stops.filter((_, i) => assignment[i] === ci);
+      if (members.length > 0) centroids[ci] = centroidOf(members);
+    }
+    let changed = false;
+    const next = stops.map((s, i) => {
+      let best = 0;
+      let bestDist = Infinity;
+      centroids.forEach((c, ci) => {
+        const d = haversineKm(s, c);
+        if (d < bestDist) {
+          bestDist = d;
+          best = ci;
+        }
+      });
+      if (best !== assignment[i]) changed = true;
+      return best;
+    });
+    assignment = next;
+    if (!changed) break;
+  }
+
+  // 균형 잡기 — 그룹 크기를 target(≈ n/groups)에 가깝게 맞춘다. 가장 큰
+  // 그룹에서, 가장 작은 그룹의 중심에 제일 가까운 멤버를 옮기는 걸
+  // 반복한다. n·groups 회로 상한을 둬 무한루프를 막는다(작은 입력이라
+  // 실제로는 훨씬 일찍 끝난다).
+  const target = Math.floor(n / groups);
+  for (let move = 0; move < n * groups; move++) {
+    const sizes = Array.from({ length: groups }, (_, ci) => assignment.filter((a) => a === ci).length);
+    const overIdx = sizes.findIndex((s) => s > target + 1);
+    const underIdx = sizes.findIndex((s) => s < target);
+    if (overIdx === -1 || underIdx === -1) break;
+    let bestI = -1;
+    let bestDist = Infinity;
+    stops.forEach((s, i) => {
+      if (assignment[i] !== overIdx) return;
+      const d = haversineKm(s, centroids[underIdx]);
+      if (d < bestDist) {
+        bestDist = d;
+        bestI = i;
+      }
+    });
+    if (bestI === -1) break;
+    assignment[bestI] = underIdx;
+  }
+
+  const result = Array.from({ length: groups }, (_, ci) => stops.filter((_, i) => assignment[i] === ci));
+  // 극단적으로 쏠린 지리 분포 등으로 빈 그룹이 남으면(드묾) 안전하게
+  // 균등 분할로 대체한다 — 빈 날짜가 있는 코스보다 낫다.
+  return result.some((g) => g.length === 0) ? evenSplit(stops, groups) : result;
+}
+
+/** 그룹 안에서 최근접 이웃 순으로 이어 붙인다 — 왕복(지그재그) 없이 한 방향으로 훑도록 한다. 시작점은 입력 순서의 첫 번째(결정론적). */
+export function orderByNearestNeighbor<T extends GeoPoint>(stops: T[]): T[] {
+  if (stops.length <= 2) return stops;
+  const remaining = [...stops];
+  const ordered: T[] = [remaining.shift()!];
+  while (remaining.length > 0) {
+    const current = ordered[ordered.length - 1];
+    let bestIndex = 0;
+    let bestDist = Infinity;
+    remaining.forEach((s, i) => {
+      const d = haversineKm(current, s);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIndex = i;
+      }
+    });
+    ordered.push(remaining.splice(bestIndex, 1)[0]);
+  }
+  return ordered;
+}
+
+const PROXIMITY_DEDUPE_HARD_KM = 0.1; // 카테고리 무관하게 사실상 같은 자리로 본다(실측: 하루카스300↔아베노하루카스 30m).
+const PROXIMITY_DEDUPE_SOFT_KM = 0.3; // 이 안이면서 카테고리(liveCategoryBucket)까지 같을 때만 같은 자리로 본다(실측: 쓰텐카쿠 전망대↔신세카이 105m, 둘 다 관광지).
+
+/**
+ * 이름은 달라도 좌표상 사실상 같은 장소를 걸러낸다 — 작업지시서
+ * 2026-09-06 "일자 배분" §4-2: dedupeWithinList/dedupeCrossDay는 이름
+ * 겹침이 있어야만 중복으로 보는데, "하루카스 300"(전망대)과 "아베노
+ * 하루카스"(건물)처럼 이름이 전혀 안 겹치는 같은 장소는 못 잡았다.
+ * 카테고리가 다르면(예: 전망대 vs 식당) 300m 안이어도 중복으로 보지
+ * 않는다 — 실제로 다른 방문 목적이니 둘 다 남기고, 대신 지리
+ * 클러스터링(clusterByLocation)이 자연히 같은 날로 묶어준다. 100m
+ * 안쪽은 카테고리 무관하게 사실상 같은 자리로 본다. 남길 쪽은 리뷰
+ * 수가 더 많은 쪽(더 신뢰할 수 있는 데이터).
+ */
+export function dedupeByProximity<T extends GeoPoint & { category: string; reviewCount?: number | null }>(stops: T[]): T[] {
+  const kept: T[] = [];
+  for (const stop of stops) {
+    const dupIndex = kept.findIndex((k) => {
+      const distKm = haversineKm(k, stop);
+      if (distKm <= PROXIMITY_DEDUPE_HARD_KM) return true;
+      if (distKm > PROXIMITY_DEDUPE_SOFT_KM) return false;
+      return liveCategoryBucket(k.category) === liveCategoryBucket(stop.category);
+    });
+    if (dupIndex === -1) {
+      kept.push(stop);
+      continue;
+    }
+    if ((stop.reviewCount ?? 0) > (kept[dupIndex].reviewCount ?? 0)) kept[dupIndex] = stop;
+  }
+  return kept;
+}
+
+const ALL_DAY_FACILITY_MAX_OTHERS = 2; // 검증 기준(작업지시서 §5) "총 3곳 이하" = 시설 1 + 다른 곳 최대 2.
+
+/**
+ * 유니버설 스튜디오 같은 종일 시설(isLargeFacility, courseRecommend.ts —
+ * 대형 테마파크·워터파크·아쿠아리움·동물원)이 배정된 날은 다른 스팟을
+ * 최대 ALL_DAY_FACILITY_MAX_OTHERS곳으로 제한한다 — 작업지시서 §4-3:
+ * "USJ 뒤에 5곳이 더 붙어 있다 … 이대로 나가면 신뢰를 잃는다". 초과분은
+ * 그 스팟과 가장 가까운 "다른" 날로 옮긴다(그 날이 비어있으면 원래
+ * 그룹 중심으로 폴백). groups가 1개뿐이면 옮길 다른 날이 없어 그대로
+ * 둔다.
+ */
+export function capAllDayFacilityDays<T extends GeoPoint>(groups: T[][], isFacility: (s: T) => boolean): T[][] {
+  if (groups.length <= 1) return groups;
+  const next = groups.map((g) => [...g]);
+  groups.forEach((group, dayIndex) => {
+    const facilities = group.filter(isFacility);
+    if (facilities.length === 0) return;
+    const others = group.filter((s) => !isFacility(s));
+    if (others.length <= ALL_DAY_FACILITY_MAX_OTHERS) return;
+
+    const facilityCentroid = centroidOf(facilities);
+    const sorted = [...others].sort((a, b) => haversineKm(facilityCentroid, a) - haversineKm(facilityCentroid, b));
+    next[dayIndex] = [...facilities, ...sorted.slice(0, ALL_DAY_FACILITY_MAX_OTHERS)];
+
+    sorted.slice(ALL_DAY_FACILITY_MAX_OTHERS).forEach((stop) => {
+      let bestDay = -1;
+      let bestDist = Infinity;
+      next.forEach((g, gi) => {
+        if (gi === dayIndex) return;
+        const centroid = centroidOf(g.length > 0 ? g : group);
+        const d = haversineKm(stop, centroid);
+        if (d < bestDist) {
+          bestDist = d;
+          bestDay = gi;
+        }
+      });
+      if (bestDay === -1) bestDay = (dayIndex + 1) % next.length;
+      next[bestDay] = [...next[bestDay], stop];
+    });
+  });
+  return next;
+}
+
+/**
+ * 날짜별로 독립 생성된 스팟들을 지리 기준으로 재배분한다 — 위 헬퍼들의
+ * 조합. 스팟 "선정"(generateDay/generateCourseV2 몫)은 건드리지 않고,
+ * 이미 뽑힌 스팟들을 날짜 경계 없이 모아 다시 나눈다. days===1이면
+ * 재배분할 대상(비교할 다른 날)이 없으니 근접 중복 제거만 적용한다.
+ */
+function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
+  if (dayStops.length === 0) return [];
+  const allStops = dedupeByProximity(dayStops.flat());
+  if (dayStops.length === 1 || allStops.length < dayStops.length) {
+    // 재배분엔 그룹당 최소 1개가 필요하다 — 근접 중복 제거로 스팟이 날짜
+    // 수보다 적어지면(드묾) 그냥 하루로 합친다. 빈 날짜가 있는 것보다 낫다.
+    return [allStops];
+  }
+  const clustered = clusterByLocation(allStops, dayStops.length);
+  const capped = capAllDayFacilityDays(clustered, isLargeFacility);
+  return capped.map((group) => orderByNearestNeighbor(group));
 }
 
 // 카탈로그에도 없는 국내(Kakao) 결과의 마지막 보강 — place_candidate_cache를
@@ -634,10 +881,15 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
     dayStops.push(stops);
   }
 
+  // 스팟 선정은 위까지 끝났다 — 이제 "어느 날·어느 순서로 방문할지"만
+  // 좌표 기준으로 다시 정한다(작업지시서 2026-09-06 "일자 배분이
+  // 지리적으로 나뉘지 않습니다" 참고, reallocateStopsByDay 주석).
+  const finalDayGroups = reallocateStopsByDay(dayStops);
+
   let baseOrder = 1;
   let totalDistanceKm = 0;
   const allSpots: CourseBriefSpot[] = [];
-  dayStops.forEach((stops, i) => {
+  finalDayGroups.forEach((stops, i) => {
     const { spots, distanceKm } = assembleDaySpots(stops, baseOrder, scope, region, (i + 1) as 1 | 2 | 3);
     allSpots.push(...spots);
     totalDistanceKm += distanceKm;
@@ -645,7 +897,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   });
   // 요청한 days보다 실제로 채워진 날짜 수가 적을 수 있다(1일차부터 비면
   // dayStops가 아예 비고, 이 경우도 최소 1일로 보고한다 — 기존 동작 유지).
-  const actualDays = Math.max(1, dayStops.length) as 1 | 2 | 3;
+  const actualDays = Math.max(1, finalDayGroups.length) as 1 | 2 | 3;
   let brief: CourseBrief = { region, days: actualDays, totalDistanceKm: round1(totalDistanceKm), spots: allSpots, imageUrl: null, appUrl, ratingSource: "google" };
 
   // 여기까지가 "구조" 단계 — 순서·거리·이동수단·카탈로그 평점까지 전부
