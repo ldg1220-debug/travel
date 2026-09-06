@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, mapWithConcurrency, pickStaleRegions } from "@/lib/server/courseBrief";
-import { allSpots, DOMESTIC_CITY_SEEDS } from "@/lib/discoverData";
+import { getCourseBrief, mapWithConcurrency, pickStaleTasks, type WarmTask } from "@/lib/server/courseBrief";
+import { flatRegions } from "@/lib/discoverData";
 
 /**
  * Vercel Cron(vercel.json, 하루 1회) — 블로그 파이프라인이 실제로 쓸
@@ -14,43 +14,38 @@ import { allSpots, DOMESTIC_CITY_SEEDS } from "@/lib/discoverData";
  * 구조라 예산을 아무리 조정해도 근본적으로 고쳐지지 않는 문제였다.
  *
  * 대신 매 실행마다 작은 배치(BATCH_SIZE)만 처리해 반드시 완주하는
- * 쪽으로 바꿨다: 캐시가 없거나 가장 오래된 지역부터 순서대로 채운다
- * (pickStaleRegions). 하루 1회, 배치 5개면 12일에 전체 58곳을 한
- * 바퀴 돈다 — 블로그가 주 3편 발행하는 속도에는 충분하다(지시서
- * §A-3). 필요하면 Vercel Cron Jobs 화면의 Run 버튼으로 수동으로도
- * 여러 번 돌려 더 빨리 채울 수 있다(매번 다른 배치를 고르므로).
+ * 쪽으로 바꿨다: 캐시가 없거나 가장 오래된 (지역, 일수) 조합부터
+ * 순서대로 채운다(pickStaleTasks). 필요하면 Vercel Cron Jobs 화면의
+ * Run 버튼으로 수동으로도 여러 번 돌려 더 빨리 채울 수 있다(매번 다른
+ * 배치를 고르므로).
  *
- * 대상 지역은 새로 지어낸 목록이 아니라 discoverData.ts에 이미 있는
- * 카탈로그의 부산물이다 — 국내는 DOMESTIC_CITY_SEEDS의 "시도 · 동네"가
- * 아닌 단독 지역명(예: "안동", "통영")만(course-brief의 region은 이
- * 형태를 기대), 해외는 allSpots("overseas")에 실제로 등장하는 도시
- * 이름들. 경주는 실명 데이터가 이미 풍부해 DOMESTIC_CITY_SEEDS에서는
- * 빠져 있어 따로 추가했다.
+ * 작업지시서 2026-09-06 "정정 및 실측" §4-4: 대상 지역을
+ * /api/content/regions와 같은 소스(discoverData.ts의 flatRegions)로
+ * 통일한다 — 이전엔 DOMESTIC_CITY_SEEDS/allSpots에서 뽑은 좁은
+ * 목록(58곳)만 워밍했는데, AutoPipeline에 "쓸 수 있다"고 알려주는
+ * regions API는 198곳을 돌려주고 있어 둘이 어긋나 있었다.
+ *
+ * 일수는 국내 1일 · 해외 2일로 고정한다 — AutoPipeline의 상식 게이트
+ * (REGION_PROFILES)상 해외는 minDays>=2가 하드 규칙이라 해외 1일
+ * 코스는 애초에 블로그에서 쓰이지 않는다. (course-brief 자체는 days=3
+ * 을 지원하지 않는다 — 1 또는 2만 유효하다.)
  */
 
 export const dynamic = "force-dynamic";
-// 배치가 작아(5개, 동시성 3) 정상적인 경우 20초 안팎에 끝난다 — 다만
-// 코스 생성(LLM+DP, 우리가 직접 제어 못 함) 자체가 가끔 느릴 수 있어
-// 여유를 크게 둔다. 이전 설계의 300초와 달리 이번엔 여유가 아니라
-// 안전망 — 정상 실행이라면 이 값에 근접할 일이 없어야 한다.
+// 배치가 커져도(20개, 동시성 3) 지시서 §4의 실측(5개 배치 20.39초)
+// 기준 여유가 충분하다 — 다만 코스 생성(LLM+DP, 우리가 직접 제어 못
+// 함) 자체가 가끔 느릴 수 있어 안전망으로 크게 잡아둔다. 정상
+// 실행이라면 이 값에 근접할 일이 없어야 한다.
 export const maxDuration = 90;
 
-const BATCH_SIZE = 5; // 지시서 §A-3 권장값 — 하루 1회 × 12일이면 전체 58곳 순회
+const BATCH_SIZE = 20; // 지시서 2026-09-06 §4-3 — 실측(5개=20.39초) 기준 90초 예산 안에서 여유(약 70초) 확인됨
 const PER_REGION_ENRICH_BUDGET_MS = 8000; // 지시서 §A-3 권장값
 const WARM_CONCURRENCY = 3; // 지시서 §A-3 권장값
 
-const DOMESTIC_WARM_REGIONS: string[] = ["경주", ...DOMESTIC_CITY_SEEDS.filter(([region]) => !region.includes(" · ")).map(([region]) => region)];
-
-const OVERSEAS_WARM_REGIONS: string[] = (() => {
-  const cities = new Set<string>();
-  for (const spot of allSpots("overseas")) {
-    const city = spot.region.split(" · ")[1];
-    if (city) cities.add(city);
-  }
-  return [...cities];
-})();
-
-const WARM_REGIONS: string[] = [...DOMESTIC_WARM_REGIONS, ...OVERSEAS_WARM_REGIONS];
+const WARM_TASKS: WarmTask[] = [
+  ...flatRegions("domestic").map((r): WarmTask => ({ region: r.name, days: 1 })),
+  ...flatRegions("overseas").map((r): WarmTask => ({ region: r.name, days: 2 })),
+];
 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const secret = process.env.CRON_SECRET;
@@ -61,17 +56,25 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const batch = await pickStaleRegions(WARM_REGIONS, BATCH_SIZE);
+  const batch = await pickStaleTasks(WARM_TASKS, BATCH_SIZE);
 
-  const warmed = await mapWithConcurrency(batch, WARM_CONCURRENCY, async (region) => {
+  const warmed = await mapWithConcurrency(batch, WARM_CONCURRENCY, async ({ region, days }) => {
     try {
-      const brief = await getCourseBrief(region, 1, PER_REGION_ENRICH_BUDGET_MS);
-      return { region, ok: true as const, spots: brief.spots.length, rated: brief.spots.filter((s) => s.rating != null).length };
+      const brief = await getCourseBrief(region, days, PER_REGION_ENRICH_BUDGET_MS);
+      return { region, days, ok: true as const, spots: brief.spots.length, rated: brief.spots.filter((s) => s.rating != null).length };
     } catch (err) {
-      console.error(`[warm-course-brief] ${region} 실패:`, err);
-      return { region, ok: false as const };
+      console.error(`[warm-course-brief] ${region}(${days}일) 실패:`, err);
+      return { region, days, ok: false as const };
     }
   });
 
-  return NextResponse.json({ ok: true, totalRegions: WARM_REGIONS.length, batchSize: batch.length, warmed });
+  // Vercel 로그 패널이 응답 본문을 보여주지 않아, 실행 결과를 로그로도
+  // 남긴다 — 지시서 §5 "크론 응답에 요약 로그를 남기시면 다음부터
+  // 확인이 쉬워집니다".
+  console.log(
+    `[warm-course-brief] ${warmed.length}건 처리:`,
+    warmed.map((w) => `${w.region}(${w.days}일)${w.ok ? `✓ rated=${w.rated}/${w.spots}` : "✗"}`).join(", "),
+  );
+
+  return NextResponse.json({ ok: true, totalTasks: WARM_TASKS.length, batchSize: batch.length, warmed });
 });

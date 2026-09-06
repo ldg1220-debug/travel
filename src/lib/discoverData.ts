@@ -1263,6 +1263,28 @@ export function regionHierarchy(scope: DiscoverScope): RegionNode[] {
   }));
 }
 
+/** `{name, parent}` 형태로 평탄화한 지역 하나 — course-brief?region=에 그대로 넣어 동작하는 단위(국내는 시/군·독립 권역 동네, 해외는 도시). */
+export interface FlatRegion {
+  name: string;
+  parent: string;
+}
+
+/**
+ * regionHierarchy()를 course-brief 호환 단위로 평탄화한다 — /api/content/regions
+ * (작업지시서 2026-09-05 "트레쥴 다음 작업" §1)와 워밍 크론
+ * (/api/cron/warm-course-brief)이 "같은 소스"를 쓰도록 여기 한 곳에 둔다.
+ * 국내는 2레벨(시/군·독립 권역 동네)까지만 쓰고, 데이터에서만 병합되는
+ * 3레벨(동)은 course-brief가 쓰기엔 너무 세분화돼 있어 제외한다. 해외는
+ * 3레벨(도시)이 course-brief가 기대하는 단위다.
+ */
+export function flatRegions(scope: DiscoverScope): FlatRegion[] {
+  const tree = regionHierarchy(scope);
+  if (scope === "overseas") {
+    return tree.flatMap((continent) => continent.children.flatMap((country) => country.children.map((city) => ({ name: city.label, parent: country.label }))));
+  }
+  return tree.flatMap((province) => province.children.map((city) => ({ name: city.label, parent: province.label })));
+}
+
 /**
  * 드릴다운 path가 도시 하나를 정확히 가리킬 때(대륙/국가 단계처럼 아직
  * 넓은 path는 대상 아님) 그 도시의 좌표를 WORLD_CITIES/DOMESTIC_CITY_SEEDS

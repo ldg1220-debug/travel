@@ -19,8 +19,9 @@ export const dynamic = "force-dynamic";
 // Vercel 함수 기본 타임아웃(플랜에 따라 10~15초)보다 여유를 두면서도
 // 무한정 매달리지 않도록 명시한다 — 코스 생성(LLM+DP, 우리가 직접
 // 제어 못 함) + 평점 보강 예산(DEFAULT_ENRICH_BUDGET_MS, courseBrief.ts)
-// + 여유분.
-export const maxDuration = 30;
+// + 여유분. 작업지시서 2026-09-06 "정정 및 실측" §4-2 — 해외 days=2가
+// 30초로는 여전히 504가 나 60초로 올림.
+export const maxDuration = 60;
 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region = (request.nextUrl.searchParams.get("region") ?? "").trim().slice(0, 40);

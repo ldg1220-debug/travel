@@ -1,5 +1,4 @@
 import { put } from "@vercel/blob";
-import sharp from "sharp";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
 import { haversineKm } from "@/lib/server/courseRoute";
@@ -461,43 +460,13 @@ function markerLabel(order: number): string {
   return String.fromCharCode(65 + ((order - 10) % 26));
 }
 
-// 이미지 우측 하단에 작은 반투명 배지로 출처를 남긴다(작업지시서
-// 2026-09-05 "AutoPipeline 통합" §B-1 — "이미지에 트레쥴 로고가 들어가야
-// 퍼가도 브랜드가 따라간다"). 실제 로고 파일을 합성하는 대신 SVG로 직접
-// 그린 텍스트 배지를 쓴다 — sharp 자체는 폰트 래스터화를 안 하지만
-// 내장된 librsvg로 SVG 레이어는 합성할 수 있어, 로고 이미지 파일을
-// 리포에 추가/관리할 필요가 없다. scale(레티나)에 맞춰 글자·여백도
-// 같이 키운다. 워터마크 합성이 실패해도(예: 이 Node 런타임에 sharp의
-// 네이티브 바이너리가 없는 경우) 원본 지도 자체는 이미 쓸모 있으므로
-// 워터마크 없이 그대로 반환한다 — 지도가 아예 안 나가는 것보다 낫다.
-const WATERMARK_LABEL = "tradule.co.kr";
-async function watermarkMapImage(pngBytes: ArrayBuffer, scale: number): Promise<Buffer> {
-  const base = Buffer.from(pngBytes);
-  const meta = await sharp(base).metadata();
-  const w = meta.width ?? MAP_WIDTH * scale;
-  const h = meta.height ?? MAP_HEIGHT * scale;
-
-  const fontSize = Math.round(14 * scale);
-  const padX = Math.round(8 * scale);
-  const padY = Math.round(5 * scale);
-  const margin = Math.round(10 * scale);
-  const cornerRadius = Math.round(6 * scale);
-  const textWidth = Math.round(WATERMARK_LABEL.length * fontSize * 0.58) + padX * 2;
-  const textHeight = fontSize + padY * 2;
-  const x = Math.max(0, w - textWidth - margin);
-  const y = Math.max(0, h - textHeight - margin);
-
-  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-    <rect x="${x}" y="${y}" width="${textWidth}" height="${textHeight}" rx="${cornerRadius}" fill="black" fill-opacity="0.55"/>
-    <text x="${x + padX}" y="${y + textHeight - padY - Math.round(fontSize * 0.22)}" font-family="sans-serif" font-size="${fontSize}" fill="white">${WATERMARK_LABEL}</text>
-  </svg>`;
-
-  return sharp(base)
-    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-    .png()
-    .toBuffer();
-}
-
+// 이미지 자체에는 브랜드 표식을 넣지 않는다 — 작업지시서 2026-09-06
+// "정정 및 실측" §4-5: sharp로 픽셀에 굽던 "tradule.co.kr" 워터마크를
+// 제거한다. Google Static Maps 호출 자체가 프로덕션에서 403(Maps
+// Static API 미활성 추정)으로 막혀 있어 워터마크 코드가 실제로 한 번도
+// 실행돼 보지 못한 채 sharp 네이티브 바이너리 리스크만 지고 있었다 —
+// 403이 풀려도, 브랜드 표기는 이미지 밖(블로그 HTML의 캡션 등)에서
+// AutoPipeline이 붙이는 쪽이 더 단순하고 안전하다.
 async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]): Promise<string | null> {
   if (spots.length === 0) return null;
   const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -527,17 +496,13 @@ async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]
       console.error(`[courseBrief] google staticmap ${res.status}`);
       return null;
     }
-    const bytes = await res.arrayBuffer();
-    const watermarked = await watermarkMapImage(bytes, MAP_SCALE).catch((err) => {
-      console.error("[courseBrief] watermark compositing failed, using unwatermarked map:", err);
-      return Buffer.from(bytes);
-    });
+    const bytes = Buffer.from(await res.arrayBuffer());
     // 캐시 키(course_cache와 겹치지 않는 place_candidate_cache 네임스페이스와
     // 같은 관례) 기준 고정 경로 — addRandomSuffix:false로 재생성될 때마다
     // 같은 자리에 덮어써서, 지역이 다시 워밍/조회될 때마다 blob이 쌓이지
     // 않게 한다.
     const pathname = `course-maps/${cacheKey.replace(/^content-brief:/, "").replace(/:/g, "/")}.png`;
-    const blob = await put(pathname, watermarked, { access: "private", contentType: "image/png", addRandomSuffix: false });
+    const blob = await put(pathname, bytes, { access: "private", contentType: "image/png", addRandomSuffix: false });
     void blob; // put()의 반환 url은 private blob이라 브라우저에서 401 — 우리 프록시 경로를 대신 반환한다.
     // AutoPipeline 등 외부 소비자가 그대로 fetch/임베드해야 하므로
     // appUrlFor()와 마찬가지로 절대 URL로 반환한다(상대 경로는 이
@@ -653,16 +618,28 @@ export async function getCourseBrief(region: string, days: 1 | 2, enrichBudgetMs
  * 만든 것보다 오래됐다"는 점에서 자연히 없는 것과 같은 취급을 받는다
  * — 별도 로직 없이 정렬 순서만으로 해결된다.
  */
-export async function pickStaleRegions(regions: string[], limit: number): Promise<string[]> {
-  const keys = regions.map((region) => briefCacheKey(resolveScope(region), region, 1));
+export interface WarmTask {
+  region: string;
+  days: 1 | 2;
+}
+
+/**
+ * (region, days) 단위로 일반화한 버전 — 작업지시서 2026-09-06 "정정 및
+ * 실측" §4-4 "워밍 대상에 days=2 포함"에 대응. 해외는 AutoPipeline의
+ * 상식 게이트(REGION_PROFILES, "해외는 minDays>=2가 하드 규칙")상 하루
+ * 코스로는 애초에 안 쓰이므로, 워밍 크론이 국내는 days=1을, 해외는
+ * days=2를 태스크로 넘긴다.
+ */
+export async function pickStaleTasks(tasks: WarmTask[], limit: number): Promise<WarmTask[]> {
+  const keys = tasks.map((t) => briefCacheKey(resolveScope(t.region), t.region, t.days));
   const result = await pool.query<{ cache_key: string; created_at: string }>(
     `select cache_key, created_at from place_candidate_cache where cache_key = any($1)`,
     [keys],
   );
   const createdAtByKey = new Map(result.rows.map((row) => [row.cache_key, new Date(row.created_at).getTime()]));
-  return regions
-    .map((region, i) => ({ region, age: createdAtByKey.get(keys[i]) ?? -Infinity })) // 캐시 없음 = 가장 오래된 것으로 취급(맨 앞으로)
+  return tasks
+    .map((task, i) => ({ task, age: createdAtByKey.get(keys[i]) ?? -Infinity })) // 캐시 없음 = 가장 오래된 것으로 취급(맨 앞으로)
     .sort((a, b) => a.age - b.age)
     .slice(0, limit)
-    .map((x) => x.region);
+    .map((x) => x.task);
 }

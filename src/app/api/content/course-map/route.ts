@@ -22,7 +22,7 @@ import { getCourseBrief } from "@/lib/server/courseBrief";
  */
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30; // course-brief와 동일 — 캐시 미스 시 코스 생성+지도 생성을 처음부터 해야 할 수 있다.
+export const maxDuration = 60; // course-brief와 동일(2026-09-06 §4-2로 60초 상향) — 캐시 미스 시 코스 생성+지도 생성을 처음부터 해야 할 수 있다.
 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region = (request.nextUrl.searchParams.get("region") ?? "").trim().slice(0, 40);
