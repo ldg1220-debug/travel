@@ -28,7 +28,7 @@ const CONTENT_OWNER_EMAIL = "content@tradule.co.kr";
 const START_HOUR = 9; // 하루 일정 시작 시각 — courseRecommend.ts의 기존 관례(9시 시작)와 맞춤
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30; // course-brief와 동일 — 캐시 미스 시 코스 생성부터 해야 할 수 있다.
+export const maxDuration = 60; // course-brief와 동일(2026-09-06 §4-2로 60초 상향) — 캐시 미스 시 코스 생성부터 해야 할 수 있다.
 
 /**
  * 스팟 배열을 날짜별로 나눈다 — course-brief 계약엔 날짜 구분 필드가
