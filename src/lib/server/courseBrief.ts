@@ -37,7 +37,7 @@ export interface CourseBriefSpot {
 
 export interface CourseBrief {
   region: string;
-  days: 1 | 2;
+  days: 1 | 2 | 3;
   totalDistanceKm: number;
   spots: CourseBriefSpot[];
   imageUrl: string | null;
@@ -92,6 +92,13 @@ export async function readBriefCache(key: string): Promise<CourseBrief | null> {
   const row = result.rows[0];
   if (!row) return null;
   if (Date.now() - new Date(row.created_at).getTime() > BRIEF_CACHE_TTL_MS) return null;
+  // 필드를 새로 추가할 때(예: ratingSource, 작업지시서 2026-09-05) TTL이
+  // 지나기 전까지는 그 필드 없이 저장된 오래된 payload가 그대로 반환될 수
+  // 있다 — 실제로 2026-09-06 검증 문서 §1에서 프리뷰의 경주(캐시 히트)
+  // 응답이 ratingSource=undefined로 관측됐다(도메스틱이라 카카오라서가
+  // 아니라, ratingSource 필드가 생기기 전에 캐시된 옛 payload였을 뿐).
+  // 필수 필드가 없는 캐시는 캐시 미스로 취급해 새로 만든다.
+  if (typeof row.payload.ratingSource !== "string") return null;
   return row.payload;
 }
 
@@ -230,9 +237,10 @@ function dedupeWithinList(stops: FinalStop[], scope: CourseBriefScope, region: s
   }
   return kept;
 }
-/** 2일차 스톱 중 1일차와 겹치는 곳을 걸러낸다 — 1일차(순서가 앞선 쪽)를 남긴다. */
-function dedupeCrossDay(day1: FinalStop[], day2: FinalStop[], region: string): FinalStop[] {
-  return day2.filter((b) => !day1.some((a) => isDuplicateStop(a, b, region)));
+/** 이후 날짜 스톱 중 이전 날짜들과 겹치는 곳을 걸러낸다 — 이전 날짜(순서가 앞선 쪽)를 남긴다. 3일차는 1·2일차 전체를 합쳐 비교한다. */
+function dedupeCrossDay(priorDays: FinalStop[][], candidate: FinalStop[], region: string): FinalStop[] {
+  const priorStops = priorDays.flat();
+  return candidate.filter((b) => !priorStops.some((a) => isDuplicateStop(a, b, region)));
 }
 
 // 카탈로그에도 없는 국내(Kakao) 결과의 마지막 보강 — place_candidate_cache를
@@ -452,9 +460,10 @@ const MAP_HEIGHT = 500;
 const MAP_SCALE = 2; // 레티나 대응 — 실제 픽셀은 1600×1000
 
 // Google Static Maps의 marker label은 A-Z/0-9 단일 문자만 허용한다 — 그래서
-// 순서 1~9는 그대로 숫자, 10부터(2일차까지 합쳐 최대 12곳)는 A/B/C…로
-// 넘어간다. "번호 라벨"이라는 요청 취지는 하루 기준(보통 5~7곳) 케이스에서는
-// 그대로 지켜지고, 흔치 않은 10번째 이후 스톱만 알파벳으로 대체된다.
+// 순서 1~9는 그대로 숫자, 10부터(최대 3일차까지 합쳐도 보통 20곳 안팎)는
+// A/B/C…로 넘어간다. "번호 라벨"이라는 요청 취지는 하루 기준(보통 5~7곳)
+// 케이스에서는 그대로 지켜지고, 흔치 않은 10번째 이후 스톱만 알파벳으로
+// 대체된다.
 function markerLabel(order: number): string {
   if (order >= 1 && order <= 9) return String(order);
   return String.fromCharCode(65 + ((order - 10) % 26));
@@ -469,7 +478,17 @@ function markerLabel(order: number): string {
 // AutoPipeline이 붙이는 쪽이 더 단순하고 안전하다.
 async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]): Promise<string | null> {
   if (spots.length === 0) return null;
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  // 기존 GOOGLE_PLACES_API_KEY/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY는 브라우저에도
+  // 노출되는 키라 HTTP 리퍼러 제한이 걸려 있다(작업지시서 2026-09-06 "PR
+  // #231 검증" §2 실측) — Places API(New)는 POST+헤더 방식이라 리퍼러
+  // 제한이 적용되지 않아 정상 동작했지만, Static Maps는 GET+쿼리파라미터
+  // key= 방식이라 리퍼러가 없는 서버 환경에서 그대로 403이 난다. "같은
+  // 키인데 Places는 되고 Static Maps는 403"의 실제 원인이 이것이었다 —
+  // Maps Static API 활성화 누락이 아니었다. 그래서 Static Maps 전용 서버
+  // 키(GOOGLE_MAPS_SERVER_KEY — 애플리케이션 제한 없음, API 제한은 Maps
+  // Static API만)를 새로 등록해 이 호출에만 쓴다. 기존 키로 폴백하지
+  // 않는다 — 리퍼러 제한 탓에 어차피 403이 나 호출만 낭비하게 된다.
+  const apiKey = process.env.GOOGLE_MAPS_SERVER_KEY;
   if (!apiKey) return null;
   if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return null;
 
@@ -521,59 +540,75 @@ async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]
 // 지정)을 따로 준다.
 export const DEFAULT_ENRICH_BUDGET_MS = 6000;
 
-export async function buildBrief(scope: CourseBriefScope, region: string, days: 1 | 2, cacheKey: string, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
+/**
+ * 하루치를 생성한다 — priorDays가 비어있으면(1일차) 옵션 없이 원본 호출
+ * 그대로, 아니면(2·3일차) fetchMultiDayCourse(src/lib/api.ts)와 같은
+ * 원리로 이전 날짜들의 장소 id/이름/좌표 중심/음식종류를 넘겨 같은 곳이
+ * 반복되지 않게 한다. 이 API엔 숙소·도착/출발 앵커 개념이 없으므로(스펙에
+ * 그런 입력이 없다) 시작·종료 위치 고정 없이 매일 새로 짠다.
+ *
+ * 2일차부터 skipLlm을 켠다(GenerateCourseOptions.skipLlm 참고) — 작업지시서
+ * 2026-09-06 "PR #231 검증" §3: 날짜 수만큼 LLM 큐레이션(Anthropic 호출,
+ * 실측 8~14초/건)이 순차로 쌓이는 게 다일정 지연의 실제 원인이었다(스팟
+ * 후보 조회 자체는 candidateCacheKey가 dayIndex 무관이라 이미 day 간
+ * 캐시가 공유된다 — "날짜마다 스팟 조회를 처음부터 다시 한다"는 최초
+ * 가설은 코드상 근거가 없었다). 블로그 글의 대표 코스인 1일차만 LLM
+ * 큐레이션 품질을 유지한다.
+ */
+async function generateDay(scope: CourseBriefScope, region: string, dayIndex: number, priorDays: FinalStop[][]): Promise<FinalStop[]> {
+  const priorStops = priorDays.flat();
+  let result: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme };
+  try {
+    result =
+      priorDays.length === 0
+        ? await generateCourseV2(scope, region, DEFAULT_THEME, DEFAULT_RADIUS, {})
+        : await generateCourseV2(scope, region, DEFAULT_THEME, DEFAULT_RADIUS, {
+            excludeIds: new Set(priorStops.map((s) => s.id)),
+            excludeNames: priorStops.map((s) => s.name),
+            avoidCentroid: { lat: priorStops.reduce((sum, s) => sum + s.lat, 0) / priorStops.length, lng: priorStops.reduce((sum, s) => sum + s.lng, 0) / priorStops.length },
+            avoidCuisines: [...new Set(priorStops.map((s) => cuisineKeyword(s.name)).filter((c): c is string => Boolean(c)))],
+            dayIndex,
+            skipLlm: true,
+          });
+  } catch (err) {
+    console.error(`[courseBrief] day${dayIndex + 1} generateCourseV2 threw:`, err);
+    result = { course: [], source: "mock", theme: DEFAULT_THEME };
+  }
+  // 같은 날짜 안의 중복(예: "경주 황리단길"/"황리단길")도 여기서 한 번 거른다.
+  const deduped = dedupeWithinList(stopsOf(result), scope, region);
+  if (priorDays.length === 0) return deduped;
+  // excludeIds/excludeNames는 정확히 같은 id/문자열일 때만 걸러 날짜를
+  // 넘나드는 "이름만 다른 같은 곳"까지는 못 잡는다 — 여기서 한 번 더 거른다.
+  return dedupeCrossDay(priorDays, deduped, region);
+}
+
+export async function buildBrief(scope: CourseBriefScope, region: string, days: 1 | 2 | 3, cacheKey: string, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
   const appUrl = appUrlFor(region);
 
   // 실패해도 절대 던지지 않는다(스펙 §1 "에러를 던지지 말 것") — 빈
-  // spots로 조용히 폴백해 AutoPipeline이 그 지역을 건너뛰게 한다.
-  let day1: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme };
-  try {
-    day1 = await generateCourseV2(scope, region, DEFAULT_THEME, DEFAULT_RADIUS, {});
-  } catch (err) {
-    console.error("[courseBrief] day1 generateCourseV2 threw:", err);
-    day1 = { course: [], source: "mock", theme: DEFAULT_THEME };
-  }
-  // 같은 날짜 안의 중복(예: "경주 황리단길"/"황리단길")도 여기서 한 번 거른다.
-  const day1Stops = dedupeWithinList(stopsOf(day1), scope, region);
-
-  let day2Stops: FinalStop[] = [];
-  if (days === 2 && day1Stops.length > 0) {
-    // fetchMultiDayCourse(src/lib/api.ts)와 같은 원리로 1일차의 장소
-    // id/이름/좌표 중심/음식종류를 2일차 호출에 넘겨 같은 곳이 반복되지
-    // 않게 한다. 이 API엔 숙소·도착/출발 앵커 개념이 없으므로(스펙에
-    // 그런 입력이 없다) 시작·종료 위치 고정 없이 매일 새로 짠다.
-    const seenIds = new Set(day1Stops.map((s) => s.id));
-    const seenNames = day1Stops.map((s) => s.name);
-    const seenCuisines = [...new Set(day1Stops.map((s) => cuisineKeyword(s.name)).filter((c): c is string => Boolean(c)))];
-    const centroid = { lat: day1Stops.reduce((sum, s) => sum + s.lat, 0) / day1Stops.length, lng: day1Stops.reduce((sum, s) => sum + s.lng, 0) / day1Stops.length };
-
-    let day2: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme };
-    try {
-      day2 = await generateCourseV2(scope, region, DEFAULT_THEME, DEFAULT_RADIUS, {
-        excludeIds: seenIds,
-        excludeNames: seenNames,
-        avoidCentroid: centroid,
-        avoidCuisines: seenCuisines,
-        dayIndex: 1,
-      });
-    } catch (err) {
-      console.error("[courseBrief] day2 generateCourseV2 threw:", err);
-      day2 = { course: [], source: "mock", theme: DEFAULT_THEME };
-    }
-    // excludeIds/excludeNames는 정확히 같은 id/문자열일 때만 걸러 날짜를
-    // 넘나드는 "이름만 다른 같은 곳"까지는 못 잡는다 — 여기서 한 번 더 거른다.
-    const day2Deduped = dedupeWithinList(stopsOf(day2), scope, region);
-    day2Stops = dedupeCrossDay(day1Stops, day2Deduped, region);
+  // spots로 조용히 폴백해 AutoPipeline이 그 지역을 건너뛰게 한다. 어느
+  // 날짜든 비면(특히 1일차) 그 다음 날짜는 시도하지 않는다 — 기존
+  // 2일차 로직(day1Stops.length===0이면 2일차 생략)의 일반화.
+  const dayStops: FinalStop[][] = [];
+  for (let i = 0; i < days; i++) {
+    const stops = await generateDay(scope, region, i, dayStops);
+    if (stops.length === 0) break;
+    dayStops.push(stops);
   }
 
-  const { spots: day1Spots, distanceKm: day1Distance } = assembleDaySpots(day1Stops, 1, scope, region);
-  let brief: CourseBrief;
-  if (days === 1 || day1Stops.length === 0) {
-    brief = { region, days: 1, totalDistanceKm: round1(day1Distance), spots: day1Spots, imageUrl: null, appUrl, ratingSource: "google" };
-  } else {
-    const { spots: day2Spots, distanceKm: day2Distance } = assembleDaySpots(day2Stops, day1Spots.length + 1, scope, region);
-    brief = { region, days: 2, totalDistanceKm: round1(day1Distance + day2Distance), spots: [...day1Spots, ...day2Spots], imageUrl: null, appUrl, ratingSource: "google" };
+  let baseOrder = 1;
+  let totalDistanceKm = 0;
+  const allSpots: CourseBriefSpot[] = [];
+  for (const stops of dayStops) {
+    const { spots, distanceKm } = assembleDaySpots(stops, baseOrder, scope, region);
+    allSpots.push(...spots);
+    totalDistanceKm += distanceKm;
+    baseOrder += spots.length;
   }
+  // 요청한 days보다 실제로 채워진 날짜 수가 적을 수 있다(1일차부터 비면
+  // dayStops가 아예 비고, 이 경우도 최소 1일로 보고한다 — 기존 동작 유지).
+  const actualDays = Math.max(1, dayStops.length) as 1 | 2 | 3;
+  let brief: CourseBrief = { region, days: actualDays, totalDistanceKm: round1(totalDistanceKm), spots: allSpots, imageUrl: null, appUrl, ratingSource: "google" };
 
   // 여기까지가 "구조" 단계 — 순서·거리·이동수단·카탈로그 평점까지 전부
   // 확정됐고 외부 I/O가 더 없다. 먼저 캐시에 반영해둔다: 아래 라이브 보강이
@@ -596,7 +631,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
 }
 
 /** GET /api/content/course-brief와 워밍 크론이 공통으로 쓰는 진입점 — 캐시 확인 → 미스 시 buildBrief. */
-export async function getCourseBrief(region: string, days: 1 | 2, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
+export async function getCourseBrief(region: string, days: 1 | 2 | 3, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
   const scope = resolveScope(region);
   const cacheKey = briefCacheKey(scope, region, days);
   const cached = await readBriefCache(cacheKey).catch((err) => {

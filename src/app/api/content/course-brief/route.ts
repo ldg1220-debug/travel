@@ -26,7 +26,10 @@ export const maxDuration = 60;
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region = (request.nextUrl.searchParams.get("region") ?? "").trim().slice(0, 40);
   if (!region) return NextResponse.json({ error: "missing region" }, { status: 400 });
-  const days: 1 | 2 = request.nextUrl.searchParams.get("days") === "2" ? 2 : 1;
+  // 작업지시서 2026-09-06 "PR #231 검증" §3 — 3박4일 등 제목과 본문
+  // 일수가 어긋나는 문제를 없애기 위해 days=3을 새로 허용한다.
+  const daysParam = request.nextUrl.searchParams.get("days");
+  const days: 1 | 2 | 3 = daysParam === "3" ? 3 : daysParam === "2" ? 2 : 1;
 
   const brief = await getCourseBrief(region, days);
   return NextResponse.json(brief);

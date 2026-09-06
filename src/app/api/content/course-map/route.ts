@@ -27,7 +27,8 @@ export const maxDuration = 60; // course-brief와 동일(2026-09-06 §4-2로 60�
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region = (request.nextUrl.searchParams.get("region") ?? "").trim().slice(0, 40);
   if (!region) return NextResponse.json({ error: "missing region" }, { status: 400 });
-  const days: 1 | 2 = request.nextUrl.searchParams.get("days") === "2" ? 2 : 1;
+  const daysParam = request.nextUrl.searchParams.get("days");
+  const days: 1 | 2 | 3 = daysParam === "3" ? 3 : daysParam === "2" ? 2 : 1;
 
   const brief = await getCourseBrief(region, days);
   if (!brief.imageUrl) {
