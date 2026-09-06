@@ -1,4 +1,5 @@
 import { put } from "@vercel/blob";
+import sharp from "sharp";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
 import { haversineKm } from "@/lib/server/courseRoute";
@@ -42,6 +43,14 @@ export interface CourseBrief {
   spots: CourseBriefSpot[];
   imageUrl: string | null;
   appUrl: string;
+  // spot.rating/reviewCount의 출처 — 작업지시서 2026-09-05 "AutoPipeline
+  // 통합" §B-4가 표기 의무 확인을 요청해 추가했다. courseRecommendV2가
+  // 직접 주는 값(해외, googleToPlace)도, catalogRatingFor의 카탈로그
+  // 매칭값(scripts/match-spot-place-ids.ts로 Google Place Details를
+  // 확정한 값)도, liveDomesticRatingFor의 라이브 조회값(Google Places
+  // Text Search)도 전부 Google이 출처다 — Kakao는 rating 필드 자체를
+  // 안 준다(kakaoToPlace 참고). 그래서 조건 분기 없이 항상 상수.
+  ratingSource: "google";
 }
 
 const DEFAULT_THEME: CourseTheme = "balanced";
@@ -452,6 +461,43 @@ function markerLabel(order: number): string {
   return String.fromCharCode(65 + ((order - 10) % 26));
 }
 
+// 이미지 우측 하단에 작은 반투명 배지로 출처를 남긴다(작업지시서
+// 2026-09-05 "AutoPipeline 통합" §B-1 — "이미지에 트레쥴 로고가 들어가야
+// 퍼가도 브랜드가 따라간다"). 실제 로고 파일을 합성하는 대신 SVG로 직접
+// 그린 텍스트 배지를 쓴다 — sharp 자체는 폰트 래스터화를 안 하지만
+// 내장된 librsvg로 SVG 레이어는 합성할 수 있어, 로고 이미지 파일을
+// 리포에 추가/관리할 필요가 없다. scale(레티나)에 맞춰 글자·여백도
+// 같이 키운다. 워터마크 합성이 실패해도(예: 이 Node 런타임에 sharp의
+// 네이티브 바이너리가 없는 경우) 원본 지도 자체는 이미 쓸모 있으므로
+// 워터마크 없이 그대로 반환한다 — 지도가 아예 안 나가는 것보다 낫다.
+const WATERMARK_LABEL = "tradule.co.kr";
+async function watermarkMapImage(pngBytes: ArrayBuffer, scale: number): Promise<Buffer> {
+  const base = Buffer.from(pngBytes);
+  const meta = await sharp(base).metadata();
+  const w = meta.width ?? MAP_WIDTH * scale;
+  const h = meta.height ?? MAP_HEIGHT * scale;
+
+  const fontSize = Math.round(14 * scale);
+  const padX = Math.round(8 * scale);
+  const padY = Math.round(5 * scale);
+  const margin = Math.round(10 * scale);
+  const cornerRadius = Math.round(6 * scale);
+  const textWidth = Math.round(WATERMARK_LABEL.length * fontSize * 0.58) + padX * 2;
+  const textHeight = fontSize + padY * 2;
+  const x = Math.max(0, w - textWidth - margin);
+  const y = Math.max(0, h - textHeight - margin);
+
+  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    <rect x="${x}" y="${y}" width="${textWidth}" height="${textHeight}" rx="${cornerRadius}" fill="black" fill-opacity="0.55"/>
+    <text x="${x + padX}" y="${y + textHeight - padY - Math.round(fontSize * 0.22)}" font-family="sans-serif" font-size="${fontSize}" fill="white">${WATERMARK_LABEL}</text>
+  </svg>`;
+
+  return sharp(base)
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .png()
+    .toBuffer();
+}
+
 async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]): Promise<string | null> {
   if (spots.length === 0) return null;
   const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -482,12 +528,16 @@ async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]
       return null;
     }
     const bytes = await res.arrayBuffer();
+    const watermarked = await watermarkMapImage(bytes, MAP_SCALE).catch((err) => {
+      console.error("[courseBrief] watermark compositing failed, using unwatermarked map:", err);
+      return Buffer.from(bytes);
+    });
     // 캐시 키(course_cache와 겹치지 않는 place_candidate_cache 네임스페이스와
     // 같은 관례) 기준 고정 경로 — addRandomSuffix:false로 재생성될 때마다
     // 같은 자리에 덮어써서, 지역이 다시 워밍/조회될 때마다 blob이 쌓이지
     // 않게 한다.
     const pathname = `course-maps/${cacheKey.replace(/^content-brief:/, "").replace(/:/g, "/")}.png`;
-    const blob = await put(pathname, bytes, { access: "private", contentType: "image/png", addRandomSuffix: false });
+    const blob = await put(pathname, watermarked, { access: "private", contentType: "image/png", addRandomSuffix: false });
     void blob; // put()의 반환 url은 private blob이라 브라우저에서 401 — 우리 프록시 경로를 대신 반환한다.
     // AutoPipeline 등 외부 소비자가 그대로 fetch/임베드해야 하므로
     // appUrlFor()와 마찬가지로 절대 URL로 반환한다(상대 경로는 이
@@ -554,10 +604,10 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   const { spots: day1Spots, distanceKm: day1Distance } = assembleDaySpots(day1Stops, 1, scope, region);
   let brief: CourseBrief;
   if (days === 1 || day1Stops.length === 0) {
-    brief = { region, days: 1, totalDistanceKm: round1(day1Distance), spots: day1Spots, imageUrl: null, appUrl };
+    brief = { region, days: 1, totalDistanceKm: round1(day1Distance), spots: day1Spots, imageUrl: null, appUrl, ratingSource: "google" };
   } else {
     const { spots: day2Spots, distanceKm: day2Distance } = assembleDaySpots(day2Stops, day1Spots.length + 1, scope, region);
-    brief = { region, days: 2, totalDistanceKm: round1(day1Distance + day2Distance), spots: [...day1Spots, ...day2Spots], imageUrl: null, appUrl };
+    brief = { region, days: 2, totalDistanceKm: round1(day1Distance + day2Distance), spots: [...day1Spots, ...day2Spots], imageUrl: null, appUrl, ratingSource: "google" };
   }
 
   // 여기까지가 "구조" 단계 — 순서·거리·이동수단·카탈로그 평점까지 전부
