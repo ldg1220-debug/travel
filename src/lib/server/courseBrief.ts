@@ -2,7 +2,7 @@ import { put } from "@vercel/blob";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
 import { haversineKm } from "@/lib/server/courseRoute";
-import { MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
+import { brandKey, MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { allSpots, OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
 
@@ -119,7 +119,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 버전을 올리면 옛 캐시는 자연히 미스가 돼 다음 요청/워밍 때 새로
 // 만들어진다 — 일괄 DELETE보다 안전하다(새 버전에 문제가 있으면 상수만
 // 되돌려도 옛 캐시가 즉시 다시 유효해진다).
-const COURSE_ALGO_VERSION = 3; // 이번 배포(배분 제약 재설계)로 다시 올림 — 작업지시서 2026-09-07 "PR #236 프로덕션 검증" §5-4 "COURSE_ALGO_VERSION 2 → 3".
+const COURSE_ALGO_VERSION = 4; // 이번 배포(소속 재검사 + 체인 중복 제거)로 다시 올림 — 작업지시서 2026-09-07 "PR #237 프로덕션 검증" §5-3 "COURSE_ALGO_VERSION 3 → 4".
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -476,6 +476,48 @@ export function dedupeByProximity<T extends GeoPoint & { category: string; revie
   return kept;
 }
 
+// 상호명 앞에 붙는 일반적인 수식어 — 작업지시서 2026-09-07 "PR #237
+// 프로덕션 검증" §3: 같은 체인의 다른 지점이 "원조 ○○ 텐진본점"처럼
+// 접두 수식어까지 붙어 있으면, courseRecommend.ts의 brandKey(접미
+// 지점 표기를 뗀 뒤 "앞 2어절"을 키로 삼음)가 그 수식어를 어절로
+// 세는 바람에 같은 브랜드끼리 다른 키가 나온다(예: "모츠나베
+// 라쿠텐치 이마이즈미 총본점"→"모츠나베라쿠텐치" vs "원조 모츠나베
+// 라쿠텐치 텐진본점"→"원조모츠나베" — 브랜드는 같은데 키가 다름).
+// 접미 지점 표기와 같은 방식으로 접두 수식어도 떼고 비교한다.
+const BRAND_PREFIX_RE = /^(원조|정통|명물|본가)\s*/u;
+
+/** courseRecommend.ts의 brandKey(접미 지점 표기를 뗀 뒤 "앞 2어절"을 키로 삼음)를 그대로 재사용하되, 접두 수식어까지 먼저 떼고 넘긴다 — 로직을 새로 만들지 않고 기존 "앞 2어절" 방식에 얹는다. */
+function courseWideBrandKey(name: string): string {
+  return brandKey(name.trim().replace(BRAND_PREFIX_RE, ""));
+}
+
+/**
+ * 같은 체인의 다른 지점이 코스 하나에 여러 곳 들어가는 걸 막는다 —
+ * 작업지시서 §3: 후쿠오카 3일 코스에 "모츠나베 라쿠텐치"가 이마이즈미
+ * 총본점(1일차)·텐진본점(1일차)·니시나카스점(2일차) 세 지점으로
+ * 들어간 사례. 니시나카스점은 텐진본점과 364m 떨어져 있어
+ * dedupeByProximity(100~300m, 카테고리 일치 조건)도 못 잡았다 — 거리
+ * 조건 자체가 없는 별도 판정이 필요하다. 거리와 무관하게 코스 전체
+ * (여러 날에 걸쳐서도)에서 같은 브랜드 키는 하나만 남기고, 평점×
+ * 리뷰수가 더 높은 지점을 남긴다.
+ */
+export function dedupeByBrand<T extends { name: string; rating?: number | null; reviewCount?: number | null }>(stops: T[]): T[] {
+  const kept: T[] = [];
+  const indexByBrandKey = new Map<string, number>();
+  const score = (s: T) => (s.rating ?? 0) * (s.reviewCount ?? 0);
+  for (const stop of stops) {
+    const key = courseWideBrandKey(stop.name);
+    const existingIndex = key ? indexByBrandKey.get(key) : undefined;
+    if (existingIndex == null) {
+      if (key) indexByBrandKey.set(key, kept.length);
+      kept.push(stop);
+      continue;
+    }
+    if (score(stop) > score(kept[existingIndex])) kept[existingIndex] = stop;
+  }
+  return kept;
+}
+
 const ALL_DAY_FACILITY_MAX_OTHERS = 2; // 검증 기준(작업지시서 2026-09-06 §5) "총 3곳 이하" = 시설 1 + 다른 곳 최대 2.
 // 하루 스팟 수 제약(종일시설 없는 날 기준) — 작업지시서 2026-09-07 "PR
 // #236 프로덕션 검증" §3의 표: "하루 스팟 수 3~8곳". 234→235→236을
@@ -670,24 +712,83 @@ export function rebalanceByDistance<T extends GeoPoint>(groups: T[][], isFacilit
   return current;
 }
 
+const FACILITY_DAY_MIN = 2; // 시설 1 + 동반 최소 1 — 이 밑으로 줄이면 시설 단독(1곳) 날짜가 된다(작업지시서 2026-09-06 §4-3이 막으려던 바로 그 문제).
+const FACILITY_DAY_MAX = ALL_DAY_FACILITY_MAX_OTHERS + 1; // 시설 1 + 동반 최대 2 = 3곳
+const MEMBERSHIP_RECHECK_MAX_ITERATIONS = 5;
+
+/**
+ * 모든 배분(클러스터링·캡·초과분 분산·재균형)이 끝난 뒤, 각 스팟을
+ * 자기 날의 클러스터 중심보다 다른 날의 중심이 더 가까우면 그쪽으로
+ * 옮긴다 — 작업지시서 2026-09-07 "PR #237 프로덕션 검증" §2: 캡과
+ * 초과분 분산·재균형을 거치며 스팟이 여러 번 옮겨다니는데, 그 뒤에
+ * "이 스팟이 지금 자리가 맞는지"를 한 번도 다시 안 봤다. 실측(도톤보리가
+ * 우메다 날에 남아 난바 날의 스팟 4곳과 137~587m로 겹침, 후쿠오카 시
+ * 박물관이 하카타·다자이후 날에 남아 후쿠오카 타워와 415m로 겹침)이
+ * 이 문제였다.
+ *
+ * k-평균의 "배정" 단계를 캡 이후에 한 번 더 도는 것뿐이다 — 새 알고리즘이
+ * 아니라 이미 있는 클러스터링 원리의 재적용. 종일시설 자체(닻)는 절대
+ * 옮기지 않지만, 시설 날짜에 동반된 일반 스팟은 다른 날이 더 가까우면
+ * 옮길 수 있다(실측에서 USJ의 먼 동반 스팟들이 이렇게 정리될 걸로
+ * 기대됨). 매 반복마다 "이동하면 나아지는 폭"이 가장 큰 조합 하나만
+ * 적용하고, 그런 조합이 없으면 멈춘다(최대 5회) — 3~8곳(시설 날짜는
+ * 2~3곳) 하드 가드를 항상 지킨다.
+ */
+export function reassignByCentroid<T extends GeoPoint>(groups: T[][], isFacility: (s: T) => boolean): T[][] {
+  if (groups.length <= 1) return groups;
+  const current = groups.map((g) => [...g]);
+
+  for (let iter = 0; iter < MEMBERSHIP_RECHECK_MAX_ITERATIONS; iter++) {
+    const centroids = current.map((g) => centroidOf(g));
+
+    const state: { best: { fromDay: number; stopIndex: number; toDay: number; improvement: number } | null } = { best: null };
+    current.forEach((fromGroup, fromDay) => {
+      const fromMin = fromGroup.some(isFacility) ? FACILITY_DAY_MIN : DAY_SIZE_MIN;
+      if (fromGroup.length <= fromMin) return;
+      fromGroup.forEach((stop, stopIndex) => {
+        if (isFacility(stop)) return; // 시설 자체는 그 날의 닻 — 절대 옮기지 않는다
+        const ownDist = haversineKm(stop, centroids[fromDay]);
+        current.forEach((toGroup, toDay) => {
+          if (toDay === fromDay) return;
+          const toMax = toGroup.some(isFacility) ? FACILITY_DAY_MAX : DAY_SIZE_MAX;
+          if (toGroup.length >= toMax) return; // 받을 자리가 없다
+          const improvement = ownDist - haversineKm(stop, centroids[toDay]);
+          if (improvement > 0 && (!state.best || improvement > state.best.improvement)) {
+            state.best = { fromDay, stopIndex, toDay, improvement };
+          }
+        });
+      });
+    });
+
+    if (!state.best) break; // 지금보다 더 가까운 날이 없다 — 소속이 안정됐다.
+
+    const { fromDay, stopIndex, toDay } = state.best;
+    const [moved] = current[fromDay].splice(stopIndex, 1);
+    current[toDay] = [...current[toDay], moved];
+  }
+  return current;
+}
+
 /**
  * 날짜별로 독립 생성된 스팟들을 지리 기준으로 재배분한다 — 위 헬퍼들의
  * 조합. 스팟 "선정"(generateDay/generateCourseV2 몫)은 건드리지 않고,
  * 이미 뽑힌 스팟들을 날짜 경계 없이 모아 다시 나눈다. days===1이면
- * 재배분할 대상(비교할 다른 날)이 없으니 근접 중복 제거만 적용한다.
+ * 재배분할 대상(비교할 다른 날)이 없으니 브랜드·근접 중복 제거만
+ * 적용한다.
  */
 function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   if (dayStops.length === 0) return [];
-  const allStops = dedupeByProximity(dayStops.flat());
+  const allStops = dedupeByProximity(dedupeByBrand(dayStops.flat()));
   if (dayStops.length === 1 || allStops.length < dayStops.length) {
-    // 재배분엔 그룹당 최소 1개가 필요하다 — 근접 중복 제거로 스팟이 날짜
+    // 재배분엔 그룹당 최소 1개가 필요하다 — 중복 제거로 스팟이 날짜
     // 수보다 적어지면(드묾) 그냥 하루로 합친다. 빈 날짜가 있는 것보다 낫다.
     return [allStops];
   }
   const clustered = clusterByLocation(allStops, dayStops.length);
   const capped = capAllDayFacilityDays(clustered, isLargeFacility);
   const balanced = rebalanceByDistance(capped, isLargeFacility);
-  return balanced.map((group) => orderByNearestNeighbor(group));
+  const reassigned = reassignByCentroid(balanced, isLargeFacility);
+  return reassigned.map((group) => orderByNearestNeighbor(group));
 }
 
 // 카탈로그에도 없는 국내(Kakao) 결과의 마지막 보강 — place_candidate_cache를
