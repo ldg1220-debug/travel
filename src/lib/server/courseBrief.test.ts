@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { capAllDayFacilityDays, clusterByLocation, dedupeByProximity, orderByNearestNeighbor } from "./courseBrief";
+import { capAllDayFacilityDays, clusterByLocation, dedupeByProximity, orderByNearestNeighbor, rebalanceByDistance } from "./courseBrief";
+import { haversineKm } from "./courseRoute";
 
 // 오사카 실측(작업지시서 2026-09-06 "일자 배분이 지리적으로 나뉘지
 // 않습니다")에서 확인된 문제(같은 구역이 여러 날에 흩어짐, 하루 안에서
@@ -130,5 +131,53 @@ describe("capAllDayFacilityDays", () => {
   it("leaves groups untouched when there is only one day", () => {
     const single = [[{ ...p(0, 0), isBig: true }, { ...p(0, 1), isBig: false }, { ...p(0, 2), isBig: false }, { ...p(0, 3), isBig: false }]];
     expect(capAllDayFacilityDays(single, isFacility)).toEqual(single);
+  });
+});
+
+function totalDistance(group: P[]): number {
+  let sum = 0;
+  for (let i = 0; i < group.length - 1; i++) sum += haversineKm(group[i], group[i + 1]);
+  return sum;
+}
+
+describe("rebalanceByDistance", () => {
+  it("moves a distant outlier out of the long day into the short day until the ratio is within bounds (다자이후 case)", () => {
+    // 촘촘한 3곳 + 약 9km 떨어진 이상치 1곳(다자이후처럼 도심 클러스터에
+    // 섞인 원거리 단일 지점) vs. 그 이상치 바로 근처의 짧은 날.
+    const outlier = p(34.6, 135.6);
+    const dayLong = [p(34.6, 135.5), p(34.601, 135.501), p(34.599, 135.499), outlier];
+    const dayShort = [p(34.601, 135.601), p(34.599, 135.599), p(34.6, 135.6001)];
+
+    const result = rebalanceByDistance([dayLong, dayShort], () => false);
+
+    expect(result.flat()).toHaveLength(dayLong.length + dayShort.length); // 총 개수 보존
+    expect(result[0]).not.toContain(outlier);
+    expect(result[1]).toContain(outlier);
+
+    const distances = result.map((g) => Math.max(totalDistance(g), 0.001)); // 0 나눗셈 방지
+    expect(Math.max(...distances) / Math.min(...distances)).toBeLessThanOrEqual(1.5);
+  });
+
+  it("never moves a stop into a day that contains an all-day facility, even if it's the shortest", () => {
+    interface FacSpot extends P {
+      isBig: boolean;
+    }
+    const isFacility = (s: FacSpot) => s.isBig;
+    const outlier: FacSpot = { ...p(34.6, 135.6), isBig: false };
+    const dayLong: FacSpot[] = [{ ...p(34.6, 135.5), isBig: false }, { ...p(34.601, 135.501), isBig: false }, { ...p(34.599, 135.499), isBig: false }, outlier];
+    // 거리상 가장 짧은(0km, 단일 스팟) 날이지만 종일시설이 있어 후보에서 제외돼야 한다.
+    const dayFacility: FacSpot[] = [{ ...p(34.7, 135.4), isBig: true }];
+    // 시설은 없지만 두 번째로 짧은 날 — 여기로 옮겨가야 한다.
+    const dayOther: FacSpot[] = [{ ...p(34.601, 135.601), isBig: false }, { ...p(34.6, 135.6001), isBig: false }];
+
+    const result = rebalanceByDistance([dayLong, dayFacility, dayOther], isFacility);
+
+    expect(result[1]).toEqual(dayFacility); // 시설 날짜는 절대 손대지 않는다
+    expect(result[2]).toContain(outlier); // 옮겨간 곳은 시설 없는 날
+  });
+
+  it("returns groups unchanged when there is only one group", () => {
+    const single = [[p(0, 0), p(1, 1)]];
+    expect(rebalanceByDistance(single, () => false)).toEqual(single);
   });
 });
