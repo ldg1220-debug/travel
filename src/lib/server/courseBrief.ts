@@ -119,7 +119,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 버전을 올리면 옛 캐시는 자연히 미스가 돼 다음 요청/워밍 때 새로
 // 만들어진다 — 일괄 DELETE보다 안전하다(새 버전에 문제가 있으면 상수만
 // 되돌려도 옛 캐시가 즉시 다시 유효해진다).
-const COURSE_ALGO_VERSION = 1;
+const COURSE_ALGO_VERSION = 2; // 이번 배포(재균형 재설계)로 다시 올림 — 작업지시서 2026-09-07 "PR #235 프로덕션 검증" §6 "캐시 버전 키를 또 올려주셔야 재측정이 됩니다".
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -477,15 +477,24 @@ export function dedupeByProximity<T extends GeoPoint & { category: string; revie
 }
 
 const ALL_DAY_FACILITY_MAX_OTHERS = 2; // 검증 기준(작업지시서 §5) "총 3곳 이하" = 시설 1 + 다른 곳 최대 2.
+// 시설과 이 이상 떨어진 곳은 "동반"으로 보지 않는다 — 작업지시서
+// 2026-09-07 "PR #235 프로덕션 검증" §2: 개수만 보고 자르다 보니(원래
+// others.length가 이미 캡 이하면 아예 손대지 않았다) 시설과 반대편
+// 동네(오사카 USJ 날짜에 신사이바시/아메무라, 6~7km 밖)의 스팟이
+// "동반"으로 그대로 남는 사례가 실측됐다. 개수와 무관하게 이 거리
+// 밖이면 무조건 걸러낸다.
+const ALL_DAY_FACILITY_MAX_COMPANION_KM = 5;
 
 /**
  * 유니버설 스튜디오 같은 종일 시설(isLargeFacility, courseRecommend.ts —
  * 대형 테마파크·워터파크·아쿠아리움·동물원)이 배정된 날은 다른 스팟을
- * 최대 ALL_DAY_FACILITY_MAX_OTHERS곳으로 제한한다 — 작업지시서 §4-3:
- * "USJ 뒤에 5곳이 더 붙어 있다 … 이대로 나가면 신뢰를 잃는다". 초과분은
- * 그 스팟과 가장 가까운 "다른" 날로 옮긴다(그 날이 비어있으면 원래
- * 그룹 중심으로 폴백). groups가 1개뿐이면 옮길 다른 날이 없어 그대로
- * 둔다.
+ * 최대 ALL_DAY_FACILITY_MAX_OTHERS곳으로, 그것도 시설에서
+ * ALL_DAY_FACILITY_MAX_COMPANION_KM 이내인 곳으로만 제한한다 — 작업지시서
+ * §4-3: "USJ 뒤에 5곳이 더 붙어 있다 … 이대로 나가면 신뢰를 잃는다".
+ * 가까운 동반 스팟이 없으면 시설 단독(또는 1곳)으로 남는다 — 억지로
+ * 먼 곳을 붙이는 것보다 낫다. 초과분(개수 초과든 거리 초과든)은 그
+ * 스팟과 가장 가까운 "다른" 날로 옮긴다(그 날이 비어있으면 원래 그룹
+ * 중심으로 폴백). groups가 1개뿐이면 옮길 다른 날이 없어 그대로 둔다.
  */
 export function capAllDayFacilityDays<T extends GeoPoint>(groups: T[][], isFacility: (s: T) => boolean): T[][] {
   if (groups.length <= 1) return groups;
@@ -494,27 +503,35 @@ export function capAllDayFacilityDays<T extends GeoPoint>(groups: T[][], isFacil
     const facilities = group.filter(isFacility);
     if (facilities.length === 0) return;
     const others = group.filter((s) => !isFacility(s));
-    if (others.length <= ALL_DAY_FACILITY_MAX_OTHERS) return;
+    if (others.length === 0) return;
 
     const facilityCentroid = centroidOf(facilities);
-    const sorted = [...others].sort((a, b) => haversineKm(facilityCentroid, a) - haversineKm(facilityCentroid, b));
-    next[dayIndex] = [...facilities, ...sorted.slice(0, ALL_DAY_FACILITY_MAX_OTHERS)];
+    const companions = [...others]
+      .filter((s) => haversineKm(facilityCentroid, s) <= ALL_DAY_FACILITY_MAX_COMPANION_KM)
+      .sort((a, b) => haversineKm(facilityCentroid, a) - haversineKm(facilityCentroid, b))
+      .slice(0, ALL_DAY_FACILITY_MAX_OTHERS);
+    if (companions.length === others.length) return; // 전부 남는 경우 — 바뀌는 게 없으니 스킵
 
-    sorted.slice(ALL_DAY_FACILITY_MAX_OTHERS).forEach((stop) => {
-      let bestDay = -1;
-      let bestDist = Infinity;
-      next.forEach((g, gi) => {
-        if (gi === dayIndex) return;
-        const centroid = centroidOf(g.length > 0 ? g : group);
-        const d = haversineKm(stop, centroid);
-        if (d < bestDist) {
-          bestDist = d;
-          bestDay = gi;
-        }
+    next[dayIndex] = [...facilities, ...companions];
+    const companionSet = new Set(companions);
+
+    others
+      .filter((s) => !companionSet.has(s))
+      .forEach((stop) => {
+        let bestDay = -1;
+        let bestDist = Infinity;
+        next.forEach((g, gi) => {
+          if (gi === dayIndex) return;
+          const centroid = centroidOf(g.length > 0 ? g : group);
+          const d = haversineKm(stop, centroid);
+          if (d < bestDist) {
+            bestDist = d;
+            bestDay = gi;
+          }
+        });
+        if (bestDay === -1) bestDay = (dayIndex + 1) % next.length;
+        next[bestDay] = [...next[bestDay], stop];
       });
-      if (bestDay === -1) bestDay = (dayIndex + 1) % next.length;
-      next[bestDay] = [...next[bestDay], stop];
-    });
   });
   return next;
 }
@@ -527,53 +544,100 @@ function totalDistanceOf<T extends GeoPoint>(group: T[]): number {
   return sum;
 }
 
-const REBALANCE_MAX_RATIO = 1.5; // 검증 기준(작업지시서 §5) "최장÷최단 ≤ 1.5"
-const REBALANCE_MAX_ITERATIONS = 3;
+const REBALANCE_MAX_ITERATIONS = 20; // 매 반복이 개선을 확인한 뒤에만 적용되므로(아래) 넉넉히 잡아도 안전하다 — 개선이 없으면 그 전에 멈춘다.
+// 자기 날짜 중심(centroid)에서 이 이상 떨어진 단독 스팟은 재균형 후보
+// (옮길 스팟)에서 제외한다 — 작업지시서 2026-09-07 "PR #235 프로덕션
+// 검증" §1: 다자이후(하카타에서 15km)처럼 "어느 날에 붙여도 비싼" 이상치는
+// 옮겨도 그 거리가 그대로 목적지로 따라간다. 옮기지 않고 원래 클러스터가
+// (차선책으로) 판단한 자리에 그대로 둔다.
+const OUTLIER_MIN_KM = 10;
+
+/** group에서 자기 날짜 중심 기준 OUTLIER_MIN_KM 이상 떨어진 스팟들의 인덱스 — 재균형 후보(옮길 스팟)에서 제외할 대상. */
+function outlierIndexesOf<T extends GeoPoint>(group: T[]): Set<number> {
+  if (group.length <= 1) return new Set();
+  const centroid = centroidOf(group);
+  const outliers = new Set<number>();
+  group.forEach((s, i) => {
+    if (haversineKm(s, centroid) >= OUTLIER_MIN_KM) outliers.add(i);
+  });
+  return outliers;
+}
 
 /**
  * capAllDayFacilityDays가 스팟을 옮기면서 깨뜨린 균형을 이동거리 기준으로
- * 다시 맞춘다 — 작업지시서 2026-09-07 "PR #234 프로덕션 검증 결과" §2:
- * clusterByLocation의 균형 잡기는 "스팟 개수"만 보는데 그 뒤(capAllDayFacilityDays)
- * 에서 종일시설 날짜의 초과분을 다른 날로 밀어내면 그 개수 균형이 다시
- * 깨지고, 이후 아무도 재검사하지 않았다(실측: 후쿠오카 9/6/3곳,
- * day2가 day1의 2.33배). 게다가 개수가 같아도 도심 클러스터에 원거리
- * 단일 지점(다자이후 등)이 섞이면 거리 균형이 깨질 수 있어, 애초에
- * §5 기준 자체와 같은 "거리"로 판단한다.
+ * 다시 맞춘다 — 작업지시서 2026-09-07 "PR #234 프로덕션 검증 결과" §2가
+ * 지적한 문제(clusterByLocation의 균형 잡기는 "스팟 개수"만 보는데, 그
+ * 뒤 종일시설 캡이 초과분을 다른 날로 밀어내면 그 균형이 다시 깨지고
+ * 아무도 재검사하지 않음)에서 출발했다.
  *
- * 가장 긴 날에서 그 날 중심(centroid)에서 가장 먼 스팟 1곳을 가장 짧은
- * 날로 옮기는 걸, 비율이 1.5 이하가 되거나 3회 반복할 때까지 계속한다.
- * 종일시설이 있는 날은 이미 capAllDayFacilityDays로 정원(시설+최대 2곳)이
- * 찬 상태이므로 받는 쪽 후보에서 제외한다 — 안 그러면 캡을 그대로
- * 되돌리게 된다.
+ * ⚠️ 이전 구현("가장 긴 날에서 그 날 중심에서 가장 먼 스팟 1곳을 가장
+ * 짧은 날로, 무조건 옮김")은 실측(후쿠오카)에서 편차를 2.33배→11.82배로
+ * 악화시켰다(작업지시서 2026-09-07 "PR #235 프로덕션 검증" §1) — 그
+ * "가장 먼 스팟"이 다자이후 같은 이상치였고, 이동 거리는 스팟에 딸려
+ * 다니므로 옮긴 자리에서 그 긴 거리가 그대로 재현됐다.
+ *
+ * ⚠️ 그다음 버전(최장/최단 "비율"이 가장 많이 줄어드는 조합을 그대로
+ * 채택)도 자체 검증에서 함정이 드러났다: 두 날을 "똑같이 나쁘게" 만드는
+ * 이동이, 비율만 놓고 보면 한쪽만 멀쩡하고 한쪽만 나쁜 이동보다 숫자상
+ * 더 낮게(더 좋게) 나올 수 있다(예: 9.3km/9.4km ≈ 1.01배가 0.8km/0.5km
+ * ≈ 1.6배보다 "비율은" 낮다 — 하지만 후자가 명백히 더 나은 결과다).
+ * 그래서 목표를 "비율 최소화"가 아니라 "가장 긴 날의 절대 이동거리(최댓값)
+ * 최소화"로 바꿨다 — §5 검증 기준 자체가 "가장 긴 날이 너무 길다"는
+ * 문제(후쿠오카 day2 15.36km, 재배분 후 day1 25.06km)였지, 비율 자체가
+ * 목적은 아니었다. 최댓값을 실제로 줄이는 이동만 채택하므로 "둘 다
+ * 나쁘게 만들어 비율만 맞추는" 이동은 최댓값이 그대로거나 오히려 커져
+ * 자연히 걸러진다.
+ *
+ * "옮기고 본다"가 아니라 "시뮬레이션해서 나아질 때만 옮긴다"이므로,
+ * 결과가 시작보다 나빠지는 일은 구조적으로 불가능하다. 매 반복마다:
+ * (옮길 날의 이상치 아닌 스팟) × (받을 수 있는 날 — 종일시설 있는 날
+ * 제외) 전 조합을 시뮬레이션해, 그 이동을 적용했을 때 전체 날짜 중
+ * 최댓값이 가장 낮아지는 조합 하나만 고른다. 그 조합조차 지금 최댓값보다
+ * 나아지지 않으면(=더 줄일 방법이 없으면) 그대로 두고 멈춘다.
  */
 export function rebalanceByDistance<T extends GeoPoint>(groups: T[][], isFacility: (s: T) => boolean): T[][] {
   if (groups.length <= 1) return groups;
-  const next = groups.map((g) => [...g]);
+  const current = groups.map((g) => [...g]);
 
   for (let iter = 0; iter < REBALANCE_MAX_ITERATIONS; iter++) {
-    const distances = next.map(totalDistanceOf);
-    const longestIdx = distances.indexOf(Math.max(...distances));
-    const receiverIndexes = next.map((_, i) => i).filter((i) => i !== longestIdx && next[i].every((s) => !isFacility(s)));
-    if (receiverIndexes.length === 0) break;
-    const shortestIdx = receiverIndexes.reduce((best, i) => (distances[i] < distances[best] ? i : best), receiverIndexes[0]);
+    const distances = current.map(totalDistanceOf);
+    const currentMax = Math.max(...distances);
 
-    if (distances[shortestIdx] > 0 && distances[longestIdx] / distances[shortestIdx] <= REBALANCE_MAX_RATIO) break;
-    if (next[longestIdx].length <= 1) break; // 더 뺄 스팟이 없음
-
-    const centroid = centroidOf(next[longestIdx]);
-    let farIndex = 0;
-    let farDist = -1;
-    next[longestIdx].forEach((s, i) => {
-      const d = haversineKm(s, centroid);
-      if (d > farDist) {
-        farDist = d;
-        farIndex = i;
-      }
+    // best를 객체 프로퍼티로 감싼다 — 중첩 클로저 안에서 재대입되는 지역
+    // 변수는 TypeScript의 흐름 분석이 타입을 제대로 못 좁혀 이후 참조가
+    // never로 좁혀지는 경우가 있다(실제로 겪음).
+    const state: { best: { fromDay: number; stopIndex: number; toDay: number; max: number } | null } = { best: null };
+    current.forEach((fromGroup, fromDay) => {
+      // 2곳 이하로는 줄이지 않는다(1개 남을 때까지 못 뺀다가 아니라) —
+      // "최댓값을 아주 조금이라도 줄이면 채택"하는 그리디가, 이상치가
+      // 낀 날의 나머지 동반 스팟들까지 하나씩 다 빼내 그 날을 이상치
+      // 단독(거리 0)으로 만들어버리는 걸 실제로 겪었다(afterRatio가
+      // 3000배 이상으로 폭발 — min이 0에 가까워져 ratio 자체가 무의미해짐).
+      // 날짜 하나를 실질적으로 없애는 건 이 재균형 단계의 역할이 아니다
+      // (그건 capAllDayFacilityDays 같은 명시적 규칙이 할 일이다).
+      if (fromGroup.length <= 2) return;
+      const outliers = outlierIndexesOf(fromGroup);
+      fromGroup.forEach((stop, stopIndex) => {
+        if (outliers.has(stopIndex)) return; // 이상치는 후보에서 제외 — 어디로 옮겨도 그 거리가 따라온다
+        current.forEach((toGroup, toDay) => {
+          if (toDay === fromDay) return;
+          if (toGroup.some(isFacility)) return; // 종일시설 날짜는 받는 쪽에서 제외 — 안 그러면 캡을 되돌리게 된다
+          const simFrom = fromGroup.filter((_, i) => i !== stopIndex);
+          const simTo = [...toGroup, stop];
+          const simDistances = current.map((g, i) => (i === fromDay ? totalDistanceOf(simFrom) : i === toDay ? totalDistanceOf(simTo) : distances[i]));
+          const simMax = Math.max(...simDistances);
+          if (!state.best || simMax < state.best.max) state.best = { fromDay, stopIndex, toDay, max: simMax };
+        });
+      });
     });
-    const [moved] = next[longestIdx].splice(farIndex, 1);
-    next[shortestIdx] = [...next[shortestIdx], moved];
+
+    if (!state.best || state.best.max >= currentMax) break; // 최댓값을 더 줄이는 조합이 없다 — 이게 핵심 안전장치.
+
+    const { fromDay, stopIndex, toDay } = state.best;
+    const [moved] = current[fromDay].splice(stopIndex, 1);
+    current[toDay] = [...current[toDay], moved];
   }
-  return next;
+  return current;
 }
 
 /**
