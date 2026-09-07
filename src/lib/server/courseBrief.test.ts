@@ -205,31 +205,55 @@ describe("rebalanceByDistance", () => {
   });
 });
 
-describe("capAllDayFacilityDays — 시설과 먼 동반 스팟은 개수와 무관하게 제외", () => {
+describe("capAllDayFacilityDays — 항상 가장 가까운 동반 스팟을 남긴다(거리 문턱 없음)", () => {
   interface FacSpot extends P {
     isBig: boolean;
   }
   const isFacility = (s: FacSpot) => s.isBig;
 
-  it("drops companions beyond the distance threshold even when their count already fits the cap (오사카 USJ/신사이바시 case, 작업지시서 2026-09-07 'PR #235 프로덕션 검증' §2)", () => {
-    const facility: FacSpot = { ...p(34.665, 135.433), isBig: true }; // 고노하나구(USJ 인근) 좌표
-    // 시설과 반대편 동네(신사이바시/아메무라, 약 6~7km) — 개수는 이미
-    // ALL_DAY_FACILITY_MAX_OTHERS(2) 이하라 기존 로직(개수만 봄)은
-    // 이 둘을 그대로 남겼었다.
-    const farCompanion1: FacSpot = { ...p(34.672, 135.501), isBig: false };
-    const farCompanion2: FacSpot = { ...p(34.673, 135.502), isBig: false };
-    const day = [facility, farCompanion1, farCompanion2];
-    const otherDay: FacSpot[] = [{ ...p(34.6, 135.5), isBig: false }];
+  it("keeps the 2 closest companions even when they're far away, rather than leaving the facility alone (마린월드 case, 작업지시서 2026-09-07 'PR #236 프로덕션 검증' §1/§3)", () => {
+    // 반도 끝 같은 고립된 시설 — 근처(5km 이내)엔 아무것도 없다. PR #235의
+    // 거리 문턱(5km) 버전은 이걸 전부 걸러내 시설 단독(1곳) 날짜를
+    // 만들었다("가까운 걸 고른다"가 아니라 "전부 버린다"로 작동). 이제는
+    // 거리 문턱 없이 그냥 가장 가까운 2곳을 남긴다.
+    const facility: FacSpot = { ...p(33.65, 130.35), isBig: true };
+    const near: FacSpot = { ...p(33.6, 130.3), isBig: false }; // ~7km
+    const farther: FacSpot = { ...p(33.55, 130.25), isBig: false }; // ~14km
+    const evenFarther: FacSpot = { ...p(33.5, 130.2), isBig: false }; // ~21km
+    const day = [facility, near, farther, evenFarther];
+    const otherDay: FacSpot[] = [{ ...p(33.59, 130.4), isBig: false }];
 
     const result = capAllDayFacilityDays([day, otherDay], isFacility);
 
-    expect(result[0]).toEqual([facility]); // 멀리 있는 동반 스팟은 남기지 않는다 — 시설 단독이 낫다
-    expect(result[1]).toHaveLength(otherDay.length + 2); // 사라지지 않고 다른 날로 옮겨간다
+    expect(result[0]).toHaveLength(3); // 시설 + 가장 가까운 2곳 — 절대 1곳(시설 단독)으로 떨어지지 않는다
+    expect(result[0]).toContain(facility);
+    expect(result[0]).toContain(near);
+    expect(result[0]).toContain(farther);
+    expect(result.flat()).toHaveLength(day.length + otherDay.length); // 넘친 스팟도 사라지지 않는다
   });
 
-  it("keeps a companion within the distance threshold", () => {
+  it("spreads overflow stops across multiple days instead of dumping them all into the single nearest one, respecting the per-day cap (후쿠오카 day1 15곳 회귀 방지, §3)", () => {
+    const facility: FacSpot = { ...p(33.65, 130.35), isBig: true };
+    const companions: FacSpot[] = [{ ...p(33.651, 130.351), isBig: false }, { ...p(33.652, 130.352), isBig: false }];
+    // 넘칠 스팟 6곳 — 전부 dayA에 가장 가깝지만(dayA가 시설과 더 가까운
+    // 동네), dayA는 이미 스팟이 있어 8곳 상한을 넘기면 dayB로도 분산돼야
+    // 한다.
+    const overflow: FacSpot[] = Array.from({ length: 6 }, (_, i) => ({ ...p(33.6 + i * 0.001, 130.3 + i * 0.001), isBig: false }));
+    const day = [facility, ...companions, ...overflow];
+    const dayA: FacSpot[] = [{ ...p(33.59, 130.29), isBig: false }, { ...p(33.591, 130.291), isBig: false }, { ...p(33.592, 130.292), isBig: false }];
+    const dayB: FacSpot[] = [{ ...p(33.4, 130.1), isBig: false }]; // 훨씬 먼 동네 — 그래도 dayA가 가득 차면 여기로 가야 한다
+
+    const result = capAllDayFacilityDays([day, dayA, dayB], isFacility);
+
+    expect(result.flat()).toHaveLength(day.length + dayA.length + dayB.length); // 개수 보존
+    expect(result[0]).toHaveLength(3); // 시설 날짜는 3곳으로 고정
+    result.forEach((g) => expect(g.length).toBeLessThanOrEqual(8)); // 어떤 날도 8곳을 넘지 않는다
+    expect(result[2].length).toBeGreaterThan(dayB.length); // dayA가 가득 차면 dayB도 받는다
+  });
+
+  it("keeps a single close companion untouched when there's nothing to overflow", () => {
     const facility: FacSpot = { ...p(34.665, 135.433), isBig: true };
-    const nearCompanion: FacSpot = { ...p(34.667, 135.44), isBig: false }; // ~1km — 시설 근처
+    const nearCompanion: FacSpot = { ...p(34.667, 135.44), isBig: false };
     const day = [facility, nearCompanion];
     const otherDay: FacSpot[] = [{ ...p(34.6, 135.5), isBig: false }];
 
@@ -237,5 +261,24 @@ describe("capAllDayFacilityDays — 시설과 먼 동반 스팟은 개수와 무
 
     expect(result[0]).toEqual([facility, nearCompanion]);
     expect(result[1]).toEqual(otherDay); // 옮겨간 것 없음
+  });
+});
+
+describe("rebalanceByDistance never grows a day beyond 8 stops chasing distance (후쿠오카 day1 15곳 회귀 방지 — 2라운드)", () => {
+  it("stops moving stops into a day once it's already at the cap, even though doing so would reduce the max distance further", () => {
+    // day1은 정확히 상한(8곳, 촘촘) / day2(6곳, day1보다 훨씬 넓게 퍼져
+    // 있어 이동거리가 김) — day2가 이동거리 최댓값이라 재균형이 day2에서
+    // day1로 스팟을 옮기려 들 것이다. 자체 검증에서 이런 이동이 반복돼
+    // 한쪽 날이 15곳까지 불어나는 걸 실제로 겪었다 — 8곳 상한이 day1을
+    // 더는 못 받게 막아야 한다(이미 상한인 날을 그 이하로 줄이는 것까지
+    // 보장하지는 않는다 — 그건 별개의 보장이다).
+    const day1: P[] = Array.from({ length: 8 }, (_, i) => p(33.59 + i * 0.001, 130.4 + i * 0.001));
+    const day2: P[] = Array.from({ length: 6 }, (_, i) => p(33.595 + i * 0.01, 130.42 + i * 0.01));
+
+    const result = rebalanceByDistance([day1, day2], () => false);
+
+    expect(result.flat()).toHaveLength(day1.length + day2.length); // 개수 보존
+    expect(result[0]).toHaveLength(8); // 이미 상한인 day1은 더 받지 않는다
+    result.forEach((g) => expect(g.length).toBeGreaterThanOrEqual(3)); // 어떤 날도 3곳 밑으로 줄지 않는다
   });
 });
