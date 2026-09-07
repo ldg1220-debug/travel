@@ -402,7 +402,7 @@ function normName(s: string): string {
 // "우오신"/"우오신 우메다점")은 그대로 두고 보조 신호로 얹는 방식이라
 // 기존에 잡히던 케이스는 그대로 잡히고, 새 케이스만 추가로 잡힌다.
 const BRANCH_SUFFIX_RE = /\s*(분점|본점|지점|점|\d+(st|nd|rd|th)|branch|store)$/iu;
-function stripBranchSuffix(s: string): string {
+export function stripBranchSuffix(s: string): string {
   let out = s.trim();
   for (let i = 0; i < 5; i++) {
     const next = out.replace(BRANCH_SUFFIX_RE, "").trim();
@@ -411,7 +411,7 @@ function stripBranchSuffix(s: string): string {
   }
   return out;
 }
-function brandKey(s: string): string {
+export function brandKey(s: string): string {
   const words = stripBranchSuffix(s)
     .toLowerCase()
     .split(/\s+/)

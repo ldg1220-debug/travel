@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capAllDayFacilityDays, clusterByLocation, dedupeByProximity, orderByNearestNeighbor, rebalanceByDistance } from "./courseBrief";
+import { capAllDayFacilityDays, clusterByLocation, dedupeByBrand, dedupeByProximity, orderByNearestNeighbor, reassignByCentroid, rebalanceByDistance } from "./courseBrief";
 import { haversineKm } from "./courseRoute";
 
 // 오사카 실측(작업지시서 2026-09-06 "일자 배분이 지리적으로 나뉘지
@@ -280,5 +280,68 @@ describe("rebalanceByDistance never grows a day beyond 8 stops chasing distance 
     expect(result.flat()).toHaveLength(day1.length + day2.length); // 개수 보존
     expect(result[0]).toHaveLength(8); // 이미 상한인 day1은 더 받지 않는다
     result.forEach((g) => expect(g.length).toBeGreaterThanOrEqual(3)); // 어떤 날도 3곳 밑으로 줄지 않는다
+  });
+});
+
+describe("reassignByCentroid — 캡·재균형 이후에도 소속이 안 맞으면 마지막에 바로잡는다 (작업지시서 2026-09-07 'PR #237 프로덕션 검증' §2)", () => {
+  it("moves a misplaced stop to the day whose cluster is actually closer (도톤보리류 사례)", () => {
+    // 우메다(day1) 4곳 + 실수로 딸려온 난바(도톤보리) 1곳, 난바(day3) 4곳.
+    // 도톤보리는 day1보다 day3에 훨씬 가깝다.
+    const day1 = [p(34.7, 135.49), p(34.701, 135.491), p(34.702, 135.492), p(34.703, 135.493), p(34.665, 135.501)];
+    const day2 = [p(34.68, 135.5), p(34.681, 135.501), p(34.682, 135.502)];
+    const day3 = [p(34.666, 135.502), p(34.667, 135.503), p(34.6665, 135.5015), p(34.6675, 135.5025)];
+
+    const result = reassignByCentroid([day1, day2, day3], () => false);
+
+    expect(result.flat()).toHaveLength(day1.length + day2.length + day3.length); // 개수 보존
+    expect(result[0].some((s) => s.lat === 34.665)).toBe(false); // day1에서 빠진다
+    expect(result[2].some((s) => s.lat === 34.665)).toBe(true); // day3으로 옮겨간다
+  });
+
+  it("never violates the 3-8 (or 2-3 for facility days) size guard while reassigning", () => {
+    interface FacSpot extends P {
+      isBig: boolean;
+    }
+    const isFacility = (s: FacSpot) => s.isBig;
+    // day1(시설 날짜, 정확히 3곳=하한) 근처에 day2 스팟들이 잔뜩 있어도
+    // day1에서 더 뺄 수 없어야 한다(하한 위반 방지).
+    const day1: FacSpot[] = [{ ...p(34.665, 135.433), isBig: true }, { ...p(34.666, 135.434), isBig: false }, { ...p(34.667, 135.435), isBig: false }];
+    const day2: FacSpot[] = Array.from({ length: 5 }, (_, i) => ({ ...p(34.6 + i * 0.001, 135.5 + i * 0.001), isBig: false }));
+
+    const result = reassignByCentroid([day1, day2], isFacility);
+
+    expect(result[0].length).toBeGreaterThanOrEqual(2); // 시설 날짜 하한(시설+1)
+    expect(result[0].length).toBeLessThanOrEqual(3); // 시설 날짜 상한(시설+2)
+    expect(result.flat()).toHaveLength(day1.length + day2.length);
+  });
+
+  it("returns groups unchanged when there is only one group", () => {
+    const single = [[p(0, 0), p(1, 1)]];
+    expect(reassignByCentroid(single, () => false)).toEqual(single);
+  });
+});
+
+describe("dedupeByBrand — 코스 전체에서 같은 체인은 하나만 (작업지시서 2026-09-07 'PR #237 프로덕션 검증' §3)", () => {
+  interface NamedSpot {
+    name: string;
+    rating?: number | null;
+    reviewCount?: number | null;
+  }
+
+  it("collapses three branches of the same chain (모츠나베 라쿠텐치 case) into the one with the best rating×reviews, even far apart and across days", () => {
+    const branch1: NamedSpot = { name: "모츠나베 라쿠텐치 이마이즈미 총본점", rating: 4.1, reviewCount: 500 };
+    const branch2: NamedSpot = { name: "원조 모츠나베 라쿠텐치 텐진본점", rating: 4.3, reviewCount: 900 }; // 가장 높은 점수 — 이게 남아야 함
+    const branch3: NamedSpot = { name: "원조모츠나베 라쿠텐치 니시나카스점", rating: 4.0, reviewCount: 300 }; // 텐진본점과 364m — 거리 조건 없이도 잡혀야 함
+
+    const result = dedupeByBrand([branch1, branch2, branch3]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(branch2);
+  });
+
+  it("keeps genuinely different brands untouched", () => {
+    const a: NamedSpot = { name: "스시로 텐진점", rating: 4.2, reviewCount: 1000 };
+    const b: NamedSpot = { name: "이치란 라멘 하카타점", rating: 4.4, reviewCount: 2000 };
+    expect(dedupeByBrand([a, b])).toHaveLength(2);
   });
 });
