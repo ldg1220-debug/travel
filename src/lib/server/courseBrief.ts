@@ -110,8 +110,19 @@ export function appUrlFor(region: string, days: 1 | 2 | 3): string {
 // 이미 같은 테이블을 이렇게 쓰고 있다.
 const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 크론까지 버틸 여유(1일 + 2시간)
 
+// 배분/생성 로직을 바꿀 때마다 올린다 — 작업지시서 2026-09-07 "PR #234
+// 프로덕션 검증 결과" §1: 캐시 키가 지역·일수만 반영해서, 알고리즘을
+// 바꿔도(예: 이 배포의 지리 재배분 도입) 이미 캐시된 지역엔 옛 결과가
+// TTL(26시간)이 지나기 전까지 계속 나갔다 — 워밍 크론이 미리 채워둔
+// 인기 지역일수록 오히려 개선이 반영 안 되는 역설이었다("오사카 30m
+// 근접쌍"이 실제로는 이 배포 이전 워밍 캐시였음이 실측으로 확인됨).
+// 버전을 올리면 옛 캐시는 자연히 미스가 돼 다음 요청/워밍 때 새로
+// 만들어진다 — 일괄 DELETE보다 안전하다(새 버전에 문제가 있으면 상수만
+// 되돌려도 옛 캐시가 즉시 다시 유효해진다).
+const COURSE_ALGO_VERSION = 1;
+
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
-  return `content-brief:${scope}:${normalizeForMatch(region)}:${days}`;
+  return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
 }
 
 // 필드를 새로 추가할 때(ratingSource — 작업지시서 2026-09-05, day —
@@ -508,6 +519,63 @@ export function capAllDayFacilityDays<T extends GeoPoint>(groups: T[][], isFacil
   return next;
 }
 
+/** 그룹 하나를 최근접 이웃 순으로 이었을 때의 총 구간 거리(km). 균형 재검사가 "이동거리" 기준으로 판단해야 해서(§5 검증 기준 자체가 거리) 개수가 아니라 이 값을 쓴다. */
+function totalDistanceOf<T extends GeoPoint>(group: T[]): number {
+  const ordered = orderByNearestNeighbor(group);
+  let sum = 0;
+  for (let i = 0; i < ordered.length - 1; i++) sum += haversineKm(ordered[i], ordered[i + 1]);
+  return sum;
+}
+
+const REBALANCE_MAX_RATIO = 1.5; // 검증 기준(작업지시서 §5) "최장÷최단 ≤ 1.5"
+const REBALANCE_MAX_ITERATIONS = 3;
+
+/**
+ * capAllDayFacilityDays가 스팟을 옮기면서 깨뜨린 균형을 이동거리 기준으로
+ * 다시 맞춘다 — 작업지시서 2026-09-07 "PR #234 프로덕션 검증 결과" §2:
+ * clusterByLocation의 균형 잡기는 "스팟 개수"만 보는데 그 뒤(capAllDayFacilityDays)
+ * 에서 종일시설 날짜의 초과분을 다른 날로 밀어내면 그 개수 균형이 다시
+ * 깨지고, 이후 아무도 재검사하지 않았다(실측: 후쿠오카 9/6/3곳,
+ * day2가 day1의 2.33배). 게다가 개수가 같아도 도심 클러스터에 원거리
+ * 단일 지점(다자이후 등)이 섞이면 거리 균형이 깨질 수 있어, 애초에
+ * §5 기준 자체와 같은 "거리"로 판단한다.
+ *
+ * 가장 긴 날에서 그 날 중심(centroid)에서 가장 먼 스팟 1곳을 가장 짧은
+ * 날로 옮기는 걸, 비율이 1.5 이하가 되거나 3회 반복할 때까지 계속한다.
+ * 종일시설이 있는 날은 이미 capAllDayFacilityDays로 정원(시설+최대 2곳)이
+ * 찬 상태이므로 받는 쪽 후보에서 제외한다 — 안 그러면 캡을 그대로
+ * 되돌리게 된다.
+ */
+export function rebalanceByDistance<T extends GeoPoint>(groups: T[][], isFacility: (s: T) => boolean): T[][] {
+  if (groups.length <= 1) return groups;
+  const next = groups.map((g) => [...g]);
+
+  for (let iter = 0; iter < REBALANCE_MAX_ITERATIONS; iter++) {
+    const distances = next.map(totalDistanceOf);
+    const longestIdx = distances.indexOf(Math.max(...distances));
+    const receiverIndexes = next.map((_, i) => i).filter((i) => i !== longestIdx && next[i].every((s) => !isFacility(s)));
+    if (receiverIndexes.length === 0) break;
+    const shortestIdx = receiverIndexes.reduce((best, i) => (distances[i] < distances[best] ? i : best), receiverIndexes[0]);
+
+    if (distances[shortestIdx] > 0 && distances[longestIdx] / distances[shortestIdx] <= REBALANCE_MAX_RATIO) break;
+    if (next[longestIdx].length <= 1) break; // 더 뺄 스팟이 없음
+
+    const centroid = centroidOf(next[longestIdx]);
+    let farIndex = 0;
+    let farDist = -1;
+    next[longestIdx].forEach((s, i) => {
+      const d = haversineKm(s, centroid);
+      if (d > farDist) {
+        farDist = d;
+        farIndex = i;
+      }
+    });
+    const [moved] = next[longestIdx].splice(farIndex, 1);
+    next[shortestIdx] = [...next[shortestIdx], moved];
+  }
+  return next;
+}
+
 /**
  * 날짜별로 독립 생성된 스팟들을 지리 기준으로 재배분한다 — 위 헬퍼들의
  * 조합. 스팟 "선정"(generateDay/generateCourseV2 몫)은 건드리지 않고,
@@ -524,7 +592,8 @@ function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   }
   const clustered = clusterByLocation(allStops, dayStops.length);
   const capped = capAllDayFacilityDays(clustered, isLargeFacility);
-  return capped.map((group) => orderByNearestNeighbor(group));
+  const balanced = rebalanceByDistance(capped, isLargeFacility);
+  return balanced.map((group) => orderByNearestNeighbor(group));
 }
 
 // 카탈로그에도 없는 국내(Kakao) 결과의 마지막 보강 — place_candidate_cache를
