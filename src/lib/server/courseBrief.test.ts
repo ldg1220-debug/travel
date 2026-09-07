@@ -180,4 +180,62 @@ describe("rebalanceByDistance", () => {
     const single = [[p(0, 0), p(1, 1)]];
     expect(rebalanceByDistance(single, () => false)).toEqual(single);
   });
+
+  it("never ends up worse than the starting deviation, even with a Dazaifu-like outlier (후쿠오카 실측 회귀 방지, 작업지시서 2026-09-07 'PR #235 프로덕션 검증' §1)", () => {
+    // 실측: day1 6.58km(9곳) / day2 15.36km(6곳, 다자이후 포함) / day3
+    // 11.50km(3곳) — 편차 2.33배. 이전 구현("가장 먼 스팟 무조건 이동")은
+    // 이걸 11.82배로 악화시켰다. 정확히 같은 숫자를 재현할 필요는 없고,
+    // "같은 구조(도심 클러스터 + 원거리 이상치 1곳)에서 절대 더 나빠지지
+    // 않는다"만 고정하면 된다.
+    const day1 = [p(33.59, 130.4), p(33.5905, 130.4005), p(33.591, 130.401), p(33.5895, 130.3995), p(33.592, 130.402), p(33.589, 130.399)]; // 텐진권 — 촘촘
+    const day2 = [p(33.595, 130.42), p(33.596, 130.422), p(33.47, 130.535)]; // 하카타권 2곳 + 다자이후(이상치)
+    const day3 = [p(33.65, 130.35), p(33.652, 130.353), p(33.648, 130.348)]; // 우미노나카미치권 — 촘촘
+
+    const groups = [day1, day2, day3];
+    const totalStops = groups.flat().length;
+    const before = groups.map(totalDistance);
+    const beforeRatio = Math.max(...before) / Math.max(Math.min(...before), 0.001);
+
+    const result = rebalanceByDistance(groups, () => false);
+
+    expect(result.flat()).toHaveLength(totalStops); // 스팟이 사라지거나 늘지 않는다
+    const after = result.map(totalDistance);
+    const afterRatio = Math.max(...after) / Math.max(Math.min(...after), 0.001);
+    expect(afterRatio).toBeLessThanOrEqual(beforeRatio + 1e-9); // 절대 악화되지 않는다 — 이번 수정의 핵심 불변조건
+  });
+});
+
+describe("capAllDayFacilityDays — 시설과 먼 동반 스팟은 개수와 무관하게 제외", () => {
+  interface FacSpot extends P {
+    isBig: boolean;
+  }
+  const isFacility = (s: FacSpot) => s.isBig;
+
+  it("drops companions beyond the distance threshold even when their count already fits the cap (오사카 USJ/신사이바시 case, 작업지시서 2026-09-07 'PR #235 프로덕션 검증' §2)", () => {
+    const facility: FacSpot = { ...p(34.665, 135.433), isBig: true }; // 고노하나구(USJ 인근) 좌표
+    // 시설과 반대편 동네(신사이바시/아메무라, 약 6~7km) — 개수는 이미
+    // ALL_DAY_FACILITY_MAX_OTHERS(2) 이하라 기존 로직(개수만 봄)은
+    // 이 둘을 그대로 남겼었다.
+    const farCompanion1: FacSpot = { ...p(34.672, 135.501), isBig: false };
+    const farCompanion2: FacSpot = { ...p(34.673, 135.502), isBig: false };
+    const day = [facility, farCompanion1, farCompanion2];
+    const otherDay: FacSpot[] = [{ ...p(34.6, 135.5), isBig: false }];
+
+    const result = capAllDayFacilityDays([day, otherDay], isFacility);
+
+    expect(result[0]).toEqual([facility]); // 멀리 있는 동반 스팟은 남기지 않는다 — 시설 단독이 낫다
+    expect(result[1]).toHaveLength(otherDay.length + 2); // 사라지지 않고 다른 날로 옮겨간다
+  });
+
+  it("keeps a companion within the distance threshold", () => {
+    const facility: FacSpot = { ...p(34.665, 135.433), isBig: true };
+    const nearCompanion: FacSpot = { ...p(34.667, 135.44), isBig: false }; // ~1km — 시설 근처
+    const day = [facility, nearCompanion];
+    const otherDay: FacSpot[] = [{ ...p(34.6, 135.5), isBig: false }];
+
+    const result = capAllDayFacilityDays([day, otherDay], isFacility);
+
+    expect(result[0]).toEqual([facility, nearCompanion]);
+    expect(result[1]).toEqual(otherDay); // 옮겨간 것 없음
+  });
 });
