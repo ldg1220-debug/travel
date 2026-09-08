@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { capAllDayFacilityDays, clusterByLocation, dedupeByBrand, dedupeByProximity, orderByNearestNeighbor, reassignByCentroid, rebalanceByDistance } from "./courseBrief";
+import {
+  capAllDayFacilityDays,
+  chunkByProximity,
+  clusterByLocation,
+  dedupeByBrand,
+  dedupeByProximity,
+  medoidOf,
+  orderByNearestNeighbor,
+  reallocateStopsByDay,
+  reassignByCentroid,
+  rebalanceByDistance,
+} from "./courseBrief";
 import { haversineKm } from "./courseRoute";
+import type { FinalStop } from "./courseRecommendV2";
 
 // 오사카 실측(작업지시서 2026-09-06 "일자 배분이 지리적으로 나뉘지
 // 않습니다")에서 확인된 문제(같은 구역이 여러 날에 흩어짐, 하루 안에서
@@ -339,9 +351,225 @@ describe("dedupeByBrand — 코스 전체에서 같은 체인은 하나만 (작�
     expect(result[0]).toBe(branch2);
   });
 
+  it("collapses branches whose word order differs (모토무라 규카츠 case, 작업지시서 2026-09-08 'PR #238 프로덕션 검증' §4)", () => {
+    const a: NamedSpot = { name: "모토무라 규카츠", rating: 4.0, reviewCount: 400 };
+    const b: NamedSpot = { name: "규카츠 모토무라 후쿠오카 파르코점", rating: 4.2, reviewCount: 800 }; // 지점 표기 제거 방식만으로는 어순이 달라 못 잡혔던 사례
+
+    const result = dedupeByBrand([a, b]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(b);
+  });
+
   it("keeps genuinely different brands untouched", () => {
     const a: NamedSpot = { name: "스시로 텐진점", rating: 4.2, reviewCount: 1000 };
     const b: NamedSpot = { name: "이치란 라멘 하카타점", rating: 4.4, reviewCount: 2000 };
     expect(dedupeByBrand([a, b])).toHaveLength(2);
+  });
+});
+
+describe("medoidOf — 평균이 아니라 실제 스팟을 중심으로 (작업지시서 2026-09-08 'PR #238 프로덕션 검증' §3-2)", () => {
+  it("returns the actual point, not an averaged one", () => {
+    const points = [p(34.6, 135.5), p(34.601, 135.501), p(34.599, 135.499)];
+    const result = medoidOf(points);
+    expect(points).toContain(result); // 반드시 입력 중 하나(실제 스팟)여야 한다 — 평균 좌표가 아니다.
+  });
+
+  it("stays near the tight cluster even with a distant outlier (다자이후류 사례)", () => {
+    // 하카타권 3곳(촘촘) + 다자이후(15km 밖) — medoid는 하카타 쪽에
+    // 남아야 한다. centroid(평균)였다면 다자이후 쪽으로 상당히 끌려갔을 것이다.
+    const hakata = [p(33.595, 130.42), p(33.596, 130.421), p(33.594, 130.419)];
+    const dazaifu = p(33.47, 130.535);
+    const result = medoidOf([...hakata, dazaifu]);
+    expect(hakata).toContain(result); // 다자이후가 아니라 하카타권의 한 곳이어야 한다.
+  });
+
+  it("returns the single point unchanged when there's only one", () => {
+    const only = p(1, 2);
+    expect(medoidOf([only])).toBe(only);
+  });
+});
+
+describe("chunkByProximity — 500m 이내로 이어지는 스팟은 하나의 소구역으로 (작업지시서 2026-09-08 'PR #238 프로덕션 검증' §3-1)", () => {
+  it("merges a chain of stops within the link distance, even if the ends are far apart (A-B, B-C 각각 가까워도 A-C는 멀 수 있음)", () => {
+    // A-B ~110m, B-C ~110m이지만 A-C는 ~220m — 전이적 연결로 셋 다 한 묶음이어야 한다.
+    const a = p(34.6, 135.5);
+    const b = p(34.601, 135.5);
+    const c = p(34.602, 135.5);
+    const chunks = chunkByProximity([a, b, c], 0.15);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toHaveLength(3);
+  });
+
+  it("keeps far-apart stops in separate chunks", () => {
+    const a = p(34.6, 135.5);
+    const b = p(34.7, 135.6); // 여러 km 떨어짐
+    const chunks = chunkByProximity([a, b], 0.5);
+    expect(chunks).toHaveLength(2);
+  });
+
+  it("returns one chunk per stop when nothing is within range", () => {
+    const points = [p(0, 0), p(10, 10), p(20, 20)];
+    expect(chunkByProximity(points, 0.5)).toHaveLength(3);
+  });
+});
+
+/** courseBrief.ts의 reallocateStopsByDay가 요구하는 FinalStop 최소 형태를 채운 테스트 픽스처. */
+function stop(id: string, lat: number, lng: number, extra: Partial<FinalStop> = {}): FinalStop {
+  return {
+    id,
+    placeId: id,
+    name: extra.name ?? id,
+    category: extra.category ?? "tourist_attraction",
+    color: "#000",
+    icon: "pin",
+    lat,
+    lng,
+    slotKey: "slot",
+    slotLabel: "슬롯",
+    hour: 10,
+    meal: false,
+    ...extra,
+  };
+}
+
+function crossDayViolations(days: FinalStop[][], maxKm: number): number {
+  let count = 0;
+  for (let i = 0; i < days.length; i++) {
+    for (let j = i + 1; j < days.length; j++) {
+      for (const a of days[i]) {
+        for (const b of days[j]) {
+          if (haversineKm(a, b) <= maxKm) count++;
+        }
+      }
+    }
+  }
+  return count;
+}
+
+/** base에서 동쪽/북쪽으로 각각 dEastM/dNorthM미터 이동한 좌표 — 테스트 픽스처를 "몇 미터 떨어졌는지"로 정확히 통제하기 위함(위경도 값을 눈대중으로 늘리면 dedupeByProximity의 100/300m 문턱을 실수로 건드리기 쉽다 — 실제로 처음 이 테스트를 이렇게 짰다가 걸렸다). */
+function offset(base: P, dEastM: number, dNorthM: number): P {
+  return {
+    lat: base.lat + dNorthM / 111_000,
+    lng: base.lng + dEastM / (111_000 * Math.cos((base.lat * Math.PI) / 180)),
+  };
+}
+
+/** 카테고리를 스팟마다 돌아가며 다르게 줘, dedupeByProximity의 "100~300m + 같은 카테고리" 소프트 문턱에 테스트 픽스처끼리 우연히 걸리지 않게 한다. */
+const CATEGORY_CYCLE = ["tourist_attraction", "restaurant", "cafe", "museum"];
+function categoryFor(index: number): string {
+  return CATEGORY_CYCLE[index % CATEGORY_CYCLE.length];
+}
+
+/**
+ * base를 중심으로 spacing미터 간격의 격자에 count개 스팟을 배치한다 —
+ * 서로 dedupeByProximity(최대 300m)보다 멀면서, chunkByProximity의
+ * 500m 체인 문턱도 넘어(그리드 인접 칸 간격을 700m로 잡아 대각선을
+ * 포함한 모든 쌍이 500m를 넘도록) 클러스터 하나가 통째로 한 소구역
+ * 으로 묶여버리지 않게 한다 — 그러면서도 "하루에 돌 만한 한 구역"으로
+ * 보일 만큼은 뭉쳐 있다(3×2 격자 기준 전체 폭 약 1.4km).
+ * 처음엔 450m 간격으로 짰다가, 그 경우 그리드 전체가 체인으로 이어져
+ * 클러스터 하나가 통째로 하나의 청크가 돼버리는 걸 겪었다(작업지시서가
+ * 요구하는 전이적 병합 자체는 올바른 동작 — 이 테스트 픽스처가
+ * 비현실적으로 조밀했던 것).
+ */
+function cluster(idPrefix: string, base: P, count: number, spacingM = 700): FinalStop[] {
+  return Array.from({ length: count }, (_, i) =>
+    stop(`${idPrefix}${i}`, offset(base, (i % 3) * spacingM, Math.floor(i / 3) * spacingM).lat, offset(base, (i % 3) * spacingM, Math.floor(i / 3) * spacingM).lng, {
+      category: categoryFor(i),
+    }),
+  );
+}
+
+describe("reallocateStopsByDay — 전체 파이프라인 통합 (작업지시서 2026-09-08 'PR #238 프로덕션 검증')", () => {
+  it("keeps a chain-linked micro-region together across the full pipeline (도톤보리류 사례가 실제로 해소되는지)", () => {
+    const umedaBase = p(34.7, 135.49);
+    const nambaBase = p(34.665, 135.5);
+    const tennojiBase = p(34.647, 135.514);
+
+    // 우메다권 5곳(day1 생성 결과) + "도톤보리"(실제로는 난바권인데
+    // day1에 잘못 섞여 들어옴). 도톤보리는 난바 스팟 하나와 200m —
+    // dedupeByProximity 하드 문턱(100m)은 넘고 소구역 묶음 문턱(500m)
+    // 안쪽이라, 중복 제거되진 않으면서 같은 청크로는 묶여야 한다.
+    const umedaCore = cluster("umeda", umedaBase, 5);
+    const dotonboriPos = offset(nambaBase, 0, 0);
+    // namba0(카테고리 순환의 첫 값 "tourist_attraction")와 200m라
+    // dedupeByProximity의 소프트 문턱(100~300m + 같은 카테고리)에 걸리지
+    // 않도록 일부러 다른 카테고리를 준다 — 실제로 다른 방문 목적(전망대
+    // vs 식당류)이라고 보는 게 자연스럽기도 하다.
+    const dotonbori = stop("dotonbori", dotonboriPos.lat, dotonboriPos.lng, { name: "도톤보리", category: "restaurant" });
+    const umeda = [...umedaCore, dotonbori];
+
+    const namba = cluster("namba", offset(nambaBase, 200, 0), 6); // 200m 옆에서 시작 — namba0가 도톤보리와 200m
+    const tennoji = cluster("ten", tennojiBase, 6);
+
+    const result = reallocateStopsByDay([umeda, namba, tennoji]);
+
+    expect(result).toHaveLength(3);
+    expect(result.flat()).toHaveLength(umeda.length + namba.length + tennoji.length); // 개수 보존
+    // 도톤보리가 난바권 스팟이 있는 날에 있어야 한다(우메다 전용 날이 아니라).
+    const dotonboriDay = result.find((g) => g.some((s) => s.id === "dotonbori"));
+    expect(dotonboriDay?.some((s) => s.id === "namba0")).toBe(true);
+    // 날짜 간 500m 이내 쌍이 없어야 한다.
+    expect(crossDayViolations(result, 0.5)).toBe(0);
+    // 하루 스팟 수 3~6곳.
+    result.forEach((g) => {
+      expect(g.length).toBeGreaterThanOrEqual(3);
+      expect(g.length).toBeLessThanOrEqual(6);
+    });
+  });
+
+  it("keeps an all-day facility's day at 2-3 stops and everything else within the 3-6 size guard", () => {
+    const facility = stop("usj", 34.665, 135.433, { category: "amusement_park", name: "유니버설 스튜디오 재팬" });
+    const day1: FinalStop[] = [facility, ...cluster("d1", p(34.7, 135.49), 5)];
+    const day2: FinalStop[] = cluster("d2", p(34.665, 135.501), 6);
+    const day3: FinalStop[] = cluster("d3", p(34.647, 135.514), 6);
+
+    const result = reallocateStopsByDay([day1, day2, day3]);
+
+    // 시설 날(최대 3곳) + 나머지 2일(각 최대 6곳) = 15곳 그릇보다 입력이
+    // 많다(18곳) — 작업지시서 2026-09-08 "PR #238 프로덕션 검증" §2:
+    // 그릇을 넘는 3곳은 평점×리뷰수(여기선 전부 미설정=0으로 동률)가
+    // 낮은 순으로 빠진다.
+    expect(result.flat()).toHaveLength(15);
+    const facilityDay = result.find((g) => g.some((s) => s.id === "usj"));
+    expect(facilityDay).toBeDefined();
+    expect(facilityDay!.length).toBeGreaterThanOrEqual(2);
+    expect(facilityDay!.length).toBeLessThanOrEqual(3);
+    result
+      .filter((g) => g !== facilityDay)
+      .forEach((g) => {
+        expect(g.length).toBeGreaterThanOrEqual(3);
+        expect(g.length).toBeLessThanOrEqual(6);
+      });
+  });
+
+  it("trims the lowest rating×reviewCount stops when the total exceeds the day-count's 상한 그릇 (작업지시서 2026-09-08 'PR #238 프로덕션 검증' §2)", () => {
+    const day1 = cluster("a", p(34.7, 135.49), 6).map((s) => ({ ...s, rating: 4.5, reviewCount: 500 }));
+    const day2 = cluster("b", p(34.665, 135.501), 6).map((s) => ({ ...s, rating: 4.5, reviewCount: 500 }));
+    // c0·c1만 평점·리뷰수가 낮다 — 시설 없이 3일 × 상한 6곳 = 18곳 그릇에서
+    // 20곳 중 이 둘이 잘려야 한다.
+    const day3 = cluster("c", p(34.647, 135.514), 8).map((s, i) => ({ ...s, rating: i < 2 ? 3.0 : 4.5, reviewCount: i < 2 ? 10 : 500 }));
+
+    const result = reallocateStopsByDay([day1, day2, day3]);
+
+    expect(result.flat()).toHaveLength(18);
+    const survivingIds = new Set(result.flat().map((s) => s.id));
+    expect(survivingIds.has("c0")).toBe(false);
+    expect(survivingIds.has("c1")).toBe(false);
+  });
+
+  it("regression: a plain 2-day course (no facility) stays free of cross-day 500m violations under the new 6-stop cap", () => {
+    const day1: FinalStop[] = cluster("a", p(34.6, 135.5), 4);
+    const day2: FinalStop[] = cluster("b", p(34.68, 135.55), 6);
+
+    const result = reallocateStopsByDay([day1, day2]);
+
+    expect(result.flat()).toHaveLength(day1.length + day2.length);
+    expect(crossDayViolations(result, 0.5)).toBe(0);
+    result.forEach((g) => {
+      expect(g.length).toBeGreaterThanOrEqual(3);
+      expect(g.length).toBeLessThanOrEqual(6);
+    });
   });
 });
