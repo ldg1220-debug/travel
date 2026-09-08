@@ -842,9 +842,24 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
     if (!hasJumpedToSharedDateRef.current && sharedData.placesData.length > 0) {
       hasJumpedToSharedDateRef.current = true;
-      const earliestDate = [...sharedData.placesData].map((i) => i.date).sort()[0];
+      const itemDates = [...new Set(sharedData.placesData.map((i) => i.date))].sort();
+      const earliestDate = itemDates[0];
       setActiveDate(earliestDate);
       setWindowStart(earliestDate);
+      // 표시할 날짜 수를 이 계획의 실제 날짜 수에 맞춘다 — 작업지시서
+      // 2026-09-08 "블로그에서 넘어온 코스가 비어 있습니다" §3: 아래
+      // "adjusting state during render" 보정(activeDateChanged 블록)이
+      // 원래 이 일을 맡고 있었지만, 그 보정은 `!visibleDates.includes(activeDate)`
+      // 조건으로만 트리거되는데, 바로 위 setWindowStart(earliestDate)가
+      // windowStart를 activeDate와 똑같이 맞춰버려 그 조건이 항상 거짓이
+      // 된다 — 그래서 visibleDays 보정이 공유 링크를 처음 열 때는 전혀
+      // 실행되지 않고 이전 값(기본 VISIBLE_DAYS=3, 또는 같은 세션에서
+      // 앞서 보던 다른 계획의 값)이 그대로 남아 요청한 days와 다른 날짜
+      // 수가 보였다(실측: 통영 1일 요청 → 2일 표시, 오사카 2일 요청 →
+      // 4일 표시). 스토어의 items가 아니라 이 sharedData를 직접 기준으로
+      // 계산해 타이밍에 흔들리지 않게 한다.
+      const span = daysBetweenInclusive(itemDates[0], itemDates[itemDates.length - 1]);
+      setVisibleDays(Math.min(MAX_VISIBLE_DAYS, Math.max(MIN_VISIBLE_DAYS, span)));
     }
 
     // A viewer's local `places` catalog may not have every place the trip's

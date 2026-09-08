@@ -119,7 +119,12 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 버전을 올리면 옛 캐시는 자연히 미스가 돼 다음 요청/워밍 때 새로
 // 만들어진다 — 일괄 DELETE보다 안전하다(새 버전에 문제가 있으면 상수만
 // 되돌려도 옛 캐시가 즉시 다시 유효해진다).
-const COURSE_ALGO_VERSION = 6; // 이번 배포(시설 날 단독화 + 청크 상한 7곳 허용)로 다시 올림 — 작업지시서 2026-09-08 "PR #239 프로덕션 검증" §4 "COURSE_ALGO_VERSION 5 → 6".
+// course-open(itineraries 행)의 멱등 키에도 재사용한다 — 작업지시서
+// 2026-09-08 "블로그에서 넘어온 코스가 비어 있습니다" §2: 알고리즘이
+// 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
+// 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
+// 직접 참조한다.
+export const COURSE_ALGO_VERSION = 6; // 이번 배포(시설 날 단독화 + 청크 상한 7곳 허용)로 다시 올림 — 작업지시서 2026-09-08 "PR #239 프로덕션 검증" §4 "COURSE_ALGO_VERSION 5 → 6".
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
