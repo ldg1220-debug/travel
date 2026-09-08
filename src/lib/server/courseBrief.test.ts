@@ -1,15 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  applyDurationCap,
   capAllDayFacilityDays,
   chunkByProximity,
   clusterByLocation,
   dedupeByBrand,
   dedupeByProximity,
+  fetchGoogleDirectionsRoute,
+  fetchKakaoDrivingRoute,
+  mapPathParam,
   medoidOf,
   orderByNearestNeighbor,
+  planRouteForDay,
   reallocateStopsByDay,
   reassignByCentroid,
   rebalanceByDistance,
+  simplifyPath,
+  straightRouteMeasurement,
+  type RouteResult,
 } from "./courseBrief";
 import { haversineKm } from "./courseRoute";
 import type { FinalStop } from "./courseRecommendV2";
@@ -570,5 +578,212 @@ describe("reallocateStopsByDay — 전체 파이프라인 통합 (작업지시�
       expect(g.length).toBeGreaterThanOrEqual(3);
       expect(g.length).toBeLessThanOrEqual(6);
     });
+  });
+});
+
+// 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다" — totalDistanceKm/
+// toNextMinutes가 하버사인 직선거리 ÷ 고정 속도였던 문제(사량도처럼 배로만
+// 갈 수 있는 섬도 "차로 51분"이라고 단언)를 실제 경로 조회로 고쳤는지 확인한다.
+
+interface NamedPoint extends P {
+  name: string;
+}
+function named(name: string, lat: number, lng: number): NamedPoint {
+  return { name, lat, lng };
+}
+
+function fakeRoute(distanceKm: number, durationMinutes: number, mode: RouteResult["mode"] = "car"): RouteResult {
+  return { distanceKm, durationMinutes, mode, mapPath: "color:0x0000ffcc|weight:3|0,0|1,1" };
+}
+
+describe("planRouteForDay — 실제 경로 검증으로 스톱을 잇는다(fetch를 몰라도 되는 순수 로직)", () => {
+  it("drops the day's own start stop (not the candidate) when the very first segment has no route (사량도류 섬 사례)", async () => {
+    // 사량도(이 날의 첫 스톱)에서 나가는 첫 구간이 막히면, 아직 아무것도
+    // 검증된 적 없는 시작점 쪽을 버리고 후보를 새 시작점으로 삼는다 —
+    // 후보(중앙활어시장)를 버리면 반대로 "섬이 코스에 남고 육지가
+    // 빠지는" 잘못된 결과가 된다.
+    const stops = [named("사량도", 34.83, 128.32), named("중앙활어시장", 34.84, 128.42), named("심가네해물짬뽕", 34.845, 128.425)];
+    let call = 0;
+    const result = await planRouteForDay(stops, async () => {
+      call++;
+      return call === 1 ? "no-route" : fakeRoute(1, 5);
+    });
+    expect(result.stops.map((s) => s.name)).toEqual(["중앙활어시장", "심가네해물짬뽕"]);
+    expect(result.segments).toHaveLength(1);
+  });
+
+  it("drops the candidate (not the already-validated predecessor) when a mid-list segment has no route", async () => {
+    const stops = [named("a", 0, 0), named("b", 0, 1), named("c", 0, 2), named("d", 0, 3)];
+    const result = await planRouteForDay(stops, async (last, candidate) => {
+      // b → c 구간만 막힌다 — a→b는 이미 검증됐으니 c를 버리고 b→d를 이어본다.
+      if (last.name === "b" && candidate.name === "c") return "no-route";
+      return fakeRoute(1, 5);
+    });
+    expect(result.stops.map((s) => s.name)).toEqual(["a", "b", "d"]);
+    expect(result.segments).toHaveLength(2);
+  });
+
+  it("keeps every stop when every segment has a route", async () => {
+    const stops = [named("a", 0, 0), named("b", 0, 1), named("c", 0, 2)];
+    const result = await planRouteForDay(stops, async () => fakeRoute(2, 10));
+    expect(result.stops).toHaveLength(3);
+    expect(result.segments).toHaveLength(2);
+  });
+
+  it("is a no-op for a single-stop day (no segment to test)", async () => {
+    const stops = [named("a", 0, 0)];
+    const result = await planRouteForDay(stops, async () => "no-route");
+    expect(result.stops).toEqual(stops);
+    expect(result.segments).toEqual([]);
+  });
+});
+
+describe("applyDurationCap — 작업지시서 §3 ★ '소요시간이 비정상적으로 큼(3시간 초과)'", () => {
+  it("keeps a measurement at or under 180 minutes, attaching the travel mode", () => {
+    const result = applyDurationCap({ distanceKm: 5, durationMinutes: 180, mapPath: "x" }, "car");
+    expect(result).not.toBe("no-route");
+    expect(result).toMatchObject({ distanceKm: 5, durationMinutes: 180, mode: "car" });
+  });
+
+  it("returns no-route once duration exceeds 180 minutes", () => {
+    expect(applyDurationCap({ distanceKm: 50, durationMinutes: 181, mapPath: "x" }, "car")).toBe("no-route");
+  });
+});
+
+describe("straightRouteMeasurement/simplifyPath/mapPathParam — 정적 지도·직선 폴백 헬퍼", () => {
+  it("estimates distance from the haversine straight line, not a fixed speed that happens to divide evenly", () => {
+    const a = { lat: 34.83, lng: 128.32 };
+    const b = { lat: 34.9, lng: 128.5 };
+    const walk = straightRouteMeasurement(a, b, "walk");
+    const car = straightRouteMeasurement(a, b, "car");
+    expect(walk.distanceKm).toBeCloseTo(haversineKm(a, b), 5);
+    // walk/car 속도가 "고정값으로 딱 떨어지는" 상황(작업지시서 §5 테스트
+    // 고정 항목)을 재현하지 않는다 — 이건 haversineKm의 실제 소수점
+    // 거리를 그대로 쓰므로 사람이 낸 딱 떨어지는 숫자가 아니다.
+    expect(Number.isInteger(walk.distanceKm)).toBe(false);
+    expect(car.durationMinutes).toBeLessThan(walk.durationMinutes); // 같은 거리라도 차가 더 빠르다
+  });
+
+  it("keeps a short path unchanged", () => {
+    const points = [{ lat: 0, lng: 0 }, { lat: 0, lng: 1 }];
+    expect(simplifyPath(points)).toEqual(points);
+  });
+
+  it("samples a long path down to the point cap, keeping the first and last point", () => {
+    const points = Array.from({ length: 500 }, (_, i) => ({ lat: 0, lng: i * 0.001 }));
+    const sampled = simplifyPath(points);
+    expect(sampled.length).toBeLessThanOrEqual(60);
+    expect(sampled[0]).toEqual(points[0]);
+    expect(sampled[sampled.length - 1]).toEqual(points[points.length - 1]);
+  });
+
+  it("formats a Static Maps path= value with color/weight and pipe-separated coordinates", () => {
+    const value = mapPathParam([{ lat: 1, lng: 2 }, { lat: 3, lng: 4 }]);
+    expect(value).toBe("color:0x0000ffcc|weight:3|1,2|3,4");
+  });
+});
+
+describe("fetchKakaoDrivingRoute — 카카오모빌리티 길찾기(국내 자동차)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("returns null when the API key isn't configured (판단 보류, 스팟 유지)", async () => {
+    vi.stubEnv("KAKAO_REST_API_KEY", "");
+    expect(await fetchKakaoDrivingRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 })).toBeNull();
+  });
+
+  it("parses a successful response into distanceKm/durationMinutes ≥ the straight-line distance, and a path from the road vertexes", async () => {
+    vi.stubEnv("KAKAO_REST_API_KEY", "test-key");
+    const a = { lat: 34.83, lng: 128.32 }; // 사량도 근방
+    const b = { lat: 34.84, lng: 128.42 }; // 중앙활어시장 근방
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          routes: [
+            {
+              result_code: 0,
+              summary: { distance: 21050, duration: 51 * 60 }, // 실측(작업지시서 §2) — 21.05km/51분
+              sections: [{ roads: [{ vertexes: [a.lng, a.lat, 128.37, 34.835, b.lng, b.lat] }] }],
+            },
+          ],
+        }),
+      }),
+    );
+    const result = await fetchKakaoDrivingRoute(a, b);
+    expect(result).not.toBe("no-route");
+    expect(result).not.toBeNull();
+    const measurement = result as Exclude<typeof result, "no-route" | null>;
+    expect(measurement.distanceKm).toBeCloseTo(21.05, 5);
+    expect(measurement.durationMinutes).toBe(51);
+    expect(measurement.distanceKm).toBeGreaterThanOrEqual(haversineKm(a, b)); // 도로가 직선보다 짧을 수 없다
+    expect(measurement.mapPath).toContain("34.835,128.37"); // 중간 vertex(위도,경도 순서로 뒤집힘)가 경로에 반영됨
+  });
+
+  it("returns \"no-route\" when Kakao confirms there's no drivable route (result_code 1/2 — 사량도 같은 섬)", async () => {
+    vi.stubEnv("KAKAO_REST_API_KEY", "test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ routes: [{ result_code: 1 }] }) }),
+    );
+    expect(await fetchKakaoDrivingRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 })).toBe("no-route");
+  });
+
+  it("returns null (not no-route) for a non-route-related result_code (param error 등 — 이 장소 판단이 아님)", async () => {
+    vi.stubEnv("KAKAO_REST_API_KEY", "test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ routes: [{ result_code: 101 }] }) }),
+    );
+    expect(await fetchKakaoDrivingRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 })).toBeNull();
+  });
+
+  it("returns null on a network error instead of throwing (판단 보류)", async () => {
+    vi.stubEnv("KAKAO_REST_API_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    expect(await fetchKakaoDrivingRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 })).toBeNull();
+  });
+});
+
+describe("fetchGoogleDirectionsRoute — Google Directions(해외)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("returns null when the server key isn't configured", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "");
+    expect(await fetchGoogleDirectionsRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 }, "driving")).toBeNull();
+  });
+
+  it("parses a successful response and passes the overview_polyline straight through as an enc: path", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: "OK",
+          routes: [{ legs: [{ distance: { value: 5000 }, duration: { value: 900 } }], overview_polyline: { points: "abc123" } }],
+        }),
+      }),
+    );
+    const result = await fetchGoogleDirectionsRoute({ lat: 0, lng: 0 }, { lat: 0.05, lng: 0.05 }, "driving");
+    expect(result).toMatchObject({ distanceKm: 5, durationMinutes: 15, mapPath: "color:0x0000ffcc|weight:3|enc:abc123" });
+  });
+
+  it("returns \"no-route\" on ZERO_RESULTS", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "ZERO_RESULTS" }) }));
+    expect(await fetchGoogleDirectionsRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 }, "walking")).toBe("no-route");
+  });
+
+  it("returns null (not no-route) on REQUEST_DENIED — key/permission 문제는 이 장소 판단이 아니다", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "REQUEST_DENIED" }) }));
+    expect(await fetchGoogleDirectionsRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 }, "driving")).toBeNull();
   });
 });

@@ -124,7 +124,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 6; // 이번 배포(시설 날 단독화 + 청크 상한 7곳 허용)로 다시 올림 — 작업지시서 2026-09-08 "PR #239 프로덕션 검증" §4 "COURSE_ALGO_VERSION 5 → 6".
+export const COURSE_ALGO_VERSION = 7; // 이번 배포(직선거리 대신 실제 경로 조회)로 다시 올림 — 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다" §5 "COURSE_ALGO_VERSION 올려 전체 재생성".
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -188,6 +188,236 @@ function modeForDistance(km: number, scope: CourseBriefScope): TravelMode {
   if (km < WALK_MAX_KM) return "walk";
   if (km <= TRANSIT_OR_CAR_MAX_KM) return scope === "overseas" ? "transit" : "car";
   return "car";
+}
+
+// ---------------------------------------------------------------- 실제 경로 조회
+//
+// 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다": totalDistanceKm/
+// toNextMinutes가 하버사인(직선) 거리를 고정 속도(MODE_SPEED_KMH)로 나눈
+// 추정값이었다 — 통영 "사량도 → 중앙활어시장 21km, 차량 51분"처럼 실제로는
+// 배로만 갈 수 있는 구간도 차로 갈 수 있다고 단언해버렸다(직선 21km ÷
+// 24.8km/h). 국내는 카카오모빌리티 길찾기(자동차), 해외는 Google
+// Directions API로 실제 경로의 거리·소요시간·폴리라인을 받는다.
+//
+// 도보 구간(WALK_MAX_KM 이하)은 실경로 조회 대상이 아니다 — 카카오
+// 모빌리티는 자동차 경로만 제공하고, 짧은 도보 구간까지 매 요청마다
+// API를 태우는 건 이 지시서의 핵심 문제(사량도류 오판)에 비해 비용
+// 대비 효과가 낮다. 기존처럼 직선 ÷ 도보 속도 추정을 그대로 쓴다.
+
+const ROUTE_CALL_TIMEOUT_MS = 4000;
+// 한 코스(모든 날짜 합산) 전체의 실제 경로 조회에 쓸 수 있는 총 시간 —
+// 이걸 넘기면 남은 구간은 실패로 보지 않고(스팟을 지우지 않고) 그냥
+// 직선 추정으로 폴백한다. liveEnrichSpots의 enrichBudgetMs와 같은
+// "예산 초과는 무응답이 아니라 조용한 성능 저하"원칙(작업지시서
+// 2026-09-01 §2-1)을 여기도 적용한다 — 구조 캐시를 쓰기 전 단계라
+// 여기서 무한정 기다리면 응답 자체가 늦어진다.
+const ROUTING_BUDGET_MS = 15000;
+// 작업지시서 §3 ★ "소요시간이 비정상적으로 큼(예: 3시간 초과)" — 실제
+// 경로가 잡히더라도 이 이상이면 사실상 당일 코스에 못 낄 곳으로 보고
+// 뺀다(예: 육로로 크게 돌아가야 하는 곳).
+const MAX_SEGMENT_MINUTES = 180;
+
+export interface RouteMeasurement {
+  distanceKm: number;
+  durationMinutes: number;
+  /** 정적 지도 path= 파라미터 값(색상·굵기·좌표 전부 포함) — 실제 경로 폴리라인이 있으면 그걸, 없으면 두 지점을 잇는 직선을 쓴다. */
+  mapPath: string;
+}
+export interface RouteResult extends RouteMeasurement {
+  mode: TravelMode;
+}
+
+/** Static Maps path= 값 하나를 좌표 목록으로 만든다. */
+export function mapPathParam(points: GeoPoint[]): string {
+  const coords = points.map((p) => `${p.lat},${p.lng}`).join("|");
+  return `color:0x0000ffcc|weight:3|${coords}`;
+}
+
+// 카카오 vertexes/구글 상세 경로는 도로 하나당 점이 수십~수백 개라
+// 그대로 path=에 넣으면 Static Maps 쿼리스트링이 URL 길이 상한을 넘길
+// 수 있다 — 일정 간격으로 솎아낸다(양 끝은 항상 포함해 경로가 끊겨
+// 보이지 않게 한다).
+const MAX_MAP_PATH_POINTS = 60;
+export function simplifyPath(points: GeoPoint[]): GeoPoint[] {
+  if (points.length <= MAX_MAP_PATH_POINTS) return points;
+  const step = (points.length - 1) / (MAX_MAP_PATH_POINTS - 1);
+  return Array.from({ length: MAX_MAP_PATH_POINTS }, (_, i) => points[Math.round(i * step)]);
+}
+
+export function straightRouteMeasurement(a: GeoPoint, b: GeoPoint, mode: TravelMode): RouteResult {
+  const km = haversineKm(a, b);
+  return { distanceKm: km, durationMinutes: minutesForKm(km, mode), mapPath: mapPathParam([a, b]), mode };
+}
+
+/** 실측(거리·소요시간)에 §3 ★ "3시간 초과" 상한을 적용한다 — 넘으면 "no-route"(그 스팟을 코스에서 뺀다). */
+export function applyDurationCap(measurement: RouteMeasurement, mode: TravelMode): RouteResult | "no-route" {
+  if (measurement.durationMinutes > MAX_SEGMENT_MINUTES) return "no-route";
+  return { ...measurement, mode };
+}
+
+const KAKAO_DIRECTIONS_URL = "https://apis-navi.kakaomobility.com/v1/directions";
+
+/**
+ * 국내 자동차 구간의 실제 경로 — 카카오모빌리티 길찾기(자동차 전용).
+ * 응답이 없거나(네트워크 오류·타임아웃·API 키 미설정 등) result_code가
+ * "이 장소 자체에 대한 판단이 아닌" 경우는 null을 돌려줘 호출부가 직선
+ * 추정으로 폴백하게 한다(liveDomesticRatingFor와 같은 원칙 — "확인
+ * 못 함"과 "확인했더니 안 됨"을 구분한다). result_code가 명확히
+ * "경로 없음"(1: 경로 탐색 실패, 2: 그래프 생성 실패 — 사량도처럼
+ * 도로망 자체가 없는 경우가 여기 해당)일 때만 "no-route"를 돌려줘
+ * 그 스팟을 코스에서 빼도록 한다.
+ */
+export async function fetchKakaoDrivingRoute(a: GeoPoint, b: GeoPoint): Promise<RouteMeasurement | "no-route" | null> {
+  const apiKey = process.env.KAKAO_REST_API_KEY;
+  if (!apiKey) return null;
+  const url = new URL(KAKAO_DIRECTIONS_URL);
+  url.searchParams.set("origin", `${a.lng},${a.lat}`);
+  url.searchParams.set("destination", `${b.lng},${b.lat}`);
+  url.searchParams.set("priority", "RECOMMEND");
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ROUTE_CALL_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { headers: { Authorization: `KakaoAK ${apiKey}` }, signal: controller.signal });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      routes?: Array<{
+        result_code: number;
+        summary?: { distance: number; duration: number };
+        sections?: Array<{ roads?: Array<{ vertexes?: number[] }> }>;
+      }>;
+    };
+    const route = data.routes?.[0];
+    if (!route) return null;
+    if (route.result_code !== 0) return route.result_code === 1 || route.result_code === 2 ? "no-route" : null;
+    if (!route.summary) return null;
+    // vertexes는 [lng, lat, lng, lat, ...] 평면 배열이 도로(section.roads[])
+    // 마다 나뉘어 있다 — 전부 이어 붙여 하나의 경로 좌표열로 만든다.
+    const flatVertexes = (route.sections ?? []).flatMap((s) => (s.roads ?? []).flatMap((r) => r.vertexes ?? []));
+    const points: GeoPoint[] = [];
+    for (let i = 0; i + 1 < flatVertexes.length; i += 2) points.push({ lng: flatVertexes[i], lat: flatVertexes[i + 1] });
+    return {
+      distanceKm: route.summary.distance / 1000,
+      durationMinutes: Math.round(route.summary.duration / 60),
+      mapPath: mapPathParam(simplifyPath(points.length > 0 ? points : [a, b])),
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const GOOGLE_DIRECTIONS_URL = "https://maps.googleapis.com/maps/api/directions/json";
+
+/**
+ * 해외 구간의 실제 경로 — Google Directions API. GOOGLE_MAPS_SERVER_KEY
+ * (Static Maps 전용으로 이미 등록된, 리퍼러 제한 없는 서버 키 —
+ * generateCourseMapImage 주석 참고)를 재사용한다.
+ *
+ * ⚠️ 이 키는 GCP 콘솔에서 "Maps Static API만" 허용하도록 API 제한이
+ * 걸려 있다는 게 이미 알려진 사실이다 — Directions API 호출이 실제로
+ * 되려면 그 허용 목록에 Directions API도 추가해야 하는데, 이 세션에서
+ * GCP 콘솔 설정을 바꿀 수 없어 직접 확인하지 못했다. 제한에 걸리면
+ * REQUEST_DENIED로 응답이 오고, 아래에서 "이 장소 판단이 아님"으로
+ * 처리해 직선 추정으로 폴백한다 — 조용히 저하될 뿐 응답 자체가 깨지진
+ * 않는다(검증 못 한 것, PR 설명 참고).
+ */
+export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode: "walking" | "transit" | "driving"): Promise<RouteMeasurement | "no-route" | null> {
+  const apiKey = process.env.GOOGLE_MAPS_SERVER_KEY;
+  if (!apiKey) return null;
+  const url = new URL(GOOGLE_DIRECTIONS_URL);
+  url.searchParams.set("origin", `${a.lat},${a.lng}`);
+  url.searchParams.set("destination", `${b.lat},${b.lng}`);
+  url.searchParams.set("mode", mode);
+  url.searchParams.set("key", apiKey);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ROUTE_CALL_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      status: string;
+      routes?: Array<{ legs?: Array<{ distance?: { value: number }; duration?: { value: number } }>; overview_polyline?: { points: string } }>;
+    };
+    if (data.status === "ZERO_RESULTS" || data.status === "NOT_FOUND") return "no-route";
+    if (data.status !== "OK") return null; // OVER_QUERY_LIMIT/REQUEST_DENIED/UNKNOWN_ERROR 등 — 이 장소 판단이 아니다
+    const route = data.routes?.[0];
+    const leg = route?.legs?.[0];
+    if (!route || !leg?.distance || !leg?.duration) return null;
+    const encoded = route.overview_polyline?.points;
+    return {
+      distanceKm: leg.distance.value / 1000,
+      durationMinutes: Math.round(leg.duration.value / 60),
+      mapPath: encoded ? `color:0x0000ffcc|weight:3|enc:${encoded}` : mapPathParam([a, b]),
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** scope·mode에 맞는 실제 경로 조회로 라우팅하고, 확정적으로 "경로 없음"이면 "no-route"를, 그 외(타임아웃 등 판단 보류 포함)엔 직선 추정을 돌려준다. */
+async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, mode: TravelMode): Promise<RouteResult | "no-route"> {
+  if (mode === "walk") return straightRouteMeasurement(a, b, mode); // 도보는 실경로 조회 대상이 아니다(위 섹션 설명)
+  const outcome = scope === "domestic" ? await fetchKakaoDrivingRoute(a, b) : await fetchGoogleDirectionsRoute(a, b, mode === "transit" ? "transit" : "driving");
+  if (outcome === "no-route") return "no-route";
+  if (outcome == null) return straightRouteMeasurement(a, b, mode); // 조회 실패/판단 보류 — 폴백, 스팟은 유지
+  return applyDurationCap(outcome, mode); // §3 ★ 비정상적으로 크면(3시간 초과) "no-route"
+}
+
+/**
+ * stops를 순서대로 resolveSegment(직전 구간)로 검증하며 잇는다 — 구간이
+ * 확정적으로 "경로 없음"이면(예: 사량도처럼 배로만 갈 수 있는 섬) 그
+ * 스팟을 코스에서 뺀다(작업지시서 2026-09-08 "이동 거리·시간이
+ * 직선거리입니다" §3 ★). 실제 API 호출은 resolveSegment로 주입받는다 —
+ * 이 함수 자체는 그 결과를 보고 "무엇을 남기고 무엇을 뺄지"만 결정하는
+ * 순수 로직이라, 단위 테스트가 실제 네트워크(fetch)를 몰라도 된다.
+ *
+ * 이 날의 첫 스팟(kept[0])은 아직 어느 구간으로도 검증된 적이 없다 —
+ * 사량도처럼 이 날의 시작점 자체가 문제일 수도 있으므로, 첫 구간이
+ * 막히면 후보가 아니라 시작점 쪽을 버리고 후보를 새 시작점으로 삼는다.
+ * 이미 한 구간 이상으로 도달 가능함이 확인된 뒤(kept.length ≥ 2)는
+ * 새로 등장한 후보 쪽을 버린다 — kept의 마지막 스팟은 이미 검증됐으므로.
+ */
+export async function planRouteForDay<T extends GeoPoint>(
+  stops: T[],
+  resolveSegment: (a: T, b: T) => Promise<RouteResult | "no-route">,
+): Promise<{ stops: T[]; segments: RouteResult[] }> {
+  if (stops.length <= 1) return { stops, segments: [] };
+  const kept: T[] = [stops[0]];
+  const segments: RouteResult[] = [];
+  for (let i = 1; i < stops.length; i++) {
+    const candidate = stops[i];
+    const outcome = await resolveSegment(kept[kept.length - 1], candidate);
+    if (outcome !== "no-route") {
+      kept.push(candidate);
+      segments.push(outcome);
+      continue;
+    }
+    if (kept.length === 1) {
+      kept[0] = candidate; // 시작점 자체가 문제 — 후보를 새 시작점으로 삼는다
+    }
+    // kept.length >= 2: 마지막 스팟은 이미 도달 가능함이 검증됐다 — 이번 후보만 뺀다.
+  }
+  return { stops: kept, segments };
+}
+
+/**
+ * 하루치 스톱에 실제 경로 조회(routeSegment)를 적용한다 — planRouteForDay의
+ * 실제 호출부. 예산(deadline)을 넘기면 남은 구간은 조회 자체를 생략하고
+ * 직선 추정으로 채운다 — "시간이 없어서 확인을 못 했다"를 "경로가
+ * 없다"로 오판하지 않는다.
+ */
+async function routeDayStops(scope: CourseBriefScope, stops: FinalStop[], deadline: number): Promise<{ stops: FinalStop[]; segments: RouteResult[] }> {
+  return planRouteForDay(stops, async (last, candidate) => {
+    const km = haversineKm(last, candidate);
+    const mode = modeForDistance(km, scope);
+    if (Date.now() > deadline) return straightRouteMeasurement(last, candidate, mode);
+    return routeSegment(scope, last, candidate, mode);
+  });
 }
 
 function normalizeForMatch(s: string): string {
@@ -1219,20 +1449,24 @@ async function liveEnrichSpots(spots: CourseBriefSpot[], scope: CourseBriefScope
  * 동선이 아니므로 toNextMinutes를 null로 두고 totalDistanceKm 합산에서도
  * 제외한다.
  *
- * 여기서는 로컬/동기 작업(구간 계산 + 카탈로그 조인)까지만 한다 — 외부
- * I/O가 들어가는 라이브 평점 보강은 별도 단계(liveEnrichSpots)로 분리해,
- * 이 함수의 결과만으로도 완결된 코스 구조를 즉시 캐시에 쓸 수 있게 한다.
+ * 구간 거리·소요시간·이동수단은 이미 routeDayStops가 실제 경로로 구해
+ * 왔다(segments, stops와 같은 순서로 stops.length-1개) — 이 함수는 그
+ * 결과를 스팟 형태로 옮겨 담고 카탈로그 평점을 조인하는 로컬/동기
+ * 작업만 한다. 실제 경로 조회(외부 I/O)는 이 함수를 부르기 전에 이미
+ * 끝나 있어야 한다 — 라이브 평점 보강(liveEnrichSpots, 이후 단계)과
+ * 마찬가지로, 이 함수의 결과만으로도 완결된 코스 구조를 즉시 캐시에
+ * 쓸 수 있어야 한다.
  */
-function assembleDaySpots(stops: FinalStop[], baseOrder: number, scope: CourseBriefScope, region: string, day: 1 | 2 | 3): { spots: CourseBriefSpot[]; distanceKm: number } {
+function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], baseOrder: number, scope: CourseBriefScope, region: string, day: 1 | 2 | 3): { spots: CourseBriefSpot[]; distanceKm: number } {
   let distanceKm = 0;
   const spots: CourseBriefSpot[] = stops.map((stop, i) => {
     let toNextMinutes: number | null = null;
     let toNextMode: TravelMode = "car";
     if (i < stops.length - 1) {
-      const km = haversineKm({ lat: stop.lat, lng: stop.lng }, { lat: stops[i + 1].lat, lng: stops[i + 1].lng });
-      distanceKm += km;
-      toNextMode = modeForDistance(km, scope);
-      toNextMinutes = minutesForKm(km, toNextMode);
+      const seg = segments[i];
+      distanceKm += seg.distanceKm;
+      toNextMode = seg.mode;
+      toNextMinutes = seg.durationMinutes;
     }
 
     let { rating, reviewCount } = qualityGate(stop.rating ?? null, stop.reviewCount ?? null);
@@ -1301,7 +1535,7 @@ function markerLabel(order: number): string {
 // 실행돼 보지 못한 채 sharp 네이티브 바이너리 리스크만 지고 있었다 —
 // 403이 풀려도, 브랜드 표기는 이미지 밖(블로그 HTML의 캡션 등)에서
 // AutoPipeline이 붙이는 쪽이 더 단순하고 안전하다.
-async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]): Promise<string | null> {
+async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[], mapPaths: string[]): Promise<string | null> {
   if (spots.length === 0) return null;
   // 기존 GOOGLE_PLACES_API_KEY/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY는 브라우저에도
   // 노출되는 키라 HTTP 리퍼러 제한이 걸려 있다(작업지시서 2026-09-06 "PR
@@ -1326,10 +1560,16 @@ async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]
   for (const spot of spots) {
     url.searchParams.append("markers", `label:${markerLabel(spot.order)}|${spot.lat},${spot.lng}`);
   }
-  // 동선을 잇는 경로선 — path는 여러 좌표를 하나의 파라미터로 잇는다.
-  if (spots.length > 1) {
-    const points = spots.map((s) => `${s.lat},${s.lng}`).join("|");
-    url.searchParams.set("path", `color:0x0000ffcc|weight:3|${points}`);
+  // 동선을 잇는 경로선 — path=는 반복 가능한 파라미터라(Static Maps
+  // 스펙) 구간마다 하나씩 따로 그린다. 작업지시서 2026-09-08 "이동
+  // 거리·시간이 직선거리입니다" §4: 기존엔 스톱 좌표만 이어 하나의
+  // 측지선(직선)으로 그렸는데("①→④가 시가지·하천을 가로질러 일직선"),
+  // 이제 각 구간의 실제 경로 폴리라인(routeDayStops/RouteResult.mapPath —
+  // 실경로가 없으면 그 구간만 직선으로 폴백)을 그대로 넘긴다. 날짜가
+  // 바뀌는 경계는 여기 안 들어 있다(routeDayStops가 하루 안의 구간만
+  // 계산) — 서로 다른 날 방문지를 선으로 잇는 게 애초에 의미가 없다.
+  for (const path of mapPaths) {
+    url.searchParams.append("path", path);
   }
 
   const controller = new AbortController();
@@ -1426,31 +1666,52 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   // 지리적으로 나뉘지 않습니다" 참고, reallocateStopsByDay 주석).
   const finalDayGroups = reallocateStopsByDay(dayStops);
 
+  // 하루 안의 구간(순서상 이웃한 두 스톱)마다 실제 경로를 조회한다 —
+  // 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다" §3. 경로가
+  // 확정적으로 없으면(예: 사량도) 그 스팟은 빠진 채로 stops가 돌아온다
+  // (routeDayStops 주석 참고) — 그래서 reallocateStopsByDay가 정한
+  // "어느 날"은 그대로 두되, 실제로 갈 수 있는 곳만 남긴 뒤에야 스팟
+  // 형태로 조립한다. 날짜별로 서로 독립이라 병렬로 돌린다 — deadline은
+  // 코스 전체(모든 날짜 합산) 공유 예산이다.
+  const routingDeadline = Date.now() + ROUTING_BUDGET_MS;
+  const routedDays = await Promise.all(finalDayGroups.map((stops) => routeDayStops(scope, stops, routingDeadline)));
+
   let baseOrder = 1;
   let totalDistanceKm = 0;
   const allSpots: CourseBriefSpot[] = [];
-  finalDayGroups.forEach((stops, i) => {
-    const { spots, distanceKm } = assembleDaySpots(stops, baseOrder, scope, region, (i + 1) as 1 | 2 | 3);
+  const mapPaths: string[] = [];
+  routedDays.forEach(({ stops, segments }, i) => {
+    const { spots, distanceKm } = assembleDaySpots(stops, segments, baseOrder, scope, region, (i + 1) as 1 | 2 | 3);
     allSpots.push(...spots);
     totalDistanceKm += distanceKm;
     baseOrder += spots.length;
+    mapPaths.push(...segments.map((s) => s.mapPath));
   });
   // 요청한 days보다 실제로 채워진 날짜 수가 적을 수 있다(1일차부터 비면
   // dayStops가 아예 비고, 이 경우도 최소 1일로 보고한다 — 기존 동작 유지).
+  // 실제 경로 검증으로 어느 날의 스팟이 줄어드는 것(심지어 1곳까지)은
+  // 날짜 자체를 없애지 않는다 — §3은 "그 스팟을 빼라"는 것이지 "그
+  // 날짜를 스킵하라"는 게 아니다(스팟이 3곳 미만이 되는 지역 전체를
+  // 스킵할지는 이 응답을 쓰는 AutoPipeline 쪽 C-2 계약의 몫).
   const actualDays = Math.max(1, finalDayGroups.length) as 1 | 2 | 3;
   let brief: CourseBrief = { region, days: actualDays, totalDistanceKm: round1(totalDistanceKm), spots: allSpots, imageUrl: null, appUrl, ratingSource: "google" };
 
-  // 여기까지가 "구조" 단계 — 순서·거리·이동수단·카탈로그 평점까지 전부
-  // 확정됐고 외부 I/O가 더 없다. 먼저 캐시에 반영해둔다: 아래 라이브 보강이
-  // 타임아웃/에러로 끊겨도 다음 호출은 최소한 이 결과를 즉시 캐시 히트로
-  // 받는다(작업지시서 2026-09-01 "응답 시간" §2-2).
+  // 여기까지가 "구조" 단계 — 순서·실제 경로 거리/소요시간·카탈로그
+  // 평점까지 전부 확정됐다. ⚠️ 실제 경로 조회(routeDayStops)는 외부
+  // I/O이지만 이 단계 안에 포함된다 — totalDistanceKm/toNextMinutes가
+  // 이 지시서의 핵심 대상이라 "구조"로 취급해 먼저 캐시에 반영해야
+  // 한다(아래 라이브 보강이 타임아웃/에러로 끊겨도 다음 호출은 최소한
+  // 실제 경로가 반영된 이 결과를 즉시 캐시 히트로 받는다 — 작업지시서
+  // 2026-09-01 "응답 시간" §2-2). 대신 ROUTING_BUDGET_MS로 예산을 두고,
+  // 넘기면 직선 추정으로 조용히 폴백한다(routeDayStops 주석 참고) — 여기서
+  // 무한정 기다려 응답 자체가 늦어지지 않게 한다.
   await writeBriefCache(cacheKey, brief).catch((err) => {
     console.error("[courseBrief] structure cache write failed:", err);
   });
 
   const deadline = Date.now() + enrichBudgetMs;
   const enrichedSpots = await liveEnrichSpots(brief.spots, scope, region, deadline);
-  const imageUrl = await generateCourseMapImage(cacheKey, enrichedSpots);
+  const imageUrl = await generateCourseMapImage(cacheKey, enrichedSpots, mapPaths);
   brief = { ...brief, spots: enrichedSpots, imageUrl };
 
   await writeBriefCache(cacheKey, brief).catch((err) => {
