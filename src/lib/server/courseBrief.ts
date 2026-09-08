@@ -119,7 +119,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 버전을 올리면 옛 캐시는 자연히 미스가 돼 다음 요청/워밍 때 새로
 // 만들어진다 — 일괄 DELETE보다 안전하다(새 버전에 문제가 있으면 상수만
 // 되돌려도 옛 캐시가 즉시 다시 유효해진다).
-const COURSE_ALGO_VERSION = 5; // 이번 배포(소구역 묶음 + medoid 중심 + 하루 상한 6곳)로 다시 올림 — 작업지시서 2026-09-08 "PR #238 프로덕션 검증" §5-5 "COURSE_ALGO_VERSION 4 → 5".
+const COURSE_ALGO_VERSION = 6; // 이번 배포(시설 날 단독화 + 청크 상한 7곳 허용)로 다시 올림 — 작업지시서 2026-09-08 "PR #239 프로덕션 검증" §4 "COURSE_ALGO_VERSION 5 → 6".
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -671,7 +671,6 @@ export function dedupeByBrand<T extends { name: string; rating?: number | null; 
   return kept;
 }
 
-const ALL_DAY_FACILITY_MAX_OTHERS = 2; // 검증 기준(작업지시서 2026-09-06 §5) "총 3곳 이하" = 시설 1 + 다른 곳 최대 2.
 // 하루 스팟 수 제약(종일시설 없는 날 기준) — 234→235→236→237을 거치며
 // 거리/비율 지표만 최적화하면 이 제약이 조용히 깨질 수 있다는 게
 // 반복 확인됐다(§236: capAllDayFacilityDays의 초과분이 한 날로만 쏠려
@@ -690,28 +689,45 @@ const ALL_DAY_FACILITY_MAX_OTHERS = 2; // 검증 기준(작업지시서 2026-09-
 const DAY_SIZE_MAX = 6;
 const DAY_SIZE_MIN = 3;
 
+// §3-1(소구역 묶음)은 "청크는 절대 안 쪼갠다"가 핵심인데, enforceChunkCap이
+// DAY_SIZE_MAX(6)를 그대로 하드 상한으로 쓰면 꽉 찬 날에 들어가야 할
+// 청크를 억지로 다른(지리적으로 안 맞는) 날로 떠민다 — 작업지시서
+// 2026-09-08 "PR #239 프로덕션 검증" §3 실측: 난바 날이 6곳으로 꽉 차서
+// `구로몬 시장`이 엉뚱한 우메다 날로 밀림. "청크를 쪼개는 것보다 한
+// 곳 더 많은 게 낫다"는 지시서 원칙대로, 청크를 통째로 배정하는
+// enforceChunkCap 단계에서만 상한을 7까지 허용한다. rebalanceByDistance/
+// reassignByCentroid처럼 스팟을 하나씩 옮기는 단계는 청크를 쪼갤 위험이
+// 없으므로 그대로 DAY_SIZE_MAX(6)를 쓴다 — 그래서 최종 결과가 7을 넘는
+// 일은 없다(이 상수로 만들어진 7곳짜리 날에서 더 늘어날 방법이 없다).
+const CHUNK_ASSIGN_MAX = DAY_SIZE_MAX + 1;
+
+// 시설이 있는 날은 시설 "단독" 1곳만 둔다 — 작업지시서 2026-09-08
+// "PR #239 프로덕션 검증" §2. 예전엔 동반 스팟을 1~2곳 붙였다
+// (작업지시서 2026-09-06 §4-3: 시설 단독 날짜의 이동거리 0km가 편차
+// 계산을 왜곡한다는 문제 때문) — 하지만 rebalanceByDistance/
+// reassignByCentroid가 이미 종일시설 날짜를 편차 계산·재배정 후보
+// 양쪽에서 전부 제외하도록 고쳐져(두 함수 참고) 그 문제는 해소됐다.
+// 반대로 동반 스팟을 붙이면 그 스팟이 속한 소구역(청크)을 스팟 단위로
+// 갈라내야 해서(청크 중 시설과 가장 가까운 것만 골라 나머지를 버림)
+// §3-1의 "청크는 절대 안 쪼갠다"를 어기게 된다(실측: 난바 청크에서
+// COLONY·규카츠 모토무라 난바 분점이 뽑혀 나와 도톤보리·신사이바시스지와
+// 239~421m로 겹침). 시설 하나만으로 하루가 다 차는 게 여행 실감에도
+// 맞다("USJ와 마린월드는 그것만으로 하루가 찹니다").
+const FACILITY_DAY_SIZE = 1;
+
 /**
  * 유니버설 스튜디오 같은 종일 시설(isLargeFacility, courseRecommend.ts —
- * 대형 테마파크·워터파크·아쿠아리움·동물원)이 배정된 날은 다른 스팟을
- * 최대 ALL_DAY_FACILITY_MAX_OTHERS곳으로 제한한다 — 작업지시서
- * 2026-09-06 §4-3: "USJ 뒤에 5곳이 더 붙어 있다 … 이대로 나가면 신뢰를
- * 잃는다". 시설과 가장 가까운 순으로 남긴다.
+ * 대형 테마파크·워터파크·아쿠아리움·동물원)이 배정된 날은 시설만 남기고
+ * 다른 스팟은 전부 뺀다(FACILITY_DAY_SIZE 참고).
  *
- * ⚠️ 한 차례 시설에서 5km 넘는 동반 스팟은 아예 버리는 버전을 시도했는데
- * (작업지시서 2026-09-07 "PR #235 프로덕션 검증" §2), 마린월드처럼 반도
- * 끝이라 5km 안에 아무것도 없는 시설을 만나면 "가까운 걸 고른다"가 아니라
- * "전부 버린다"로 작동해 시설 단독(1곳짜리) 날짜를 만들어버렸다(작업지시서
- * 2026-09-07 "PR #236 프로덕션 검증" §1). 거리 문턱 없이 그냥 가장 가까운
- * 순으로 최대 2곳을 남긴다 — "조건에 맞는 게 없으면 버린다"가 아니라
- * "제일 나은 걸 고른다"(같은 지시서 §3의 표: "종일시설 있는 날 2~3곳"이
- * 무조건 지켜야 할 제약이지, 거리 조건으로 0~2곳을 오가는 목표가 아니다).
- *
- * 초과분은 각자 자기와 가장 가까운 "다른" 날로 옮긴다 — 단, 이미
- * DAY_SIZE_MAX에 찬 날은 건너뛰고 다음으로 가까운 날을 찾는다(전부
- * 찼으면 그래도 가장 가까운 곳으로 — 자리 없다고 스팟을 버릴 수는
- * 없다). 이 상한이 없으면 초과분이 전부 "가장 가까운 한 날"로 쏠려
- * 그 날이 통째로 과밀해진다(실측: 후쿠오카 day1이 15곳까지 불어남).
- * groups가 1개뿐이면 옮길 다른 날이 없어 그대로 둔다.
+ * reallocateStopsByDay가 이제 시설 몫 날짜를 소구역(청크) 배정 전에
+ * 아예 따로 떼어 놓아(아래 참고) 이 함수가 실제로 손댈 동반 스팟이
+ * 생기지 않는다 — 이 함수는 그 구성이 깨지지 않았는지 확인하는
+ * 안전망으로 남는다. 안전망이 실제로 발동하는 드문 경우, 빠진 스팟은
+ * 청크 정보 없이(이 함수는 개별 스팟만 보고 청크 경계를 모른다) 자리
+ * 있는 가장 가까운 다른 날로 보낸다 — 전부 찼으면 그래도 가장 가까운
+ * 곳으로(자리 없다고 스팟을 버릴 수는 없다). groups가 1개뿐이면 옮길
+ * 다른 날이 없어 그대로 둔다.
  */
 export function capAllDayFacilityDays<T extends GeoPoint>(groups: T[][], isFacility: (s: T) => boolean): T[][] {
   if (groups.length <= 1) return groups;
@@ -720,24 +736,19 @@ export function capAllDayFacilityDays<T extends GeoPoint>(groups: T[][], isFacil
     const facilities = group.filter(isFacility);
     if (facilities.length === 0) return;
     const others = group.filter((s) => !isFacility(s));
-    if (others.length <= ALL_DAY_FACILITY_MAX_OTHERS) return;
+    if (others.length === 0) return;
 
-    const facilityCentroid = centroidOf(facilities);
-    const companions = [...others].sort((a, b) => haversineKm(facilityCentroid, a) - haversineKm(facilityCentroid, b)).slice(0, ALL_DAY_FACILITY_MAX_OTHERS);
-    next[dayIndex] = [...facilities, ...companions];
-    const companionSet = new Set(companions);
+    next[dayIndex] = facilities;
 
-    others
-      .filter((s) => !companionSet.has(s))
-      .forEach((stop) => {
-        const rankedByDistance = next
-          .map((g, gi) => ({ gi, g }))
-          .filter(({ gi }) => gi !== dayIndex)
-          .sort((a, b) => haversineKm(stop, medoidOf(a.g.length > 0 ? a.g : group)) - haversineKm(stop, medoidOf(b.g.length > 0 ? b.g : group)));
-        const target = rankedByDistance.find(({ g }) => g.length < DAY_SIZE_MAX) ?? rankedByDistance[0];
-        const bestDay = target ? target.gi : (dayIndex + 1) % next.length;
-        next[bestDay] = [...next[bestDay], stop];
-      });
+    others.forEach((stop) => {
+      const rankedByDistance = next
+        .map((g, gi) => ({ gi, g }))
+        .filter(({ gi }) => gi !== dayIndex)
+        .sort((a, b) => haversineKm(stop, medoidOf(a.g.length > 0 ? a.g : group)) - haversineKm(stop, medoidOf(b.g.length > 0 ? b.g : group)));
+      const target = rankedByDistance.find(({ g }) => g.length < DAY_SIZE_MAX) ?? rankedByDistance[0];
+      const bestDay = target ? target.gi : (dayIndex + 1) % next.length;
+      next[bestDay] = [...next[bestDay], stop];
+    });
   });
   return next;
 }
@@ -808,8 +819,8 @@ function outlierIndexesOf<T extends GeoPoint>(group: T[]): Set<number> {
  * 설계에서는 실제로 이 문제가 있었다) 오지도 않을 "완벽한 균형"을
  * 쫓다가 코스를 망가뜨리게 된다. 그래서 종일시설이 있는 날은 (1) 옮길
  * 대상(fromDay)에서도, (2) 받는 대상(toDay)에서도, (3) 최댓값 계산
- * 자체에서도 전부 제외한다 — capAllDayFacilityDays가 이미 확정한
- * 구성(시설 + 최대 2곳)을 재균형이 절대 건드리지 않는다.
+ * 자체에서도 전부 제외한다 — 시설이 있는 날의 구성(이제 시설 하나뿐,
+ * FACILITY_DAY_SIZE)을 재균형이 절대 건드리지 않는다.
  */
 export function rebalanceByDistance<T extends GeoPoint>(groups: T[][], isFacility: (s: T) => boolean): T[][] {
   if (groups.length <= 1) return groups;
@@ -872,29 +883,37 @@ export function rebalanceByDistance<T extends GeoPoint>(groups: T[][], isFacilit
   return current;
 }
 
-const FACILITY_DAY_MIN = 2; // 시설 1 + 동반 최소 1 — 이 밑으로 줄이면 시설 단독(1곳) 날짜가 된다(작업지시서 2026-09-06 §4-3이 막으려던 바로 그 문제).
-const FACILITY_DAY_MAX = ALL_DAY_FACILITY_MAX_OTHERS + 1; // 시설 1 + 동반 최대 2 = 3곳
 const MEMBERSHIP_RECHECK_MAX_ITERATIONS = 5;
 
 /**
  * days=3처럼 종일시설 날이 하나 끼는 코스에서 전체 스팟 수가 담을 수
  * 있는 그릇보다 많으면(작업지시서 2026-09-08 "PR #238 프로덕션 검증" §2:
  * 18곳 = 시설 날 3곳 + 나머지 2일 × 8곳 = "딱 맞음") 뒤 단계(캡·재균형·
- * 소속 재검사)가 옮길 자리(자유도)를 하나도 못 만든다 — 하루 상한을
- * 6으로 낮춰도,애초에 그릇(3+6+6=15)보다 스팟이 많으면 같은 문제가
- * 재현된다. 그릇 크기를 넘는 만큼 평점×리뷰수가 낮은 스팟부터 뺀다
- * (§2 "스팟을 줄일 때는 평점 × 리뷰수가 낮은 것부터 빼세요").
+ * 소속 재검사)가 옮길 자리(자유도)를 하나도 못 만든다. 그릇 크기를
+ * 넘는 만큼 평점×리뷰수가 낮은 스팟부터 뺀다(§2 "스팟을 줄일 때는
+ * 평점 × 리뷰수가 낮은 것부터 빼세요").
  *
- * 시설이 여러 날에 나뉠 수도 있지만(드묾) 흔한 경우(시설 1개 또는
- * 서로 가까운 여러 시설이 한 날에 몰림)를 가정해 시설 날 수를
- * min(시설 수, 날짜 수)로 보수적으로 잡는다 — 과대평가하면 덜 잘라
- * 뒤 단계 자유도가 다시 부족해지고, 과소평가하면 필요 이상 잘리므로
- * 시설 개수를 그대로 상한으로 쓰는 쪽이 안전하다.
+ * 시설이 있는 날은 이제 시설 하나만 담는다(FACILITY_DAY_SIZE — 작업지시서
+ * 2026-09-08 "PR #239 프로덕션 검증" §2 "시설 날은 시설만 두세요") —
+ * 일반 스팟이 담길 그릇은 시설 날을 뺀 나머지 날 수 × DAY_SIZE_MAX뿐이다.
+ * §238 때는 시설 날에도 동반 스팟 최대 2곳(당시 FACILITY_DAY_MAX=3)이
+ * 들어갈 여지가 있어 공식에 "시설 날 수 × 3 − 시설 수"라는 보정항이
+ * 있었는데, 이제 시설 날의 비-시설 몫이 항상 0이라 그 보정항이 사라진다
+ * (§2 각주 "trimToCapacity 공식도 시설 날 수 × 1 + 일반 날 수 × 6으로
+ * 맞춰주세요"와 동치 — 시설 날 수 × 1은 시설 자신이 그대로 채우므로
+ * 일반 스팟 몫에는 기여가 없다).
+ *
+ * 시설이 여러 날에 나뉠 수도 있지만(드묾) 흔한 경우(시설 1개, 또는
+ * 날짜 수보다 시설이 많아 어쩔 수 없이 한 날에 여럿이 몰리는 극단적
+ * 경우)를 가정해 시설 날 수를 min(시설 수, 날짜 수)로 잡는다 — 후자의
+ * 경우 일반 스팟 몫이 0(또는 그에 가깝게)까지 줄어들 수 있는데, 이는
+ * reallocateStopsByDay가 실제로 그런 날짜 구성을 만들 때(시설이 날짜
+ * 수만큼 혹은 그보다 많을 때)와 정확히 같은 가정이라 어긋나지 않는다.
  */
 function maxNonFacilityCapacity(dayCount: number, facilityCount: number): number {
   const facilityDayCount = Math.min(facilityCount, dayCount);
-  const normalDayCount = Math.max(dayCount - facilityDayCount, 0);
-  return facilityDayCount * FACILITY_DAY_MAX + normalDayCount * DAY_SIZE_MAX - facilityCount;
+  const normalDayCount = dayCount - facilityDayCount;
+  return normalDayCount * DAY_SIZE_MAX;
 }
 
 /** 넘치는 스팟을 평점×리뷰수 오름차순(낮은 것부터)으로 제거해 capacity 이내로 줄인다. 평점/리뷰수가 없으면 0으로 취급해 가장 먼저 빠진다. */
@@ -926,11 +945,10 @@ function trimToCapacity<T extends { rating?: number; reviewCount?: number }>(sto
  * 2026-09-08 "PR #238 프로덕션 검증" §3-2: 평균은 이상치(다자이후 등)
  * 때문에 허공에 찍힐 수 있고, 그 허공이 진짜 이웃(모모치 해변)보다
  * 가깝게 계산되는 사고가 실측으로 확인됐다. 종일시설 자체(닻)는 절대
- * 옮기지 않지만, 시설 날짜에 동반된 일반 스팟은 다른 날이 더 가까우면
- * 옮길 수 있다(실측에서 USJ의 먼 동반 스팟들이 이렇게 정리될 걸로
- * 기대됨). 매 반복마다 "이동하면 나아지는 폭"이 가장 큰 조합 하나만
- * 적용하고, 그런 조합이 없으면 멈춘다(최대 5회) — 3~6곳(시설 날짜는
- * 2~3곳) 하드 가드를 항상 지킨다.
+ * 옮기지 않는다 — 시설 날짜는 이제 시설 하나뿐이라(FACILITY_DAY_SIZE)
+ * 옮길 동반 스팟 자체가 없다. 매 반복마다 "이동하면 나아지는 폭"이
+ * 가장 큰 조합 하나만 적용하고, 그런 조합이 없으면 멈춘다(최대 5회) —
+ * 3~6곳(시설 날짜는 정확히 1곳) 하드 가드를 항상 지킨다.
  */
 export function reassignByCentroid<T extends GeoPoint>(groups: T[][], isFacility: (s: T) => boolean): T[][] {
   if (groups.length <= 1) return groups;
@@ -941,14 +959,14 @@ export function reassignByCentroid<T extends GeoPoint>(groups: T[][], isFacility
 
     const state: { best: { fromDay: number; stopIndex: number; toDay: number; improvement: number } | null } = { best: null };
     current.forEach((fromGroup, fromDay) => {
-      const fromMin = fromGroup.some(isFacility) ? FACILITY_DAY_MIN : DAY_SIZE_MIN;
+      const fromMin = fromGroup.some(isFacility) ? FACILITY_DAY_SIZE : DAY_SIZE_MIN;
       if (fromGroup.length <= fromMin) return;
       fromGroup.forEach((stop, stopIndex) => {
         if (isFacility(stop)) return; // 시설 자체는 그 날의 닻 — 절대 옮기지 않는다
         const ownDist = haversineKm(stop, centers[fromDay]);
         current.forEach((toGroup, toDay) => {
           if (toDay === fromDay) return;
-          const toMax = toGroup.some(isFacility) ? FACILITY_DAY_MAX : DAY_SIZE_MAX;
+          const toMax = toGroup.some(isFacility) ? FACILITY_DAY_SIZE : DAY_SIZE_MAX;
           if (toGroup.length >= toMax) return; // 받을 자리가 없다
           const improvement = ownDist - haversineKm(stop, centers[toDay]);
           if (improvement > 0 && (!state.best || improvement > state.best.improvement)) {
@@ -974,14 +992,15 @@ export function reassignByCentroid<T extends GeoPoint>(groups: T[][], isFacility
  * 재배분할 대상(비교할 다른 날)이 없으니 브랜드·근접 중복 제거만
  * 적용한다.
  *
- * 종일시설은 소구역 묶음(chunkByProximity) 대상에서 뺀다 — 시설
- * 자체는 capAllDayFacilityDays가 "가장 가까운 동반 1~2곳" 규칙으로
- * 이미 다루고 있어, 청크 단위 배정과 별도로 처리하는 쪽이 두 로직이
- * 서로 어긋날 위험(예: 시설이 우연히 큰 청크에 묶여 2~3곳 제약을
- * 넘기는 경우)을 피한다. 일반 스팟은 청크 단위로 클러스터링해 500m
- * 이내로 이어진 소구역이 날짜 경계에서 쪼개지지 않게 하고, 시설은
- * 그렇게 정해진 날짜 중 medoid가 가장 가까운 곳에 끼워 넣은 뒤
- * capAllDayFacilityDays로 즉시 2~3곳으로 다듬는다.
+ * 종일시설 몫 날짜는 소구역(청크) 배정 전에 아예 따로 떼어 놓는다 —
+ * 작업지시서 2026-09-08 "PR #239 프로덕션 검증" §2: 예전엔(PR #238)
+ * 시설을 이미 청크 배정이 끝난 날에 나중에 얹고 capAllDayFacilityDays가
+ * 스팟 단위로 동반 1~2곳만 골라 남겼는데, 그 과정에서 소구역이 스팟
+ * 단위로 갈라졌다(실측: 난바 청크에서 COLONY·규카츠 모토무라 난바
+ * 분점이 뽑혀 나와 도톤보리·신사이바시스지와 239~421m로 겹침). 시설
+ * 몫 날짜(facilityDayCount개)를 먼저 떼어 놓고 일반 스팟은 나머지
+ * 날짜에만 청크 단위로 클러스터링하면, 시설의 날에는 애초에 아무
+ * 청크도 배정되지 않아 이 문제 자체가 생기지 않는다.
  */
 export function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   if (dayStops.length === 0) return [];
@@ -1002,35 +1021,41 @@ export function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   let groups: FinalStop[][];
   if (nonFacility.length === 0) {
     groups = evenSplit(facilities, dayCount);
-  } else {
+  } else if (facilities.length === 0) {
     const chunkPoints = chunkByProximity(nonFacility, CHUNK_LINK_MAX_KM).map(toChunkPoint);
     const chunkGroups = clusterByLocation(chunkPoints, dayCount, (c) => c.members.length);
-    const cappedChunkGroups = enforceChunkCap(chunkGroups, DAY_SIZE_MAX);
+    const cappedChunkGroups = enforceChunkCap(chunkGroups, CHUNK_ASSIGN_MAX);
     groups = cappedChunkGroups.map((cs) => cs.flatMap((c) => c.members));
-    // clusterByLocation이 min(k, 청크 수)개 그룹만 만들 수 있다 — 청크
-    // 수가 날짜 수보다 적으면(드묾, 스팟이 몇 안 되는 소수의 큰 소구역
-    // 으로만 뭉친 경우) 남는 날짜는 일단 빈 채로 시작한다. rebalanceByDistance/
-    // reassignByCentroid가 빈 날짜도 받을 자리로 보므로 이후 단계에서
-    // 채워질 수 있다 — 빈 날짜로 응답을 막는 것보다 낫다.
     while (groups.length < dayCount) groups.push([]);
+  } else {
+    // maxNonFacilityCapacity와 같은 식으로 시설 몫 날짜 수를 잡는다
+    // (그쪽 주석 참고) — 두 곳에서 다르게 계산하면 trimToCapacity가
+    // 허용한 개수와 여기서 실제로 마련하는 자리 수가 어긋날 수 있다.
+    const facilityDayCount = Math.min(facilities.length, dayCount);
+    const normalDayCount = dayCount - facilityDayCount;
+
+    const chunkPoints = chunkByProximity(nonFacility, CHUNK_LINK_MAX_KM).map(toChunkPoint);
+    const chunkGroups = clusterByLocation(chunkPoints, normalDayCount, (c) => c.members.length);
+    const cappedChunkGroups = enforceChunkCap(chunkGroups, CHUNK_ASSIGN_MAX);
+    const normalGroups = cappedChunkGroups.map((cs) => cs.flatMap((c) => c.members));
+    // clusterByLocation이 min(k, 청크 수)개 그룹만 만들 수 있다 — 청크
+    // 수가 일반 날짜 수보다 적으면(드묾) 남는 날짜는 일단 빈 채로
+    // 시작한다. rebalanceByDistance/reassignByCentroid가 빈 날짜도
+    // 받을 자리로 보므로 이후 단계에서 채워질 수 있다.
+    while (normalGroups.length < normalDayCount) normalGroups.push([]);
+
+    // 시설끼리 가까우면(드묾) 한 날에 묶이지만, 보통(시설 1개)은 그
+    // 자체로 독립된 한 날이 된다 — clusterByLocation(facilities, k=facilities.length)면
+    // farthest-point 시딩 특성상 항상 1개씩 나뉜다.
+    const facilityGroups = clusterByLocation(facilities, facilityDayCount);
+    while (facilityGroups.length < facilityDayCount) facilityGroups.push([]);
+
+    groups = [...normalGroups, ...facilityGroups];
   }
 
-  // 시설을 medoid가 가장 가까운 날에 끼워 넣는다 — 여러 시설이 있으면
-  // (드묾) 각자 독립적으로 가장 가까운 날을 찾는다.
-  facilities.forEach((facility) => {
-    let bestDay = 0;
-    let bestDist = Infinity;
-    groups.forEach((g, i) => {
-      if (g.length === 0) return;
-      const d = haversineKm(facility, medoidOf(g));
-      if (d < bestDist) {
-        bestDist = d;
-        bestDay = i;
-      }
-    });
-    groups[bestDay] = [...groups[bestDay], facility];
-  });
-
+  // 안전망 — 위 구성상 시설이 있는 날엔 이미 시설만 있어야 한다(둘
+  // 이상의 시설이 한 날에 묶인 경우는 예외로 남지만, 그것도 동반
+  // 일반 스팟은 없으므로 여기서 손댈 게 없다).
   const capped = capAllDayFacilityDays(groups, isLargeFacility);
   const balanced = rebalanceByDistance(capped, isLargeFacility);
   const reassigned = reassignByCentroid(balanced, isLargeFacility);
