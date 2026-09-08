@@ -121,7 +121,7 @@ describe("capAllDayFacilityDays", () => {
   }
   const isFacility = (s: FacilitySpot) => s.isBig;
 
-  it("caps a day containing an all-day facility to at most 3 stops total", () => {
+  it("leaves only the facility on a day that has one — no companions kept (작업지시서 2026-09-08 'PR #239 프로덕션 검증' §2)", () => {
     const facility: FacilitySpot = { ...p(34.7, 135.4), isBig: true };
     const day1 = [
       facility,
@@ -134,8 +134,7 @@ describe("capAllDayFacilityDays", () => {
     const day2 = [{ ...p(34.66, 135.5), isBig: false }, { ...p(34.665, 135.501), isBig: false }];
     const result = capAllDayFacilityDays([day1, day2], isFacility);
 
-    expect(result[0].length).toBeLessThanOrEqual(3);
-    expect(result[0].some(isFacility)).toBe(true);
+    expect(result[0]).toEqual([facility]);
     // 넘친 스팟은 사라지지 않고 다른 날로 옮겨가야 한다 — 전체 개수는 그대로.
     expect(result.flat()).toHaveLength(day1.length + day2.length);
   });
@@ -217,38 +216,37 @@ describe("rebalanceByDistance", () => {
   });
 });
 
-describe("capAllDayFacilityDays — 항상 가장 가까운 동반 스팟을 남긴다(거리 문턱 없음)", () => {
+describe("capAllDayFacilityDays — 동반 스팟은 거리와 무관하게 전부 뺀다 (작업지시서 2026-09-08 'PR #239 프로덕션 검증' §2)", () => {
   interface FacSpot extends P {
     isBig: boolean;
   }
   const isFacility = (s: FacSpot) => s.isBig;
 
-  it("keeps the 2 closest companions even when they're far away, rather than leaving the facility alone (마린월드 case, 작업지시서 2026-09-07 'PR #236 프로덕션 검증' §1/§3)", () => {
-    // 반도 끝 같은 고립된 시설 — 근처(5km 이내)엔 아무것도 없다. PR #235의
-    // 거리 문턱(5km) 버전은 이걸 전부 걸러내 시설 단독(1곳) 날짜를
-    // 만들었다("가까운 걸 고른다"가 아니라 "전부 버린다"로 작동). 이제는
-    // 거리 문턱 없이 그냥 가장 가까운 2곳을 남긴다.
+  it("evicts every companion, however close, leaving the facility alone (마린월드 case)", () => {
+    // 반도 끝 같은 고립된 시설이라도 이제 동반 스팟을 붙이지 않는다 —
+    // 예전엔(작업지시서 2026-09-07 'PR #236 프로덕션 검증' §1/§3) 거리
+    // 문턱 없이 가장 가까운 2곳을 남겼지만, 그게 스팟 단위로 청크(소구역)를
+    // 갈라내는 원인이었다(작업지시서 2026-09-08 "PR #239 프로덕션 검증"
+    // §2). 시설 단독 날짜의 이동거리 0km가 편차 계산을 왜곡하던 문제는
+    // rebalanceByDistance/reassignByCentroid가 이미 해결했으니 더는
+    // 동반 스팟이 필요 없다.
     const facility: FacSpot = { ...p(33.65, 130.35), isBig: true };
     const near: FacSpot = { ...p(33.6, 130.3), isBig: false }; // ~7km
     const farther: FacSpot = { ...p(33.55, 130.25), isBig: false }; // ~14km
-    const evenFarther: FacSpot = { ...p(33.5, 130.2), isBig: false }; // ~21km
-    const day = [facility, near, farther, evenFarther];
+    const day = [facility, near, farther];
     const otherDay: FacSpot[] = [{ ...p(33.59, 130.4), isBig: false }];
 
     const result = capAllDayFacilityDays([day, otherDay], isFacility);
 
-    expect(result[0]).toHaveLength(3); // 시설 + 가장 가까운 2곳 — 절대 1곳(시설 단독)으로 떨어지지 않는다
-    expect(result[0]).toContain(facility);
-    expect(result[0]).toContain(near);
-    expect(result[0]).toContain(farther);
+    expect(result[0]).toEqual([facility]);
     expect(result.flat()).toHaveLength(day.length + otherDay.length); // 넘친 스팟도 사라지지 않는다
   });
 
-  it("spreads overflow stops across multiple days instead of dumping them all into the single nearest one, respecting the per-day cap (후쿠오카 day1 15곳 회귀 방지, §3)", () => {
+  it("spreads evicted companions across multiple days instead of dumping them all into the single nearest one, respecting the per-day cap (후쿠오카 day1 15곳 회귀 방지, §3)", () => {
     const facility: FacSpot = { ...p(33.65, 130.35), isBig: true };
     const companions: FacSpot[] = [{ ...p(33.651, 130.351), isBig: false }, { ...p(33.652, 130.352), isBig: false }];
     // 넘칠 스팟 6곳 — 전부 dayA에 가장 가깝지만(dayA가 시설과 더 가까운
-    // 동네), dayA는 이미 스팟이 있어 8곳 상한을 넘기면 dayB로도 분산돼야
+    // 동네), dayA는 이미 스팟이 있어 6곳 상한을 넘기면 dayB로도 분산돼야
     // 한다.
     const overflow: FacSpot[] = Array.from({ length: 6 }, (_, i) => ({ ...p(33.6 + i * 0.001, 130.3 + i * 0.001), isBig: false }));
     const day = [facility, ...companions, ...overflow];
@@ -258,12 +256,12 @@ describe("capAllDayFacilityDays — 항상 가장 가까운 동반 스팟을 남
     const result = capAllDayFacilityDays([day, dayA, dayB], isFacility);
 
     expect(result.flat()).toHaveLength(day.length + dayA.length + dayB.length); // 개수 보존
-    expect(result[0]).toHaveLength(3); // 시설 날짜는 3곳으로 고정
-    result.forEach((g) => expect(g.length).toBeLessThanOrEqual(8)); // 어떤 날도 8곳을 넘지 않는다
+    expect(result[0]).toEqual([facility]); // 시설 날짜는 이제 시설 하나뿐
+    result.forEach((g) => expect(g.length).toBeLessThanOrEqual(6)); // 어떤 날도 6곳을 넘지 않는다
     expect(result[2].length).toBeGreaterThan(dayB.length); // dayA가 가득 차면 dayB도 받는다
   });
 
-  it("keeps a single close companion untouched when there's nothing to overflow", () => {
+  it("evicts even a single close companion when there's one and nothing else to overflow", () => {
     const facility: FacSpot = { ...p(34.665, 135.433), isBig: true };
     const nearCompanion: FacSpot = { ...p(34.667, 135.44), isBig: false };
     const day = [facility, nearCompanion];
@@ -271,8 +269,8 @@ describe("capAllDayFacilityDays — 항상 가장 가까운 동반 스팟을 남
 
     const result = capAllDayFacilityDays([day, otherDay], isFacility);
 
-    expect(result[0]).toEqual([facility, nearCompanion]);
-    expect(result[1]).toEqual(otherDay); // 옮겨간 것 없음
+    expect(result[0]).toEqual([facility]);
+    expect(result.flat()).toHaveLength(day.length + otherDay.length);
   });
 });
 
@@ -512,14 +510,16 @@ describe("reallocateStopsByDay — 전체 파이프라인 통합 (작업지시�
     expect(dotonboriDay?.some((s) => s.id === "namba0")).toBe(true);
     // 날짜 간 500m 이내 쌍이 없어야 한다.
     expect(crossDayViolations(result, 0.5)).toBe(0);
-    // 하루 스팟 수 3~6곳.
+    // 하루 스팟 수 3~7곳 — 도톤보리·namba0 청크(2곳)가 나머지 난바 5곳과
+    // 한 날에 묶이면 7곳이 된다. 작업지시서 2026-09-08 "PR #239 프로덕션
+    // 검증" §3: 청크를 쪼개는 것보다 하루 상한을 7까지 허용하는 쪽이 낫다.
     result.forEach((g) => {
       expect(g.length).toBeGreaterThanOrEqual(3);
-      expect(g.length).toBeLessThanOrEqual(6);
+      expect(g.length).toBeLessThanOrEqual(7);
     });
   });
 
-  it("keeps an all-day facility's day at 2-3 stops and everything else within the 3-6 size guard", () => {
+  it("keeps an all-day facility's day to exactly the facility (시설 단독) and everything else within the 3-7 size guard", () => {
     const facility = stop("usj", 34.665, 135.433, { category: "amusement_park", name: "유니버설 스튜디오 재팬" });
     const day1: FinalStop[] = [facility, ...cluster("d1", p(34.7, 135.49), 5)];
     const day2: FinalStop[] = cluster("d2", p(34.665, 135.501), 6);
@@ -527,20 +527,19 @@ describe("reallocateStopsByDay — 전체 파이프라인 통합 (작업지시�
 
     const result = reallocateStopsByDay([day1, day2, day3]);
 
-    // 시설 날(최대 3곳) + 나머지 2일(각 최대 6곳) = 15곳 그릇보다 입력이
-    // 많다(18곳) — 작업지시서 2026-09-08 "PR #238 프로덕션 검증" §2:
-    // 그릇을 넘는 3곳은 평점×리뷰수(여기선 전부 미설정=0으로 동률)가
-    // 낮은 순으로 빠진다.
-    expect(result.flat()).toHaveLength(15);
+    // 시설 날(1곳, 작업지시서 2026-09-08 "PR #239 프로덕션 검증" §2 —
+    // 시설 날은 시설만) + 나머지 2일(각 최대 6곳) = 13곳 그릇보다 입력이
+    // 많다(18곳). 그릇을 넘는 5곳은 평점×리뷰수(여기선 전부 미설정=0으로
+    // 동률)가 낮은 순으로 빠진다.
+    expect(result.flat()).toHaveLength(13);
     const facilityDay = result.find((g) => g.some((s) => s.id === "usj"));
     expect(facilityDay).toBeDefined();
-    expect(facilityDay!.length).toBeGreaterThanOrEqual(2);
-    expect(facilityDay!.length).toBeLessThanOrEqual(3);
+    expect(facilityDay).toHaveLength(1); // 시설 단독 — 동반 스팟 없음
     result
       .filter((g) => g !== facilityDay)
       .forEach((g) => {
         expect(g.length).toBeGreaterThanOrEqual(3);
-        expect(g.length).toBeLessThanOrEqual(6);
+        expect(g.length).toBeLessThanOrEqual(7);
       });
   });
 
