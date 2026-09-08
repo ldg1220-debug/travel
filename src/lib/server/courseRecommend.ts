@@ -411,7 +411,7 @@ export function stripBranchSuffix(s: string): string {
   }
   return out;
 }
-export function brandKey(s: string): string {
+function brandKey(s: string): string {
   const words = stripBranchSuffix(s)
     .toLowerCase()
     .split(/\s+/)

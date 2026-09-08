@@ -2,7 +2,7 @@ import { put } from "@vercel/blob";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
 import { haversineKm } from "@/lib/server/courseRoute";
-import { brandKey, MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
+import { MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, stripBranchSuffix, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { allSpots, OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
 
@@ -119,7 +119,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 버전을 올리면 옛 캐시는 자연히 미스가 돼 다음 요청/워밍 때 새로
 // 만들어진다 — 일괄 DELETE보다 안전하다(새 버전에 문제가 있으면 상수만
 // 되돌려도 옛 캐시가 즉시 다시 유효해진다).
-const COURSE_ALGO_VERSION = 4; // 이번 배포(소속 재검사 + 체인 중복 제거)로 다시 올림 — 작업지시서 2026-09-07 "PR #237 프로덕션 검증" §5-3 "COURSE_ALGO_VERSION 3 → 4".
+const COURSE_ALGO_VERSION = 5; // 이번 배포(소구역 묶음 + medoid 중심 + 하루 상한 6곳)로 다시 올림 — 작업지시서 2026-09-08 "PR #238 프로덕션 검증" §5-5 "COURSE_ALGO_VERSION 4 → 5".
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -316,6 +316,30 @@ function centroidOf<T extends GeoPoint>(points: T[]): GeoPoint {
   };
 }
 
+/**
+ * centroidOf(좌표 평균)와 달리 실제 점들 중 나머지 전체와의 거리 합이
+ * 가장 작은 하나를 돌려준다 — 작업지시서 2026-09-08 "PR #238 프로덕션
+ * 검증" §3-2: 평균은 "허공"(실제로 아무것도 없는 좌표)에 찍힐 수 있고,
+ * 그 허공이 이상치(예: 다자이후, 도심에서 15km 밖) 때문에 진짜 이웃
+ * 스팟보다 오히려 더 가깝게 계산돼 소속 판정을 그르쳤다. medoid는
+ * 항상 "실제로 존재하는 자리"라 이상치 하나가 있어도 나머지 다수가
+ * 모여 있는 진짜 중심(예: 하카타)에 그대로 남는다.
+ */
+export function medoidOf<T extends GeoPoint>(points: T[]): T {
+  if (points.length === 1) return points[0];
+  let best = points[0];
+  let bestSum = Infinity;
+  for (const candidate of points) {
+    let sum = 0;
+    for (const other of points) sum += haversineKm(candidate, other);
+    if (sum < bestSum) {
+      bestSum = sum;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
 /** n개를 groups개로 최대한 고르게(각 그룹 floor(n/groups) 또는 그보다 1개 많게) 순서 그대로 나눈다 — 클러스터링이 극단적으로 쏠린 경우의 안전한 대체 수단. groups <= n일 때만 모든 그룹이 비지 않는다(호출부가 보장). */
 function evenSplit<T>(items: T[], groups: number): T[][] {
   const base = Math.floor(items.length / groups);
@@ -331,36 +355,45 @@ function evenSplit<T>(items: T[], groups: number): T[][] {
 }
 
 /**
- * k-평균 군집화(Lloyd's algorithm)로 좌표만 보고 stops를 k개 그룹으로
- * 나눈다. 초기 중심은 farthest-point sampling(서로 가장 멀리 떨어진
- * 점부터 고름)으로 결정론적으로 고른다 — k-means++ 같은 무작위 시드를
- * 쓰면 같은 입력이 매번 다른 결과를 내 캐시 재현성·테스트 안정성이
- * 깨진다.
+ * k-메도이드 군집화(Lloyd's algorithm의 PAM 변형)로 좌표만 보고
+ * stops를 k개 그룹으로 나눈다. 초기 중심은 farthest-point sampling
+ * (서로 가장 멀리 떨어진 점부터 고름)으로 결정론적으로 고른다 —
+ * k-means++ 같은 무작위 시드를 쓰면 같은 입력이 매번 다른 결과를 내
+ * 캐시 재현성·테스트 안정성이 깨진다.
  *
- * k-means만으로는 지리적으로 한쪽에 쏠린 도시에서 극단적으로 불균등한
- * 그룹(예: 12/5/2)이 나올 수 있어, 이후 균형 잡기 패스로 그룹 크기를
- * 목표치(±1)에 맞춘다 — 블로그 코스는 하루당 방문지 수가 어느 정도
- * 고르게 나와야 자연스럽다.
+ * 반복마다 그룹 중심을 좌표 평균(k-means)이 아니라 medoidOf(k-medoids)
+ * 로 재계산한다 — 작업지시서 2026-09-08 "PR #238 프로덕션 검증" §3-2:
+ * 평균은 이상치(예: 다자이후) 때문에 "허공"에 찍힐 수 있고, 그 허공이
+ * 진짜 이웃 스팟(모모치 해변)보다 가깝게 계산돼 소속 판정을 그르쳤다.
+ *
+ * weightOf(기본값 1)로 각 항목의 "무게"를 매길 수 있다 — 이 함수를
+ * 개별 스팟이 아니라 소구역(청크, 500m 이내로 이어진 스팟 묶음) 단위로
+ * 돌릴 때, 청크 개수가 아니라 청크가 담은 실제 스팟 수를 기준으로
+ * 그룹 크기를 맞추기 위함이다(reallocateStopsByDay 참고).
+ *
+ * k-메도이드만으로는 지리적으로 한쪽에 쏠린 도시에서 극단적으로
+ * 불균등한 그룹(예: 12/5/2)이 나올 수 있어, 이후 균형 잡기 패스로
+ * 그룹 가중치 합을 목표치(±1)에 맞춘다.
  */
-export function clusterByLocation<T extends GeoPoint>(stops: T[], k: number): T[][] {
+export function clusterByLocation<T extends GeoPoint>(stops: T[], k: number, weightOf: (item: T) => number = () => 1): T[][] {
   const n = stops.length;
   const groups = Math.max(1, Math.min(k, n));
   if (groups <= 1 || n === 0) return [stops];
 
-  const centroids: GeoPoint[] = [{ lat: stops[0].lat, lng: stops[0].lng }];
-  while (centroids.length < groups) {
+  const centers: GeoPoint[] = [{ lat: stops[0].lat, lng: stops[0].lng }];
+  while (centers.length < groups) {
     let farthest = { index: 0, dist: -1 };
     stops.forEach((s, i) => {
-      const minDist = Math.min(...centroids.map((c) => haversineKm(s, c)));
+      const minDist = Math.min(...centers.map((c) => haversineKm(s, c)));
       if (minDist > farthest.dist) farthest = { index: i, dist: minDist };
     });
-    centroids.push({ lat: stops[farthest.index].lat, lng: stops[farthest.index].lng });
+    centers.push({ lat: stops[farthest.index].lat, lng: stops[farthest.index].lng });
   }
 
   let assignment = stops.map((s) => {
     let best = 0;
     let bestDist = Infinity;
-    centroids.forEach((c, ci) => {
+    centers.forEach((c, ci) => {
       const d = haversineKm(s, c);
       if (d < bestDist) {
         bestDist = d;
@@ -373,13 +406,13 @@ export function clusterByLocation<T extends GeoPoint>(stops: T[], k: number): T[
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     for (let ci = 0; ci < groups; ci++) {
       const members = stops.filter((_, i) => assignment[i] === ci);
-      if (members.length > 0) centroids[ci] = centroidOf(members);
+      if (members.length > 0) centers[ci] = medoidOf(members);
     }
     let changed = false;
     const next = stops.map((s, i) => {
       let best = 0;
       let bestDist = Infinity;
-      centroids.forEach((c, ci) => {
+      centers.forEach((c, ci) => {
         const d = haversineKm(s, c);
         if (d < bestDist) {
           bestDist = d;
@@ -393,13 +426,18 @@ export function clusterByLocation<T extends GeoPoint>(stops: T[], k: number): T[
     if (!changed) break;
   }
 
-  // 균형 잡기 — 그룹 크기를 target(≈ n/groups)에 가깝게 맞춘다. 가장 큰
-  // 그룹에서, 가장 작은 그룹의 중심에 제일 가까운 멤버를 옮기는 걸
-  // 반복한다. n·groups 회로 상한을 둬 무한루프를 막는다(작은 입력이라
-  // 실제로는 훨씬 일찍 끝난다).
-  const target = Math.floor(n / groups);
+  // 균형 잡기 — 그룹 "가중치 합"을 target(≈ 전체 가중치/groups)에
+  // 가깝게 맞춘다(weightOf 기본값 1이면 기존과 동일하게 "개수" 기준).
+  // 가장 무거운 그룹에서, 가장 가벼운 그룹의 중심에 제일 가까운
+  // 멤버(청크 단위로 쓰일 땐 청크 하나 전체)를 옮기는 걸 반복한다.
+  // n·groups 회로 상한을 둬 무한루프를 막는다(작은 입력이라 실제로는
+  // 훨씬 일찍 끝난다).
+  const totalWeight = stops.reduce((sum, s) => sum + weightOf(s), 0);
+  const target = Math.floor(totalWeight / groups);
   for (let move = 0; move < n * groups; move++) {
-    const sizes = Array.from({ length: groups }, (_, ci) => assignment.filter((a) => a === ci).length);
+    const sizes = Array.from({ length: groups }, (_, ci) =>
+      stops.reduce((sum, s, i) => (assignment[i] === ci ? sum + weightOf(s) : sum), 0),
+    );
     const overIdx = sizes.findIndex((s) => s > target + 1);
     const underIdx = sizes.findIndex((s) => s < target);
     if (overIdx === -1 || underIdx === -1) break;
@@ -407,7 +445,7 @@ export function clusterByLocation<T extends GeoPoint>(stops: T[], k: number): T[
     let bestDist = Infinity;
     stops.forEach((s, i) => {
       if (assignment[i] !== overIdx) return;
-      const d = haversineKm(s, centroids[underIdx]);
+      const d = haversineKm(s, centers[underIdx]);
       if (d < bestDist) {
         bestDist = d;
         bestI = i;
@@ -421,6 +459,102 @@ export function clusterByLocation<T extends GeoPoint>(stops: T[], k: number): T[
   // 극단적으로 쏠린 지리 분포 등으로 빈 그룹이 남으면(드묾) 안전하게
   // 균등 분할로 대체한다 — 빈 날짜가 있는 코스보다 낫다.
   return result.some((g) => g.length === 0) ? evenSplit(stops, groups) : result;
+}
+
+const CHUNK_LINK_MAX_KM = 0.5; // 작업지시서 2026-09-08 "PR #238 프로덕션 검증" §3-1 "500m 이내로 이어지는 스팟들을 하나의 묶음으로"
+
+/**
+ * 500m 이내로 사슬처럼 이어지는 스팟들을 하나의 소구역(청크)으로
+ * 묶는다 — A-B 500m, B-C 500m이면 A·B·C가 한 묶음(전이적 연결,
+ * union-find). 작업지시서 §3-1: 개별 스팟을 배정한 뒤 소속을 재검사
+ * 하는 방식(reassignByCentroid)은 "옮길 자리가 없으면" 무력하다(실측:
+ * 도톤보리가 옮겨지지 않고 그대로 남음 — 3~8곳 가드 도입 이후 옆
+ * 날짜에 빈자리가 없었을 뿐). 애초에 배정 단계에서 소구역을 쪼개지
+ * 않으면 이 문제 자체가 구조적으로 생기지 않는다.
+ */
+export function chunkByProximity<T extends GeoPoint>(stops: T[], maxLinkKm: number): T[][] {
+  const parent = stops.map((_, i) => i);
+  function find(i: number): number {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]];
+      i = parent[i];
+    }
+    return i;
+  }
+  function union(a: number, b: number): void {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  }
+  for (let i = 0; i < stops.length; i++) {
+    for (let j = i + 1; j < stops.length; j++) {
+      if (haversineKm(stops[i], stops[j]) <= maxLinkKm) union(i, j);
+    }
+  }
+  const chunks = new Map<number, T[]>();
+  stops.forEach((s, i) => {
+    const root = find(i);
+    if (!chunks.has(root)) chunks.set(root, []);
+    chunks.get(root)!.push(s);
+  });
+  return [...chunks.values()];
+}
+
+/** 청크(소구역)를 clusterByLocation에 그대로 먹일 수 있는 하나의 GeoPoint로 감싼다 — 대표 좌표는 medoid(실제 스팟)를 쓴다. members는 이후 그룹을 다시 스팟 배열로 펼칠 때 쓴다. */
+interface ChunkPoint<T> extends GeoPoint {
+  members: T[];
+}
+
+function toChunkPoint<T extends GeoPoint>(chunk: T[]): ChunkPoint<T> {
+  const rep = medoidOf(chunk);
+  return { lat: rep.lat, lng: rep.lng, members: chunk };
+}
+
+/**
+ * clusterByLocation의 균형 잡기는 "그룹 가중치를 target±1에 맞춘다"는
+ * 느슨한 목표라(개별 스팟 단위일 땐 ±1 정도는 자연스럽다), 청크(소구역)
+ * 단위로 돌리면 목표를 살짝 넘는 것("target+1까지 허용")과 하드
+ * 상한(DAY_SIZE_MAX)이 어긋날 수 있다 — 실측(자체 단위 테스트)에서
+ * 18곳/3일(target=6)에 +1 허용이 그대로 적용돼 7·9곳짜리 날이 나왔다.
+ * 이 함수가 그 뒤에 한 번 더, 하드 상한을 절대 넘지 않도록 정리한다:
+ * 초과한 날에서 그 날 중심(medoid)에서 가장 먼 청크를 통째로(쪼개지
+ * 않고) 자리 있는 가장 가까운 날로 옮긴다. 자리가 전혀 없으면(청크
+ * 하나가 상한보다 큰 경우 등) 어쩔 수 없이 그대로 둔다 — 소구역을
+ * 쪼개는 것보다는 상한을 살짝 넘기는 쪽이 낫다.
+ */
+function enforceChunkCap<T extends GeoPoint>(chunkGroups: ChunkPoint<T>[][], maxWeight: number): ChunkPoint<T>[][] {
+  const groups = chunkGroups.map((g) => [...g]);
+  const weightOf = (g: ChunkPoint<T>[]): number => g.reduce((sum, c) => sum + c.members.length, 0);
+  const groupMedoid = (g: ChunkPoint<T>[]): T => medoidOf(g.flatMap((c) => c.members));
+
+  const MAX_GUARD_ITERATIONS = 100;
+  for (let iter = 0; iter < MAX_GUARD_ITERATIONS; iter++) {
+    const overIdx = groups.findIndex((g) => weightOf(g) > maxWeight);
+    if (overIdx === -1) break;
+    const overGroup = groups[overIdx];
+    if (overGroup.length <= 1) break; // 청크가 하나뿐이면(그 자체가 상한보다 큼) 더 못 뺀다 — 쪼개지 않는다.
+
+    const dayMedoid = groupMedoid(overGroup);
+    let farIndex = 0;
+    let farDist = -1;
+    overGroup.forEach((c, i) => {
+      const d = haversineKm(c, dayMedoid);
+      if (d > farDist) {
+        farDist = d;
+        farIndex = i;
+      }
+    });
+    const [moved] = overGroup.splice(farIndex, 1);
+
+    const ranked = groups
+      .map((g, gi) => ({ gi, dist: gi === overIdx ? Infinity : haversineKm(moved, groupMedoid(g)) }))
+      .filter(({ gi }) => gi !== overIdx)
+      .sort((a, b) => a.dist - b.dist);
+    const withRoom = ranked.find(({ gi }) => weightOf(groups[gi]) + moved.members.length <= maxWeight);
+    const target = withRoom ?? ranked[0];
+    groups[target.gi].push(moved);
+  }
+  return groups;
 }
 
 /** 그룹 안에서 최근접 이웃 순으로 이어 붙인다 — 왕복(지그재그) 없이 한 방향으로 훑도록 한다. 시작점은 입력 순서의 첫 번째(결정론적). */
@@ -486,9 +620,28 @@ export function dedupeByProximity<T extends GeoPoint & { category: string; revie
 // 접미 지점 표기와 같은 방식으로 접두 수식어도 떼고 비교한다.
 const BRAND_PREFIX_RE = /^(원조|정통|명물|본가)\s*/u;
 
-/** courseRecommend.ts의 brandKey(접미 지점 표기를 뗀 뒤 "앞 2어절"을 키로 삼음)를 그대로 재사용하되, 접두 수식어까지 먼저 떼고 넘긴다 — 로직을 새로 만들지 않고 기존 "앞 2어절" 방식에 얹는다. */
+/**
+ * courseRecommend.ts의 brandKey와 같은 원리(접미 지점 표기를 뗀 뒤
+ * "앞 2어절"만 브랜드로 본다)를 쓰되, 그 2어절을 정렬해서 합친다 —
+ * 작업지시서 2026-09-08 "PR #238 프로덕션 검증" §4: "모토무라 규카츠"
+ * (day1)와 "규카츠 모토무라 후쿠오카 파르코점"(day1)이 어순만 달라
+ * 접미 표기 제거 방식만으로는 못 잡혔다("모토무라규카츠" vs
+ * "규카츠모토무라" — 다른 문자열). 정렬하면 둘 다 "규카츠모토무라"로
+ * 같아진다.
+ *
+ * 로직을 courseRecommend.ts의 brandKey에 얹지 않고 여기 로컬로 따로
+ * 둔다 — brandKey는 sameShop을 거쳐 실시간 코스 생성(라이브 트래픽)
+ * 경로에도 쓰이는데, 정렬을 더하면 그쪽 동작까지 바뀌는 위험을 감수하게
+ * 된다. 여기는 "코스 전체 브랜드 하나만" 판정 전용이라 별도로 둬도
+ * 됨(stripBranchSuffix만 재사용).
+ */
 function courseWideBrandKey(name: string): string {
-  return brandKey(name.trim().replace(BRAND_PREFIX_RE, ""));
+  const withoutPrefix = name.trim().replace(BRAND_PREFIX_RE, "");
+  const words = stripBranchSuffix(withoutPrefix)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.slice(0, 2).sort().join("");
 }
 
 /**
@@ -519,15 +672,22 @@ export function dedupeByBrand<T extends { name: string; rating?: number | null; 
 }
 
 const ALL_DAY_FACILITY_MAX_OTHERS = 2; // 검증 기준(작업지시서 2026-09-06 §5) "총 3곳 이하" = 시설 1 + 다른 곳 최대 2.
-// 하루 스팟 수 제약(종일시설 없는 날 기준) — 작업지시서 2026-09-07 "PR
-// #236 프로덕션 검증" §3의 표: "하루 스팟 수 3~8곳". 234→235→236을
-// 거치며 거리/비율 지표만 최적화하면 이 제약이 조용히 깨질 수 있다는
-// 게 반복 확인됐다(§236: capAllDayFacilityDays의 초과분이 한 날로만
-// 쏠려 15곳; 이번 라운드 자체 검증에서도 rebalanceByDistance가 크기
-// 제한 없이 거리만 줄이려다 한 날을 다시 15곳까지 불렸다) — 그래서
-// capAllDayFacilityDays의 초과분 분산과 rebalanceByDistance의 이동
-// 둘 다 이 상한/하한을 하드 가드로 건다(목표가 아니라 제약으로 다룬다).
-const DAY_SIZE_MAX = 8;
+// 하루 스팟 수 제약(종일시설 없는 날 기준) — 234→235→236→237을 거치며
+// 거리/비율 지표만 최적화하면 이 제약이 조용히 깨질 수 있다는 게
+// 반복 확인됐다(§236: capAllDayFacilityDays의 초과분이 한 날로만 쏠려
+// 15곳; §237: rebalanceByDistance가 크기 제한 없이 거리만 줄이려다
+// 한 날을 다시 15곳까지 불렸다) — 그래서 capAllDayFacilityDays의
+// 초과분 분산과 rebalanceByDistance의 이동 둘 다 이 상한/하한을 하드
+// 가드로 건다(목표가 아니라 제약으로 다룬다).
+//
+// 상한은 원래 8이었는데, 작업지시서 2026-09-08 "PR #238 프로덕션
+// 검증" §2: days=3에서 (시설 3곳 + 일반 2일 × 8곳 =) 19곳까지 여유가
+// 생겨 오히려 자리가 "딱 맞아" 떨어지는 스팟을 옮길 공간이 없었다
+// (도톤보리가 난바 그룹으로 못 옮겨진 원인 — 7+8=15로 빈자리가 0).
+// "하루 8곳"은 실제 여행자 기준으로도 과하다는 지적을 받아들여 6으로
+// 낮췄다 — 3(시설)+6+6=15로 소구역 묶음(chunkByProximity)이 옮길
+// 여유 칸이 생긴다.
+const DAY_SIZE_MAX = 6;
 const DAY_SIZE_MIN = 3;
 
 /**
@@ -573,7 +733,7 @@ export function capAllDayFacilityDays<T extends GeoPoint>(groups: T[][], isFacil
         const rankedByDistance = next
           .map((g, gi) => ({ gi, g }))
           .filter(({ gi }) => gi !== dayIndex)
-          .sort((a, b) => haversineKm(stop, centroidOf(a.g.length > 0 ? a.g : group)) - haversineKm(stop, centroidOf(b.g.length > 0 ? b.g : group)));
+          .sort((a, b) => haversineKm(stop, medoidOf(a.g.length > 0 ? a.g : group)) - haversineKm(stop, medoidOf(b.g.length > 0 ? b.g : group)));
         const target = rankedByDistance.find(({ g }) => g.length < DAY_SIZE_MAX) ?? rankedByDistance[0];
         const bestDay = target ? target.gi : (dayIndex + 1) % next.length;
         next[bestDay] = [...next[bestDay], stop];
@@ -717,6 +877,40 @@ const FACILITY_DAY_MAX = ALL_DAY_FACILITY_MAX_OTHERS + 1; // 시설 1 + 동반 �
 const MEMBERSHIP_RECHECK_MAX_ITERATIONS = 5;
 
 /**
+ * days=3처럼 종일시설 날이 하나 끼는 코스에서 전체 스팟 수가 담을 수
+ * 있는 그릇보다 많으면(작업지시서 2026-09-08 "PR #238 프로덕션 검증" §2:
+ * 18곳 = 시설 날 3곳 + 나머지 2일 × 8곳 = "딱 맞음") 뒤 단계(캡·재균형·
+ * 소속 재검사)가 옮길 자리(자유도)를 하나도 못 만든다 — 하루 상한을
+ * 6으로 낮춰도,애초에 그릇(3+6+6=15)보다 스팟이 많으면 같은 문제가
+ * 재현된다. 그릇 크기를 넘는 만큼 평점×리뷰수가 낮은 스팟부터 뺀다
+ * (§2 "스팟을 줄일 때는 평점 × 리뷰수가 낮은 것부터 빼세요").
+ *
+ * 시설이 여러 날에 나뉠 수도 있지만(드묾) 흔한 경우(시설 1개 또는
+ * 서로 가까운 여러 시설이 한 날에 몰림)를 가정해 시설 날 수를
+ * min(시설 수, 날짜 수)로 보수적으로 잡는다 — 과대평가하면 덜 잘라
+ * 뒤 단계 자유도가 다시 부족해지고, 과소평가하면 필요 이상 잘리므로
+ * 시설 개수를 그대로 상한으로 쓰는 쪽이 안전하다.
+ */
+function maxNonFacilityCapacity(dayCount: number, facilityCount: number): number {
+  const facilityDayCount = Math.min(facilityCount, dayCount);
+  const normalDayCount = Math.max(dayCount - facilityDayCount, 0);
+  return facilityDayCount * FACILITY_DAY_MAX + normalDayCount * DAY_SIZE_MAX - facilityCount;
+}
+
+/** 넘치는 스팟을 평점×리뷰수 오름차순(낮은 것부터)으로 제거해 capacity 이내로 줄인다. 평점/리뷰수가 없으면 0으로 취급해 가장 먼저 빠진다. */
+function trimToCapacity<T extends { rating?: number; reviewCount?: number }>(stops: T[], capacity: number): T[] {
+  const overflow = stops.length - capacity;
+  if (overflow <= 0) return stops;
+  const score = (s: T) => (s.rating ?? 0) * (s.reviewCount ?? 0);
+  const drop = new Set(
+    [...stops]
+      .sort((a, b) => score(a) - score(b))
+      .slice(0, overflow),
+  );
+  return stops.filter((s) => !drop.has(s));
+}
+
+/**
  * 모든 배분(클러스터링·캡·초과분 분산·재균형)이 끝난 뒤, 각 스팟을
  * 자기 날의 클러스터 중심보다 다른 날의 중심이 더 가까우면 그쪽으로
  * 옮긴다 — 작업지시서 2026-09-07 "PR #237 프로덕션 검증" §2: 캡과
@@ -726,12 +920,16 @@ const MEMBERSHIP_RECHECK_MAX_ITERATIONS = 5;
  * 박물관이 하카타·다자이후 날에 남아 후쿠오카 타워와 415m로 겹침)이
  * 이 문제였다.
  *
- * k-평균의 "배정" 단계를 캡 이후에 한 번 더 도는 것뿐이다 — 새 알고리즘이
- * 아니라 이미 있는 클러스터링 원리의 재적용. 종일시설 자체(닻)는 절대
+ * k-메도이드의 "배정" 단계를 캡 이후에 한 번 더 도는 것뿐이다 — 새
+ * 알고리즘이 아니라 이미 있는 클러스터링 원리의 재적용. 날짜 "중심"은
+ * 좌표 평균이 아니라 medoidOf(실제 스팟)로 잡는다 — 작업지시서
+ * 2026-09-08 "PR #238 프로덕션 검증" §3-2: 평균은 이상치(다자이후 등)
+ * 때문에 허공에 찍힐 수 있고, 그 허공이 진짜 이웃(모모치 해변)보다
+ * 가깝게 계산되는 사고가 실측으로 확인됐다. 종일시설 자체(닻)는 절대
  * 옮기지 않지만, 시설 날짜에 동반된 일반 스팟은 다른 날이 더 가까우면
  * 옮길 수 있다(실측에서 USJ의 먼 동반 스팟들이 이렇게 정리될 걸로
  * 기대됨). 매 반복마다 "이동하면 나아지는 폭"이 가장 큰 조합 하나만
- * 적용하고, 그런 조합이 없으면 멈춘다(최대 5회) — 3~8곳(시설 날짜는
+ * 적용하고, 그런 조합이 없으면 멈춘다(최대 5회) — 3~6곳(시설 날짜는
  * 2~3곳) 하드 가드를 항상 지킨다.
  */
 export function reassignByCentroid<T extends GeoPoint>(groups: T[][], isFacility: (s: T) => boolean): T[][] {
@@ -739,7 +937,7 @@ export function reassignByCentroid<T extends GeoPoint>(groups: T[][], isFacility
   const current = groups.map((g) => [...g]);
 
   for (let iter = 0; iter < MEMBERSHIP_RECHECK_MAX_ITERATIONS; iter++) {
-    const centroids = current.map((g) => centroidOf(g));
+    const centers = current.map((g) => medoidOf(g));
 
     const state: { best: { fromDay: number; stopIndex: number; toDay: number; improvement: number } | null } = { best: null };
     current.forEach((fromGroup, fromDay) => {
@@ -747,12 +945,12 @@ export function reassignByCentroid<T extends GeoPoint>(groups: T[][], isFacility
       if (fromGroup.length <= fromMin) return;
       fromGroup.forEach((stop, stopIndex) => {
         if (isFacility(stop)) return; // 시설 자체는 그 날의 닻 — 절대 옮기지 않는다
-        const ownDist = haversineKm(stop, centroids[fromDay]);
+        const ownDist = haversineKm(stop, centers[fromDay]);
         current.forEach((toGroup, toDay) => {
           if (toDay === fromDay) return;
           const toMax = toGroup.some(isFacility) ? FACILITY_DAY_MAX : DAY_SIZE_MAX;
           if (toGroup.length >= toMax) return; // 받을 자리가 없다
-          const improvement = ownDist - haversineKm(stop, centroids[toDay]);
+          const improvement = ownDist - haversineKm(stop, centers[toDay]);
           if (improvement > 0 && (!state.best || improvement > state.best.improvement)) {
             state.best = { fromDay, stopIndex, toDay, improvement };
           }
@@ -775,8 +973,17 @@ export function reassignByCentroid<T extends GeoPoint>(groups: T[][], isFacility
  * 이미 뽑힌 스팟들을 날짜 경계 없이 모아 다시 나눈다. days===1이면
  * 재배분할 대상(비교할 다른 날)이 없으니 브랜드·근접 중복 제거만
  * 적용한다.
+ *
+ * 종일시설은 소구역 묶음(chunkByProximity) 대상에서 뺀다 — 시설
+ * 자체는 capAllDayFacilityDays가 "가장 가까운 동반 1~2곳" 규칙으로
+ * 이미 다루고 있어, 청크 단위 배정과 별도로 처리하는 쪽이 두 로직이
+ * 서로 어긋날 위험(예: 시설이 우연히 큰 청크에 묶여 2~3곳 제약을
+ * 넘기는 경우)을 피한다. 일반 스팟은 청크 단위로 클러스터링해 500m
+ * 이내로 이어진 소구역이 날짜 경계에서 쪼개지지 않게 하고, 시설은
+ * 그렇게 정해진 날짜 중 medoid가 가장 가까운 곳에 끼워 넣은 뒤
+ * capAllDayFacilityDays로 즉시 2~3곳으로 다듬는다.
  */
-function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
+export function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   if (dayStops.length === 0) return [];
   const allStops = dedupeByProximity(dedupeByBrand(dayStops.flat()));
   if (dayStops.length === 1 || allStops.length < dayStops.length) {
@@ -784,8 +991,47 @@ function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
     // 수보다 적어지면(드묾) 그냥 하루로 합친다. 빈 날짜가 있는 것보다 낫다.
     return [allStops];
   }
-  const clustered = clusterByLocation(allStops, dayStops.length);
-  const capped = capAllDayFacilityDays(clustered, isLargeFacility);
+
+  const dayCount = dayStops.length;
+  const facilities = allStops.filter(isLargeFacility);
+  const nonFacility = trimToCapacity(
+    allStops.filter((s) => !isLargeFacility(s)),
+    maxNonFacilityCapacity(dayCount, facilities.length),
+  );
+
+  let groups: FinalStop[][];
+  if (nonFacility.length === 0) {
+    groups = evenSplit(facilities, dayCount);
+  } else {
+    const chunkPoints = chunkByProximity(nonFacility, CHUNK_LINK_MAX_KM).map(toChunkPoint);
+    const chunkGroups = clusterByLocation(chunkPoints, dayCount, (c) => c.members.length);
+    const cappedChunkGroups = enforceChunkCap(chunkGroups, DAY_SIZE_MAX);
+    groups = cappedChunkGroups.map((cs) => cs.flatMap((c) => c.members));
+    // clusterByLocation이 min(k, 청크 수)개 그룹만 만들 수 있다 — 청크
+    // 수가 날짜 수보다 적으면(드묾, 스팟이 몇 안 되는 소수의 큰 소구역
+    // 으로만 뭉친 경우) 남는 날짜는 일단 빈 채로 시작한다. rebalanceByDistance/
+    // reassignByCentroid가 빈 날짜도 받을 자리로 보므로 이후 단계에서
+    // 채워질 수 있다 — 빈 날짜로 응답을 막는 것보다 낫다.
+    while (groups.length < dayCount) groups.push([]);
+  }
+
+  // 시설을 medoid가 가장 가까운 날에 끼워 넣는다 — 여러 시설이 있으면
+  // (드묾) 각자 독립적으로 가장 가까운 날을 찾는다.
+  facilities.forEach((facility) => {
+    let bestDay = 0;
+    let bestDist = Infinity;
+    groups.forEach((g, i) => {
+      if (g.length === 0) return;
+      const d = haversineKm(facility, medoidOf(g));
+      if (d < bestDist) {
+        bestDist = d;
+        bestDay = i;
+      }
+    });
+    groups[bestDay] = [...groups[bestDay], facility];
+  });
+
+  const capped = capAllDayFacilityDays(groups, isLargeFacility);
   const balanced = rebalanceByDistance(capped, isLargeFacility);
   const reassigned = reassignByCentroid(balanced, isLargeFacility);
   return reassigned.map((group) => orderByNearestNeighbor(group));
