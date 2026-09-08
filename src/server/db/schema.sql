@@ -96,6 +96,24 @@ ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "isDraft" BOOLEAN NOT NULL DEFA
 -- 있어 기존 계획들과 충돌하지 않는다.
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "contentKey" VARCHAR(80) UNIQUE;
 
+-- 1회성 정리 — 작업지시서 2026-09-08 "블로그에서 넘어온 코스가
+-- 비어 있습니다" §2 각주: course-open이 스팟 0곳으로 저장해버린
+-- 콘텐츠 계획(contentKey가 있는 행)이, 그 뒤로 알고리즘이 여러 번
+-- 바뀌어도 계속 재사용됐다(멱등 키가 그 행을 계속 가리켜서 —
+-- route.ts가 이제는 이 경우 placesData를 새로 채워 넣도록 고쳐졌지만,
+-- 아무도 그 shareToken을 다시 클릭하지 않으면 고쳐질 기회가 없다).
+-- contentKey만 비워(NULL) 다음 course-open 호출이 새 행(새 shareToken)을
+-- 만들게 한다 — 행을 통째로 지우면 혹시 그 빈 URL을 이미 공유해 둔
+-- 사람이 있을 때 404가 되어버리므로, contentKey만 지워 URL 자체는
+-- (여전히 비어있는 채로) 살려둔다. contentKey가 NULL인 일반 사용자
+-- 계획(빈 새 초안 포함)은 건드리지 않는다 — 이 UPDATE의 대상은
+-- contentKey가 있던(콘텐츠 파이프라인이 만든) 행뿐이다. db:migrate가
+-- 매 배포마다 이 파일 전체를 재실행하므로, 이후로는 스팟 0곳 저장
+-- 자체가 막혀 있어(course-open/route.ts) 대상이 없으면 매번 그냥
+-- no-op이다.
+UPDATE itineraries SET "contentKey" = NULL
+  WHERE "contentKey" IS NOT NULL AND jsonb_array_length("placesData") = 0;
+
 CREATE INDEX IF NOT EXISTS itineraries_user_id_idx ON itineraries ("userId");
 CREATE INDEX IF NOT EXISTS itineraries_share_token_idx ON itineraries ("shareToken");
 CREATE INDEX IF NOT EXISTS itineraries_is_public_idx ON itineraries ("isPublic");
