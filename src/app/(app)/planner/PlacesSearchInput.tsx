@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Search, Loader2 } from "lucide-react";
 import { trackFeatureEvent, type FeatureEventSurface } from "@/lib/trackFeatureEvent";
+import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import type { Place, Region } from "@/lib/types";
 
 const DEBOUNCE_MS = 400;
@@ -94,11 +95,21 @@ export function PlacesSearchInput({ region, onSelect, surface = "planner" }: Pla
             <button
               key={p.id}
               onClick={() => handleSelect(p)}
-              className="flex w-full items-center gap-2 truncate px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50"
             >
-              <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] text-slate-700">{p.name}</p>
+                {/* 평점만 있고 리뷰수·카테고리가 없으면 "★4.7짜리 이름 모를
+                    카페"가 "★4.5 해유관"보다 위에 보여도 구분이 안 된다
+                    (작업지시서 2026-09-09 "계획 탭 지도에서 장소 정보가
+                    좌표만 나옵니다" §4) — 카테고리를 같이 보여준다. */}
+                <p className="truncate text-[10.5px] text-slate-400">{liveCategoryBucket(p.category)}</p>
+              </div>
               {p.rating != null && (
-                <span className="shrink-0 text-[11px] tabular-nums text-slate-400">★{p.rating.toFixed(1)}</span>
+                <span className="shrink-0 text-right text-[11px] tabular-nums text-slate-400">
+                  <span className="block">★{p.rating.toFixed(1)}</span>
+                  {p.reviewCount != null && <span className="block text-[10px]">{p.reviewCount.toLocaleString()}</span>}
+                </span>
               )}
             </button>
           ))}

@@ -1310,6 +1310,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const handlePlaceDiscovered = (place: Place) => {
     addPlaces([place]);
     setPendingSearchPlace(place);
+    // 검색 결과를 고르면 지도만 이동하고 정보 카드가 안 뜨던 문제(작업지시서
+    // 2026-09-09 "계획 탭 지도에서 장소 정보가 좌표만 나옵니다" §4) — 검색
+    // 결과엔 이미 평점·카테고리·주소가 다 있으니, POI 클릭과 같은 말풍선을
+    // 그대로 띄운다(재조회 불필요).
+    clickedPlaceIdRef.current = place.placeId || null;
+    setClickedPlace({ place, loading: false });
     showToast(`${place.name} added to map`);
     skipNextFitRef.current = true;
     panToAndZoom(place);
@@ -1363,48 +1369,68 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     setDetailPlace(null);
   };
 
-  // Map click-to-save: a POI icon click carries a placeId (looked up via
-  // PlacesService for its real name) — Google-only, Kakao's SDK has no
-  // equivalent so a domestic click's `info.placeId` is always null and
-  // this branch never runs for it. A bare coordinate click has neither, so
-  // it just gets a generic label. Either way, opens the popup for the user
-  // to confirm before it actually lands in 관심 장소.
+  // 좌표만 아는 동안(placeId 조회 중이거나, 애초에 placeId가 없는 바닥
+  // 좌표 클릭) 보여줄 임시 Place — 이름 외 다른 필드는 비워 말풍선이
+  // "불러오는 중…"/"선택한 위치"만 보여주게 한다.
+  const placeholderClickedPlace = (lat: number, lng: number, name: string): Place => {
+    const id = `map-click-${lat.toFixed(5)},${lng.toFixed(5)}`;
+    const { color, icon } = styleForCategory("Place", id);
+    return { id, placeId: "", name, category: "Place", color, icon, lat, lng };
+  };
+
+  // Map click-to-save/schedule: a POI icon click carries a placeId — Google-only,
+  // Kakao's SDK has no equivalent so a domestic click's `info.placeId` is
+  // always null and this branch never runs for it. 작업지시서 2026-09-09
+  // "계획 탭 지도에서 장소 정보가 좌표만 나옵니다" §2/§3: 예전엔
+  // PlacesService.getDetails(fields:["name"])로 이름만(그것도 지도
+  // 언어대로, 대개 영문) 받아왔는데, 이제 /api/places/search?placeId=로
+  // 서버를 거쳐 탐색 탭과 같은 전체 정보(한글 이름·평점·리뷰수·카테고리·
+  // 주소·사진)를 받는다. 바닥 좌표 클릭(placeId 없음)은 그냥 일반
+  // 라벨("선택한 위치")로 대체한다.
   const handleMapClick = (info: MapClickInfo) => {
-    if (info.placeId && googleMapRef.current) {
+    if (info.placeId) {
       clickedPlaceIdRef.current = info.placeId;
-      setClickedPlace({ lat: info.lat, lng: info.lng, name: "불러오는 중…", loading: true });
-      const service = new google.maps.places.PlacesService(googleMapRef.current);
-      service.getDetails({ placeId: info.placeId, fields: ["name"] }, (result, status) => {
-        // Ignore a response that arrives after the user's already clicked
-        // somewhere else (or closed the popup).
-        if (clickedPlaceIdRef.current !== info.placeId) return;
-        const name = status === google.maps.places.PlacesServiceStatus.OK ? (result?.name ?? "선택한 위치") : "선택한 위치";
-        setClickedPlace({ lat: info.lat, lng: info.lng, name, loading: false });
-      });
+      setClickedPlace({ place: placeholderClickedPlace(info.lat, info.lng, "불러오는 중…"), loading: true });
+      fetch(`/api/places/search?placeId=${encodeURIComponent(info.placeId)}`)
+        .then((res) => res.json())
+        .then((data: { places?: Place[] }) => {
+          // Ignore a response that arrives after the user's already clicked
+          // somewhere else (or closed the popup).
+          if (clickedPlaceIdRef.current !== info.placeId) return;
+          const found = data.places?.[0];
+          setClickedPlace({ place: found ?? placeholderClickedPlace(info.lat, info.lng, "선택한 위치"), loading: false });
+        })
+        .catch(() => {
+          if (clickedPlaceIdRef.current !== info.placeId) return;
+          setClickedPlace({ place: placeholderClickedPlace(info.lat, info.lng, "선택한 위치"), loading: false });
+        });
     } else {
       clickedPlaceIdRef.current = null;
-      setClickedPlace({ lat: info.lat, lng: info.lng, name: "선택한 위치", loading: false });
+      setClickedPlace({ place: placeholderClickedPlace(info.lat, info.lng, "선택한 위치"), loading: false });
     }
   };
 
   const handleSaveClickedPlace = () => {
     if (!clickedPlace) return;
-    const idSuffix = `${clickedPlace.lat.toFixed(5)},${clickedPlace.lng.toFixed(5)}`;
-    const id = clickedPlaceIdRef.current ?? `map-click-${idSuffix}`;
-    const { color, icon } = styleForCategory("Place", id);
-    const place: Place = {
-      id,
-      placeId: id,
-      name: clickedPlace.name,
-      category: "Place",
-      color,
-      icon,
-      lat: clickedPlace.lat,
-      lng: clickedPlace.lng,
-    };
-    upsertSavedPlace(place);
-    showToast(`${place.name} 관심 장소에 저장됨`);
+    upsertSavedPlace(clickedPlace.place);
+    showToast(`${clickedPlace.place.name} 관심 장소에 저장됨`);
     setClickedPlace(null);
+  };
+
+  // 지도 말풍선의 "일정에 추가" — handleScheduleFromDetail(관심 장소 →
+  // 일정)과 같은 패턴: 계획이 여러 개면 어느 계획에 넣을지 먼저 묻고,
+  // 하나뿐이면(또는 없으면) 바로 ScheduleModal을 연다.
+  const handleScheduleClickedPlace = () => {
+    if (!clickedPlace) return;
+    const place = clickedPlace.place;
+    addPlaces([place]);
+    setClickedPlace(null);
+    setTab("schedule");
+    if (savedPlans.length > 0) {
+      setSchedulePickerPlace(place);
+    } else {
+      openCreateModal(place);
+    }
   };
 
   // "관심 장소 -> 일정" — closes the detail overlay and opens the same
@@ -1936,6 +1962,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               clickedPlace={clickedPlace}
               onCloseClickedPlace={() => setClickedPlace(null)}
               onSaveClickedPlace={handleSaveClickedPlace}
+              onScheduleClickedPlace={handleScheduleClickedPlace}
             />
           ) : (
             <PlannerGoogleMap
@@ -1961,6 +1988,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               clickedPlace={clickedPlace}
               onCloseClickedPlace={() => setClickedPlace(null)}
               onSaveClickedPlace={handleSaveClickedPlace}
+              onScheduleClickedPlace={handleScheduleClickedPlace}
             />
           )}
           </div>

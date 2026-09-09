@@ -95,6 +95,13 @@ const NEAR_RADIUS_M = 3000;
 const NEAR_FANOUT_LABELS = ["관광명소", "맛집", "카페", "술집", "숙소"];
 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
+  // 지도 POI 클릭 등 이미 Google place_id를 아는 경우의 단건 조회 —
+  // 작업지시서 2026-09-09 "계획 탭 지도에서 장소 정보가 좌표만 나옵니다"
+  // §3. region/q와 무관하게(place_id 자체가 전역적으로 유일하다) 가장
+  // 먼저 처리한다.
+  const placeId = (request.nextUrl.searchParams.get("placeId") ?? "").trim();
+  if (placeId) return NextResponse.json(await searchByPlaceId(placeId));
+
   const region: Region = request.nextUrl.searchParams.get("region") === "domestic" ? "domestic" : "international";
   const rawQuery = (request.nextUrl.searchParams.get("q") ?? "").trim();
   const near = parseNearQuery(rawQuery);
@@ -459,6 +466,35 @@ function googlePlaceToPlace(p: GooglePlaceResult, nativeText?: string): Place {
     googleMapsUri: p.googleMapsUri,
     icon,
   };
+}
+
+/**
+ * place_id 단건 조회 — 지도에 원래 찍힌 POI 아이콘을 클릭하면 Google Maps
+ * JS SDK가 place_id를 바로 주는데(이름은 지도 언어 그대로라 신뢰하지
+ * 않는다), 그동안은 이걸 조회할 방법이 이 라우트에 없어(q만 지원) 클릭
+ * 이벤트가 준 영문 이름과 좌표만 그대로 보여줬다(작업지시서 2026-09-09
+ * "계획 탭 지도에서 장소 정보가 좌표만 나옵니다" §2/§3). searchText 대신
+ * 단건 GET(`places/{id}`)이라 결과가 하나뿐이고, 지역 판별(Kakao vs
+ * Google)도 필요 없다 — place_id 자체가 Google 전용이라 항상 이 경로다.
+ */
+export async function searchByPlaceId(placeId: string): Promise<{ places: Place[]; source: PlaceSearchSource }> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return { places: [], source: "mock" };
+  const res = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
+    headers: {
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": "id,displayName,formattedAddress,location,rating,userRatingCount,priceLevel,primaryType,photos,googleMapsUri",
+      "Accept-Language": "ko", // 한글 이름/주소 — /api/places/details와 같은 관례
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    console.error("[places/search] place-id lookup error:", res.status, res.statusText, await res.text());
+    return { places: [], source: "mock" };
+  }
+  const data = (await res.json()) as GooglePlaceResult;
+  if (!data.id) return { places: [], source: "mock" }; // 존재하지 않는/철회된 place_id
+  return { places: [googlePlaceToPlace(data)], source: "google" };
 }
 
 interface KakaoLocalDocument {
