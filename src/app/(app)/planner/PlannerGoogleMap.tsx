@@ -2,6 +2,7 @@
 
 import { GoogleMap, InfoWindow, OverlayView, Polyline } from "@react-google-maps/api";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
+import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { MarkerContent, Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
 
@@ -12,11 +13,16 @@ export interface MapClickInfo {
   placeId: string | null;
 }
 
-/** State for the click-to-save popup — `loading` while a POI's real name is still being fetched. */
+/**
+ * State for the click-to-save/schedule popup — `place` carries whatever is
+ * known so far (a bare lat/lng placeholder while `loading`, or the full
+ * `/api/places/search?placeId=` result once it resolves: rating, category,
+ * address, photo — same shape the 탐색 탭 cards use). 작업지시서 2026-09-09
+ * "계획 탭 지도에서 장소 정보가 좌표만 나옵니다" §3 — 예전엔 lat/lng/name
+ * 만 들고 있어 좌표만 보이는 말풍선이 됐다.
+ */
 export interface ClickedPlaceState {
-  lat: number;
-  lng: number;
-  name: string;
+  place: Place;
   loading: boolean;
 }
 
@@ -44,6 +50,7 @@ interface PlannerGoogleMapProps {
   clickedPlace: ClickedPlaceState | null;
   onCloseClickedPlace: () => void;
   onSaveClickedPlace: () => void;
+  onScheduleClickedPlace: () => void;
 }
 
 /**
@@ -78,6 +85,7 @@ export default function PlannerGoogleMap({
   clickedPlace,
   onCloseClickedPlace,
   onSaveClickedPlace,
+  onScheduleClickedPlace,
 }: PlannerGoogleMapProps) {
   if (mapsError) {
     return (
@@ -180,21 +188,49 @@ export default function PlannerGoogleMap({
         </>
       )}
 
-      {/* click-to-save popup — any coordinate or POI tap on the map, either tab */}
+      {/* click-to-save/schedule popup — any coordinate or POI tap on the map, either tab. 탐색 탭 카드와 같은 정보(평점·리뷰수·카테고리·주소·사진)를 보여준다 — 작업지시서 2026-09-09 "계획 탭 지도에서 장소 정보가 좌표만 나옵니다" §3: 예전엔 이름과 좌표뿐이었다. */}
       {clickedPlace && (
-        <InfoWindow position={{ lat: clickedPlace.lat, lng: clickedPlace.lng }} onCloseClick={onCloseClickedPlace}>
-          <div className="min-w-[160px] px-1 py-0.5">
-            <p className="text-[13px] font-semibold text-slate-900">{clickedPlace.name}</p>
-            <p className="text-[10.5px] tabular-nums text-slate-400">
-              {clickedPlace.lat.toFixed(5)}, {clickedPlace.lng.toFixed(5)}
-            </p>
-            <button
-              onClick={onSaveClickedPlace}
-              disabled={clickedPlace.loading}
-              className="mt-2 w-full rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11.5px] font-semibold text-white disabled:opacity-40"
-            >
-              관심 장소에 저장
-            </button>
+        <InfoWindow position={{ lat: clickedPlace.place.lat, lng: clickedPlace.place.lng }} onCloseClick={onCloseClickedPlace}>
+          <div className="w-56 px-1 py-0.5">
+            {clickedPlace.place.photoName && (
+              // eslint-disable-next-line @next/next/no-img-element -- /api/places/photo 프록시(구글 키가 클라이언트에 노출되지 않게)
+              <img
+                src={`/api/places/photo?name=${encodeURIComponent(clickedPlace.place.photoName)}&w=240`}
+                alt={clickedPlace.place.name}
+                className="mb-1.5 h-24 w-full rounded-lg object-cover"
+              />
+            )}
+            <p className="text-[13px] font-semibold text-slate-900">{clickedPlace.place.name}</p>
+            {(clickedPlace.place.rating != null || clickedPlace.place.category) && (
+              <p className="text-[11px] text-slate-500">
+                {clickedPlace.place.rating != null && (
+                  <>
+                    ★{clickedPlace.place.rating.toFixed(1)}
+                    {clickedPlace.place.reviewCount != null && ` (리뷰 ${clickedPlace.place.reviewCount.toLocaleString()})`}
+                    {" · "}
+                  </>
+                )}
+                {liveCategoryBucket(clickedPlace.place.category)}
+              </p>
+            )}
+            {/* 좌표는 사용자에게 보여줄 정보가 아니다 — 주소로 대체(작업지시서 §3 표). */}
+            {clickedPlace.place.address && <p className="truncate text-[10.5px] text-slate-400">{clickedPlace.place.address}</p>}
+            <div className="mt-2 flex gap-1.5">
+              <button
+                onClick={onScheduleClickedPlace}
+                disabled={clickedPlace.loading}
+                className="flex-1 rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11.5px] font-semibold text-white disabled:opacity-40"
+              >
+                일정에 추가
+              </button>
+              <button
+                onClick={onSaveClickedPlace}
+                disabled={clickedPlace.loading}
+                className="flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11.5px] font-semibold text-slate-700 disabled:opacity-40"
+              >
+                관심 장소에 저장
+              </button>
+            </div>
           </div>
         </InfoWindow>
       )}

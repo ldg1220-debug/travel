@@ -1,6 +1,7 @@
 "use client";
 
 import { KakaoMapCanvas, KakaoOverlay, KakaoPolyline } from "./KakaoMapPrimitives";
+import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { MarkerContent, Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
 import type { KakaoMapInstance } from "@/lib/maps/kakao-map";
@@ -30,6 +31,7 @@ interface PlannerKakaoMapProps {
   clickedPlace: ClickedPlaceState | null;
   onCloseClickedPlace: () => void;
   onSaveClickedPlace: () => void;
+  onScheduleClickedPlace: () => void;
 }
 
 /**
@@ -63,6 +65,7 @@ export default function PlannerKakaoMap({
   clickedPlace,
   onCloseClickedPlace,
   onSaveClickedPlace,
+  onScheduleClickedPlace,
 }: PlannerKakaoMapProps) {
   if (mapsError) {
     return (
@@ -140,26 +143,45 @@ export default function PlannerKakaoMap({
         </>
       )}
 
-      {/* click-to-save popup — any coordinate tap on the map, either tab */}
+      {/* click-to-save/schedule popup — any coordinate tap on the map, either tab. PlannerGoogleMap.tsx와 같은 내용(§3 참고) — 카카오 SDK는 POI placeId를 안 주므로(위 onMapClick 주석) 실제로는 대부분 평점·카테고리 없이 이름만 나온다. */}
       {clickedPlace && (
-        <KakaoOverlay position={{ lat: clickedPlace.lat, lng: clickedPlace.lng }} xAnchor={0.5} yAnchor={1.9} zIndex={20}>
-          <div className="min-w-[160px] rounded-xl bg-white px-2.5 py-2 shadow-lg">
+        <KakaoOverlay position={{ lat: clickedPlace.place.lat, lng: clickedPlace.place.lng }} xAnchor={0.5} yAnchor={1.9} zIndex={20}>
+          <div className="w-56 rounded-xl bg-white px-2.5 py-2 shadow-lg">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-[13px] font-semibold text-slate-900">{clickedPlace.name}</p>
+              <p className="text-[13px] font-semibold text-slate-900">{clickedPlace.place.name}</p>
               <button onClick={onCloseClickedPlace} className="shrink-0 text-slate-300 hover:text-slate-500" aria-label="닫기">
                 ✕
               </button>
             </div>
-            <p className="text-[10.5px] tabular-nums text-slate-400">
-              {clickedPlace.lat.toFixed(5)}, {clickedPlace.lng.toFixed(5)}
-            </p>
-            <button
-              onClick={onSaveClickedPlace}
-              disabled={clickedPlace.loading}
-              className="mt-2 w-full rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11.5px] font-semibold text-white disabled:opacity-40"
-            >
-              관심 장소에 저장
-            </button>
+            {(clickedPlace.place.rating != null || clickedPlace.place.category) && (
+              <p className="text-[11px] text-slate-500">
+                {clickedPlace.place.rating != null && (
+                  <>
+                    ★{clickedPlace.place.rating.toFixed(1)}
+                    {clickedPlace.place.reviewCount != null && ` (리뷰 ${clickedPlace.place.reviewCount.toLocaleString()})`}
+                    {" · "}
+                  </>
+                )}
+                {liveCategoryBucket(clickedPlace.place.category)}
+              </p>
+            )}
+            {clickedPlace.place.address && <p className="truncate text-[10.5px] text-slate-400">{clickedPlace.place.address}</p>}
+            <div className="mt-2 flex gap-1.5">
+              <button
+                onClick={onScheduleClickedPlace}
+                disabled={clickedPlace.loading}
+                className="flex-1 rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11.5px] font-semibold text-white disabled:opacity-40"
+              >
+                일정에 추가
+              </button>
+              <button
+                onClick={onSaveClickedPlace}
+                disabled={clickedPlace.loading}
+                className="flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11.5px] font-semibold text-slate-700 disabled:opacity-40"
+              >
+                관심 장소에 저장
+              </button>
+            </div>
           </div>
         </KakaoOverlay>
       )}
