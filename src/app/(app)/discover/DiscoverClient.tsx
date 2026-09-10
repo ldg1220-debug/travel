@@ -260,6 +260,40 @@ function routeStopToPlace(routeId: string, stop: DiscoverRouteStop): Place {
   return { id, placeId: id, name: stop.name, category: "루트 경유지", color: colorForId(id), lat: stop.lat, lng: stop.lng, icon: "pin" };
 }
 
+/**
+ * places를 liveCategoryBucket으로 나누되, `order`가 정한 우선순위대로
+ * 채워가며 이미 앞선(더 높은 우선순위) 버킷에 들어간 이름과 같은 place는
+ * 뒤 버킷에서 뺀다 — 작업지시서 2026-09-09 "장소 상세 화면 통일" §4:
+ * 구글이 한 장소에 여러 타입을 줄 때(예: 해유관 = tourist_attraction이면서
+ * aquarium) 검색 결과에 이름이 같은 두 항목으로 남아 "관광지"에도
+ * "테마파크"에도 뜨는 문제 — "한 장소는 한 섹션에만". liveCategoryBucket
+ * 자체는 place 하나당 카테고리 문자열 하나만 보고 버킷 하나를 정할 뿐이라
+ * (place 두 개가 서로 다른 원시 타입으로 검색 결과에 남는 경우까지는
+ * 모른다) 이 우선순위 조정은 그 결과를 모은 다음 단계(여기)에서 한다.
+ * 렌더 컴포넌트 밖의 순수 함수라 단위 테스트로 고정하기 쉽다.
+ */
+export function dedupeIntoPriorityBuckets(places: Place[], order: LiveBucketKey[]): Map<LiveBucketKey, Place[]> {
+  const byBucket = new Map<LiveBucketKey, Place[]>();
+  for (const place of places) {
+    const key = liveCategoryBucket(place.category ?? "");
+    const list = byBucket.get(key) ?? [];
+    list.push(place);
+    byBucket.set(key, list);
+  }
+  const seenNames = new Set<string>();
+  const result = new Map<LiveBucketKey, Place[]>();
+  for (const key of order) {
+    const filtered = (byBucket.get(key) ?? []).filter((p) => {
+      const nameKey = p.name.trim().toLowerCase();
+      if (seenNames.has(nameKey)) return false;
+      seenNames.add(nameKey);
+      return true;
+    });
+    if (filtered.length > 0) result.set(key, filtered);
+  }
+  return result;
+}
+
 /** The drill-down options one level below wherever `path` currently points. */
 function nodesAtPath(tree: RegionNode[], path: string[]): RegionNode[] {
   let level = tree;
@@ -1437,14 +1471,8 @@ function SearchResults({
   // (예: 이 검색에 술집이 하나도 없으면 술집 섹션/칩 자체가 안 나온다). 현재
   // 페이지에 있는 결과만 묶어서, 테마 칩 개수도 이 페이지 기준으로 맞는다.
   const liveBuckets = useMemo(() => {
-    const groups = new Map<LiveBucketKey, Place[]>();
-    for (const place of pagedLiveResults) {
-      const key = liveCategoryBucket(place.category ?? "");
-      const list = groups.get(key) ?? [];
-      list.push(place);
-      groups.set(key, list);
-    }
-    return LIVE_BUCKET_GROUPS.map((g) => ({ ...g, places: groups.get(g.key) ?? [] })).filter((g) => g.places.length > 0);
+    const byBucket = dedupeIntoPriorityBuckets(pagedLiveResults, LIVE_BUCKET_GROUPS.map((g) => g.key));
+    return LIVE_BUCKET_GROUPS.map((g) => ({ ...g, places: byBucket.get(g.key) ?? [] })).filter((g) => g.places.length > 0);
   }, [pagedLiveResults]);
 
   const scrollToLiveBucket = (key: LiveBucketKey) => {
