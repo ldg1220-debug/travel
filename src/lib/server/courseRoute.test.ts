@@ -4,6 +4,7 @@ import {
   assembleRouteWithEscalation,
   decodePolyline,
   dedupePoolsByBrand,
+  encodePolyline,
   haversineKm,
   resolveDuplicatePicks,
   resolveMealCuisineRepeat,
@@ -44,6 +45,45 @@ describe("decodePolyline", () => {
 
   it("returns an empty array for an empty string", () => {
     expect(decodePolyline("")).toEqual([]);
+  });
+});
+
+describe("encodePolyline", () => {
+  it("encodes Google's own example back to the documented string", () => {
+    // decodePolyline 테스트와 같은 3점 — encodePolyline은 그 역함수다.
+    const encoded = encodePolyline([
+      { lat: 38.5, lng: -120.2 },
+      { lat: 40.7, lng: -120.95 },
+      { lat: 43.252, lng: -126.453 },
+    ]);
+    expect(encoded).toBe("_p~iF~ps|U_ulLnnqC_mqNvxq`@");
+  });
+
+  it("round-trips through decodePolyline for arbitrary points", () => {
+    const points = [
+      { lat: 34.6937, lng: 135.5023 },
+      { lat: 34.7, lng: 135.51 },
+      { lat: 34.68, lng: 135.49 },
+    ];
+    const decoded = decodePolyline(encodePolyline(points));
+    expect(decoded).toHaveLength(points.length);
+    decoded.forEach((p, i) => {
+      expect(p.lat).toBeCloseTo(points[i].lat, 5);
+      expect(p.lng).toBeCloseTo(points[i].lng, 5);
+    });
+  });
+
+  it("returns an empty string for an empty array", () => {
+    expect(encodePolyline([])).toBe("");
+  });
+
+  it("produces a much shorter string than raw lat,lng listing for many points (the actual §2 bug)", () => {
+    // 카카오 실제 경로 60점 — mapPathParam(raw)이면 점당 20자 안팎이라
+    // 1,200자를 넘지만, 인코딩하면 훨씬 짧아야 한다.
+    const points = Array.from({ length: 60 }, (_, i) => ({ lat: 34.6 + i * 0.001, lng: 135.5 + i * 0.001 }));
+    const raw = points.map((p) => `${p.lat},${p.lng}`).join("|");
+    const encoded = encodePolyline(points);
+    expect(encoded.length).toBeLessThan(raw.length / 2);
   });
 });
 

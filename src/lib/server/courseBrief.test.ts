@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyDurationCap,
   assembleDaySpots,
+  buildStaticMapUrl,
   capAllDayFacilityDays,
   chunkByProximity,
   clusterByLocation,
@@ -23,7 +24,7 @@ import {
   type CourseBrief,
   type RouteResult,
 } from "./courseBrief";
-import { haversineKm } from "./courseRoute";
+import { decodePolyline, haversineKm } from "./courseRoute";
 import type { FinalStop } from "./courseRecommendV2";
 
 // 오사카 실측(작업지시서 2026-09-06 "일자 배분이 지리적으로 나뉘지
@@ -674,9 +675,12 @@ describe("straightRouteMeasurement/simplifyPath/mapPathParam — 정적 지도·
   });
 
   it("samples a long path down to the point cap, keeping the first and last point", () => {
+    // 상한 25 — 작업지시서 2026-09-11 "해외 경로 해결 / 지도 이미지가
+    // 전부 사라졌습니다" §2: 60에서 더 낮췄다(인코딩 후에도 여러 날짜·
+    // 여러 구간이 쌓이면 URL이 길어질 수 있어 보수적으로).
     const points = Array.from({ length: 500 }, (_, i) => ({ lat: 0, lng: i * 0.001 }));
     const sampled = simplifyPath(points);
-    expect(sampled.length).toBeLessThanOrEqual(60);
+    expect(sampled.length).toBeLessThanOrEqual(25);
     expect(sampled[0]).toEqual(points[0]);
     expect(sampled[sampled.length - 1]).toEqual(points[points.length - 1]);
   });
@@ -724,7 +728,15 @@ describe("fetchKakaoDrivingRoute — 카카오모빌리티 길찾기(국내 자�
     expect(measurement.distanceKm).toBeCloseTo(21.05, 5);
     expect(measurement.durationMinutes).toBe(51);
     expect(measurement.distanceKm).toBeGreaterThanOrEqual(haversineKm(a, b)); // 도로가 직선보다 짧을 수 없다
-    expect(measurement.mapPath).toContain("34.835,128.37"); // 중간 vertex(위도,경도 순서로 뒤집힘)가 경로에 반영됨
+    // mapPath는 이제 raw 좌표 나열이 아니라 인코딩된 폴리라인이다(작업지시서
+    // 2026-09-11 "해외 경로 해결 / 지도 이미지가 전부 사라졌습니다" §2 —
+    // raw 나열은 URL 길이 상한을 넘긴다). enc: 뒤 문자열을 다시 디코딩해
+    // 중간 vertex(위도,경도 순서로 뒤집힘)가 그대로 들어있는지 확인한다.
+    expect(measurement.mapPath).toContain("enc:");
+    const encoded = measurement.mapPath.split("enc:")[1];
+    expect(decodePolyline(encoded)).toEqual([{ lat: a.lat, lng: a.lng }, { lat: 34.835, lng: 128.37 }, { lat: b.lat, lng: b.lng }]);
+    // points 필드(지도 SDK Polyline에 바로 쓰는 값)는 여전히 raw 좌표다.
+    expect(measurement.points).toEqual([{ lat: a.lat, lng: a.lng }, { lat: 34.835, lng: 128.37 }, { lat: b.lat, lng: b.lng }]);
   });
 
   it("returns \"no-route\" when Kakao confirms there's no drivable route (result_code 1/2 — 사량도 같은 섬)", async () => {
@@ -806,12 +818,15 @@ describe("fetchLegRoute — /api/routes가 그대로 노출하는 계획 탭용 
   const overseasA = { lat: 34.6937, lng: 135.5023 };
   const overseasB = { lat: 34.66, lng: 135.43 };
 
-  it("skips the API call entirely for a short (<1km) domestic leg — 도보 구간은 실경로 조회 대상이 아니다", async () => {
+  it("skips the API call for a short (<1km) domestic leg but still returns a straight-line estimate — 작업지시서 2026-09-11 '해외 경로 해결' §4: 도보 구간도 값을 줘야 우메다류 촘촘한 스팟 사이에 선이 남는다", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const result = await fetchLegRoute(domesticNear, { lat: domesticNear.lat, lng: domesticNear.lng + 0.0005 });
-    expect(result).toEqual({ distanceM: null, durationMin: null, path: null });
+    const b = { lat: domesticNear.lat, lng: domesticNear.lng + 0.0005 };
+    const result = await fetchLegRoute(domesticNear, b);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.distanceM).not.toBeNull();
+    expect(result.durationMin).not.toBeNull();
+    expect(result.path).toEqual([domesticNear, b]);
   });
 
   it("returns real distance/duration/path for a domestic leg via Kakao", async () => {
@@ -941,5 +956,33 @@ describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미�
     const stale = payload();
     delete (stale as { distanceSource?: unknown }).distanceSource;
     expect(isFreshBriefPayload(stale)).toBe(false);
+  });
+});
+
+describe("buildStaticMapUrl — URL 길이 방어 (§2 ★)", () => {
+  const spots = [
+    { order: 1, lat: 34.6, lng: 135.5 },
+    { order: 2, lat: 34.61, lng: 135.51 },
+  ];
+
+  it("keeps path= params when the URL is well within the limit", () => {
+    const url = buildStaticMapUrl("test-key", spots, ["color:0x0000ffcc|weight:3|enc:abc"]);
+    expect(url.searchParams.getAll("path")).toEqual(["color:0x0000ffcc|weight:3|enc:abc"]);
+    expect(url.searchParams.getAll("markers")).toHaveLength(2);
+  });
+
+  it("drops path= params but keeps markers when the assembled URL exceeds the limit", () => {
+    // 각 구간을 아주 긴 문자열로 채워 8,000자를 넘긴다 — 실제로는 raw
+    // 좌표 나열(mapPathParam)이 이렇게 길어지던 게 §2의 실제 버그였다.
+    const hugePath = "color:0x0000ffcc|weight:3|" + "35.0,129.0|".repeat(500);
+    const url = buildStaticMapUrl("test-key", spots, [hugePath, hugePath, hugePath]);
+    expect(url.searchParams.getAll("path")).toEqual([]);
+    expect(url.searchParams.getAll("markers")).toHaveLength(2); // 마커는 그대로 남는다
+  });
+
+  it("never produces a URL longer than the limit even with many long paths", () => {
+    const hugePath = "color:0x0000ffcc|weight:3|" + "35.0,129.0|".repeat(500);
+    const url = buildStaticMapUrl("test-key", spots, Array(10).fill(hugePath));
+    expect(url.toString().length).toBeLessThan(8000);
   });
 });
