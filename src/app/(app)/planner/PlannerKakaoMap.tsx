@@ -32,6 +32,8 @@ interface PlannerKakaoMapProps {
   onCloseClickedPlace: () => void;
   onSaveClickedPlace: () => void;
   onScheduleClickedPlace: () => void;
+  /** 말풍선(요약)을 탭하면 같은 장소의 전체 상세 시트(PlaceDetailOverlay)를 연다 — 작업지시서 2026-09-09 "장소 상세 화면 통일" §3. */
+  onOpenClickedPlaceDetail: () => void;
 }
 
 /**
@@ -66,6 +68,7 @@ export default function PlannerKakaoMap({
   onCloseClickedPlace,
   onSaveClickedPlace,
   onScheduleClickedPlace,
+  onOpenClickedPlaceDetail,
 }: PlannerKakaoMapProps) {
   if (mapsError) {
     return (
@@ -148,24 +151,28 @@ export default function PlannerKakaoMap({
         <KakaoOverlay position={{ lat: clickedPlace.place.lat, lng: clickedPlace.place.lng }} xAnchor={0.5} yAnchor={1.9} zIndex={20}>
           <div className="w-56 rounded-xl bg-white px-2.5 py-2 shadow-lg">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-[13px] font-semibold text-slate-900">{clickedPlace.place.name}</p>
+              {/* 요약(말풍선) 탭 → 상세 시트 — 작업지시서 2026-09-09 "장소
+                  상세 화면 통일" §3. */}
+              <button type="button" onClick={onOpenClickedPlaceDetail} disabled={clickedPlace.loading} className="min-w-0 flex-1 text-left disabled:cursor-default">
+                <p className="text-[13px] font-semibold text-slate-900">{clickedPlace.place.name}</p>
+                {(clickedPlace.place.rating != null || clickedPlace.place.category) && (
+                  <p className="text-[11px] text-slate-500">
+                    {clickedPlace.place.rating != null && (
+                      <>
+                        ★{clickedPlace.place.rating.toFixed(1)}
+                        {clickedPlace.place.reviewCount != null && ` (리뷰 ${clickedPlace.place.reviewCount.toLocaleString()})`}
+                        {" · "}
+                      </>
+                    )}
+                    {liveCategoryBucket(clickedPlace.place.category)}
+                  </p>
+                )}
+                {clickedPlace.place.address && <p className="truncate text-[10.5px] text-slate-400">{clickedPlace.place.address}</p>}
+              </button>
               <button onClick={onCloseClickedPlace} className="shrink-0 text-slate-300 hover:text-slate-500" aria-label="닫기">
                 ✕
               </button>
             </div>
-            {(clickedPlace.place.rating != null || clickedPlace.place.category) && (
-              <p className="text-[11px] text-slate-500">
-                {clickedPlace.place.rating != null && (
-                  <>
-                    ★{clickedPlace.place.rating.toFixed(1)}
-                    {clickedPlace.place.reviewCount != null && ` (리뷰 ${clickedPlace.place.reviewCount.toLocaleString()})`}
-                    {" · "}
-                  </>
-                )}
-                {liveCategoryBucket(clickedPlace.place.category)}
-              </p>
-            )}
-            {clickedPlace.place.address && <p className="truncate text-[10.5px] text-slate-400">{clickedPlace.place.address}</p>}
             <div className="mt-2 flex gap-1.5">
               <button
                 onClick={onScheduleClickedPlace}

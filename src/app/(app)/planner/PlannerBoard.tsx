@@ -1433,6 +1433,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     }
   };
 
+  // 지도 말풍선(요약)을 탭하면 같은 장소의 전체 상세 시트를 연다 —
+  // 작업지시서 2026-09-09 "장소 상세 화면 통일" §3: "말풍선(요약) → 누르면
+  // → 상세 시트(전체)". 이미 있는 openDetailFor(관심 장소 탭의 "딥 다이브")
+  // 를 그대로 재사용 — 새 컴포넌트를 만들지 않는다.
+  const handleOpenClickedPlaceDetail = () => {
+    if (!clickedPlace || clickedPlace.loading) return;
+    const place = clickedPlace.place;
+    setClickedPlace(null);
+    openDetailFor(place);
+  };
+
   // "관심 장소 -> 일정" — closes the detail overlay and opens the same
   // ScheduleModal used everywhere else, instead of silently auto-filling
   // the next free hour, so this path stays consistent with "no more
@@ -1963,6 +1974,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               onCloseClickedPlace={() => setClickedPlace(null)}
               onSaveClickedPlace={handleSaveClickedPlace}
               onScheduleClickedPlace={handleScheduleClickedPlace}
+              onOpenClickedPlaceDetail={handleOpenClickedPlaceDetail}
             />
           ) : (
             <PlannerGoogleMap
@@ -1989,6 +2001,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               onCloseClickedPlace={() => setClickedPlace(null)}
               onSaveClickedPlace={handleSaveClickedPlace}
               onScheduleClickedPlace={handleScheduleClickedPlace}
+              onOpenClickedPlaceDetail={handleOpenClickedPlaceDetail}
             />
           )}
           </div>

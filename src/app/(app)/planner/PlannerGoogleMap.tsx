@@ -51,6 +51,8 @@ interface PlannerGoogleMapProps {
   onCloseClickedPlace: () => void;
   onSaveClickedPlace: () => void;
   onScheduleClickedPlace: () => void;
+  /** 말풍선(요약)을 탭하면 같은 장소의 전체 상세 시트(PlaceDetailOverlay)를 연다 — 작업지시서 2026-09-09 "장소 상세 화면 통일" §3. */
+  onOpenClickedPlaceDetail: () => void;
 }
 
 /**
@@ -86,6 +88,7 @@ export default function PlannerGoogleMap({
   onCloseClickedPlace,
   onSaveClickedPlace,
   onScheduleClickedPlace,
+  onOpenClickedPlaceDetail,
 }: PlannerGoogleMapProps) {
   if (mapsError) {
     return (
@@ -192,29 +195,35 @@ export default function PlannerGoogleMap({
       {clickedPlace && (
         <InfoWindow position={{ lat: clickedPlace.place.lat, lng: clickedPlace.place.lng }} onCloseClick={onCloseClickedPlace}>
           <div className="w-56 px-1 py-0.5">
-            {clickedPlace.place.photoName && (
-              // eslint-disable-next-line @next/next/no-img-element -- /api/places/photo 프록시(구글 키가 클라이언트에 노출되지 않게)
-              <img
-                src={`/api/places/photo?name=${encodeURIComponent(clickedPlace.place.photoName)}&w=240`}
-                alt={clickedPlace.place.name}
-                className="mb-1.5 h-24 w-full rounded-lg object-cover"
-              />
-            )}
-            <p className="text-[13px] font-semibold text-slate-900">{clickedPlace.place.name}</p>
-            {(clickedPlace.place.rating != null || clickedPlace.place.category) && (
-              <p className="text-[11px] text-slate-500">
-                {clickedPlace.place.rating != null && (
-                  <>
-                    ★{clickedPlace.place.rating.toFixed(1)}
-                    {clickedPlace.place.reviewCount != null && ` (리뷰 ${clickedPlace.place.reviewCount.toLocaleString()})`}
-                    {" · "}
-                  </>
-                )}
-                {liveCategoryBucket(clickedPlace.place.category)}
-              </p>
-            )}
-            {/* 좌표는 사용자에게 보여줄 정보가 아니다 — 주소로 대체(작업지시서 §3 표). */}
-            {clickedPlace.place.address && <p className="truncate text-[10.5px] text-slate-400">{clickedPlace.place.address}</p>}
+            {/* 요약(말풍선) 탭 → 상세 시트 — 작업지시서 2026-09-09 "장소
+                상세 화면 통일" §3: "말풍선(요약) → 누르면 → 상세 시트(전체)".
+                버튼 2개는 그대로 빠른 액션으로 남기고, 정보 영역 전체를
+                눌러도 같은 상세 시트가 열리게 한다. */}
+            <button type="button" onClick={onOpenClickedPlaceDetail} disabled={clickedPlace.loading} className="block w-full text-left disabled:cursor-default">
+              {clickedPlace.place.photoName && (
+                // eslint-disable-next-line @next/next/no-img-element -- /api/places/photo 프록시(구글 키가 클라이언트에 노출되지 않게)
+                <img
+                  src={`/api/places/photo?name=${encodeURIComponent(clickedPlace.place.photoName)}&w=240`}
+                  alt={clickedPlace.place.name}
+                  className="mb-1.5 h-24 w-full rounded-lg object-cover"
+                />
+              )}
+              <p className="text-[13px] font-semibold text-slate-900">{clickedPlace.place.name}</p>
+              {(clickedPlace.place.rating != null || clickedPlace.place.category) && (
+                <p className="text-[11px] text-slate-500">
+                  {clickedPlace.place.rating != null && (
+                    <>
+                      ★{clickedPlace.place.rating.toFixed(1)}
+                      {clickedPlace.place.reviewCount != null && ` (리뷰 ${clickedPlace.place.reviewCount.toLocaleString()})`}
+                      {" · "}
+                    </>
+                  )}
+                  {liveCategoryBucket(clickedPlace.place.category)}
+                </p>
+              )}
+              {/* 좌표는 사용자에게 보여줄 정보가 아니다 — 주소로 대체(작업지시서 §3 표). */}
+              {clickedPlace.place.address && <p className="truncate text-[10.5px] text-slate-400">{clickedPlace.place.address}</p>}
+            </button>
             <div className="mt-2 flex gap-1.5">
               <button
                 onClick={onScheduleClickedPlace}

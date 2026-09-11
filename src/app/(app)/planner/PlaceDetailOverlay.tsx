@@ -196,6 +196,13 @@ interface PlaceDetailFormProps {
 
 function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
   const router = useRouter();
+  // 정보를 먼저 보여주고("view"), "관심 장소에 저장"을 눌러야만 폴더·메모
+  // 입력("save")으로 넘어간다 — 작업지시서 2026-09-09 "장소 상세 화면
+  // 통일" §3: "저장하려다 정보를 못 보는" 예전 순서를 뒤집는다(평점·사진·
+  // 리뷰가 없는 장소일수록 예전엔 이 폼만 보여 "저장 다이얼로그"처럼
+  // 보였다). "일정에 추가"는 폴더·메모와 무관하니 view 단계에서 바로
+  // 실행된다.
+  const [step, setStep] = useState<"view" | "save">("view");
   const [category, setCategory] = useState(place.category);
   const [memo, setMemo] = useState(place.memo ?? "");
   const [folderId, setFolderId] = useState(place.folderId);
@@ -286,170 +293,193 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
         </div>
       </div>
 
-      {(place.rating != null || details?.openNow != null) && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
-          {place.rating != null && (
-            <span className="flex items-center gap-1 font-semibold text-slate-700">
-              <CordixIcon name="star" size={12} stroke="#fbbf24" accent="#fbbf24" />
-              {place.rating.toFixed(1)}
-              {place.reviewCount != null && <span className="font-normal text-slate-400">· 리뷰 {place.reviewCount.toLocaleString()}</span>}
-            </span>
+      {step === "view" ? (
+        <>
+          {(place.rating != null || details?.openNow != null) && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+              {place.rating != null && (
+                <span className="flex items-center gap-1 font-semibold text-slate-700">
+                  <CordixIcon name="star" size={12} stroke="#fbbf24" accent="#fbbf24" />
+                  {place.rating.toFixed(1)}
+                  {place.reviewCount != null && <span className="font-normal text-slate-400">· 리뷰 {place.reviewCount.toLocaleString()}</span>}
+                </span>
+              )}
+              {details?.openNow != null && (
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${details.openNow ? "bg-success-50 text-success-700" : "bg-rose-50 text-rose-600"}`}>
+                  {details.openNow ? "영업 중" : "영업 종료"}
+                </span>
+              )}
+            </div>
           )}
-          {details?.openNow != null && (
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${details.openNow ? "bg-success-50 text-success-700" : "bg-rose-50 text-rose-600"}`}>
-              {details.openNow ? "영업 중" : "영업 종료"}
-            </span>
+
+          {/* 사진 갤러리 — 실제 업체·음식 사진 (구글 Places 사진 프록시). 탭하면
+              더 크게 볼 수 있는 라이트박스가 열린다. */}
+          {gallery.length > 1 && (
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {gallery.map((name, i) => (
+                <button key={name} onClick={() => setLightboxIndex(i)} className="shrink-0" aria-label={`${place.name} 사진 크게 보기`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- served via /api/places/photo redirect proxy */}
+                  <img
+                    src={`/api/places/photo?name=${encodeURIComponent(name)}&w=400`}
+                    alt={place.name}
+                    loading="lazy"
+                    className="h-24 w-32 rounded-xl object-cover"
+                  />
+                </button>
+              ))}
+            </div>
           )}
-        </div>
-      )}
 
-      {/* 사진 갤러리 — 실제 업체·음식 사진 (구글 Places 사진 프록시). 탭하면
-          더 크게 볼 수 있는 라이트박스가 열린다. */}
-      {gallery.length > 1 && (
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {gallery.map((name, i) => (
-            <button key={name} onClick={() => setLightboxIndex(i)} className="shrink-0" aria-label={`${place.name} 사진 크게 보기`}>
-              {/* eslint-disable-next-line @next/next/no-img-element -- served via /api/places/photo redirect proxy */}
-              <img
-                src={`/api/places/photo?name=${encodeURIComponent(name)}&w=400`}
-                alt={place.name}
-                loading="lazy"
-                className="h-24 w-32 rounded-xl object-cover"
-              />
-            </button>
-          ))}
-        </div>
-      )}
+          {lightboxIndex != null && (
+            <PhotoLightbox
+              photoNames={gallery}
+              index={lightboxIndex}
+              alt={place.name}
+              onClose={() => setLightboxIndex(null)}
+              onNavigate={setLightboxIndex}
+            />
+          )}
 
-      {lightboxIndex != null && (
-        <PhotoLightbox
-          photoNames={gallery}
-          index={lightboxIndex}
-          alt={place.name}
-          onClose={() => setLightboxIndex(null)}
-          onNavigate={setLightboxIndex}
-        />
-      )}
+          {place.googleMapsUri && (
+            <a
+              href={place.googleMapsUri}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-success-50 px-3 py-1.5 text-[12px] font-semibold text-success-700 transition-colors hover:bg-success-100"
+            >
+              <ExternalLink size={12} /> 구글맵에서 메뉴판·전체 리뷰 보기
+            </a>
+          )}
 
-      {place.googleMapsUri && (
-        <a
-          href={place.googleMapsUri}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-success-50 px-3 py-1.5 text-[12px] font-semibold text-success-700 transition-colors hover:bg-success-100"
-        >
-          <ExternalLink size={12} /> 구글맵에서 메뉴판·전체 리뷰 보기
-        </a>
-      )}
-
-      {/* 리뷰 — 트레쥴 회원 리뷰(있으면 먼저) + 구글 리뷰 최대 5개, 출처 태그로 구분 */}
-      {mergedReviews.length > 0 && (
-        <div className="mt-4">
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">리뷰</p>
-          <div className="space-y-2.5">
-            {mergedReviews.map((r) => (
-              <div key={r.key} className="rounded-xl bg-slate-50 px-3 py-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span
-                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9.5px] font-bold ${
-                        r.source === "tradule" ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-600"
-                      }`}
-                    >
-                      {r.source === "tradule" ? "트레쥴" : "구글"}
-                    </span>
-                    <span className="truncate text-[12px] font-semibold text-slate-700">{r.author}</span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
-                    {r.rating != null && <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />}
-                    {r.rating != null && r.rating}
-                    {r.when && <span className="text-slate-400">· {r.when}</span>}
-                  </span>
-                </div>
-                {r.text && (
-                  <>
-                    <p
-                      className={`mt-1 text-[12px] leading-relaxed text-slate-600 ${expandedReviews.has(r.key) ? "" : "line-clamp-4"}`}
-                    >
-                      {r.text}
-                    </p>
-                    {r.text.length > 140 && (
+          {/* 리뷰 — 트레쥴 회원 리뷰(있으면 먼저) + 구글 리뷰 최대 5개, 출처 태그로 구분 */}
+          {mergedReviews.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">리뷰</p>
+              <div className="space-y-2.5">
+                {mergedReviews.map((r) => (
+                  <div key={r.key} className="rounded-xl bg-slate-50 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span
+                          className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9.5px] font-bold ${
+                            r.source === "tradule" ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-600"
+                          }`}
+                        >
+                          {r.source === "tradule" ? "트레쥴" : "구글"}
+                        </span>
+                        <span className="truncate text-[12px] font-semibold text-slate-700">{r.author}</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
+                        {r.rating != null && <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />}
+                        {r.rating != null && r.rating}
+                        {r.when && <span className="text-slate-400">· {r.when}</span>}
+                      </span>
+                    </div>
+                    {r.text && (
+                      <>
+                        <p
+                          className={`mt-1 text-[12px] leading-relaxed text-slate-600 ${expandedReviews.has(r.key) ? "" : "line-clamp-4"}`}
+                        >
+                          {r.text}
+                        </p>
+                        {r.text.length > 140 && (
+                          <button
+                            onClick={() => toggleReviewExpanded(r.key)}
+                            className="mt-0.5 text-[11px] font-semibold text-slate-500 hover:text-slate-700"
+                          >
+                            {expandedReviews.has(r.key) ? "접기" : "더보기"}
+                          </button>
+                        )}
+                      </>
+                    )}
+                    {r.images.length > 0 && (
+                      <div className="mt-2 flex gap-1.5">
+                        {r.images.slice(0, 3).map((url) => (
+                          // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
+                          <img key={url} src={url} alt="" className="h-14 w-14 rounded-lg object-cover" />
+                        ))}
+                      </div>
+                    )}
+                    {r.tripPostId != null && (
                       <button
-                        onClick={() => toggleReviewExpanded(r.key)}
-                        className="mt-0.5 text-[11px] font-semibold text-slate-500 hover:text-slate-700"
+                        onClick={() => router.push(`/trip/${r.tripPostId}`)}
+                        className="mt-1.5 text-[11px] font-semibold text-brand-600 hover:underline"
                       >
-                        {expandedReviews.has(r.key) ? "접기" : "더보기"}
+                        이 후기 보러가기
                       </button>
                     )}
-                  </>
-                )}
-                {r.images.length > 0 && (
-                  <div className="mt-2 flex gap-1.5">
-                    {r.images.slice(0, 3).map((url) => (
-                      // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL
-                      <img key={url} src={url} alt="" className="h-14 w-14 rounded-lg object-cover" />
-                    ))}
                   </div>
-                )}
-                {r.tripPostId != null && (
-                  <button
-                    onClick={() => router.push(`/trip/${r.tripPostId}`)}
-                    className="mt-1.5 text-[11px] font-semibold text-brand-600 hover:underline"
-                  >
-                    이 후기 보러가기
-                  </button>
-                )}
+                ))}
               </div>
+            </div>
+          )}
+
+          <div className="mt-5 flex gap-2">
+            {onSchedule && (
+              <Button
+                onClick={() => onSchedule({ ...place, category, memo: memo.trim() || undefined, folderId })}
+                className="h-12 flex-1 rounded-2xl text-sm font-semibold text-white"
+                style={{ background: place.color }}
+              >
+                일정에 추가
+              </Button>
+            )}
+            <Button
+              onClick={() => setStep("save")}
+              variant="outline"
+              className="h-12 flex-1 rounded-2xl border-slate-300 text-sm font-semibold text-slate-700"
+            >
+              관심 장소에 저장
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* 2단계 — "관심 장소에 저장"을 눌러야만 여기로 온다(작업지시서
+              §3: "정보를 먼저 보고, 저장할지 정하고, 그다음 폴더를
+              고른다"). 카테고리·관심 장소 폴더·메모는 저장에만 필요한
+              정보라 일정 추가(위 view 단계)엔 없어도 된다. */}
+          <p className="mb-2 mt-5 text-[11px] font-medium uppercase tracking-wide text-slate-500">카테고리</p>
+          <div className="flex flex-wrap gap-1.5">
+            {CATEGORY_OPTIONS.map((c) => (
+              <button
+                key={c.value}
+                onClick={() => setCategory(c.value)}
+                className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                  category === c.value ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-600"
+                }`}
+              >
+                {c.label}
+              </button>
             ))}
           </div>
-        </div>
+
+          <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-500">관심 장소 폴더</p>
+          <FolderChips value={folderId} onChange={setFolderId} />
+
+          <label className="mb-2 mt-4 block text-[11px] font-medium uppercase tracking-wide text-slate-500">메모</label>
+          <textarea
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            placeholder="이 장소에 대한 메모를 남겨보세요"
+            rows={3}
+            className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-slate-400"
+          />
+
+          <div className="mt-5 flex gap-2">
+            <Button onClick={() => setStep("view")} variant="outline" className="h-12 flex-1 rounded-2xl border-slate-300 text-sm font-semibold text-slate-700">
+              뒤로
+            </Button>
+            <Button
+              onClick={() => onSave({ ...place, category, memo: memo.trim() || undefined, folderId })}
+              className="h-12 flex-1 rounded-2xl text-sm font-semibold text-white"
+              style={{ background: place.color }}
+            >
+              저장하기
+            </Button>
+          </div>
+        </>
       )}
-
-      <p className="mb-2 mt-5 text-[11px] font-medium uppercase tracking-wide text-slate-500">카테고리</p>
-      <div className="flex flex-wrap gap-1.5">
-        {CATEGORY_OPTIONS.map((c) => (
-          <button
-            key={c.value}
-            onClick={() => setCategory(c.value)}
-            className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors ${
-              category === c.value ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 text-slate-600"
-            }`}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
-
-      <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wide text-slate-500">관심 장소 폴더</p>
-      <FolderChips value={folderId} onChange={setFolderId} />
-
-      <label className="mb-2 mt-4 block text-[11px] font-medium uppercase tracking-wide text-slate-500">메모</label>
-      <textarea
-        value={memo}
-        onChange={(e) => setMemo(e.target.value)}
-        placeholder="이 장소에 대한 메모를 남겨보세요"
-        rows={3}
-        className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-slate-400"
-      />
-
-      <div className="mt-5 flex gap-2">
-        <Button
-          onClick={() => onSave({ ...place, category, memo: memo.trim() || undefined, folderId })}
-          className="h-12 flex-1 rounded-2xl text-sm font-semibold text-white"
-          style={{ background: place.color }}
-        >
-          저장하기
-        </Button>
-        {onSchedule && (
-          <Button
-            onClick={() => onSchedule({ ...place, category, memo: memo.trim() || undefined, folderId })}
-            variant="outline"
-            className="h-12 flex-1 rounded-2xl border-slate-300 text-sm font-semibold text-slate-700"
-          >
-            일정에 추가
-          </Button>
-        )}
-      </div>
     </div>
   );
 }
