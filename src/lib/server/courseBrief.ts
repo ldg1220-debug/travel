@@ -1,7 +1,7 @@
 import { put } from "@vercel/blob";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
-import { decodePolyline, haversineKm } from "@/lib/server/courseRoute";
+import { decodePolyline, encodePolyline, haversineKm } from "@/lib/server/courseRoute";
 import { MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, stripBranchSuffix, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { allSpots, OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
@@ -136,7 +136,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 7; // 이번 배포(직선거리 대신 실제 경로 조회)로 다시 올림 — 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다" §5 "COURSE_ALGO_VERSION 올려 전체 재생성".
+export const COURSE_ALGO_VERSION = 8; // GCP Directions API 제한이 풀려 해외 실제 경로가 처음으로 정상 작동 + 지도 URL 길이 방어·distanceSource 추가 — 작업지시서 2026-09-11 "해외 경로 해결 / 지도 이미지가 전부 사라졌습니다" §5 "COURSE_ALGO_VERSION 올려 재생성". 캐시된 옛 코스는 여전히 직선거리·지도 없음 상태다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -249,17 +249,31 @@ export interface RouteResult extends RouteMeasurement {
   mode: TravelMode;
 }
 
-/** Static Maps path= 값 하나를 좌표 목록으로 만든다. */
+/** Static Maps path= 값 하나를 좌표 목록으로 만든다 — 점 2개짜리 직선 폴백(straightRouteMeasurement)처럼 애초에 짧은 경우에만 쓴다. */
 export function mapPathParam(points: GeoPoint[]): string {
   const coords = points.map((p) => `${p.lat},${p.lng}`).join("|");
   return `color:0x0000ffcc|weight:3|${coords}`;
 }
 
+/**
+ * Static Maps path= 값을 인코딩된 폴리라인으로 만든다 — mapPathParam과
+ * 달리 좌표를 그대로 나열하지 않아 점이 많아도 훨씬 짧다. 작업지시서
+ * 2026-09-11 "해외 경로 해결 / 지도 이미지가 전부 사라졌습니다" §2:
+ * 카카오 실제 경로(수십 점)가 raw 좌표 나열이라 URL 길이 상한(8,192자)을
+ * 넘겨 지도 자체가 통째로 안 만들어지는 원인이었다. 구글 경로는
+ * Directions API가 애초에 인코딩된 형태를 줘서 이 문제가 없었다.
+ */
+export function mapPathParamEncoded(points: GeoPoint[]): string {
+  return `color:0x0000ffcc|weight:3|enc:${encodePolyline(points)}`;
+}
+
 // 카카오 vertexes/구글 상세 경로는 도로 하나당 점이 수십~수백 개라
-// 그대로 path=에 넣으면 Static Maps 쿼리스트링이 URL 길이 상한을 넘길
-// 수 있다 — 일정 간격으로 솎아낸다(양 끝은 항상 포함해 경로가 끊겨
-// 보이지 않게 한다).
-const MAX_MAP_PATH_POINTS = 60;
+// 일정 간격으로 솎아낸다(양 끝은 항상 포함해 경로가 끊겨 보이지 않게
+// 한다) — 인코딩(위 mapPathParamEncoded)으로 이미 짧아지지만, 여러 날짜·
+// 여러 구간이 한 지도에 다 들어가는 course-brief 지도는 그래도 값이
+// 몇 배로 쌓일 수 있어 상한을 더 보수적으로 낮춘다(작업지시서 §2:
+// "그래도 길면 60 → 25로").
+const MAX_MAP_PATH_POINTS = 25;
 export function simplifyPath(points: GeoPoint[]): GeoPoint[] {
   if (points.length <= MAX_MAP_PATH_POINTS) return points;
   const step = (points.length - 1) / (MAX_MAP_PATH_POINTS - 1);
@@ -278,6 +292,11 @@ export function applyDurationCap(measurement: RouteMeasurement, mode: TravelMode
 }
 
 const KAKAO_DIRECTIONS_URL = "https://apis-navi.kakaomobility.com/v1/directions";
+
+/** 로그에 남길 "구간 좌표" 표기 — fetchKakaoDrivingRoute/fetchGoogleDirectionsRoute 실패 로그에서 공통으로 쓴다. */
+function legCoordsLabel(a: GeoPoint, b: GeoPoint): string {
+  return `${a.lat},${a.lng}->${b.lat},${b.lng}`;
+}
 
 /**
  * 국내 자동차 구간의 실제 경로 — 카카오모빌리티 길찾기(자동차 전용).
@@ -301,17 +320,28 @@ export async function fetchKakaoDrivingRoute(a: GeoPoint, b: GeoPoint): Promise<
   const timer = setTimeout(() => controller.abort(), ROUTE_CALL_TIMEOUT_MS);
   try {
     const res = await fetch(url, { headers: { Authorization: `KakaoAK ${apiKey}` }, signal: controller.signal });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // 작업지시서 2026-09-11 "해외 경로 해결 / 지도 이미지가 전부
+      // 사라졌습니다" §3 — 실패해도 null만 돌아오고 왜 실패했는지
+      // 아무 데도 안 남던 것을 고친다.
+      console.warn(`[courseBrief] kakao directions http ${res.status} for ${legCoordsLabel(a, b)}`);
+      return null;
+    }
     const data = (await res.json()) as {
       routes?: Array<{
         result_code: number;
+        result_msg?: string;
         summary?: { distance: number; duration: number };
         sections?: Array<{ roads?: Array<{ vertexes?: number[] }> }>;
       }>;
     };
     const route = data.routes?.[0];
     if (!route) return null;
-    if (route.result_code !== 0) return route.result_code === 1 || route.result_code === 2 ? "no-route" : null;
+    if (route.result_code !== 0) {
+      if (route.result_code === 1 || route.result_code === 2) return "no-route"; // 확정적 "경로 없음" — 이건 실패가 아니라 정상적인 판정이라 로그 대상이 아니다
+      console.warn(`[courseBrief] kakao directions result_code=${route.result_code} (${route.result_msg ?? "no result_msg"}) for ${legCoordsLabel(a, b)}`);
+      return null;
+    }
     if (!route.summary) return null;
     // vertexes는 [lng, lat, lng, lat, ...] 평면 배열이 도로(section.roads[])
     // 마다 나뉘어 있다 — 전부 이어 붙여 하나의 경로 좌표열로 만든다.
@@ -322,10 +352,11 @@ export async function fetchKakaoDrivingRoute(a: GeoPoint, b: GeoPoint): Promise<
     return {
       distanceKm: route.summary.distance / 1000,
       durationMinutes: Math.round(route.summary.duration / 60),
-      mapPath: mapPathParam(simplified),
+      mapPath: mapPathParamEncoded(simplified), // raw 나열(mapPathParam)이면 URL 길이 상한을 넘긴다 — §2 참고
       points: simplified,
     };
-  } catch {
+  } catch (err) {
+    console.warn(`[courseBrief] kakao directions request failed for ${legCoordsLabel(a, b)}:`, err);
     return null;
   } finally {
     clearTimeout(timer);
@@ -339,13 +370,15 @@ const GOOGLE_DIRECTIONS_URL = "https://maps.googleapis.com/maps/api/directions/j
  * (Static Maps 전용으로 이미 등록된, 리퍼러 제한 없는 서버 키 —
  * generateCourseMapImage 주석 참고)를 재사용한다.
  *
- * ⚠️ 이 키는 GCP 콘솔에서 "Maps Static API만" 허용하도록 API 제한이
- * 걸려 있다는 게 이미 알려진 사실이다 — Directions API 호출이 실제로
- * 되려면 그 허용 목록에 Directions API도 추가해야 하는데, 이 세션에서
- * GCP 콘솔 설정을 바꿀 수 없어 직접 확인하지 못했다. 제한에 걸리면
- * REQUEST_DENIED로 응답이 오고, 아래에서 "이 장소 판단이 아님"으로
- * 처리해 직선 추정으로 폴백한다 — 조용히 저하될 뿐 응답 자체가 깨지진
- * 않는다(검증 못 한 것, PR 설명 참고).
+ * 이 키는 원래 GCP 콘솔에서 "Maps Static API만" 허용하도록 API 제한이
+ * 걸려 있어 REQUEST_DENIED로 막혀 있었다 — 작업지시서 2026-09-11 "해외
+ * 경로 해결 / 지도 이미지가 전부 사라졌습니다" §1: 그 허용 목록에
+ * Directions API를 추가한 뒤(GCP 콘솔 작업, 코드 밖) 전파 완료 후
+ * 정상 작동이 실측으로 확인됐다. REQUEST_DENIED를 포함해 상태가
+ * OK/ZERO_RESULTS/NOT_FOUND가 아닌 모든 경우는 여전히 "이 장소 판단이
+ * 아님"으로 처리해 직선 추정으로 폴백한다(조용히 저하될 뿐 응답 자체가
+ * 깨지진 않는다) — 다만 이제 그 이유(status·error_message)를 로그로
+ * 남긴다(§3: "그 한 줄만 로그에 있었으면 10분 만에 끝났을 일").
  */
 export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode: "walking" | "transit" | "driving"): Promise<RouteMeasurement | "no-route" | null> {
   const apiKey = process.env.GOOGLE_MAPS_SERVER_KEY;
@@ -360,13 +393,25 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
   const timer = setTimeout(() => controller.abort(), ROUTE_CALL_TIMEOUT_MS);
   try {
     const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[courseBrief] google directions http ${res.status} for ${legCoordsLabel(a, b)}`);
+      return null;
+    }
     const data = (await res.json()) as {
       status: string;
+      error_message?: string;
       routes?: Array<{ legs?: Array<{ distance?: { value: number }; duration?: { value: number } }>; overview_polyline?: { points: string } }>;
     };
     if (data.status === "ZERO_RESULTS" || data.status === "NOT_FOUND") return "no-route";
-    if (data.status !== "OK") return null; // OVER_QUERY_LIMIT/REQUEST_DENIED/UNKNOWN_ERROR 등 — 이 장소 판단이 아니다
+    if (data.status !== "OK") {
+      // OVER_QUERY_LIMIT/REQUEST_DENIED/UNKNOWN_ERROR 등 — 이 장소
+      // 판단이 아니다. error_message에 구글이 거부 이유를 정확히
+      // 적어준다(예: "REQUEST_DENIED: API not authorized") — 이걸
+      // 로그에 안 남겨 GCP 키 제한 문제를 추적하는 데 2시간 가까이
+      // 걸렸다(§3).
+      console.warn(`[courseBrief] google directions status=${data.status} (${data.error_message ?? "no error_message"}) for ${legCoordsLabel(a, b)}`);
+      return null;
+    }
     const route = data.routes?.[0];
     const leg = route?.legs?.[0];
     if (!route || !leg?.distance || !leg?.duration) return null;
@@ -378,7 +423,8 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
       mapPath: encoded ? `color:0x0000ffcc|weight:3|enc:${encoded}` : mapPathParam([a, b]),
       points,
     };
-  } catch {
+  } catch (err) {
+    console.warn(`[courseBrief] google directions request failed for ${legCoordsLabel(a, b)}:`, err);
     return null;
   } finally {
     clearTimeout(timer);
@@ -417,9 +463,16 @@ const NO_ROUTE: LegRouteResult = { distanceM: null, durationMin: null, path: nul
  * 판단 보류 시에도 직선 추정치를 진짜 구간처럼 채워야 한다(값이 없으면
  * 스팟을 코스에서 지워야 하니까) — 반면 여기는 사용자가 실시간으로 보는
  * 화면이라 "확인 안 됨"과 "실제 값"을 섞으면 안 된다. 그래서 판단
- * 보류·실패·도보(모빌리티 API가 다루지 않음)·3시간 초과 전부 동일하게
- * NO_ROUTE로 응답해, 실제 값이 있을 때만 실제 값을 준다 — 나머지는
- * 호출부가 알아서 직선/무표시로 처리한다.
+ * 보류·실패·3시간 초과는 전부 동일하게 NO_ROUTE로 응답해, 실제 값이
+ * 있을 때만 실제 값을 준다 — 나머지는 호출부가 알아서 직선/무표시로
+ * 처리한다.
+ *
+ * 도보(모빌리티 API가 애초에 다루지 않는 구간)는 예외다 — 작업지시서
+ * 2026-09-11 "해외 경로 해결 / 지도 이미지가 전부 사라졌습니다" §4:
+ * "확인 안 됨"이 아니라 "확인할 필요가 없을 만큼 확실한" 케이스라
+ * straightRouteMeasurement의 직선 추정치를 그대로 돌려준다 — 우메다
+ * 일대처럼 가까운 스팟끼리는 대부분 도보권이라, 이걸 NO_ROUTE로
+ * 두면 계획 지도에 선이 하나도 안 남는다.
  *
  * scope(국내/해외)·mode(도보/대중교통/자동차)는 클라이언트가 알 필요가
  * 없다 — 이미 courseBrief 코스 생성에 쓰는 것과 같은 규칙(좌표 기반
@@ -431,7 +484,10 @@ export async function fetchLegRoute(a: GeoPoint, b: GeoPoint): Promise<LegRouteR
   const km = haversineKm(a, b);
   const scope: CourseBriefScope = isDomesticCoordinate(a.lat, a.lng) ? "domestic" : "overseas";
   const mode = modeForDistance(km, scope);
-  if (mode === "walk") return NO_ROUTE; // 도보는 실경로 조회 대상이 아니다 — fetchKakaoDrivingRoute 위 설명 참고
+  if (mode === "walk") {
+    const walk = straightRouteMeasurement(a, b, "walk");
+    return { distanceM: Math.round(walk.distanceKm * 1000), durationMin: walk.durationMinutes, path: [a, b] };
+  }
 
   const outcome = scope === "domestic" ? await fetchKakaoDrivingRoute(a, b) : await fetchGoogleDirectionsRoute(a, b, mode === "transit" ? "transit" : "driving");
   if (outcome == null || outcome === "no-route") return NO_ROUTE;
@@ -1611,22 +1667,20 @@ function markerLabel(order: number): string {
 // 실행돼 보지 못한 채 sharp 네이티브 바이너리 리스크만 지고 있었다 —
 // 403이 풀려도, 브랜드 표기는 이미지 밖(블로그 HTML의 캡션 등)에서
 // AutoPipeline이 붙이는 쪽이 더 단순하고 안전하다.
-async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[], mapPaths: string[]): Promise<string | null> {
-  if (spots.length === 0) return null;
-  // 기존 GOOGLE_PLACES_API_KEY/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY는 브라우저에도
-  // 노출되는 키라 HTTP 리퍼러 제한이 걸려 있다(작업지시서 2026-09-06 "PR
-  // #231 검증" §2 실측) — Places API(New)는 POST+헤더 방식이라 리퍼러
-  // 제한이 적용되지 않아 정상 동작했지만, Static Maps는 GET+쿼리파라미터
-  // key= 방식이라 리퍼러가 없는 서버 환경에서 그대로 403이 난다. "같은
-  // 키인데 Places는 되고 Static Maps는 403"의 실제 원인이 이것이었다 —
-  // Maps Static API 활성화 누락이 아니었다. 그래서 Static Maps 전용 서버
-  // 키(GOOGLE_MAPS_SERVER_KEY — 애플리케이션 제한 없음, API 제한은 Maps
-  // Static API만)를 새로 등록해 이 호출에만 쓴다. 기존 키로 폴백하지
-  // 않는다 — 리퍼러 제한 탓에 어차피 403이 나 호출만 낭비하게 된다.
-  const apiKey = process.env.GOOGLE_MAPS_SERVER_KEY;
-  if (!apiKey) return null;
-  if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return null;
+// Static Maps의 공식 URL 길이 상한은 8,192자 — 여유를 두고 이보다 낮게 잡는다.
+const STATIC_MAPS_URL_LIMIT = 8000;
 
+/**
+ * Static Maps 요청 URL을 조립한다 — generateCourseMapImage에서 분리한
+ * 순수 함수라(네트워크 없음) 단위 테스트로 길이 방어 로직을 직접
+ * 검증할 수 있다. 작업지시서 2026-09-11 "해외 경로 해결 / 지도 이미지가
+ * 전부 사라졌습니다" §2 ★: 마커·경로선을 다 넣은 URL이 상한을 넘기면
+ * 요청 자체가 실패해 지도가 통째로 안 만들어졌다(카카오 실제 경로가
+ * raw 좌표 나열이라 특히 잘 넘쳤다 — mapPathParamEncoded로 대부분
+ * 예방되지만, 그래도 넘치면 경로선만 빼고 마커는 남긴다 — "지도가
+ * 아예 없는 것보다 낫다").
+ */
+export function buildStaticMapUrl(apiKey: string, spots: { order: number; lat: number; lng: number }[], mapPaths: string[]): URL {
   const url = new URL("https://maps.googleapis.com/maps/api/staticmap");
   url.searchParams.set("size", `${MAP_WIDTH}x${MAP_HEIGHT}`);
   url.searchParams.set("scale", String(MAP_SCALE));
@@ -1647,13 +1701,38 @@ async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]
   for (const path of mapPaths) {
     url.searchParams.append("path", path);
   }
+  const urlLength = url.toString().length;
+  if (urlLength > STATIC_MAPS_URL_LIMIT) {
+    console.warn(`[courseBrief] static map url too long (${urlLength} chars, limit ${STATIC_MAPS_URL_LIMIT}) — dropping route lines, keeping ${spots.length} markers only`);
+    url.searchParams.delete("path");
+  }
+  return url;
+}
+
+async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[], mapPaths: string[]): Promise<string | null> {
+  if (spots.length === 0) return null;
+  // 기존 GOOGLE_PLACES_API_KEY/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY는 브라우저에도
+  // 노출되는 키라 HTTP 리퍼러 제한이 걸려 있다(작업지시서 2026-09-06 "PR
+  // #231 검증" §2 실측) — Places API(New)는 POST+헤더 방식이라 리퍼러
+  // 제한이 적용되지 않아 정상 동작했지만, Static Maps는 GET+쿼리파라미터
+  // key= 방식이라 리퍼러가 없는 서버 환경에서 그대로 403이 난다. "같은
+  // 키인데 Places는 되고 Static Maps는 403"의 실제 원인이 이것이었다 —
+  // Maps Static API 활성화 누락이 아니었다. 그래서 Static Maps 전용 서버
+  // 키(GOOGLE_MAPS_SERVER_KEY — 애플리케이션 제한 없음, API 제한은 Maps
+  // Static API만)를 새로 등록해 이 호출에만 쓴다. 기존 키로 폴백하지
+  // 않는다 — 리퍼러 제한 탓에 어차피 403이 나 호출만 낭비하게 된다.
+  const apiKey = process.env.GOOGLE_MAPS_SERVER_KEY;
+  if (!apiKey) return null;
+  if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return null;
+
+  const url = buildStaticMapUrl(apiKey, spots, mapPaths);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MAP_CALL_TIMEOUT_MS);
   try {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) {
-      console.error(`[courseBrief] google staticmap ${res.status}`);
+      console.error(`[courseBrief] google staticmap ${res.status} (url ${url.toString().length} chars)`);
       return null;
     }
     const bytes = Buffer.from(await res.arrayBuffer());

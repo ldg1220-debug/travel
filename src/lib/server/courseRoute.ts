@@ -84,6 +84,46 @@ export function decodePolyline(encoded: string): { lat: number; lng: number }[] 
   return points;
 }
 
+/**
+ * decodePolyline의 역함수 — 좌표 배열을 표준 폴리라인 인코딩 문자열로
+ * 압축한다. 작업지시서 2026-09-11 "해외 경로 해결 / 지도 이미지가 전부
+ * 사라졌습니다" §2: 카카오 실제 경로는 좌표를 `lat,lng|lat,lng|...`로
+ * 그대로 나열해(mapPathParam) 점이 수십 개만 돼도 Static Maps의 8,192자
+ * URL 상한을 넘겼다 — 좌표 하나가 raw로는 20자 안팎인데 인코딩하면
+ * 점당 5~6바이트로 줄어든다. 구글 경로는 애초에 Directions API가
+ * 인코딩된 형태(overview_polyline.points)로 주기 때문에 이 문제가 없었고,
+ * 그래서 "국내(카카오)가 먼저 터진 것"이었다.
+ */
+export function encodePolyline(points: { lat: number; lng: number }[]): string {
+  let output = "";
+  let prevLat = 0;
+  let prevLng = 0;
+  for (const { lat, lng } of points) {
+    const lat5 = Math.round(lat * 1e5);
+    const lng5 = Math.round(lng * 1e5);
+    output += encodeSignedNumber(lat5 - prevLat) + encodeSignedNumber(lng5 - prevLng);
+    prevLat = lat5;
+    prevLng = lng5;
+  }
+  return output;
+}
+
+function encodeSignedNumber(num: number): string {
+  let sgnNum = num << 1;
+  if (num < 0) sgnNum = ~sgnNum;
+  return encodeNumber(sgnNum);
+}
+
+function encodeNumber(num: number): string {
+  let output = "";
+  while (num >= 0x20) {
+    output += String.fromCharCode((0x20 | (num & 0x1f)) + 63);
+    num >>= 5;
+  }
+  output += String.fromCharCode(num + 63);
+  return output;
+}
+
 function edgePenalty(a: RouteCandidate, b: RouteCandidate): number {
   return Math.min(haversineKm(a, b) * KM_PENALTY, KM_PENALTY_CAP);
 }
