@@ -5,7 +5,7 @@ import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { MarkerContent, Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
 import type { KakaoMapInstance } from "@/lib/maps/kakao-map";
-import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
+import type { ClickedPlaceState, MapClickInfo, RouteLeg } from "./PlannerGoogleMap";
 
 interface PlannerKakaoMapProps {
   mapsError: boolean;
@@ -13,7 +13,7 @@ interface PlannerKakaoMapProps {
   mapCenter: { lat: number; lng: number };
   onMapLoad: (map: KakaoMapInstance) => void;
   tab: "schedule" | "saved";
-  routePoints: { lat: number; lng: number }[];
+  routeLegs: RouteLeg[];
   places: Place[];
   orderByPlace: Record<string, number>;
   pressingId: string | null;
@@ -50,7 +50,7 @@ export default function PlannerKakaoMap({
   mapCenter,
   onMapLoad,
   tab,
-  routePoints,
+  routeLegs,
   places,
   orderByPlace,
   pressingId,
@@ -90,7 +90,17 @@ export default function PlannerKakaoMap({
     >
       {tab === "schedule" && (
         <>
-          {routePoints.length >= 2 && <KakaoPolyline path={routePoints} strokeColor="#111827" strokeOpacity={0.9} strokeWeight={2} />}
+          {/* 스톱 간 구간마다 따로 그린다 — 실제 도로 경로(leg.path)가 있으면
+              실선, 없으면(아직 조회 중이거나 확인 안 됨) from→to 두 점을
+              잇는 점선으로 대체한다. 작업지시서 2026-09-11 "계획 탭 동선을
+              실제 경로로" §3 "경로 있음: 실선 / 경로 없음: 점선(추정 표시)". */}
+          {routeLegs.map((leg, i) =>
+            leg.path && leg.path.length >= 2 ? (
+              <KakaoPolyline key={i} path={leg.path} strokeColor="#111827" strokeOpacity={0.9} strokeWeight={2} strokeStyle="solid" />
+            ) : (
+              <KakaoPolyline key={i} path={[leg.from, leg.to]} strokeColor="#111827" strokeOpacity={0.7} strokeWeight={2} strokeStyle="shortdash" />
+            ),
+          )}
 
           {places.map((p) => (
             <KakaoOverlay key={p.id} position={{ lat: p.lat, lng: p.lng }} zIndex={pressingId === p.id ? 10 : undefined}>

@@ -26,13 +26,28 @@ export interface ClickedPlaceState {
   loading: boolean;
 }
 
+/**
+ * 계획 탭 지도가 그리는 스톱 간 구간 하나 — 작업지시서 2026-09-11 "계획
+ * 탭 동선을 실제 경로로" §2/§3: 예전엔 스톱을 전부 이은 직선(점선) 하나
+ * 뿐이라 산·바다·강을 그냥 가로질렀다. `path`가 있으면(/api/routes가
+ * 실제 도로 경로를 찾아준 경우) 그 좌표열을 실선으로, 없으면(아직
+ * 조회 중이거나 경로를 못 찾음) `from`→`to` 두 점을 잇는 점선 직선으로
+ * 대체한다 — "경로 있음: 실선, 경로 없음: 점선"으로 사용자가 어느 구간이
+ * 실제 값인지 구분할 수 있게 한다(§3 "점선을 '추정' 표시로 쓰세요").
+ */
+export interface RouteLeg {
+  from: { lat: number; lng: number };
+  to: { lat: number; lng: number };
+  path: { lat: number; lng: number }[] | null;
+}
+
 interface PlannerGoogleMapProps {
   mapsError: boolean;
   mapsLoaded: boolean;
   mapCenter: { lat: number; lng: number };
   onMapLoad: (map: google.maps.Map) => void;
   tab: "schedule" | "saved";
-  routePoints: { lat: number; lng: number }[];
+  routeLegs: RouteLeg[];
   places: Place[];
   orderByPlace: Record<string, number>;
   pressingId: string | null;
@@ -70,7 +85,7 @@ export default function PlannerGoogleMap({
   mapCenter,
   onMapLoad,
   tab,
-  routePoints,
+  routeLegs,
   places,
   orderByPlace,
   pressingId,
@@ -123,20 +138,29 @@ export default function PlannerGoogleMap({
     >
       {tab === "schedule" && (
         <>
-          {routePoints.length >= 2 && (
-            <Polyline
-              path={routePoints}
-              options={{
-                strokeOpacity: 0,
-                icons: [
-                  {
-                    icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#111827", scale: 3 },
-                    offset: "0",
-                    repeat: "14px",
-                  },
-                ],
-              }}
-            />
+          {/* 스톱 간 구간마다 따로 그린다 — 실제 도로 경로(leg.path)가 있으면
+              실선, 없으면(아직 조회 중이거나 확인 안 됨) from→to 두 점을
+              잇는 점선으로 대체한다. 작업지시서 2026-09-11 "계획 탭 동선을
+              실제 경로로" §3 "경로 있음: 실선 / 경로 없음: 점선(추정 표시)". */}
+          {routeLegs.map((leg, i) =>
+            leg.path && leg.path.length >= 2 ? (
+              <Polyline key={i} path={leg.path} options={{ strokeColor: "#111827", strokeOpacity: 0.9, strokeWeight: 3 }} />
+            ) : (
+              <Polyline
+                key={i}
+                path={[leg.from, leg.to]}
+                options={{
+                  strokeOpacity: 0,
+                  icons: [
+                    {
+                      icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#111827", scale: 3 },
+                      offset: "0",
+                      repeat: "14px",
+                    },
+                  ],
+                }}
+              />
+            ),
           )}
 
           {places.map((p) => (

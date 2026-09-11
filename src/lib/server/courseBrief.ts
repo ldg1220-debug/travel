@@ -1,10 +1,11 @@
 import { put } from "@vercel/blob";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
-import { haversineKm } from "@/lib/server/courseRoute";
+import { decodePolyline, haversineKm } from "@/lib/server/courseRoute";
 import { MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, stripBranchSuffix, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { allSpots, OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
+import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 
 /**
  * 트레쥴 콘텐츠 API(`/api/content/course-brief`)의 실제 조립 로직 —
@@ -184,7 +185,7 @@ function stopsOf(result: Awaited<ReturnType<typeof generateCourseV2>>): FinalSto
 // mode="car"를 기본으로 코스를 짜는 국내 특성과 맞춘다.
 const WALK_MAX_KM = 1;
 const TRANSIT_OR_CAR_MAX_KM = 5;
-function modeForDistance(km: number, scope: CourseBriefScope): TravelMode {
+export function modeForDistance(km: number, scope: CourseBriefScope): TravelMode {
   if (km < WALK_MAX_KM) return "walk";
   if (km <= TRANSIT_OR_CAR_MAX_KM) return scope === "overseas" ? "transit" : "car";
   return "car";
@@ -222,6 +223,15 @@ export interface RouteMeasurement {
   durationMinutes: number;
   /** 정적 지도 path= 파라미터 값(색상·굵기·좌표 전부 포함) — 실제 경로 폴리라인이 있으면 그걸, 없으면 두 지점을 잇는 직선을 쓴다. */
   mapPath: string;
+  /**
+   * 실제 도로를 따라가는 좌표열 — mapPath와 달리 Static Maps 전용 문자열이
+   * 아니라 지도 SDK(Google/Kakao) Polyline에 바로 넘길 수 있는 배열이다.
+   * 작업지시서 2026-09-11 "계획 탭 동선을 실제 경로로" §3 — /api/routes가
+   * 이 필드를 그대로 클라이언트에 돌려준다. 실제 경로를 못 구해 직선으로
+   * 폴백한 경우(straightRouteMeasurement)는 null — "이 거리·시간은 진짜
+   * 경로 값이 아니다"를 이 필드 하나로 구분할 수 있게 한다.
+   */
+  points: { lat: number; lng: number }[] | null;
 }
 export interface RouteResult extends RouteMeasurement {
   mode: TravelMode;
@@ -246,7 +256,7 @@ export function simplifyPath(points: GeoPoint[]): GeoPoint[] {
 
 export function straightRouteMeasurement(a: GeoPoint, b: GeoPoint, mode: TravelMode): RouteResult {
   const km = haversineKm(a, b);
-  return { distanceKm: km, durationMinutes: minutesForKm(km, mode), mapPath: mapPathParam([a, b]), mode };
+  return { distanceKm: km, durationMinutes: minutesForKm(km, mode), mapPath: mapPathParam([a, b]), points: null, mode };
 }
 
 /** 실측(거리·소요시간)에 §3 ★ "3시간 초과" 상한을 적용한다 — 넘으면 "no-route"(그 스팟을 코스에서 뺀다). */
@@ -296,10 +306,12 @@ export async function fetchKakaoDrivingRoute(a: GeoPoint, b: GeoPoint): Promise<
     const flatVertexes = (route.sections ?? []).flatMap((s) => (s.roads ?? []).flatMap((r) => r.vertexes ?? []));
     const points: GeoPoint[] = [];
     for (let i = 0; i + 1 < flatVertexes.length; i += 2) points.push({ lng: flatVertexes[i], lat: flatVertexes[i + 1] });
+    const simplified = simplifyPath(points.length > 0 ? points : [a, b]);
     return {
       distanceKm: route.summary.distance / 1000,
       durationMinutes: Math.round(route.summary.duration / 60),
-      mapPath: mapPathParam(simplifyPath(points.length > 0 ? points : [a, b])),
+      mapPath: mapPathParam(simplified),
+      points: simplified,
     };
   } catch {
     return null;
@@ -347,10 +359,12 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
     const leg = route?.legs?.[0];
     if (!route || !leg?.distance || !leg?.duration) return null;
     const encoded = route.overview_polyline?.points;
+    const points = simplifyPath(encoded ? decodePolyline(encoded) : [a, b]);
     return {
       distanceKm: leg.distance.value / 1000,
       durationMinutes: Math.round(leg.duration.value / 60),
       mapPath: encoded ? `color:0x0000ffcc|weight:3|enc:${encoded}` : mapPathParam([a, b]),
+      points,
     };
   } catch {
     return null;
@@ -366,6 +380,52 @@ async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, m
   if (outcome === "no-route") return "no-route";
   if (outcome == null) return straightRouteMeasurement(a, b, mode); // 조회 실패/판단 보류 — 폴백, 스팟은 유지
   return applyDurationCap(outcome, mode); // §3 ★ 비정상적으로 크면(3시간 초과) "no-route"
+}
+
+export interface LegRouteResult {
+  distanceM: number | null;
+  durationMin: number | null;
+  /**
+   * null이면 실제 경로를 확인하지 못했다는 뜻 — 호출부(/api/routes,
+   * 계획 탭 지도)는 두 점을 잇는 점선 직선으로 대체하고 시간은 보여주지
+   * 않는다. 작업지시서 2026-09-11 "계획 탭 동선을 실제 경로로" §2 —
+   * "사용자가 장소를 직접 추가하면 그 구간은 다시 추정값이 됩니다...
+   * 한 일정 안에 실제값과 추정값이 섞입니다"가 바로 이 구분이 없어서
+   * 생긴 문제였다.
+   */
+  path: { lat: number; lng: number }[] | null;
+}
+
+const NO_ROUTE: LegRouteResult = { distanceM: null, durationMin: null, path: null };
+
+/**
+ * 계획 탭 지도/일정 시각용 구간 조회(/api/routes가 그대로 노출) —
+ * fetchKakaoDrivingRoute/fetchGoogleDirectionsRoute는 routeSegment와
+ * 재사용하지만 폴백 정책이 다르다. routeSegment는 코스 "생성"용이라
+ * 판단 보류 시에도 직선 추정치를 진짜 구간처럼 채워야 한다(값이 없으면
+ * 스팟을 코스에서 지워야 하니까) — 반면 여기는 사용자가 실시간으로 보는
+ * 화면이라 "확인 안 됨"과 "실제 값"을 섞으면 안 된다. 그래서 판단
+ * 보류·실패·도보(모빌리티 API가 다루지 않음)·3시간 초과 전부 동일하게
+ * NO_ROUTE로 응답해, 실제 값이 있을 때만 실제 값을 준다 — 나머지는
+ * 호출부가 알아서 직선/무표시로 처리한다.
+ *
+ * scope(국내/해외)·mode(도보/대중교통/자동차)는 클라이언트가 알 필요가
+ * 없다 — 이미 courseBrief 코스 생성에 쓰는 것과 같은 규칙(좌표 기반
+ * isDomesticCoordinate + 거리 기반 modeForDistance)으로 여기서 그대로
+ * 정한다. 같은 좌표쌍이면 항상 같은 scope·mode로 재현되므로 클라이언트가
+ * 캐시 키에 모드를 따로 넣을 필요도 없다.
+ */
+export async function fetchLegRoute(a: GeoPoint, b: GeoPoint): Promise<LegRouteResult> {
+  const km = haversineKm(a, b);
+  const scope: CourseBriefScope = isDomesticCoordinate(a.lat, a.lng) ? "domestic" : "overseas";
+  const mode = modeForDistance(km, scope);
+  if (mode === "walk") return NO_ROUTE; // 도보는 실경로 조회 대상이 아니다 — fetchKakaoDrivingRoute 위 설명 참고
+
+  const outcome = scope === "domestic" ? await fetchKakaoDrivingRoute(a, b) : await fetchGoogleDirectionsRoute(a, b, mode === "transit" ? "transit" : "driving");
+  if (outcome == null || outcome === "no-route") return NO_ROUTE;
+  const capped = applyDurationCap(outcome, mode);
+  if (capped === "no-route") return NO_ROUTE;
+  return { distanceM: Math.round(capped.distanceKm * 1000), durationMin: capped.durationMinutes, path: capped.points };
 }
 
 /**

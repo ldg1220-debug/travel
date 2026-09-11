@@ -45,6 +45,45 @@ export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; l
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
+/**
+ * Google Directions의 `overview_polyline.points` 인코딩(표준 폴리라인
+ * 알고리즘)을 좌표 배열로 되돌린다 — 작업지시서 2026-09-11 "계획 탭
+ * 동선을 실제 경로로" §3: 계획 지도가 그릴 진짜 도로 경로가 필요한데,
+ * 브라우저에서 Google Maps JS SDK의 "geometry" 라이브러리를 추가로 로드해
+ * 디코딩을 맡기는 대신(별도 SDK 라이브러리 로드가 늘어난다), 서버가 직접
+ * 풀어 좌표 배열로 응답한다 — 클라이언트는 받은 그대로 지도 Polyline에
+ * 넘기기만 하면 된다.
+ */
+export function decodePolyline(encoded: string): { lat: number; lng: number }[] {
+  const points: { lat: number; lng: number }[] = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  while (index < encoded.length) {
+    let result = 0;
+    let shift = 0;
+    let b: number;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+
+    result = 0;
+    shift = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+
+    points.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+  return points;
+}
+
 function edgePenalty(a: RouteCandidate, b: RouteCandidate): number {
   return Math.min(haversineKm(a, b) * KM_PENALTY, KM_PENALTY_CAP);
 }

@@ -110,6 +110,45 @@ export async function fetchPlaceDetails(placeId: string, hint?: { name: string; 
   }
 }
 
+export interface RouteLegRequest {
+  fromLat: number;
+  fromLng: number;
+  toLat: number;
+  toLng: number;
+}
+
+export interface RouteLegResult {
+  distanceM: number | null;
+  durationMin: number | null;
+  /** 실제 도로를 따라가는 좌표열 — null이면 실제 경로를 확인하지 못했다는 뜻(호출부가 점선 직선으로 대체). */
+  path: { lat: number; lng: number }[] | null;
+}
+
+const NO_ROUTE_RESULT: RouteLegResult = { distanceM: null, durationMin: null, path: null };
+
+/**
+ * 계획 탭 지도·일정 시각용 실제 경로 조회 — 작업지시서 2026-09-11 "계획
+ * 탭 동선을 실제 경로로" §3. 응답은 요청한 legs와 같은 순서·개수로
+ * 온다고 가정하지만, 네트워크 실패 시 배열 길이가 안 맞을 수 있어
+ * legs 길이에 맞춰 없는 자리를 NO_ROUTE로 채워 돌려준다 — 호출부가
+ * 인덱스로 안전하게 접근할 수 있게.
+ */
+export async function fetchRouteLegs(legs: RouteLegRequest[]): Promise<RouteLegResult[]> {
+  if (legs.length === 0) return [];
+  try {
+    const res = await fetch("/api/routes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ legs }),
+    });
+    if (!res.ok) return legs.map(() => NO_ROUTE_RESULT);
+    const results = (await res.json()) as RouteLegResult[];
+    return legs.map((_, i) => results[i] ?? NO_ROUTE_RESULT);
+  } catch {
+    return legs.map(() => NO_ROUTE_RESULT);
+  }
+}
+
 export interface TraduleReview {
   id: number;
   authorId: number;

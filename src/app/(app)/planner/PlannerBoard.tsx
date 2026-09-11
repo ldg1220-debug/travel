@@ -78,7 +78,7 @@ import {
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
-import { fetchSharedItinerary, logLodgingCtaEvent } from "@/lib/api";
+import { fetchSharedItinerary, logLodgingCtaEvent, type RouteLegResult } from "@/lib/api";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
@@ -94,7 +94,9 @@ import { kakaoBoundsFor } from "./KakaoMapPrimitives";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { currencySymbol, groupBudgetByCurrency } from "@/lib/types";
 import type { CurrencyCode, ItineraryItem, Place } from "@/lib/types";
-import type { ClickedPlaceState, MapClickInfo } from "./PlannerGoogleMap";
+import type { ClickedPlaceState, MapClickInfo, RouteLeg } from "./PlannerGoogleMap";
+import { useRouteLegs, routeLegKey, type RouteLegStop } from "./useRouteLegs";
+import { loadTravelpayoutsDriveScript } from "@/lib/travelpayoutsDrive";
 
 // Always client-only: the Maps SDK/canvas must never be part of the
 // server-rendered (or hydration-replayed) HTML — see PlannerGoogleMap.tsx.
@@ -694,6 +696,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // 이 두 위치 중 어디가 더 잘 눌리는지 나중에 비교할 수 있게 같이 남긴다.
   const [lodgingPickerPlacement, setLodgingPickerPlacement] = useState<"header" | "timeline" | null>(null);
   const lodgingProviders = useMemo(() => (currentCity ? bookingProviders(currentCity, region) : []), [currentCity, region]);
+  // Travelpayouts Drive 스니펫을 이 페이지가 실제로 제휴 링크를 보여줄
+  // 때만 불러온다 — 작업지시서 2026-09-11 "계획 탭 동선을 실제 경로로"
+  // §4: 계획 탭은 도시에 따라 숙소 제휴 링크가 있을 수도, 없을 수도 있어
+  // (레이아웃처럼 항상 켜두면 낭비 + 공유 토큰 노출), 이 조건이 참이
+  // 되는 순간에만 주입한다. 한 번 넣으면 계속 남아있고(loadTravelpayoutsDriveScript
+  // 자체가 중복 주입을 막는다), 이후 조건이 다시 거짓이 돼도 이미 붙은
+  // 스크립트를 빼지는 않는다 — 벤더 스크립트를 런타임에 안전하게 제거할
+  // 방법이 없다(전역 상태를 남길 수 있음).
+  useEffect(() => {
+    if (hasAffiliateLink(lodgingProviders)) loadTravelpayoutsDriveScript();
+  }, [lodgingProviders]);
   const openLodgingPicker = (placement: "header" | "timeline") => {
     if (!currentCity) return;
     setLodgingPickerPlacement(placement);
@@ -1721,10 +1734,46 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const dragItem = gridDragItemId ? items.find((i) => i.id === gridDragItemId) ?? null : null;
   const dragItemPlace = dragItem ? places.find((p) => p.id === dragItem.placeId) ?? fallbackDisplay(dragItem.name) : null;
 
-  const routePoints = schedule
-    .map((s) => places.find((p) => p.id === s.placeId))
-    .filter((p): p is Place => Boolean(p))
-    .map((p) => ({ lat: p.lat, lng: p.lng }));
+  // 오늘(activeDate) 스케줄의 스톱 간 실제 경로 — 작업지시서 2026-09-11
+  // "계획 탭 동선을 실제 경로로" §3. `item.coordinates`를 직접 쓴다(예전
+  // routePoints처럼 `places` 카탈로그에서 다시 찾지 않는다) — 이 스톱을
+  // 추가할 당시 좌표가 이미 아이템 자체에 있고, 카탈로그에 없는 스톱이라고
+  // 구간에서 조용히 빠지는 일이 없다. 지도가 activeDate만 보여주므로
+  // 여러 날짜가 동시에 그려지는 타임라인(§ TransitBlock)과 달리 여기선
+  // activeDate 하나만 조회하면 된다.
+  const routeLegStops: RouteLegStop[] = useMemo(
+    () => schedule.map((s) => ({ placeId: s.placeId, lat: s.coordinates.lat, lng: s.coordinates.lng })),
+    [schedule],
+  );
+  const routeLegResults = useRouteLegs(routeLegStops);
+  const routeLegs: RouteLeg[] = routeLegStops.slice(0, -1).map((a, i) => {
+    const b = routeLegStops[i + 1];
+    return { from: { lat: a.lat, lng: a.lng }, to: { lat: b.lat, lng: b.lng }, path: routeLegResults.get(routeLegKey(a, b))?.path ?? null };
+  });
+
+  // activeDate의 TransitBlock(estimateTransit — 직선거리 기반 추정치,
+  // src/lib/transit.ts)을 실제 값으로 업그레이드하기 위한 조회표.
+  // transit.ts의 코멘트가 이미 이 방향을 예고해뒀다: "Real Distance
+  // Matrix lookup... treat it as an upgrade over estimateTransit()'s
+  // synchronous result rather than a replacement... must never block the
+  // timeline on a network round trip". 그 방향 그대로 — estimateTransit은
+  // 손대지 않고(즉시 뜨는 폴백), 실제 값이 확인되면 아래 렌더에서 그 값
+  // 으로 갈아 끼운다. TransitBlock.fromId/toId는 아이템 id라 placeId
+  // 기준인 routeLegResults와 키가 다르므로 activeDate의 schedule 순서로
+  // 매핑해준다 — 다른 날짜(visibleDates의 나머지)는 지도에도 안 그려주는
+  // 날짜라 실제 경로를 조회하지 않으므로 이 표에도 없다(작업지시서
+  // 2026-09-11 §2 "사용자가 장소를 직접 추가하면 그 구간은 다시
+  // 추정값이 됩니다" — activeDate만이라도 실제값으로 바꿔 섞임을 줄인다).
+  const activeDateRealTransit = useMemo(() => {
+    const map: Record<string, RouteLegResult> = {};
+    for (let i = 0; i + 1 < schedule.length; i++) {
+      const a = schedule[i];
+      const b = schedule[i + 1];
+      const real = routeLegResults.get(routeLegKey({ placeId: a.placeId }, { placeId: b.placeId }));
+      if (real?.durationMin != null) map[`${a.id}>${b.id}`] = real;
+    }
+    return map;
+  }, [schedule, routeLegResults]);
 
   // Map pins for the 일정 tab — restricted to today's actually-scheduled
   // stops (plus, if there is one, the single place just found via the map
@@ -1956,7 +2005,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               mapCenter={mapCenter}
               onMapLoad={onKakaoMapLoad}
               tab={tab}
-              routePoints={routePoints}
+              routeLegs={routeLegs}
               places={scheduleMapPlaces}
               orderByPlace={orderByPlace}
               pressingId={pressingId}
@@ -1983,7 +2032,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               mapCenter={mapCenter}
               onMapLoad={onGoogleMapLoad}
               tab={tab}
-              routePoints={routePoints}
+              routeLegs={routeLegs}
               places={scheduleMapPlaces}
               orderByPlace={orderByPlace}
               pressingId={pressingId}
@@ -2462,6 +2511,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                           const highlighted = hoverSlot?.date === date && hoverSlot?.hour === h;
                           const covered = isCovered(h);
                           const transit = !covered ? transitByDate[date]?.[h] : undefined;
+                          // activeDate(지도가 실제 경로를 조회해준 날짜)만
+                          // 실제 값으로 갈아 끼운다 — 다른 날짜는 여전히
+                          // estimateTransit의 즉시 폴백을 그대로 보여준다.
+                          const real = transit && date === activeDate ? activeDateRealTransit[`${transit.fromId}>${transit.toId}`] : undefined;
+                          const minutes = real?.durationMin ?? transit?.minutes;
 
                           return (
                             <DroppableCell key={h} date={date} hour={h} highlighted={highlighted} registerRef={registerSlotRef} slotHeight={slotHeight}>
@@ -2472,9 +2526,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                               ) : !covered ? (
                                 <div className="flex h-full items-center justify-center">
                                   {transit ? (
-                                    <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[9.5px] font-medium text-slate-500">
+                                    <span
+                                      className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[9.5px] font-medium ${
+                                        real ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                                      }`}
+                                      title={real ? "실제 경로 기준" : "직선거리 추정치"}
+                                    >
                                       {transit.mode === "walk" ? <Footprints size={9} /> : <TrainFront size={9} />}
-                                      {transit.minutes}분
+                                      {minutes}분{real ? "" : "~"}
                                     </span>
                                   ) : (
                                     <span className="text-[10px] font-medium text-slate-200">—</span>
