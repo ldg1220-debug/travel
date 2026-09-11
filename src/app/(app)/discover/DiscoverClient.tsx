@@ -71,6 +71,7 @@ import type {
 import type { Place, PlaceIcon, Region } from "@/lib/types";
 import { bookingProviders, isLodging, hasAffiliateLink } from "@/lib/affiliates";
 import { liveCategoryBucket, type LiveBucketKey } from "@/lib/liveCategoryBucket";
+import { haversineDistanceMeters } from "@/lib/geo";
 
 // Always client-only — see RoutePreviewMap.tsx / lib/maps/mapResize.ts.
 const RoutePreviewMap = dynamic(() => import("./RoutePreviewMap"), { ssr: false });
@@ -261,35 +262,85 @@ function routeStopToPlace(routeId: string, stop: DiscoverRouteStop): Place {
 }
 
 /**
- * places를 liveCategoryBucket으로 나누되, `order`가 정한 우선순위대로
- * 채워가며 이미 앞선(더 높은 우선순위) 버킷에 들어간 이름과 같은 place는
- * 뒤 버킷에서 뺀다 — 작업지시서 2026-09-09 "장소 상세 화면 통일" §4:
- * 구글이 한 장소에 여러 타입을 줄 때(예: 해유관 = tourist_attraction이면서
- * aquarium) 검색 결과에 이름이 같은 두 항목으로 남아 "관광지"에도
- * "테마파크"에도 뜨는 문제 — "한 장소는 한 섹션에만". liveCategoryBucket
- * 자체는 place 하나당 카테고리 문자열 하나만 보고 버킷 하나를 정할 뿐이라
- * (place 두 개가 서로 다른 원시 타입으로 검색 결과에 남는 경우까지는
- * 모른다) 이 우선순위 조정은 그 결과를 모은 다음 단계(여기)에서 한다.
+ * 이름(공백/대소문자 무시)이 같고 좌표가 300m 이내인 두 place를 "같은
+ * 장소"로 묶는다 — 작업지시서 2026-09-11 "중복 제거가 빈 레코드를
+ * 남깁니다" §1: 구글이 한 장소에 place_id 두 개(타입이 다름, 예: 해유관 =
+ * tourist_attraction과 aquarium, 좌표차 170m)를 돌려줄 때의 실제 사례.
+ * 이름만 보고 묶으면 이름이 같은 별개 장소(체인점 등, 좌표가 먼)까지
+ * 하나로 합쳐버리므로 거리 조건을 반드시 같이 본다. 대표 좌표(클러스터의
+ * 첫 멤버)만 기준으로 비교하는 단순 클러스터링 — 검색 결과 안에서 같은
+ * 이름이 3개 이상 나오는 경우는 실측되지 않았다.
+ */
+const DUPLICATE_PLACE_RADIUS_METERS = 300;
+
+function clusterDuplicatePlaces(places: Place[]): Place[][] {
+  const clusters: Place[][] = [];
+  for (const place of places) {
+    const nameKey = place.name.trim().toLowerCase();
+    const cluster = clusters.find(
+      (c) => c[0].name.trim().toLowerCase() === nameKey && haversineDistanceMeters(c[0], place) <= DUPLICATE_PLACE_RADIUS_METERS,
+    );
+    if (cluster) cluster.push(place);
+    else clusters.push([place]);
+  }
+  return clusters;
+}
+
+/**
+ * 중복 클러스터 안에서 어느 레코드를 "대표"로 남길지 고른다 — 작업지시서
+ * §3: 1순위 평점/리뷰수 유무, 2순위 사진 유무(Place엔 첫 사진 하나만
+ * 있어 개수가 아니라 유무로 비교 — 지시서의 "사진 개수" 요구를 이 모델이
+ * 담을 수 있는 선에서 구현), 3순위 원래 버킷 우선순위. `a`가 `b`보다
+ * 더 풍부하면 true.
+ */
+function isRicherPlace(a: Place, b: Place, order: LiveBucketKey[]): boolean {
+  const aHasRating = a.rating != null || a.reviewCount != null;
+  const bHasRating = b.rating != null || b.reviewCount != null;
+  if (aHasRating !== bHasRating) return aHasRating;
+
+  const aHasPhoto = a.photoName != null;
+  const bHasPhoto = b.photoName != null;
+  if (aHasPhoto !== bHasPhoto) return aHasPhoto;
+
+  const aBucketIdx = order.indexOf(liveCategoryBucket(a.category ?? ""));
+  const bBucketIdx = order.indexOf(liveCategoryBucket(b.category ?? ""));
+  return aBucketIdx < bBucketIdx;
+}
+
+/**
+ * places를 liveCategoryBucket 우선순위(`order`)대로 나누되, 같은 장소로
+ * 묶이는 중복(clusterDuplicatePlaces)은 대표 레코드 하나만 남긴다 —
+ * 작업지시서 2026-09-09 "장소 상세 화면 통일" §4 → 2026-09-11 "중복
+ * 제거가 빈 레코드를 남깁니다"로 수정.
+ *
+ * 표시 위치(어느 버킷 섹션에 뜨는지)는 클러스터 멤버들의 원래 버킷 중
+ * 가장 우선순위 높은 쪽을 그대로 쓴다 — 그 자리에 채우는 레코드 내용은
+ * isRicherPlace가 고른 가장 정보가 많은 것이라, 대표 레코드의 원래
+ * category와 표시 버킷이 다를 수 있다(해유관은 aquarium 레코드의 평점·
+ * 사진을 쓰지만 관광지 섹션에 남는다 — 이전 버전은 반대로, 정보가 빈
+ * tourist_attraction 레코드가 관광지 우선순위 때문에 살아남고 있었다).
+ *
  * 렌더 컴포넌트 밖의 순수 함수라 단위 테스트로 고정하기 쉽다.
  */
 export function dedupeIntoPriorityBuckets(places: Place[], order: LiveBucketKey[]): Map<LiveBucketKey, Place[]> {
   const byBucket = new Map<LiveBucketKey, Place[]>();
-  for (const place of places) {
-    const key = liveCategoryBucket(place.category ?? "");
-    const list = byBucket.get(key) ?? [];
-    list.push(place);
-    byBucket.set(key, list);
+  for (const cluster of clusterDuplicatePlaces(places)) {
+    let winner = cluster[0];
+    let targetBucket = liveCategoryBucket(winner.category ?? "");
+    for (const place of cluster.slice(1)) {
+      if (isRicherPlace(place, winner, order)) winner = place;
+      const bucket = liveCategoryBucket(place.category ?? "");
+      if (order.indexOf(bucket) < order.indexOf(targetBucket)) targetBucket = bucket;
+    }
+    const list = byBucket.get(targetBucket) ?? [];
+    list.push(winner);
+    byBucket.set(targetBucket, list);
   }
-  const seenNames = new Set<string>();
+
   const result = new Map<LiveBucketKey, Place[]>();
   for (const key of order) {
-    const filtered = (byBucket.get(key) ?? []).filter((p) => {
-      const nameKey = p.name.trim().toLowerCase();
-      if (seenNames.has(nameKey)) return false;
-      seenNames.add(nameKey);
-      return true;
-    });
-    if (filtered.length > 0) result.set(key, filtered);
+    const list = byBucket.get(key);
+    if (list && list.length > 0) result.set(key, list);
   }
   return result;
 }
