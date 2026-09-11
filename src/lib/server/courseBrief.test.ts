@@ -8,6 +8,7 @@ import {
   dedupeByProximity,
   fetchGoogleDirectionsRoute,
   fetchKakaoDrivingRoute,
+  fetchLegRoute,
   mapPathParam,
   medoidOf,
   orderByNearestNeighbor,
@@ -593,7 +594,7 @@ function named(name: string, lat: number, lng: number): NamedPoint {
 }
 
 function fakeRoute(distanceKm: number, durationMinutes: number, mode: RouteResult["mode"] = "car"): RouteResult {
-  return { distanceKm, durationMinutes, mode, mapPath: "color:0x0000ffcc|weight:3|0,0|1,1" };
+  return { distanceKm, durationMinutes, mode, mapPath: "color:0x0000ffcc|weight:3|0,0|1,1", points: null };
 }
 
 describe("planRouteForDay — 실제 경로 검증으로 스톱을 잇는다(fetch를 몰라도 되는 순수 로직)", () => {
@@ -640,13 +641,13 @@ describe("planRouteForDay — 실제 경로 검증으로 스톱을 잇는다(fet
 
 describe("applyDurationCap — 작업지시서 §3 ★ '소요시간이 비정상적으로 큼(3시간 초과)'", () => {
   it("keeps a measurement at or under 180 minutes, attaching the travel mode", () => {
-    const result = applyDurationCap({ distanceKm: 5, durationMinutes: 180, mapPath: "x" }, "car");
+    const result = applyDurationCap({ distanceKm: 5, durationMinutes: 180, mapPath: "x", points: null }, "car");
     expect(result).not.toBe("no-route");
     expect(result).toMatchObject({ distanceKm: 5, durationMinutes: 180, mode: "car" });
   });
 
   it("returns no-route once duration exceeds 180 minutes", () => {
-    expect(applyDurationCap({ distanceKm: 50, durationMinutes: 181, mapPath: "x" }, "car")).toBe("no-route");
+    expect(applyDurationCap({ distanceKm: 50, durationMinutes: 181, mapPath: "x", points: null }, "car")).toBe("no-route");
   });
 });
 
@@ -785,5 +786,93 @@ describe("fetchGoogleDirectionsRoute — Google Directions(해외)", () => {
     vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "test-key");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "REQUEST_DENIED" }) }));
     expect(await fetchGoogleDirectionsRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 }, "driving")).toBeNull();
+  });
+});
+
+describe("fetchLegRoute — /api/routes가 그대로 노출하는 계획 탭용 구간 조회", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  // 본토 박스(regionForCoords.ts) 안 — 국내로 분류된다.
+  const domesticNear = { lat: 34.83, lng: 128.321 }; // ~100m 이내
+  const domesticFar = { lat: 34.83, lng: 128.32 };
+  const domesticFarB = { lat: 34.84, lng: 128.42 }; // ~10km — 도보 구간 아님
+  // 오사카 — 한국 박스 밖이라 해외로 분류된다.
+  const overseasA = { lat: 34.6937, lng: 135.5023 };
+  const overseasB = { lat: 34.66, lng: 135.43 };
+
+  it("skips the API call entirely for a short (<1km) domestic leg — 도보 구간은 실경로 조회 대상이 아니다", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await fetchLegRoute(domesticNear, { lat: domesticNear.lat, lng: domesticNear.lng + 0.0005 });
+    expect(result).toEqual({ distanceM: null, durationMin: null, path: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns real distance/duration/path for a domestic leg via Kakao", async () => {
+    vi.stubEnv("KAKAO_REST_API_KEY", "test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          routes: [
+            {
+              result_code: 0,
+              summary: { distance: 21050, duration: 51 * 60 },
+              sections: [{ roads: [{ vertexes: [domesticFar.lng, domesticFar.lat, domesticFarB.lng, domesticFarB.lat] }] }],
+            },
+          ],
+        }),
+      }),
+    );
+    const result = await fetchLegRoute(domesticFar, domesticFarB);
+    expect(result.distanceM).toBe(21050);
+    expect(result.durationMin).toBe(51);
+    expect(result.path).not.toBeNull();
+    expect(result.path?.[0]).toEqual({ lat: domesticFar.lat, lng: domesticFar.lng });
+  });
+
+  it("returns NO_ROUTE (not a straight-line estimate) when Kakao confirms no route exists — 계획 탭은 추정치를 진짜처럼 보여주면 안 된다", async () => {
+    vi.stubEnv("KAKAO_REST_API_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ routes: [{ result_code: 1 }] }) }));
+    expect(await fetchLegRoute(domesticFar, domesticFarB)).toEqual({ distanceM: null, durationMin: null, path: null });
+  });
+
+  it("returns NO_ROUTE (not a straight-line estimate) when the lookup is inconclusive (no key/network failure)", async () => {
+    vi.stubEnv("KAKAO_REST_API_KEY", "");
+    expect(await fetchLegRoute(domesticFar, domesticFarB)).toEqual({ distanceM: null, durationMin: null, path: null });
+  });
+
+  it("returns real distance/duration/decoded path for an overseas leg via Google Directions", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: "OK",
+          routes: [{ legs: [{ distance: { value: 5000 }, duration: { value: 900 } }], overview_polyline: { points: "_p~iF~ps|U_ulLnnqC_mqNvxq`@" } }],
+        }),
+      }),
+    );
+    const result = await fetchLegRoute(overseasA, overseasB);
+    expect(result.distanceM).toBe(5000);
+    expect(result.durationMin).toBe(15);
+    expect(result.path?.[0].lat).toBeCloseTo(38.5, 5);
+  });
+
+  it("returns NO_ROUTE once the segment exceeds the 3-hour cap (§3 ★)", async () => {
+    vi.stubEnv("KAKAO_REST_API_KEY", "test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ routes: [{ result_code: 0, summary: { distance: 300000, duration: 200 * 60 }, sections: [] }] }),
+      }),
+    );
+    expect(await fetchLegRoute(domesticFar, domesticFarB)).toEqual({ distanceM: null, durationMin: null, path: null });
   });
 });
