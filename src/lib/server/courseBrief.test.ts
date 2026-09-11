@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyDurationCap,
+  assembleDaySpots,
   capAllDayFacilityDays,
   chunkByProximity,
   clusterByLocation,
@@ -9,6 +10,7 @@ import {
   fetchGoogleDirectionsRoute,
   fetchKakaoDrivingRoute,
   fetchLegRoute,
+  isFreshBriefPayload,
   mapPathParam,
   medoidOf,
   orderByNearestNeighbor,
@@ -18,6 +20,7 @@ import {
   rebalanceByDistance,
   simplifyPath,
   straightRouteMeasurement,
+  type CourseBrief,
   type RouteResult,
 } from "./courseBrief";
 import { haversineKm } from "./courseRoute";
@@ -874,5 +877,69 @@ describe("fetchLegRoute — /api/routes가 그대로 노출하는 계획 탭용 
       }),
     );
     expect(await fetchLegRoute(domesticFar, domesticFarB)).toEqual({ distanceM: null, durationMin: null, path: null });
+  });
+});
+
+describe("assembleDaySpots — distanceSource용 hadStraightFallback 판정", () => {
+  function routeSeg(distanceKm: number, durationMinutes: number, hasPoints: boolean, mode: RouteResult["mode"] = "car"): RouteResult {
+    return {
+      distanceKm,
+      durationMinutes,
+      mode,
+      mapPath: "color:0x0000ffcc|weight:3|0,0|1,1",
+      points: hasPoints ? [{ lat: 0, lng: 0 }, { lat: 1, lng: 1 }] : null,
+    };
+  }
+
+  it("reports no fallback when every non-walk segment has a real route", () => {
+    const stops = [stop("a", 0, 0), stop("b", 0, 1), stop("c", 0, 2)];
+    const segments = [routeSeg(5, 10, true), routeSeg(5, 10, true)];
+    const { hadStraightFallback } = assembleDaySpots(stops, segments, 1, "overseas", "오사카", 1);
+    expect(hadStraightFallback).toBe(false);
+  });
+
+  it("reports a fallback when any non-walk segment fell back to a straight line (해외 Directions 미설정 사례)", () => {
+    const stops = [stop("a", 0, 0), stop("b", 0, 1), stop("c", 0, 2)];
+    const segments = [routeSeg(5, 10, true), routeSeg(5, 10, false)]; // 두 번째 구간만 직선 폴백
+    const { hadStraightFallback } = assembleDaySpots(stops, segments, 1, "overseas", "오사카", 1);
+    expect(hadStraightFallback).toBe(true);
+  });
+
+  it("does not count a walk segment's straight-line estimate as a fallback (의도된 폴백)", () => {
+    const stops = [stop("a", 0, 0), stop("b", 0, 1)];
+    const segments = [routeSeg(0.3, 5, false, "walk")];
+    const { hadStraightFallback } = assembleDaySpots(stops, segments, 1, "domestic", "경주", 1);
+    expect(hadStraightFallback).toBe(false);
+  });
+
+  it("reports no fallback for a single-stop day (no segments to fail)", () => {
+    const { hadStraightFallback } = assembleDaySpots([stop("a", 0, 0)], [], 1, "domestic", "경주", 1);
+    expect(hadStraightFallback).toBe(false);
+  });
+});
+
+describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미스로 취급", () => {
+  function payload(overrides: Partial<CourseBrief> = {}): CourseBrief {
+    return {
+      region: "오사카",
+      days: 1,
+      totalDistanceKm: 10,
+      spots: [{ name: "a", category: "관광지", rating: null, reviewCount: null, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: null, toNextMode: "car" }],
+      imageUrl: null,
+      appUrl: "https://example.com",
+      ratingSource: "google",
+      distanceSource: "route",
+      ...overrides,
+    };
+  }
+
+  it("accepts a payload that already has distanceSource", () => {
+    expect(isFreshBriefPayload(payload())).toBe(true);
+  });
+
+  it("rejects an old cached payload from before distanceSource existed", () => {
+    const stale = payload();
+    delete (stale as { distanceSource?: unknown }).distanceSource;
+    expect(isFreshBriefPayload(stale)).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchRouteLegs, type RouteLegResult } from "@/lib/api";
 
 export interface RouteLegStop {
@@ -93,10 +93,22 @@ export function useRouteLegs(stops: RouteLegStop[]): Map<string, RouteLegResult>
     // eslint-disable-next-line react-hooks/exhaustive-deps -- missingKey가 실제 의존값(아직 안 구한 쌍들의 안정적인 문자열 서명)이다. missing/stops를 그대로 넣으면 매 렌더 재실행된다.
   }, [missingKey]);
 
-  const result = new Map<string, RouteLegResult>();
-  for (const [a, b] of pairs) {
-    const cached = results.get(routeLegKey(a, b));
-    if (cached) result.set(routeLegKey(a, b), cached);
-  }
-  return result;
+  // stops가 안정적인 참조를 유지하는 한(호출부가 useMemo로 감싸줬다는
+  // 전제 — PlannerBoard.tsx의 routeLegStops) results가 실제로 바뀔
+  // 때만 새 Map을 만든다. 매 렌더 새 Map을 돌려주면 이 훅을 쓰는
+  // 쪽에서 아무리 useMemo로 감싸도 의존성이 매번 "바뀐 것"으로 보여
+  // 무력화된다 — react-google-maps/api의 <Polyline>은 `path`/`options`
+  // prop의 "참조"가 바뀔 때마다 setPath/setOptions를 다시 부르므로,
+  // 값이 그대로인데도 매 렌더 다시 그려지다 못해 사라진 것처럼 보이는
+  // 실제 버그로 이어졌다(작업지시서 2026-09-11 "해외 경로가 조용히
+  // 직선으로 떨어지고 있습니다" §4).
+  return useMemo(() => {
+    const result = new Map<string, RouteLegResult>();
+    for (const [a, b] of pairs) {
+      const cached = results.get(routeLegKey(a, b));
+      if (cached) result.set(routeLegKey(a, b), cached);
+    }
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stops(=pairs의 소스)와 results가 진짜 의존값이다. pairs 자체를 넣으면 매 렌더 새 배열이라 메모가 무력화된다.
+  }, [stops, results]);
 }

@@ -56,6 +56,17 @@ export interface CourseBrief {
   // Text Search)도 전부 Google이 출처다 — Kakao는 rating 필드 자체를
   // 안 준다(kakaoToPlace 참고). 그래서 조건 분기 없이 항상 상수.
   ratingSource: "google";
+  /**
+   * totalDistanceKm/toNextMinutes가 실제 경로(route) 기준인지, 하나라도
+   * 실제 경로를 못 구해 직선거리(straight)로 대체됐는지 — 작업지시서
+   * 2026-09-11 "해외 경로가 조용히 직선으로 떨어지고 있습니다" §3:
+   * 실패해도 조용히 직선으로 폴백해 사흘 동안 해외 코스가 잘못된
+   * 수치로 블로그에 발행된 것을 알아챌 수 없었다. 도보 구간(모빌리티
+   * API가 애초에 다루지 않는, 의도된 폴백)은 "실패"로 안 세고, 그 외
+   * 구간이 하나라도 직선으로 대체됐으면 "straight". AutoPipeline이 이
+   * 필드를 보고 "직선거리 기준" 표기를 자동으로 붙일 수 있다.
+   */
+  distanceSource: "route" | "straight";
 }
 
 const DEFAULT_THEME: CourseTheme = "balanced";
@@ -138,8 +149,9 @@ export function briefCacheKey(scope: CourseBriefScope, region: string, days: num
 // 관측됐다(도메스틱이라 카카오라서가 아니라, ratingSource 필드가 생기기
 // 전에 캐시된 옛 payload였을 뿐). 새 필드를 추가할 때마다 이 목록에
 // 검증을 더한다 — 필수 필드가 없는 캐시는 캐시 미스로 취급해 새로 만든다.
-function isFreshBriefPayload(payload: CourseBrief): boolean {
+export function isFreshBriefPayload(payload: CourseBrief): boolean {
   if (typeof payload.ratingSource !== "string") return false;
+  if (typeof payload.distanceSource !== "string") return false;
   if (!Array.isArray(payload.spots)) return false;
   return payload.spots.every((s) => typeof (s as { day?: unknown }).day === "number");
 }
@@ -1517,8 +1529,9 @@ async function liveEnrichSpots(spots: CourseBriefSpot[], scope: CourseBriefScope
  * 마찬가지로, 이 함수의 결과만으로도 완결된 코스 구조를 즉시 캐시에
  * 쓸 수 있어야 한다.
  */
-function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], baseOrder: number, scope: CourseBriefScope, region: string, day: 1 | 2 | 3): { spots: CourseBriefSpot[]; distanceKm: number } {
+export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], baseOrder: number, scope: CourseBriefScope, region: string, day: 1 | 2 | 3): { spots: CourseBriefSpot[]; distanceKm: number; hadStraightFallback: boolean } {
   let distanceKm = 0;
+  let hadStraightFallback = false;
   const spots: CourseBriefSpot[] = stops.map((stop, i) => {
     let toNextMinutes: number | null = null;
     let toNextMode: TravelMode = "car";
@@ -1527,6 +1540,9 @@ function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], baseOrder
       distanceKm += seg.distanceKm;
       toNextMode = seg.mode;
       toNextMinutes = seg.durationMinutes;
+      // 도보(walk)는 애초에 실경로 조회 대상이 아니다(fetchKakaoDrivingRoute
+      // 위 설명 참고) — 의도된 직선 추정이라 "실패"로 세지 않는다.
+      if (seg.mode !== "walk" && seg.points == null) hadStraightFallback = true;
     }
 
     let { rating, reviewCount } = qualityGate(stop.rating ?? null, stop.reviewCount ?? null);
@@ -1550,7 +1566,7 @@ function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], baseOrder
       toNextMode,
     };
   });
-  return { spots, distanceKm };
+  return { spots, distanceKm, hadStraightFallback };
 }
 
 // 코스 동선이 그려진 정적 지도(작업지시서 2026-09-05 "트레쥴 다음 작업"
@@ -1738,15 +1754,25 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
 
   let baseOrder = 1;
   let totalDistanceKm = 0;
+  let hadAnyStraightFallback = false;
   const allSpots: CourseBriefSpot[] = [];
   const mapPaths: string[] = [];
   routedDays.forEach(({ stops, segments }, i) => {
-    const { spots, distanceKm } = assembleDaySpots(stops, segments, baseOrder, scope, region, (i + 1) as 1 | 2 | 3);
+    const { spots, distanceKm, hadStraightFallback } = assembleDaySpots(stops, segments, baseOrder, scope, region, (i + 1) as 1 | 2 | 3);
     allSpots.push(...spots);
     totalDistanceKm += distanceKm;
     baseOrder += spots.length;
     mapPaths.push(...segments.map((s) => s.mapPath));
+    if (hadStraightFallback) hadAnyStraightFallback = true;
   });
+  // 실패해도 조용히 직선으로 폴백해왔다 — 작업지시서 2026-09-11 "해외
+  // 경로가 조용히 직선으로 떨어지고 있습니다" §3: "그걸 아무도 모르게
+  // 만든 게 코드 문제". 지금은 로그로라도 남긴다(logger 모듈이 따로
+  // 없어 이 파일의 기존 관례 그대로 console 사용 — generateDay의
+  // console.error와 같은 패턴).
+  if (hadAnyStraightFallback) {
+    console.warn(`[courseBrief] ${scope}/${region} 코스의 일부 구간이 실제 경로를 못 구해 직선거리로 대체됐습니다 (distanceSource="straight")`);
+  }
   // 요청한 days보다 실제로 채워진 날짜 수가 적을 수 있다(1일차부터 비면
   // dayStops가 아예 비고, 이 경우도 최소 1일로 보고한다 — 기존 동작 유지).
   // 실제 경로 검증으로 어느 날의 스팟이 줄어드는 것(심지어 1곳까지)은
@@ -1754,7 +1780,16 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   // 날짜를 스킵하라"는 게 아니다(스팟이 3곳 미만이 되는 지역 전체를
   // 스킵할지는 이 응답을 쓰는 AutoPipeline 쪽 C-2 계약의 몫).
   const actualDays = Math.max(1, finalDayGroups.length) as 1 | 2 | 3;
-  let brief: CourseBrief = { region, days: actualDays, totalDistanceKm: round1(totalDistanceKm), spots: allSpots, imageUrl: null, appUrl, ratingSource: "google" };
+  let brief: CourseBrief = {
+    region,
+    days: actualDays,
+    totalDistanceKm: round1(totalDistanceKm),
+    spots: allSpots,
+    imageUrl: null,
+    appUrl,
+    ratingSource: "google",
+    distanceSource: hadAnyStraightFallback ? "straight" : "route",
+  };
 
   // 여기까지가 "구조" 단계 — 순서·실제 경로 거리/소요시간·카탈로그
   // 평점까지 전부 확정됐다. ⚠️ 실제 경로 조회(routeDayStops)는 외부

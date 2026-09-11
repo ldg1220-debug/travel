@@ -31,15 +31,31 @@ export interface ClickedPlaceState {
  * 탭 동선을 실제 경로로" §2/§3: 예전엔 스톱을 전부 이은 직선(점선) 하나
  * 뿐이라 산·바다·강을 그냥 가로질렀다. `path`가 있으면(/api/routes가
  * 실제 도로 경로를 찾아준 경우) 그 좌표열을 실선으로, 없으면(아직
- * 조회 중이거나 경로를 못 찾음) `from`→`to` 두 점을 잇는 점선 직선으로
+ * 조회 중이거나 경로를 못 찾음) `fallbackPath`(두 점을 잇는 점선 직선)로
  * 대체한다 — "경로 있음: 실선, 경로 없음: 점선"으로 사용자가 어느 구간이
  * 실제 값인지 구분할 수 있게 한다(§3 "점선을 '추정' 표시로 쓰세요").
+ *
+ * `fallbackPath`를 매 렌더 `[from, to]`로 새로 만들지 않고 미리 튜플로
+ * 담아둔다 — 작업지시서 2026-09-11 "해외 경로가 조용히 직선으로 떨어지고
+ * 있습니다" §4: react-google-maps/api의 `<Polyline>`은 `path`/`options`
+ * prop의 "참조"가 바뀔 때마다 내부적으로 setPath/setOptions를 다시
+ * 불러(node_modules 확인) 렌더마다 새 배열을 넘기면 값이 그대로여도
+ * 계속 다시 그려지다 못해 사라진 것처럼 보이는 실제 버그로 이어졌다.
+ * 호출부(PlannerBoard.tsx)가 이 배열을 한 번만 만들어 넘겨야 이 이점이
+ * 산다.
  */
 export interface RouteLeg {
-  from: { lat: number; lng: number };
-  to: { lat: number; lng: number };
+  fallbackPath: [{ lat: number; lng: number }, { lat: number; lng: number }];
   path: { lat: number; lng: number }[] | null;
 }
+
+// 위와 같은 이유로 옵션 객체도 렌더마다 새로 만들지 않는다 — 매번 값이
+// 같은 상수라 모듈 스코프로 뺄 수 있다.
+const ROUTE_LEG_SOLID_OPTIONS: google.maps.PolylineOptions = { strokeColor: "#111827", strokeOpacity: 0.9, strokeWeight: 3 };
+const ROUTE_LEG_DASHED_OPTIONS: google.maps.PolylineOptions = {
+  strokeOpacity: 0,
+  icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#111827", scale: 3 }, offset: "0", repeat: "14px" }],
+};
 
 interface PlannerGoogleMapProps {
   mapsError: boolean;
@@ -144,22 +160,9 @@ export default function PlannerGoogleMap({
               실제 경로로" §3 "경로 있음: 실선 / 경로 없음: 점선(추정 표시)". */}
           {routeLegs.map((leg, i) =>
             leg.path && leg.path.length >= 2 ? (
-              <Polyline key={i} path={leg.path} options={{ strokeColor: "#111827", strokeOpacity: 0.9, strokeWeight: 3 }} />
+              <Polyline key={i} path={leg.path} options={ROUTE_LEG_SOLID_OPTIONS} />
             ) : (
-              <Polyline
-                key={i}
-                path={[leg.from, leg.to]}
-                options={{
-                  strokeOpacity: 0,
-                  icons: [
-                    {
-                      icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#111827", scale: 3 },
-                      offset: "0",
-                      repeat: "14px",
-                    },
-                  ],
-                }}
-              />
+              <Polyline key={i} path={leg.fallbackPath} options={ROUTE_LEG_DASHED_OPTIONS} />
             ),
           )}
 
