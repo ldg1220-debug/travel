@@ -98,7 +98,7 @@ export default function PlannerKakaoMap({
             leg.path && leg.path.length >= 2 ? (
               <KakaoPolyline key={i} path={leg.path} strokeColor="#111827" strokeOpacity={0.9} strokeWeight={2} strokeStyle="solid" />
             ) : (
-              <KakaoPolyline key={i} path={[leg.from, leg.to]} strokeColor="#111827" strokeOpacity={0.7} strokeWeight={2} strokeStyle="shortdash" />
+              <KakaoPolyline key={i} path={leg.fallbackPath} strokeColor="#111827" strokeOpacity={0.7} strokeWeight={2} strokeStyle="shortdash" />
             ),
           )}
 

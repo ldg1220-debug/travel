@@ -1746,10 +1746,26 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     [schedule],
   );
   const routeLegResults = useRouteLegs(routeLegStops);
-  const routeLegs: RouteLeg[] = routeLegStops.slice(0, -1).map((a, i) => {
-    const b = routeLegStops[i + 1];
-    return { from: { lat: a.lat, lng: a.lng }, to: { lat: b.lat, lng: b.lng }, path: routeLegResults.get(routeLegKey(a, b))?.path ?? null };
-  });
+  // routeLegResults가 이제 안정적인 참조를 유지하므로(useRouteLegs 참고)
+  // 이 결과도 useMemo로 감싸 실제로 바뀔 때만 새 배열/객체를 만든다 —
+  // 작업지시서 2026-09-11 "해외 경로가 조용히 직선으로 떨어지고
+  // 있습니다" §4: 매 렌더 새 leg 객체(특히 fallbackPath 배열)를 만들면
+  // react-google-maps/api의 Polyline이 참조 변화만으로 계속 다시 그려
+  // 사라진 것처럼 보이는 버그로 이어졌다.
+  const routeLegs: RouteLeg[] = useMemo(
+    () =>
+      routeLegStops.slice(0, -1).map((a, i) => {
+        const b = routeLegStops[i + 1];
+        return {
+          fallbackPath: [
+            { lat: a.lat, lng: a.lng },
+            { lat: b.lat, lng: b.lng },
+          ] as [{ lat: number; lng: number }, { lat: number; lng: number }],
+          path: routeLegResults.get(routeLegKey(a, b))?.path ?? null,
+        };
+      }),
+    [routeLegStops, routeLegResults],
+  );
 
   // activeDate의 TransitBlock(estimateTransit — 직선거리 기반 추정치,
   // src/lib/transit.ts)을 실제 값으로 업그레이드하기 위한 조회표.
