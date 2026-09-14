@@ -8,6 +8,7 @@ import { Link as LinkIcon, ChevronLeft, Heart, Download, X } from "lucide-react"
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import {
   acceptFollowRequest,
+  copyTripPostToPlan,
   deleteTripPost,
   fetchFollowStatus,
   fetchTripPost,
@@ -40,6 +41,13 @@ import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 const ExportPostModal = dynamic(() => import("@/components/ExportPostModal").then((m) => m.ExportPostModal), { ssr: false });
 const TripPostComposer = dynamic(() => import("@/components/TripPostComposer").then((m) => m.TripPostComposer), { ssr: false });
 
+// 비로그인 상태로 "담아가기"를 누르면 로그인 후 이 자리로 돌아와(next-auth
+// signIn 기본 콜백 URL이 현재 페이지) 같은 후기의 코스를 이어서 담아준다 —
+// 작업지시서 2026-09-14 "후기에 코스 스냅샷 저장 + 담아가기" §4 "여기서
+// 그냥 로그인 화면만 띄우고 끝나면 이탈합니다". sessionStorage를 쓴다 —
+// 로그인 왕복 사이에만 살아있으면 되고, 다른 탭·기기로 새지 않아야 한다.
+const PENDING_COPY_KEY = "tradule:pendingTripCopyPostId";
+
 /** Standalone public view of one 여행 후기 (blog/Instagram-style trip post) — what a 카카오톡 공유 link or "링크 복사" opens for anyone, logged in or not, if the post was published to the feed (or you're its author). */
 export function TripPostDetailPage() {
   const params = useParams<{ id: string }>();
@@ -66,6 +74,7 @@ export function TripPostDetailPage() {
   const [profileUserId, setProfileUserId] = useState<number | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   const reload = () => {
     const id = Number(params.id);
@@ -127,6 +136,65 @@ export function TripPostDetailPage() {
       setIsOwner(data.isOwner);
     });
   }, [params.id]);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 1600);
+  };
+
+  // "내 계획으로 담아가기" — 로그인 상태면 바로 서버에 새 계획을 만들고
+  // 플래너로 넘어간다. 비로그인이면 의도를 sessionStorage에 남기고
+  // 로그인부터 시킨다 — next-auth signIn 기본 콜백 URL이 현재 페이지라
+  // 로그인 후 이 자리로 돌아오면 아래 useEffect가 이어서 실행한다.
+  // 작업지시서 2026-09-14 "후기에 코스 스냅샷 저장 + 담아가기" §4.
+  const runCopy = async (postId: number) => {
+    setCopying(true);
+    try {
+      const result = await copyTripPostToPlan(postId);
+      if (!result) {
+        showToast("담아가지 못했어요");
+        return;
+      }
+      router.push(`/planner/${result.shareToken}`);
+    } catch {
+      showToast("담아가지 못했어요");
+    } finally {
+      setCopying(false);
+    }
+  };
+  const handleCopyToMyPlans = () => {
+    if (!post) return;
+    if (!session?.user) {
+      try {
+        sessionStorage.setItem(PENDING_COPY_KEY, String(post.id));
+      } catch {
+        // 프라이빗 모드 등으로 sessionStorage를 못 쓰면 그냥 매번 다시
+        // 눌러야 할 뿐 — 로그인 자체는 계속 진행한다.
+      }
+      setLoginReason("이 코스를 담아가려면 로그인해주세요.");
+      setLoginOpen(true);
+      return;
+    }
+    void runCopy(post.id);
+  };
+  useEffect(() => {
+    if (!post || !session?.user) return;
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem(PENDING_COPY_KEY);
+    } catch {
+      return;
+    }
+    if (pending !== String(post.id)) return;
+    sessionStorage.removeItem(PENDING_COPY_KEY);
+    // 마이크로태스크로 미룬다 — runCopy가 곧바로 setCopying(true)를 부르는데,
+    // 이펙트 본문에서 동기적으로 setState를 부르면 안 된다는 규칙
+    // (react-hooks/set-state-in-effect) 때문이다.
+    queueMicrotask(() => {
+      void runCopy(post.id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runCopy는 이 렌더의 post/router를 그대로 참조하는 안정적인 클로저일 뿐이라, 의존성에 넣으면 매 렌더 재실행된다.
+  }, [post, session?.user]);
 
   // 남의 후기를 볼 때만 팔로우 상태를 조회 — 팔로우 버튼과 "트메공개" 접근
   // 가능 여부 표시에 쓴다.
@@ -203,11 +271,6 @@ export function TripPostDetailPage() {
     } finally {
       setLikeBusy(false);
     }
-  };
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 1600);
   };
 
   // 작성 시점의 공개 범위 선택과 별개로, 다 쓴 후에도 전체 편집 화면을
@@ -417,6 +480,35 @@ export function TripPostDetailPage() {
             return <Fragment key={i}>{part}</Fragment>;
           })}
         </p>
+
+        {post.coursesSnapshot && post.coursesSnapshot.items.length > 0 && (
+          <div className="mt-6">
+            <p className="mb-2 flex items-center gap-1.5 text-[13px] font-bold text-slate-700">
+              <CordixIcon name="compass" size={14} className="text-brand-600" /> 이 여행의 코스
+            </p>
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <ol className="space-y-1.5">
+                {[...post.coursesSnapshot.items]
+                  .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
+                  .map((item, i) => (
+                    <li key={item.id} className="flex items-center gap-2 text-[13px] text-slate-700">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[10.5px] font-bold text-brand-700">
+                        {i + 1}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                    </li>
+                  ))}
+              </ol>
+              <button
+                onClick={handleCopyToMyPlans}
+                disabled={copying}
+                className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl bg-brand-700 text-[13px] font-semibold text-white transition-colors hover:bg-brand-800 disabled:opacity-60"
+              >
+                <Download size={14} /> {copying ? "담는 중…" : "내 계획으로 담아가기"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {placeReviews.length > 0 && (
           <div className="mt-6">

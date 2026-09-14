@@ -99,7 +99,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const result = await pool.query(
     `select p.id, p.title, p.content, p.images, p.created_at as "createdAt",
             p."userId" as "authorId", coalesce(u.nickname, '여행자') as "authorName", u.image as "authorImage",
-            i.title as "tripTitle", i.region as "region"
+            i.title as "tripTitle", i.region as "region", p."coursesSnapshot" as "coursesSnapshot"
      from trip_posts p
      join users u on u.id = p."userId"
      left join itineraries i on i.id = p."itineraryId"

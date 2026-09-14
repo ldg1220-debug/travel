@@ -114,6 +114,9 @@ ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "contentKey" VARCHAR(80) UNIQUE
 UPDATE itineraries SET "contentKey" = NULL
   WHERE "contentKey" IS NOT NULL AND jsonb_array_length("placesData") = 0;
 
+-- "담아가기"(후기 코스 복사) 출처 표시(origin/sourceReviewId)는 trip_posts를
+-- 참조해야 하는데 이 테이블이 파일 뒷부분에 정의된다 — reviews."tripPostId"와
+-- 같은 이유로 그 뒤에서 ALTER한다(아래 검색: "담아가기" 참고).
 CREATE INDEX IF NOT EXISTS itineraries_user_id_idx ON itineraries ("userId");
 CREATE INDEX IF NOT EXISTS itineraries_share_token_idx ON itineraries ("shareToken");
 CREATE INDEX IF NOT EXISTS itineraries_is_public_idx ON itineraries ("isPublic");
@@ -433,6 +436,32 @@ CREATE INDEX IF NOT EXISTS reviews_trip_post_id_idx ON reviews ("tripPostId");
 DROP INDEX IF EXISTS reviews_user_place_no_itinerary_key;
 CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_trip_post_place_key
   ON reviews ("userId", "tripPostId", "placeId") WHERE "itineraryId" IS NULL AND "tripPostId" IS NOT NULL;
+
+-- "담아가기"(후기 코스 복사, /api/trip-posts/[id]/copy) 출처 표시 —
+-- 작업지시서 2026-09-14 "후기에 코스 스냅샷 저장 + 담아가기" §4. trip_posts를
+-- 참조해야 해서(reviews."tripPostId"와 같은 이유) 그 테이블 정의 뒤인
+-- 여기서 추가한다. 일반 사용자가 직접 만든 계획은 둘 다 NULL — 새
+-- 컬럼이라 기존 행은 전부 NULL이고, 이 흐름으로 만들어진 행만
+-- origin='copy'를 갖는다. "sourceReviewId"는 이름은 "리뷰"지만 실제로는
+-- trip_posts(후기 게시글)를 가리킨다 — 지시서가 후기 전체를 "reviews"라고
+-- 부른 것과 같은 이유로 지시서 용어를 그대로 따랐다(장소별 별점 테이블인
+-- 실제 `reviews`와는 다른 테이블이니 혼동 주의).
+ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS origin VARCHAR(20);
+ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "sourceReviewId" INTEGER REFERENCES trip_posts(id) ON DELETE SET NULL;
+
+-- 후기 코스 스냅샷 — 작업지시서 2026-09-14 §3: 후기가 원본 계획을
+-- 참조만 해서, 나중에 원본 계획이 수정·삭제되면 후기 속 코스도 같이
+-- 망가지거나 사라지는 구조였다(실제 사고: 리뷰가 가리키던 계획이 다른
+-- 코스 내용으로 덮어써진 뒤, 후기가 그 잘못된 내용을 그대로 보여주게
+-- 됨). 후기를 작성/수정하는 시점에 그 계획의 (title, region, placesData)를
+-- 그대로 복사해 이 컬럼에 얼려둔다 — 이후 원본 계획이 어떻게 바뀌거나
+-- 지워져도 후기 속 코스는 그대로다. itineraryId(참조)는 그대로 유지한다
+-- ("지금은 이렇다"용 — 예: "일정 보기"로 최신 계획 열기).
+-- {title, region, items} 형태(POST /api/trip-posts의 computeCourseSnapshot 참고) —
+-- 지시서는 "placesData 전체 사본"이라고만 했지만, 나중에 "담아가기"로
+-- 새 계획을 만들려면 items 배열만으론 부족한 region도 함께 얼려둬야
+-- 한다(원본 계획이 지워지면 더 이상 조회할 곳이 없다).
+ALTER TABLE trip_posts ADD COLUMN IF NOT EXISTS "coursesSnapshot" JSONB;
 
 -- 앱을 홈 화면에 설치했을 때(PWA) 실제 OS 팝업으로 뜨는 푸시 알림 구독
 -- 정보 — 브라우저/기기 하나당 한 구독(endpoint가 그 조합의 고유 식별자).

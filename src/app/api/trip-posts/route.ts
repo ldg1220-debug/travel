@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { computeCourseSnapshot, shouldRefreshSnapshot } from "@/lib/server/tripPostSnapshot";
+import type { CourseSnapshot } from "@/lib/types";
 
 type Visibility = "public" | "friends" | "custom" | "private";
 const VISIBILITIES: Visibility[] = ["public", "friends", "custom", "private"];
@@ -88,14 +90,30 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const itineraryId = body.itineraryId ?? null;
   const isPublic = visibility === "public";
 
+  const viewerId = Number(session.user.id);
+
   if (body.id) {
-    const updated = await pool.query(
-      `update trip_posts set title = $3, content = $4, images = $5, visibility = $6, "isPublic" = $7, "itineraryId" = $8, updated_at = now()
-       where id = $1 and "userId" = $2
-       returning id`,
-      [body.id, session.user.id, body.title.trim(), body.content.trim(), images, visibility, isPublic, itineraryId],
+    // 먼저 현재 상태(itineraryId·스냅샷 유무)를 봐야 스냅샷을 새로 찍을지
+    // 그대로 지킬지 정할 수 있다 — shouldRefreshSnapshot 참고. 이 SELECT
+    // 자체가 소유권 확인도 겸한다(아래 rowCount===0이면 폴백).
+    const existing = await pool.query<{ itineraryId: number | null; coursesSnapshot: CourseSnapshot | null }>(
+      `select "itineraryId", "coursesSnapshot" from trip_posts where id = $1 and "userId" = $2`,
+      [body.id, viewerId],
     );
-    if (updated.rowCount) {
+    if (existing.rowCount) {
+      const prior = existing.rows[0];
+      let coursesSnapshot: CourseSnapshot | null = prior.coursesSnapshot;
+      if (itineraryId == null) {
+        coursesSnapshot = null; // 계획 연결을 뗐다 — 스냅샷도 같이 비운다
+      } else if (shouldRefreshSnapshot(prior.itineraryId, itineraryId, prior.coursesSnapshot != null)) {
+        coursesSnapshot = await computeCourseSnapshot(viewerId, itineraryId);
+      }
+      const updated = await pool.query(
+        `update trip_posts set title = $3, content = $4, images = $5, visibility = $6, "isPublic" = $7, "itineraryId" = $8, "coursesSnapshot" = $9, updated_at = now()
+         where id = $1 and "userId" = $2
+         returning id`,
+        [body.id, viewerId, body.title.trim(), body.content.trim(), images, visibility, isPublic, itineraryId, coursesSnapshot ? JSON.stringify(coursesSnapshot) : null],
+      );
       await setVisibleTo(updated.rows[0].id, visibility, visibleToUserIds);
       return NextResponse.json({ id: updated.rows[0].id });
     }
@@ -104,13 +122,22 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
   }
 
   if (itineraryId != null) {
+    // 이 (userId, itineraryId) 조합 행이 이미 있으면 on conflict가 그
+    // 행을 갱신하는 것뿐이라 itineraryId 자체는 "안 바뀐" 경우다 —
+    // 스냅샷이 아직 없을 때만 채운다(shouldRefreshSnapshot과 같은 정책).
+    const existing = await pool.query<{ coursesSnapshot: CourseSnapshot | null }>(
+      `select "coursesSnapshot" from trip_posts where "userId" = $1 and "itineraryId" = $2`,
+      [viewerId, itineraryId],
+    );
+    const priorSnapshot = existing.rows[0]?.coursesSnapshot ?? null;
+    const coursesSnapshot = priorSnapshot ?? (await computeCourseSnapshot(viewerId, itineraryId));
     const result = await pool.query(
-      `insert into trip_posts ("userId", "itineraryId", title, content, images, visibility, "isPublic")
-       values ($1, $2, $3, $4, $5, $6, $7)
+      `insert into trip_posts ("userId", "itineraryId", title, content, images, visibility, "isPublic", "coursesSnapshot")
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
        on conflict ("userId", "itineraryId")
-       do update set title = $3, content = $4, images = $5, visibility = $6, "isPublic" = $7, updated_at = now()
+       do update set title = $3, content = $4, images = $5, visibility = $6, "isPublic" = $7, "coursesSnapshot" = $8, updated_at = now()
        returning id`,
-      [session.user.id, itineraryId, body.title.trim(), body.content.trim(), images, visibility, isPublic],
+      [viewerId, itineraryId, body.title.trim(), body.content.trim(), images, visibility, isPublic, coursesSnapshot ? JSON.stringify(coursesSnapshot) : null],
     );
     await setVisibleTo(result.rows[0].id, visibility, visibleToUserIds);
     return NextResponse.json({ id: result.rows[0].id });

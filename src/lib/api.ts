@@ -1,4 +1,4 @@
-import type { ItineraryItem, Place, Region } from "./types";
+import type { CourseSnapshot, ItineraryItem, Place, Region } from "./types";
 import type { CuisineTag, DiscoverBundle, DiscoverScope, DiscoverSpot, DiscoverRoute, PlaceCategoryTag, RegionNode, Season } from "./discoverData";
 import type { CommunityVisibility } from "./community";
 
@@ -750,6 +750,8 @@ export interface FeedPost {
   tripTitle: string | null;
   /** The linked trip's region, if any — null for a plan-less ("완전 새로 작성") post. */
   region: Region | null;
+  /** 후기 작성 시점에 얼려둔 코스 사본 — 원본 계획이 나중에 수정·삭제돼도 이 값은 그대로다. 스냅샷이 없으면(계획 없는 후기, 마이그레이션 이전 글) null. */
+  coursesSnapshot: CourseSnapshot | null;
 }
 
 export interface FeedResponse {
@@ -801,6 +803,19 @@ export async function fetchTripPost(id: number): Promise<{ post: TripPostDetail;
 export async function likeTripPost(id: number): Promise<void> {
   const res = await fetch(`/api/trip-posts/${id}/like`, { method: "POST" });
   if (!res.ok) throw new Error("좋아요를 처리하지 못했어요");
+}
+
+/**
+ * "내 계획으로 담아가기" — 후기의 코스 스냅샷을 항상 새 계획(itineraries
+ * 새 행)으로 복사한다. 작업지시서 2026-09-14 "후기에 코스 스냅샷 저장 +
+ * 담아가기" §4 "항상 새 행이 핵심입니다 — 복사는 어떤 경우에도 기존
+ * 계획을 건드리면 안 됩니다". 로그인이 필요하다(401이면 호출부가 로그인
+ * 유도).
+ */
+export async function copyTripPostToPlan(postId: number): Promise<{ shareToken: string } | null> {
+  const res = await fetch(`/api/trip-posts/${postId}/copy`, { method: "POST" });
+  if (!res.ok) return null;
+  return res.json();
 }
 
 export async function unlikeTripPost(id: number): Promise<void> {

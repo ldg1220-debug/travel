@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dateWindow, formatTime, hourFromTime, minutesFromTime, pad2, rangesOverlap, shiftISODate } from "./timeline";
+import { dateWindow, formatTime, hourFromTime, minutesFromTime, pad2, rangesOverlap, rescheduleItemsToToday, shiftISODate } from "./timeline";
 
 describe("pad2", () => {
   it("pads single digits with a leading zero", () => {
@@ -58,5 +58,41 @@ describe("shiftISODate", () => {
 describe("dateWindow", () => {
   it("returns `count` consecutive dates starting at `date`", () => {
     expect(dateWindow("2026-07-23", 3)).toEqual(["2026-07-23", "2026-07-24", "2026-07-25"]);
+  });
+});
+
+describe("rescheduleItemsToToday", () => {
+  // 작업지시서 2026-09-14 "후기에 코스 스냅샷 저장 + 담아가기" §4 —
+  // "담아가기"로 새 계획을 만들 때 날짜만 오늘 기준으로 옮기고
+  // 시각·체류시간은 유지한다.
+  it("shifts every item so the earliest date lands on `today`, keeping the relative day offsets", () => {
+    const items = [
+      { date: "2026-05-22", time: "09:00", durationMinutes: 60 },
+      { date: "2026-05-22", time: "11:00", durationMinutes: 90 },
+      { date: "2026-05-24", time: "10:00", durationMinutes: 60 }, // 원래 2일 뒤
+    ];
+    const result = rescheduleItemsToToday(items, "2026-09-14");
+    expect(result.map((i) => i.date)).toEqual(["2026-09-14", "2026-09-14", "2026-09-16"]);
+    // 시각·체류시간은 손대지 않는다.
+    expect(result.map((i) => ({ time: i.time, durationMinutes: i.durationMinutes }))).toEqual([
+      { time: "09:00", durationMinutes: 60 },
+      { time: "11:00", durationMinutes: 90 },
+      { time: "10:00", durationMinutes: 60 },
+    ]);
+  });
+
+  it("defaults `today` to the real current date when omitted", () => {
+    const items = [{ date: "2020-01-01" }];
+    const result = rescheduleItemsToToday(items);
+    expect(result[0].date).not.toBe("2020-01-01");
+  });
+
+  it("returns an empty array unchanged", () => {
+    expect(rescheduleItemsToToday([])).toEqual([]);
+  });
+
+  it("is a no-op for a single-day course when `today` matches", () => {
+    const items = [{ date: "2026-01-01" }, { date: "2026-01-01" }];
+    expect(rescheduleItemsToToday(items, "2026-01-01")).toEqual(items);
   });
 });
