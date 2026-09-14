@@ -101,6 +101,20 @@ export interface ItineraryItem {
 }
 
 /**
+ * 후기(trip_posts)가 작성 시점의 계획을 얼려서 담아두는 사본 —
+ * 작업지시서 2026-09-14 "후기에 코스 스냅샷 저장 + 담아가기" §3: 원본
+ * 계획을 참조만 하면 나중에 그 계획이 수정·삭제될 때 후기 속 코스도
+ * 같이 망가진다(실제 사고). `items`만으론 "담아가기"로 새 계획을 만들
+ * 때 필요한 `region`(itineraries의 NOT NULL 컬럼)을 알 수 없어 함께
+ * 얼려둔다 — 원본 계획이 지워지면 더 이상 조회할 곳이 없어서다.
+ */
+export interface CourseSnapshot {
+  title: string;
+  region: Region;
+  items: ItineraryItem[];
+}
+
+/**
  * A named snapshot of a whole working itinerary — lets a user keep several
  * trip drafts side by side (e.g. "오사카안 A" vs "오사카안 B") and switch
  * between them instead of only ever having one active plan. Capped at

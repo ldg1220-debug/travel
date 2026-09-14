@@ -90,3 +90,20 @@ export function daysBetweenInclusive(startDate: string, endDate: string): number
   const end = new Date(ey, em - 1, ed);
   return Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
 }
+
+/**
+ * 후기 코스 스냅샷을 "담아가기"로 새 계획에 넣을 때, 날짜만 오늘 기준으로
+ * 재배치하고 시각·체류시간은 그대로 둔다 — 작업지시서 2026-09-14 "후기에
+ * 코스 스냅샷 저장 + 담아가기" §4: "날짜는 오늘 기준으로 재배치, 시각·
+ * 체류시간은 유지". 스냅샷 안에서 가장 이른 날짜를 `today`(기본값 오늘)에
+ * 맞추고, 나머지는 그 날짜와의 상대적 간격을 그대로 유지한 채 옮긴다
+ * (3박4일 코스의 2일차·3일차가 오늘+1, 오늘+2로 따라온다).
+ */
+export function rescheduleItemsToToday<T extends { date: string }>(items: T[], today: string = todayISODate()): T[] {
+  if (items.length === 0) return items;
+  const minDate = items.map((i) => i.date).sort()[0];
+  return items.map((item) => {
+    const offset = daysBetweenInclusive(minDate, item.date) - 1;
+    return { ...item, date: shiftISODate(today, offset) };
+  });
+}
