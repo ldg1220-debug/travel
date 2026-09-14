@@ -558,12 +558,27 @@ export interface SharedItinerary {
   region: Region;
   placesData: ItineraryItem[];
   updatedAt: string;
+  authorName: string;
+  /** True when the current viewer is this plan's own author — lets the client hide "내 계획으로 담아가기" from the author. */
+  isOwner: boolean;
 }
 
 /** A shared link is a read-only snapshot as of when it was created/last re-shared — nothing pushes edits back to it automatically. */
 export async function fetchSharedItinerary(shareToken: string): Promise<SharedItinerary> {
   const res = await fetch(`/api/itineraries/shared/${shareToken}`);
   if (!res.ok) throw new Error("Failed to load shared itinerary");
+  return res.json();
+}
+
+/**
+ * "내 계획으로 담아가기" — 공유 링크(shareToken)로 열람 중인 계획을 항상
+ * 새 계획(itineraries 새 행)으로 복사한다. 작업지시서 2026-09-14 "공유
+ * 링크에도 담아가기 (유입 루프)" §2. 로그인이 필요하다(401이면 호출부가
+ * 로그인 유도).
+ */
+export async function copySharedItineraryToPlan(shareToken: string): Promise<{ shareToken: string } | null> {
+  const res = await fetch(`/api/itineraries/${shareToken}/copy`, { method: "POST" });
+  if (!res.ok) return null;
   return res.json();
 }
 
