@@ -442,12 +442,41 @@ CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_trip_post_place_key
 -- 참조해야 해서(reviews."tripPostId"와 같은 이유) 그 테이블 정의 뒤인
 -- 여기서 추가한다. 일반 사용자가 직접 만든 계획은 둘 다 NULL — 새
 -- 컬럼이라 기존 행은 전부 NULL이고, 이 흐름으로 만들어진 행만
--- origin='copy'를 갖는다. "sourceReviewId"는 이름은 "리뷰"지만 실제로는
--- trip_posts(후기 게시글)를 가리킨다 — 지시서가 후기 전체를 "reviews"라고
--- 부른 것과 같은 이유로 지시서 용어를 그대로 따랐다(장소별 별점 테이블인
--- 실제 `reviews`와는 다른 테이블이니 혼동 주의).
+-- origin='copy'를 갖는다(아래 "content" 값도 참고 — course-open이
+-- 만든 콘텐츠 행 표시에도 같은 컬럼을 재사용한다). "sourceReviewId"는
+-- 이름은 "리뷰"지만 실제로는 trip_posts(후기 게시글)를 가리킨다 —
+-- 지시서가 후기 전체를 "reviews"라고 부른 것과 같은 이유로 지시서
+-- 용어를 그대로 따랐다(장소별 별점 테이블인 실제 `reviews`와는 다른
+-- 테이블이니 혼동 주의).
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS origin VARCHAR(20);
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "sourceReviewId" INTEGER REFERENCES trip_posts(id) ON DELETE SET NULL;
+
+-- ★★★ 작업지시서 2026-09-14 "course-open이 저장된 계획을 덮어씁니다" §2 —
+-- 프로덕션 실측: 사용자가 직접 만든 계획(제목·내용 모두 사용자의 실제
+-- 여행)이 course-open?region=경주&days=1 재호출 이후 경주 코스 내용으로
+-- 바뀌어 있었다. 위(줄 97)의 plain UNIQUE("contentKey")만으로는 "이
+-- 행이 정말 course-open이 관리하는 콘텐츠 사본인지"를 전혀 구분하지
+-- 못한다 — 이 세션엔 프로덕션 DB 접근 권한이 없어 정확한 경로를
+-- 재현·확정할 수는 없었지만(§3 데이터 복구는 사람이 확인할 몫), 정확한
+-- 경로가 무엇이었든 앞으로는 구조적으로 불가능하게 만든다: course-open의
+-- INSERT … ON CONFLICT 대상을 이 부분(partial) 유니크 인덱스 하나로
+-- 좁혀서, origin이 'content'가 아닌 행(사용자가 만든 계획 — origin이
+-- NULL이거나 'copy'인 모든 행)은 이 인덱스 자체에 포함되지 않아
+-- ON CONFLICT가 절대 그 행을 대상으로 고를 수 없다. 코드의 조건문이
+-- 아니라 SQL 인덱스 정의 자체로 막아서, 나중에 라우트 코드의 조건이
+-- 실수로 넓어져도 이 차단은 깨지지 않는다.
+--
+-- ⚠️ 기존에 이미 만들어진 콘텐츠 행(이 배포 이전, origin이 아직 NULL인
+-- 채로 contentKey만 있는 행)은 의도적으로 origin='content'를 백필하지
+-- 않는다 — 그 행이 그동안 실제 사용자에게 "자신의 계획"처럼 채택되어
+-- 편집됐을 가능성을 이 세션에서 확인할 방법이 없다(위 실측 사고가 바로
+-- 그런 행이었을 가능성을 배제할 수 없다). origin이 계속 NULL인 그
+-- 행들은 이제부터 "고아"가 된다 — 같은 (지역,일수,버전) 조합으로
+-- course-open이 다시 호출돼도 이 부분 인덱스엔 잡히는 게 없으니 완전히
+-- 새 행을 만들 뿐, 그 옛 행은 두 번 다시 손대지 않는다(옛 shareToken
+-- URL 자체는 계속 살아있다).
+CREATE UNIQUE INDEX IF NOT EXISTS itineraries_content_key_content_only_idx
+  ON itineraries ("contentKey") WHERE origin = 'content';
 
 -- 후기 코스 스냅샷 — 작업지시서 2026-09-14 §3: 후기가 원본 계획을
 -- 참조만 해서, 나중에 원본 계획이 수정·삭제되면 후기 속 코스도 같이
