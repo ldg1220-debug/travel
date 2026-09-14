@@ -12,6 +12,8 @@ import {
   fetchKakaoDrivingRoute,
   fetchLegRoute,
   isFreshBriefPayload,
+  isSupportedRegion,
+  looksLikeMismatchedOverseasResult,
   mapPathParam,
   medoidOf,
   orderByNearestNeighbor,
@@ -19,6 +21,7 @@ import {
   reallocateStopsByDay,
   reassignByCentroid,
   rebalanceByDistance,
+  resolveScope,
   simplifyPath,
   straightRouteMeasurement,
   type CourseBrief,
@@ -984,5 +987,73 @@ describe("buildStaticMapUrl — URL 길이 방어 (§2 ★)", () => {
     const hugePath = "color:0x0000ffcc|weight:3|" + "35.0,129.0|".repeat(500);
     const url = buildStaticMapUrl("test-key", spots, Array(10).fill(hugePath));
     expect(url.toString().length).toBeLessThan(8000);
+  });
+});
+
+describe("isSupportedRegion — 작업지시서 2026-09-14 '미지원 지역이 엉뚱한 동명 지역으로 바뀝니다' §3", () => {
+  it("accepts a real domestic region from DOMESTIC_CANONICAL", () => {
+    expect(isSupportedRegion("경주")).toBe(true);
+  });
+
+  it("accepts a real overseas region from the catalog", () => {
+    expect(isSupportedRegion("오사카")).toBe(true);
+  });
+
+  it("rejects an unsupported overseas-looking name that happens to collide with a domestic locality (실측: 발리 → 울산 온양읍)", () => {
+    expect(isSupportedRegion("발리")).toBe(false);
+  });
+
+  it("rejects a catalog-less overseas city cited in the work order", () => {
+    expect(isSupportedRegion("싱가포르")).toBe(false);
+  });
+
+  // ★ 작업지시서 §2는 "인도네시아·싱가포르·홍콩·필리핀·괌이 없습니다"라고
+  // 했지만, 실측 결과 홍콩은 WORLD_CITIES에 "중국"의 도시로 이미 있다
+  // (discoverData.ts) — flatRegions("overseas")에도 실제로 잡힌다. 그래서
+  // §2 표의 "홍콩 7곳·66.5km ⚠️ 확인 필요"는 미지원 지역 오매칭이
+  // 아니라, 지원되는 지역의 정당한(넓은) 결과일 가능성이 크다 — 이
+  // 지시서 진단의 오류로 보고 정정한다(PR 설명 참고).
+  it("accepts 홍콩 — already a supported overseas city (contrary to the work order's §2 diagnosis)", () => {
+    expect(isSupportedRegion("홍콩")).toBe(true);
+  });
+
+  it("rejects an empty or nonsense string", () => {
+    expect(isSupportedRegion("")).toBe(false);
+    expect(isSupportedRegion("asdf1234")).toBe(false);
+  });
+});
+
+describe("resolveScope — 미지원 지역은 여전히 domestic 기본값(§1 진단: 이 기본값 자체가 문제가 아니라, isSupportedRegion 없이 바로 쓰는 게 문제)", () => {
+  it("returns overseas only for a catalog-recognized name", () => {
+    expect(resolveScope("오사카")).toBe("overseas");
+  });
+
+  it("still defaults an unrecognized name to domestic — isSupportedRegion is the gate that must run first", () => {
+    expect(resolveScope("발리")).toBe("domestic");
+  });
+});
+
+describe("looksLikeMismatchedOverseasResult — 작업지시서 §3 '최소한 이것만이라도'(한반도 좌표 가드)", () => {
+  const seoul = { lat: 37.5665, lng: 126.978 }; // 한반도 안
+  const osaka = { lat: 34.6937, lng: 135.5023 }; // 한반도 밖
+
+  it("flags an overseas-scoped request whose every spot lands inside Korea", () => {
+    expect(looksLikeMismatchedOverseasResult("overseas", [seoul, seoul])).toBe(true);
+  });
+
+  it("does not flag a genuinely overseas result", () => {
+    expect(looksLikeMismatchedOverseasResult("overseas", [osaka, osaka])).toBe(false);
+  });
+
+  it("does not flag a mixed result — at least one spot is genuinely overseas", () => {
+    expect(looksLikeMismatchedOverseasResult("overseas", [seoul, osaka])).toBe(false);
+  });
+
+  it("never flags a domestic-scoped request even if every spot is in Korea", () => {
+    expect(looksLikeMismatchedOverseasResult("domestic", [seoul, seoul])).toBe(false);
+  });
+
+  it("does not flag an empty spot list (day generation already failed for another reason)", () => {
+    expect(looksLikeMismatchedOverseasResult("overseas", [])).toBe(false);
   });
 });

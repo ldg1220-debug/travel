@@ -4,7 +4,7 @@ import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/s
 import { decodePolyline, encodePolyline, haversineKm } from "@/lib/server/courseRoute";
 import { MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, stripBranchSuffix, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
-import { allSpots, OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
+import { allSpots, DOMESTIC_LOCALITY_NAMES, OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 
 /**
@@ -77,6 +77,45 @@ export function resolveScope(region: string): CourseBriefScope {
   // 부산물이라 새로 만든 판정 로직이 아니다. 못 찾으면 국내로 취급한다
   // (기존 코스 만들기 화면의 기본 스코프와 동일).
   return OVERSEAS_LOCALITY_NAMES.has(region) ? "overseas" : "domestic";
+}
+
+/**
+ * region이 이 앱이 실제로 아는 지역(국내/해외 정본 목록 — /api/content/regions와
+ * 같은 소스)인지 확인한다. 작업지시서 2026-09-14 "미지원 지역이 엉뚱한
+ * 동명 지역으로 바뀝니다" §1/§3 — resolveScope는 모르는 이름을 전부
+ * "국내"로 기본 취급하다 보니, "발리"처럼 우리 카탈로그엔 없는 해외
+ * 지명이 국내 라이브 검색(Kakao)으로 조용히 넘어가 우연히 같은 이름의
+ * 국내 동네·상호(울산 온양읍 발리)와 매칭돼버렸다 — "데이터가 없는
+ * 것보다 나쁜", 자신 있게 틀린 응답이었다. getCourseBrief가 이 함수로
+ * 먼저 걸러 generateCourseV2를 아예 부르지 않는다.
+ */
+export function isSupportedRegion(region: string): boolean {
+  return DOMESTIC_LOCALITY_NAMES.has(region) || OVERSEAS_LOCALITY_NAMES.has(region);
+}
+
+/**
+ * getCourseBrief가 region을 지원하지 않는다고 판단하면 던진다 —
+ * isSupportedRegion 실패(§3 1번) 또는 해외로 인식된 요청인데 실제 결과
+ * 좌표가 한반도 안인 경우(§3 "최소한 이것만이라도") 둘 다 여기로 모인다.
+ * 호출부(각 route.ts)가 이 타입을 캐치해 각자의 관례대로(JSON 거부 또는
+ * course-open의 코스 만들기 화면 리다이렉트) 처리한다.
+ */
+export class UnsupportedRegionError extends Error {
+  constructor(public readonly region: string) {
+    super(`unsupported region: ${region}`);
+    this.name = "UnsupportedRegionError";
+  }
+}
+
+/**
+ * §3 "최소한 이것만이라도" — isSupportedRegion을 통과한(=해외 카탈로그에
+ * 있는) 이름이라도, 실제 라이브 검색 결과 좌표가 전부 한반도 안이면
+ * 이름만 맞고 완전히 다른 곳을 찾아온 것일 가능성이 크다. 순수 함수로
+ * 뽑아둬야 buildBrief의 나머지 I/O(경로 조회·지도 생성·DB 캐시)를 몰라도
+ * 단위 테스트로 확인할 수 있다.
+ */
+export function looksLikeMismatchedOverseasResult(scope: CourseBriefScope, spots: GeoPoint[]): boolean {
+  return scope === "overseas" && spots.length > 0 && spots.every((s) => isDomesticCoordinate(s.lat, s.lng));
 }
 
 // 세 라우트(course-brief/course-map/course-open)가 공통으로 쓰는 days
@@ -1852,6 +1891,11 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   if (hadAnyStraightFallback) {
     console.warn(`[courseBrief] ${scope}/${region} 코스의 일부 구간이 실제 경로를 못 구해 직선거리로 대체됐습니다 (distanceSource="straight")`);
   }
+  // 조용히 틀린 코스를 캐시·반환하는 대신 "지원하지 않는 지역"과
+  // 동일하게 명시 거부한다(looksLikeMismatchedOverseasResult 주석 참고).
+  if (looksLikeMismatchedOverseasResult(scope, allSpots)) {
+    throw new UnsupportedRegionError(region);
+  }
   // 요청한 days보다 실제로 채워진 날짜 수가 적을 수 있다(1일차부터 비면
   // dayStops가 아예 비고, 이 경우도 최소 1일로 보고한다 — 기존 동작 유지).
   // 실제 경로 검증으로 어느 날의 스팟이 줄어드는 것(심지어 1곳까지)은
@@ -1897,6 +1941,10 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
 
 /** GET /api/content/course-brief와 워밍 크론이 공통으로 쓰는 진입점 — 캐시 확인 → 미스 시 buildBrief. */
 export async function getCourseBrief(region: string, days: 1 | 2 | 3, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
+  // 캐시를 들여다보기도 전에 거른다 — 이 검사가 생기기 전에 "발리" 같은
+  // 미지원 지역이 이미 잘못된 응답으로 캐시돼 있었을 수 있는데, 캐시부터
+  // 확인하면 그 오염된 응답을 이 수정 이후에도 계속 돌려주게 된다.
+  if (!isSupportedRegion(region)) throw new UnsupportedRegionError(region);
   const scope = resolveScope(region);
   const cacheKey = briefCacheKey(scope, region, days);
   const cached = await readBriefCache(cacheKey).catch((err) => {

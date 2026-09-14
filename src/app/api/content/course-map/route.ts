@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, parseDays } from "@/lib/server/courseBrief";
+import { getCourseBrief, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
 
 /**
  * 트레쥴 콘텐츠 API — 동선 지도 이미지 전용 엔드포인트. 작업지시서
@@ -30,7 +30,17 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const days = parseDays(request.nextUrl.searchParams.get("days"));
   if (days == null) return NextResponse.json({ error: "days must be 1, 2, or 3" }, { status: 400 });
 
-  const brief = await getCourseBrief(region, days);
+  let brief;
+  try {
+    brief = await getCourseBrief(region, days);
+  } catch (err) {
+    // course-brief/route.ts와 같은 이유(작업지시서 2026-09-14 §3) — 미지원
+    // 지역엔 엉뚱한 코스 지도 대신 명시적으로 거부한다.
+    if (err instanceof UnsupportedRegionError) {
+      return NextResponse.json({ error: "unsupported_region", region: err.region, message: "지원하지 않는 지역입니다." }, { status: 404 });
+    }
+    throw err;
+  }
   if (!brief.imageUrl) {
     // 지도를 못 만든 이유는 다양하다(Google Static Maps API 미설정,
     // Blob 저장소 미설정, 해당 지역에 스팟이 아예 없음, 생성 자체

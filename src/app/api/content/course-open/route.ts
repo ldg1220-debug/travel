@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { pool } from "@/lib/server/db";
-import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, parseDays, resolveScope, type CourseBriefSpot } from "@/lib/server/courseBrief";
+import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, parseDays, resolveScope, UnsupportedRegionError, type CourseBriefSpot } from "@/lib/server/courseBrief";
 import { DEFAULT_DURATION_MINUTES, formatTime, shiftISODate, todayISODate } from "@/lib/timeline";
 import type { ItineraryItem, Region } from "@/lib/types";
 
@@ -110,7 +110,19 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const days = parseDays(request.nextUrl.searchParams.get("days"));
   if (days == null) return NextResponse.json({ error: "days must be 1, 2, or 3" }, { status: 400 });
 
-  const brief = await getCourseBrief(region, days);
+  let brief;
+  try {
+    brief = await getCourseBrief(region, days);
+  } catch (err) {
+    // 작업지시서 2026-09-14 §3 — 이 라우트는 blog CTA가 그대로 리다이렉트로
+    // 여는 인증 없는 GET이라, course-brief처럼 raw JSON을 주는 대신 기존
+    // "빈 코스" 처리(아래)와 같은 관례로 코스 만들기 화면으로 보낸다 —
+    // 미지원 지역 이름으로 엉뚱한 코스가 계획으로 저장되는 걸 막는다.
+    if (err instanceof UnsupportedRegionError) {
+      return NextResponse.redirect(courseBuilderUrlFor(region), 302);
+    }
+    throw err;
+  }
   if (brief.spots.length === 0) {
     // 스팟이 하나도 없으면 계획을 만들 수 없다 — 코스 만들기 화면으로
     // 보내 직접 시작하게 한다(빈 계획을 만들어 혼란을 주는 것보다 낫다).
