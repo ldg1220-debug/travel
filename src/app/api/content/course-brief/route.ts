@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, parseDays } from "@/lib/server/courseBrief";
+import { getCourseBrief, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
 
 /**
  * 트레쥴 콘텐츠 API — 블로그 자동 발행 파이프라인(AutoPipeline, 별도
@@ -34,6 +34,23 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const days = parseDays(request.nextUrl.searchParams.get("days"));
   if (days == null) return NextResponse.json({ error: "days must be 1, 2, or 3" }, { status: 400 });
 
-  const brief = await getCourseBrief(region, days);
+  let brief;
+  try {
+    brief = await getCourseBrief(region, days);
+  } catch (err) {
+    // 작업지시서 2026-09-14 "미지원 지역이 엉뚱한 동명 지역으로
+    // 바뀝니다" §3 — 모르는 지역을 조용히 아무거나로 채워 돌려주지
+    // 않고, AutoPipeline이 "지원 안 함"과 "일시적 실패"를 구분할 수
+    // 있도록 명시적으로 거부한다.
+    if (err instanceof UnsupportedRegionError) {
+      return NextResponse.json({ error: "unsupported_region", region: err.region, message: "지원하지 않는 지역입니다." }, { status: 404 });
+    }
+    throw err;
+  }
+  // §4 — 스팟 3곳 미만이면 C-2 계약("스팟 3곳 미만이면 글을 쓰지
+  // 않는다")의 판단을 AutoPipeline에만 맡기지 않고 서버가 명시한다.
+  if (brief.spots.length < 3) {
+    return NextResponse.json({ error: "insufficient_spots", count: brief.spots.length }, { status: 422 });
+  }
   return NextResponse.json(brief);
 });

@@ -1190,6 +1190,33 @@ export const OVERSEAS_LOCALITY_NAMES: ReadonlySet<string> = (() => {
   return names;
 })();
 
+/**
+ * OVERSEAS_LOCALITY_NAMES와 같은 원리로 국내판을 만든다 — DOMESTIC_CANONICAL
+ * (정본 시/도 골격)과 실제 국내 스팟 카탈로그(allSpots("domestic"))의
+ * "시도 · 동네" region에서 뽑는다. 새로 지어내는 목록이 아니라 이미 검증된
+ * 카탈로그의 부산물이다.
+ *
+ * 용도(작업지시서 2026-09-14 "미지원 지역이 엉뚱한 동명 지역으로
+ * 바뀝니다"): course-brief(courseBrief.ts의 isSupportedRegion)가 이
+ * 집합에도 OVERSEAS_LOCALITY_NAMES에도 없는 region을 받으면 지원하지
+ * 않는 지역으로 명시 거부한다 — 안 그러면 "발리"처럼 국내 라이브 검색이
+ * 우연히 같은 이름의 동네·상호와 매칭돼, 실존하는 평점 좋은 국내 코스가
+ * "발리 여행 코스"로 둔갑하는 사고가 난다(실측: 울산 울주군 온양읍 발리).
+ */
+export const DOMESTIC_LOCALITY_NAMES: ReadonlySet<string> = (() => {
+  const names = new Set<string>();
+  for (const prov of DOMESTIC_CANONICAL) {
+    names.add(prov.label);
+    for (const child of prov.children) names.add(child);
+  }
+  for (const spot of allSpots("domestic")) {
+    const [sido, neighborhood] = spot.region.split(" · ");
+    if (sido) names.add(sido);
+    if (neighborhood) names.add(neighborhood);
+  }
+  return names;
+})();
+
 export interface RegionNode {
   label: string;
   children: RegionNode[];
