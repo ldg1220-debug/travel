@@ -15,12 +15,14 @@ import {
   isSupportedRegion,
   looksLikeMismatchedOverseasResult,
   mapPathParam,
+  mapPathParamEncoded,
   medoidOf,
   orderByNearestNeighbor,
   planRouteForDay,
   reallocateStopsByDay,
   reassignByCentroid,
   rebalanceByDistance,
+  recolorMapPathForDay,
   resolveScope,
   simplifyPath,
   straightRouteMeasurement,
@@ -1055,5 +1057,28 @@ describe("looksLikeMismatchedOverseasResult — 작업지시서 §3 '최소한 �
 
   it("does not flag an empty spot list (day generation already failed for another reason)", () => {
     expect(looksLikeMismatchedOverseasResult("overseas", [])).toBe(false);
+  });
+});
+
+describe("recolorMapPathForDay — 작업지시서 2026-09-15 '공유 품질 4건' §3 (날짜별 동선 색상)", () => {
+  it("replaces the default blue with day 0's palette color in a raw-coordinate path", () => {
+    const path = mapPathParam([{ lat: 1, lng: 2 }, { lat: 3, lng: 4 }]);
+    const recolored = recolorMapPathForDay(path, 0);
+    expect(recolored).toBe(path.replace("0x0000ffcc", "0x2563ebcc"));
+    expect(recolored).not.toContain("0x0000ffcc");
+  });
+
+  it("replaces the default blue with a different color for a later day index", () => {
+    const path = mapPathParamEncoded([{ lat: 1, lng: 2 }, { lat: 3, lng: 4 }]);
+    const day0 = recolorMapPathForDay(path, 0);
+    const day1 = recolorMapPathForDay(path, 1);
+    expect(day0).not.toBe(day1);
+  });
+
+  it("leaves the rest of the path string (weight/coordinates) untouched", () => {
+    const path = mapPathParam([{ lat: 35.1, lng: 129.1 }]);
+    const recolored = recolorMapPathForDay(path, 2);
+    expect(recolored).toContain("weight:3");
+    expect(recolored).toContain("35.1,129.1");
   });
 });

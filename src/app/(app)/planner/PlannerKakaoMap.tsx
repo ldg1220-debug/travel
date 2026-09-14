@@ -2,6 +2,7 @@
 
 import { KakaoMapCanvas, KakaoOverlay, KakaoPolyline } from "./KakaoMapPrimitives";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
+import { routeLegColorHex } from "@/lib/mapRouteColors";
 import { MarkerContent, Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
 import type { KakaoMapInstance } from "@/lib/maps/kakao-map";
@@ -94,11 +95,17 @@ export default function PlannerKakaoMap({
               실선, 없으면(아직 조회 중이거나 확인 안 됨) from→to 두 점을
               잇는 점선으로 대체한다. 작업지시서 2026-09-11 "계획 탭 동선을
               실제 경로로" §3 "경로 있음: 실선 / 경로 없음: 점선(추정 표시)". */}
+          {/* 작업지시서 2026-09-15 "공유 품질 4건" §3 — 구간마다 다른 색으로
+              1→2→3→4를 구분할 수 있게 한다(PlannerGoogleMap.tsx와 같은
+              팔레트). Kakao Maps SDK는 Google의 Polyline icons(반복
+              화살표) 같은 API가 없어 화살표까지는 못 넣었다 — 색상
+              구분만으로도 핵심 불만("어느 게 어느 구간인지 안 보인다")은
+              해소된다. */}
           {routeLegs.map((leg, i) =>
             leg.path && leg.path.length >= 2 ? (
-              <KakaoPolyline key={i} path={leg.path} strokeColor="#111827" strokeOpacity={0.9} strokeWeight={2} strokeStyle="solid" />
+              <KakaoPolyline key={i} path={leg.path} strokeColor={routeLegColorHex(i)} strokeOpacity={0.9} strokeWeight={3} strokeStyle="solid" />
             ) : (
-              <KakaoPolyline key={i} path={leg.fallbackPath} strokeColor="#111827" strokeOpacity={0.7} strokeWeight={2} strokeStyle="shortdash" />
+              <KakaoPolyline key={i} path={leg.fallbackPath} strokeColor={routeLegColorHex(i)} strokeOpacity={0.7} strokeWeight={3} strokeStyle="shortdash" />
             ),
           )}
 

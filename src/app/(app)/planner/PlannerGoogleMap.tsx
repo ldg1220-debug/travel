@@ -3,6 +3,7 @@
 import { GoogleMap, InfoWindow, OverlayView, Polyline } from "@react-google-maps/api";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
+import { ROUTE_LEG_COLORS_HEX } from "@/lib/mapRouteColors";
 import { MarkerContent, Pin } from "./MapMarkers";
 import type { Place } from "@/lib/types";
 
@@ -51,11 +52,27 @@ export interface RouteLeg {
 
 // 위와 같은 이유로 옵션 객체도 렌더마다 새로 만들지 않는다 — 매번 값이
 // 같은 상수라 모듈 스코프로 뺄 수 있다.
-const ROUTE_LEG_SOLID_OPTIONS: google.maps.PolylineOptions = { strokeColor: "#111827", strokeOpacity: 0.9, strokeWeight: 3 };
-const ROUTE_LEG_DASHED_OPTIONS: google.maps.PolylineOptions = {
+//
+// 작업지시서 2026-09-15 "공유 품질 4건" §3 ★★ — 모든 구간이 같은 검정
+// 실선이라 1→2→3→4가 겹쳐 지날 때 어느 구간인지 구분이 안 됐다. 구간
+// 인덱스(routeLegs.map의 i)로 ROUTE_LEG_COLORS_HEX를 순환시켜 구간마다
+// 다른 색을 쓰고, 진행 방향 화살표도 추가한다. `google.maps.SymbolPath.
+// FORWARD_CLOSED_ARROW`(런타임 열거값)를 직접 쓰지 않는다 — 이 모듈은
+// 지도 SDK 스크립트가 로드되기 전(모듈 평가 시점)에도 import되므로, 기존
+// 점선 아이콘("M 0,-1 0,1")과 같은 이유로 원시 SVG path 문자열을 직접
+// 쓴다(오른쪽을 향하는 삼각형 — Polyline의 icons가 구간 진행 방향으로
+// 자동 회전시켜준다).
+const FORWARD_ARROW_SVG_PATH = "M -3,-2 L 3,0 L -3,2 Z";
+const ROUTE_LEG_SOLID_OPTIONS_BY_COLOR: google.maps.PolylineOptions[] = ROUTE_LEG_COLORS_HEX.map((color) => ({
+  strokeColor: color,
+  strokeOpacity: 0.85,
+  strokeWeight: 4,
+  icons: [{ icon: { path: FORWARD_ARROW_SVG_PATH, strokeColor: color, fillColor: color, fillOpacity: 1, scale: 1.4 }, offset: "50%", repeat: "160px" }],
+}));
+const ROUTE_LEG_DASHED_OPTIONS_BY_COLOR: google.maps.PolylineOptions[] = ROUTE_LEG_COLORS_HEX.map((color) => ({
   strokeOpacity: 0,
-  icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: "#111827", scale: 3 }, offset: "0", repeat: "14px" }],
-};
+  icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeColor: color, scale: 3 }, offset: "0", repeat: "14px" }],
+}));
 
 interface PlannerGoogleMapProps {
   mapsError: boolean;
@@ -160,9 +177,9 @@ export default function PlannerGoogleMap({
               실제 경로로" §3 "경로 있음: 실선 / 경로 없음: 점선(추정 표시)". */}
           {routeLegs.map((leg, i) =>
             leg.path && leg.path.length >= 2 ? (
-              <Polyline key={i} path={leg.path} options={ROUTE_LEG_SOLID_OPTIONS} />
+              <Polyline key={i} path={leg.path} options={ROUTE_LEG_SOLID_OPTIONS_BY_COLOR[i % ROUTE_LEG_SOLID_OPTIONS_BY_COLOR.length]} />
             ) : (
-              <Polyline key={i} path={leg.fallbackPath} options={ROUTE_LEG_DASHED_OPTIONS} />
+              <Polyline key={i} path={leg.fallbackPath} options={ROUTE_LEG_DASHED_OPTIONS_BY_COLOR[i % ROUTE_LEG_DASHED_OPTIONS_BY_COLOR.length]} />
             ),
           )}
 
