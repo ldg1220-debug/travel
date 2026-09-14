@@ -24,8 +24,11 @@ import type { ItineraryItem, Region } from "@/lib/types";
  * 작업지시서 2026-09-06 "승격 후 실측" §2: 처음엔 호출마다 새 행을
  * 만들었는데, 이 라우트가 인증 없는 GET이라 크롤러·새로고침·SNS
  * 미리보기 봇이 그대로 새 레코드 증식 경로가 됐다(194편 블로그에 CTA로
- * 걸리면 그 자체가 문제). "userId+contentKey" UNIQUE 제약(schema.sql)에
- * 대한 INSERT … ON CONFLICT DO UPDATE … RETURNING으로, 이미 있으면 그
+ * 걸리면 그 자체가 문제). "contentKey" 위의 부분(partial) UNIQUE 인덱스
+ * (origin='content'인 행에만 적용 — schema.sql
+ * itineraries_content_key_content_only_idx, 작업지시서 2026-09-14
+ * "course-open이 저장된 계획을 덮어씁니다" §2 참고)에 대한 INSERT …
+ * ON CONFLICT DO UPDATE … RETURNING으로, 이미 있으면 그
  * shareToken을 그대로 돌려주고 새 행을 만들지 않는다. 그래서 클릭한
  * 사람은 shareToken을 아는 사람 누구나 보고 고칠 수 있는 기존
  * capability-URL 모델 그대로 "그 지역+일수의" 공용 사본을 보게 된다
@@ -50,6 +53,22 @@ import type { ItineraryItem, Region } from "@/lib/types";
  * course-open은 예전에 만들어진 빈 계획을 계속 돌려줌). 비어 있지
  * 않은 정상 행은 그대로 둔다(멱등성 유지 — 이미 스팟이 있으면 그
  * shareToken의 사본을 계속 같은 내용으로 보여준다).
+ *
+ * ★★★ ON CONFLICT의 대상은 "contentKey" 단순 유니크가 아니라
+ * origin='content'로 좁힌 부분(partial) 유니크 인덱스다(schema.sql
+ * itineraries_content_key_content_only_idx) — 작업지시서 2026-09-14
+ * "course-open이 저장된 계획을 덮어씁니다" §1/§2: 실제 프로덕션에서
+ * 사용자가 직접 만든 계획이 이 라우트의 재호출로 경주 코스 내용으로
+ * 덮어써진 사고가 있었다. 이 INSERT가 만드는 행은 항상 origin='content'로
+ * 표시하고, ON CONFLICT도 그 값을 가진 행만 대상으로 삼도록 인덱스
+ * 자체를 좁혀서 — 일반 사용자 계획(origin이 NULL)이나 "담아가기"로
+ * 복사된 계획(origin='copy')은 이 INSERT가 절대 건드릴 방법이 없다
+ * (SQL 인덱스 정의로 막은 것이라, 이 라우트의 조건문이 나중에
+ * 실수로 넓어져도 이 차단 자체는 깨지지 않는다).
+ *
+ * `?preview=1`을 주면 아무것도 저장/변경하지 않고 결과만 JSON으로
+ * 돌려준다(작업지시서 §4) — 검증·테스트 목적으로 이 라우트를 여러 번
+ * 호출해야 할 때, 그 호출 자체가 실제 계획 행에 손대지 않게 한다.
  */
 
 const CONTENT_OWNER_EMAIL = "content@tradule.co.kr";
@@ -149,6 +168,15 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   );
 
   const regionValue: Region = resolveScope(region) === "overseas" ? "international" : "domestic";
+  const title = `${region} 여행 코스`;
+
+  // 작업지시서 2026-09-14 "course-open이 저장된 계획을 덮어씁니다" §4 —
+  // 검증·테스트 목적의 호출이 실제 계획 행에 손대지 않도록, 아무것도
+  // 저장하지 않고 결과만 돌려주는 경로를 둔다. 소유자 조회(위)까지는
+  // 이미 끝났지만 그건 읽기 전용이라 문제 없다 — INSERT 직전에서 끊는다.
+  if (request.nextUrl.searchParams.get("preview") === "1") {
+    return NextResponse.json({ region: regionValue, days: brief.days, title, placesData });
+  }
 
   // (region, days, 알고리즘 버전) 조합당 하나로 멱등 — 파일 상단 주석
   // 참고. contentKey는 courseBrief.ts의 briefCacheKey/candidateCacheKey와
@@ -161,13 +189,19 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // placesData/title/region을 이번 결과로 갱신한다 — shareToken은 그
   // 경우에도 기존 값을 유지한다(빈 화면을 보고 있던 그 URL이 그대로
   // 고쳐지는 게, 새 URL을 새로 발급하는 것보다 낫다).
+  //
+  // ON CONFLICT 대상은 "contentKey" 단순 유니크가 아니라 origin='content'로
+  // 좁힌 부분 유니크 인덱스다(schema.sql itineraries_content_key_content_only_idx,
+  // 작업지시서 2026-09-14 §2) — 파일 상단 주석 참고. 이 INSERT가 만드는
+  // 행은 항상 origin='content'로 표시해, 일반 사용자 계획(origin NULL)이나
+  // "담아가기" 복사 계획(origin='copy')은 이 INSERT가 절대 대상으로
+  // 고를 수 없다.
   const contentKey = `${resolveScope(region)}:${region.trim().toLowerCase()}:${days}:v${COURSE_ALGO_VERSION}`;
   const shareToken = randomUUID();
-  const title = `${region} 여행 코스`;
   const result = await pool.query<{ shareToken: string }>(
-    `insert into itineraries ("userId", title, region, "placesData", "shareToken", "isDraft", "contentKey")
-     values ($1, $2, $3, $4, $5, false, $6)
-     on conflict ("contentKey") do update set
+    `insert into itineraries ("userId", title, region, "placesData", "shareToken", "isDraft", "contentKey", origin)
+     values ($1, $2, $3, $4, $5, false, $6, 'content')
+     on conflict ("contentKey") where origin = 'content' do update set
        title = case when jsonb_array_length(itineraries."placesData") = 0 then excluded.title else itineraries.title end,
        region = case when jsonb_array_length(itineraries."placesData") = 0 then excluded.region else itineraries.region end,
        "placesData" = case when jsonb_array_length(itineraries."placesData") = 0 then excluded."placesData" else itineraries."placesData" end,
