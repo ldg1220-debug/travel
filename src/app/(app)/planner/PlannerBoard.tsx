@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -37,6 +37,7 @@ import {
   Minimize2,
   ImageDown,
   ExternalLink,
+  Download,
 } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { AffiliateDisclosureNote } from "@/components/AffiliateDisclosureNote";
@@ -78,7 +79,7 @@ import {
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
-import { fetchSharedItinerary, logLodgingCtaEvent, type RouteLegResult } from "@/lib/api";
+import { copySharedItineraryToPlan, fetchSharedItinerary, logLodgingCtaEvent, type RouteLegResult } from "@/lib/api";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
@@ -119,6 +120,13 @@ interface PlannerBoardProps {
   /** Set when viewing /planner/[shareToken] — enables collaborative polling sync. */
   shareToken?: string;
 }
+
+// 비로그인으로 공유 링크의 "담아가기"를 누르면 로그인 후 이 자리로
+// 돌아와(next-auth signIn 기본 콜백 URL이 현재 페이지) 이어서 담아준다 —
+// 작업지시서 2026-09-14 "공유 링크에도 담아가기" §2, TripPostClient.tsx의
+// PENDING_COPY_KEY와 같은 패턴. sessionStorage를 쓴다 — 로그인 왕복
+// 사이에만 살아있으면 되고, 다른 탭·기기로 새지 않아야 한다.
+const PENDING_SHARED_COPY_KEY = "tradule:pendingSharedCopyToken";
 
 const PLANNER_TABS = [
   { key: "schedule", label: "일정" },
@@ -190,6 +198,7 @@ export function PlannerBoard({ shareToken }: PlannerBoardProps) {
 }
 
 function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
+  const router = useRouter();
   const { isLoaded: googleMapsLoaded, loadError: googleMapsError } = useGoogleMapsStatus();
   const { isLoaded: kakaoMapsLoaded, loadError: kakaoMapsError } = useKakaoMapsStatus();
   // Bounding-box reference for the drag-ghost's absolute x/y — only ever
@@ -829,6 +838,25 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     undoToastTimer.current = setTimeout(() => setUndoToast(null), 8000);
   };
 
+  // 계획 저장 직후 공유 유도 — 작업지시서 2026-09-14 "공유 링크에도
+  // 담아가기" §3: "계획을 다 짠 직후가 공유 확률이 가장 높은 순간인데
+  // 그때 아무 말이 없다". 브라우저당 딱 한 번만 보여준다("매번 뜨면
+  // 짜증난다") — localStorage에 본 적 있는지 남긴다.
+  const [shareNudgeOpen, setShareNudgeOpen] = useState(false);
+  const shareNudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const SHARE_NUDGE_SEEN_KEY = "tradule:shareNudgeSeenV1";
+  const maybeShowShareNudge = () => {
+    try {
+      if (localStorage.getItem(SHARE_NUDGE_SEEN_KEY)) return;
+      localStorage.setItem(SHARE_NUDGE_SEEN_KEY, "1");
+    } catch {
+      return; // localStorage 불가하면 조용히 스킵한다 — "한 번만" 보장을 못 하면 안 보여주는 쪽이 "매번 뜨는" 것보다 안전하다.
+    }
+    setShareNudgeOpen(true);
+    if (shareNudgeTimer.current) clearTimeout(shareNudgeTimer.current);
+    shareNudgeTimer.current = setTimeout(() => setShareNudgeOpen(false), 6000);
+  };
+
   // ── Task 3: shared-link viewing (one-time load, not live collaboration) ──
   // Used to poll and push local edits straight back to the shared row every
   // ~1s, so anyone with the link could silently overwrite it for everyone
@@ -896,6 +924,66 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     if (missing.length > 0) addPlaces(missing);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `places` intentionally excluded: only need it to seed missing markers once per incoming snapshot, not on every local places change
   }, [sharedData, setRegion, setItems, addPlaces, setActiveDate]);
+
+  // "내 계획으로 담아가기" — 공유 링크를 받은 사람이 그 계획을 자기 것으로
+  // 복사한다. 작업지시서 2026-09-14 "공유 링크에도 담아가기" §2. 로그인
+  // 상태면 바로 서버에 새 계획을 만들고 그 계획으로 넘어간다. 비로그인이면
+  // 의도를 sessionStorage에 남기고 로그인부터 시킨다 — next-auth signIn
+  // 기본 콜백 URL이 현재 페이지라 로그인 후 이 공유 링크로 돌아오면 아래
+  // effect가 이어서 실행한다(trip-posts copy, TripPostClient.tsx와 같은
+  // 패턴 — §2 "#249에서 이미 만드신 흐름입니다. 재사용하세요").
+  const [copyingShared, setCopyingShared] = useState(false);
+  // TripPostClient.tsx의 runCopy와 같은 이유로 useCallback으로 감싸지
+  // 않는다 — 이 렌더의 sharedData/shareToken을 그대로 참조하는 평범한
+  // 클로저일 뿐이고, 아래 effect에서만 한 번 호출된다.
+  const runCopyShared = async (token: string) => {
+    setCopyingShared(true);
+    const result = await copySharedItineraryToPlan(token).catch(() => null);
+    if (!result) {
+      showToast("담아가지 못했어요");
+      setCopyingShared(false);
+      return;
+    }
+    trackFeatureEvent("plan_copy_completed", "planner", { source: "itinerary" });
+    // 작업지시서 §7 "담아온 계획에 출처 표시" — 새 계획 페이지로 넘어가면
+    // 이 컴포넌트가 언마운트돼 토스트가 안 보이므로, 잠깐 보여준 뒤 넘어간다.
+    showToast(`${sharedData?.authorName ?? "여행자"}님의 계획을 담았어요`);
+    setTimeout(() => router.push(`/planner/${result.shareToken}`), 700);
+  };
+  const handleCopySharedItinerary = () => {
+    if (!shareToken) return;
+    trackFeatureEvent("plan_copy_click", "planner", { source: "itinerary" });
+    if (!session?.user) {
+      try {
+        sessionStorage.setItem(PENDING_SHARED_COPY_KEY, shareToken);
+      } catch {
+        // 프라이빗 모드 등으로 sessionStorage를 못 쓰면 그냥 매번 다시
+        // 눌러야 할 뿐 — 로그인 자체는 계속 진행한다.
+      }
+      setLoginReason("이 계획을 담아가려면 로그인해주세요.");
+      setLoginOpen(true);
+      return;
+    }
+    void runCopyShared(shareToken);
+  };
+  useEffect(() => {
+    if (!shareToken || !session?.user) return;
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem(PENDING_SHARED_COPY_KEY);
+    } catch {
+      return;
+    }
+    if (pending !== shareToken) return;
+    sessionStorage.removeItem(PENDING_SHARED_COPY_KEY);
+    // 마이크로태스크로 미룬다 — runCopyShared가 곧바로 setCopyingShared(true)를
+    // 부르는데, 이펙트 본문에서 동기적으로 setState를 부르면 안 된다는
+    // 규칙(react-hooks/set-state-in-effect) 때문이다.
+    queueMicrotask(() => {
+      void runCopyShared(shareToken);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runCopyShared는 이 렌더의 shareToken을 그대로 참조하는 안정적인 클로저일 뿐이라, 의존성에 넣으면 매 렌더 재실행된다.
+  }, [shareToken, session?.user]);
 
   const searchParams = useSearchParams();
   const openDetailId = searchParams.get("openDetail");
@@ -1929,6 +2017,25 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           everything else means the schedule gets the full viewport once
           you scroll past it, on any browser. */}
       <div ref={boardRef} onScroll={handleBoardScroll} className="relative flex h-full flex-col overflow-y-auto bg-white font-sans">
+        {/* 공유 링크 방문자용 배너 — 작업지시서 2026-09-14 "공유 링크에도
+            담아가기" §2/§4: 지금까지 이 화면은 누구 계획인지 전혀 표시하지
+            않았고("첫인상"이 그냥 빈 계획판), 받은 사람이 그 계획을 자기
+            것으로 만들 방법도 없었다. 작성자 이름 + 담아가기 버튼 하나로
+            둘 다 해소한다. 원작자 본인에게는 보이지 않는다(isOwner). */}
+        {shareToken && sharedData && !sharedData.isOwner && (
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 bg-brand-50 px-4 py-2.5">
+            <p className="min-w-0 truncate text-[13px] text-slate-700">
+              <span className="font-semibold text-brand-800">{sharedData.authorName}</span>님의 계획이에요
+            </p>
+            <button
+              onClick={handleCopySharedItinerary}
+              disabled={copyingShared}
+              className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-brand-700 px-3 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-800 disabled:opacity-60"
+            >
+              <Download size={13} /> {copyingShared ? "담는 중…" : "내 계획으로 담아가기"}
+            </button>
+          </div>
+        )}
         {/* ── MAP AREA — real Google Maps, auto-fit to every visible place ── */}
         {/* min-h is a safety floor: h-[45%] depends on the flex ancestor
             chain resolving before the Maps SDK measures the container (it
@@ -2848,6 +2955,33 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           </div>
         )}
 
+        {/* 저장 직후 공유 유도 — maybeShowShareNudge 주석 참고. toast와
+            겹치지 않도록 더 위(bottom-20)에 둔다 — "저장됨" 토스트는
+            1.6초면 사라지지만, 그 짧은 순간 둘이 겹쳐도 이 카드가 위에
+            떠 있으면 자연스럽다. */}
+        <AnimatePresence>
+          {shareNudgeOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, x: "-50%" }}
+              animate={{ opacity: 1, y: 0, x: "-50%" }}
+              exit={{ opacity: 0, y: 10, x: "-50%" }}
+              className="fixed bottom-20 left-1/2 z-[60] flex items-center gap-2.5 rounded-full bg-slate-900/90 py-2 pl-3.5 pr-2 text-xs text-white"
+            >
+              <span>저장했어요. 동행에게 공유할까요?</span>
+              <button
+                onClick={() => {
+                  setShareNudgeOpen(false);
+                  if (shareNudgeTimer.current) clearTimeout(shareNudgeTimer.current);
+                  handleShareToKakao();
+                }}
+                className="flex shrink-0 items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 font-semibold text-white transition-colors hover:bg-white/25"
+              >
+                카카오톡으로 보내기
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* toast */}
         <AnimatePresence>
           {toast && (
@@ -2909,6 +3043,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               setSaveModalOpen(false);
               showToast(overwriteId ? `"${name}" 덮어썼어요` : `"${name}" 저장됨`);
               trackFeatureEvent("plan_save", "planner", { overwrite: Boolean(overwriteId) });
+              maybeShowShareNudge();
               if (planId && session?.user) {
                 const plan = useItineraryStore.getState().savedPlans.find((p) => p.id === planId);
                 if (plan) {

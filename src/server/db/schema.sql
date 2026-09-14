@@ -440,7 +440,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_trip_post_place_key
 -- "담아가기"(후기 코스 복사, /api/trip-posts/[id]/copy) 출처 표시 —
 -- 작업지시서 2026-09-14 "후기에 코스 스냅샷 저장 + 담아가기" §4. trip_posts를
 -- 참조해야 해서(reviews."tripPostId"와 같은 이유) 그 테이블 정의 뒤인
--- 여기서 추가한다. 일반 사용자가 직접 만든 계획은 둘 다 NULL — 새
+-- 여기서 추가한다. 일반 사용자가 직접 만든 계획은 셋 다 NULL — 새
 -- 컬럼이라 기존 행은 전부 NULL이고, 이 흐름으로 만들어진 행만
 -- origin='copy'를 갖는다(아래 "content" 값도 참고 — course-open이
 -- 만든 콘텐츠 행 표시에도 같은 컬럼을 재사용한다). "sourceReviewId"는
@@ -448,8 +448,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_trip_post_place_key
 -- 지시서가 후기 전체를 "reviews"라고 부른 것과 같은 이유로 지시서
 -- 용어를 그대로 따랐다(장소별 별점 테이블인 실제 `reviews`와는 다른
 -- 테이블이니 혼동 주의).
+--
+-- "sourceItineraryId"는 작업지시서 2026-09-14 "공유 링크에도 담아가기"
+-- §2 — 공유 링크(/planner/{shareToken})에서 "내 계획으로 담아가기"로
+-- 복사된 계획의 원본을 가리킨다(itineraries 자기 참조). origin='copy'는
+-- 두 흐름(후기 복사/공유 링크 복사)이 공유하되, sourceReviewId·
+-- sourceItineraryId 중 실제로 채워진 쪽으로 어느 흐름이었는지 구분한다
+-- — 한 행에 둘 다 채워질 일은 없다(#249 copy 라우트는 trip_posts만,
+-- 새 copy 라우트는 itineraries만 채운다).
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS origin VARCHAR(20);
 ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "sourceReviewId" INTEGER REFERENCES trip_posts(id) ON DELETE SET NULL;
+ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "sourceItineraryId" INTEGER REFERENCES itineraries(id) ON DELETE SET NULL;
 
 -- ★★★ 작업지시서 2026-09-14 "course-open이 저장된 계획을 덮어씁니다" §2 —
 -- 프로덕션 실측: 사용자가 직접 만든 계획(제목·내용 모두 사용자의 실제

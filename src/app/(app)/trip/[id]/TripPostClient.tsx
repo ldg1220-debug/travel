@@ -24,6 +24,7 @@ import {
 } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { shareToKakao } from "@/lib/kakaoShare";
+import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
 import { hashtagSlug } from "@/lib/hashtag";
 import { VisibilitySelector } from "@/components/VisibilitySelector";
 import { LoginModal } from "@/components/LoginModal";
@@ -153,17 +154,24 @@ export function TripPostDetailPage() {
       const result = await copyTripPostToPlan(postId);
       if (!result) {
         showToast("담아가지 못했어요");
+        setCopying(false);
         return;
       }
-      router.push(`/planner/${result.shareToken}`);
+      trackFeatureEvent("plan_copy_completed", undefined, { source: "trip_post" });
+      // 작업지시서 2026-09-14 "공유 링크에도 담아가기" §7 "담아온 계획에
+      // 출처 표시" — 새 계획 페이지로 넘어가면 이 컴포넌트가 언마운트돼
+      // 토스트가 안 보이므로, 잠깐 보여준 뒤 넘어간다(그동안 copying은
+      // 계속 true — "담는 중…" 문구가 이 짧은 delay 내내 유지된다).
+      showToast(`${post?.authorName ?? "여행자"}님의 코스를 담았어요`);
+      setTimeout(() => router.push(`/planner/${result.shareToken}`), 700);
     } catch {
       showToast("담아가지 못했어요");
-    } finally {
       setCopying(false);
     }
   };
   const handleCopyToMyPlans = () => {
     if (!post) return;
+    trackFeatureEvent("plan_copy_click", undefined, { source: "trip_post" });
     if (!session?.user) {
       try {
         sessionStorage.setItem(PENDING_COPY_KEY, String(post.id));
@@ -499,13 +507,18 @@ export function TripPostDetailPage() {
                     </li>
                   ))}
               </ol>
-              <button
-                onClick={handleCopyToMyPlans}
-                disabled={copying}
-                className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl bg-brand-700 text-[13px] font-semibold text-white transition-colors hover:bg-brand-800 disabled:opacity-60"
-              >
-                <Download size={14} /> {copying ? "담는 중…" : "내 계획으로 담아가기"}
-              </button>
+              {!isOwner && (
+                // 작업지시서 2026-09-14 "공유 링크에도 담아가기" §7 "본인
+                // 후기에서 담아가기 버튼 숨김" — 자기 자신의 코스를 자기
+                // 계획으로 "담아갈" 이유가 없다.
+                <button
+                  onClick={handleCopyToMyPlans}
+                  disabled={copying}
+                  className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-2xl bg-brand-700 text-[13px] font-semibold text-white transition-colors hover:bg-brand-800 disabled:opacity-60"
+                >
+                  <Download size={14} /> {copying ? "담는 중…" : "내 계획으로 담아가기"}
+                </button>
+              )}
             </div>
           </div>
         )}
