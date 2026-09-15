@@ -48,6 +48,14 @@ export interface ClickedPlaceState {
 export interface RouteLeg {
   fallbackPath: [{ lat: number; lng: number }, { lat: number; lng: number }];
   path: { lat: number; lng: number }[] | null;
+  /**
+   * true면 path가 있어도(직선 폴백이 두 점을 그대로 채워 돌려주므로)
+   * 실제 경로가 아니라 추정이다 — 작업지시서 2026-09-15 "도보 구간이
+   * 직선으로 그려집니다" §4: "path===null"만 보고 실선/점선을 가르면
+   * 직선 폴백(path에 출발·도착 2점이 채워짐)이 실선으로 그려진다.
+   * 서버(fetchLegRoute)가 명시하는 이 값을 대신 쓴다.
+   */
+  estimated: boolean;
 }
 
 // 위와 같은 이유로 옵션 객체도 렌더마다 새로 만들지 않는다 — 매번 값이
@@ -174,9 +182,13 @@ export default function PlannerGoogleMap({
           {/* 스톱 간 구간마다 따로 그린다 — 실제 도로 경로(leg.path)가 있으면
               실선, 없으면(아직 조회 중이거나 확인 안 됨) from→to 두 점을
               잇는 점선으로 대체한다. 작업지시서 2026-09-11 "계획 탭 동선을
-              실제 경로로" §3 "경로 있음: 실선 / 경로 없음: 점선(추정 표시)". */}
+              실제 경로로" §3 "경로 있음: 실선 / 경로 없음: 점선(추정 표시)".
+              실선/점선 판정은 leg.estimated(서버 명시값)를 쓴다 —
+              작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다" §4:
+              직선 폴백도 path에 출발·도착 2점을 채워 돌려주므로
+              "path 존재 여부"만으로는 실선/점선을 못 가른다. */}
           {routeLegs.map((leg, i) =>
-            leg.path && leg.path.length >= 2 ? (
+            !leg.estimated && leg.path && leg.path.length >= 2 ? (
               <Polyline key={i} path={leg.path} options={ROUTE_LEG_SOLID_OPTIONS_BY_COLOR[i % ROUTE_LEG_SOLID_OPTIONS_BY_COLOR.length]} />
             ) : (
               <Polyline key={i} path={leg.fallbackPath} options={ROUTE_LEG_DASHED_OPTIONS_BY_COLOR[i % ROUTE_LEG_DASHED_OPTIONS_BY_COLOR.length]} />

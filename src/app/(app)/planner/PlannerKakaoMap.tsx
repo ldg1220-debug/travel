@@ -101,8 +101,12 @@ export default function PlannerKakaoMap({
               화살표) 같은 API가 없어 화살표까지는 못 넣었다 — 색상
               구분만으로도 핵심 불만("어느 게 어느 구간인지 안 보인다")은
               해소된다. */}
+          {/* leg.estimated(서버 명시값)로 실선/점선을 가른다 — 작업지시서
+              2026-09-15 "도보 구간이 직선으로 그려집니다" §4: 직선
+              폴백도 path에 2점을 채워 돌려주므로 "path 존재 여부"만으론
+              못 가른다. */}
           {routeLegs.map((leg, i) =>
-            leg.path && leg.path.length >= 2 ? (
+            !leg.estimated && leg.path && leg.path.length >= 2 ? (
               <KakaoPolyline key={i} path={leg.path} strokeColor={routeLegColorHex(i)} strokeOpacity={0.9} strokeWeight={3} strokeStyle="solid" />
             ) : (
               <KakaoPolyline key={i} path={leg.fallbackPath} strokeColor={routeLegColorHex(i)} strokeOpacity={0.7} strokeWeight={3} strokeStyle="shortdash" />

@@ -71,6 +71,6 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
   );
 
   return NextResponse.json(
-    results.map((r) => ({ distanceM: r.distanceM, durationMin: r.durationMin, path: r.path })),
+    results.map((r) => ({ distanceM: r.distanceM, durationMin: r.durationMin, path: r.path, estimated: r.estimated })),
   );
 });

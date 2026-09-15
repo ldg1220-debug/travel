@@ -1870,6 +1870,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             { lat: b.lat, lng: b.lng },
           ] as [{ lat: number; lng: number }, { lat: number; lng: number }],
           path: routeLegResults.get(routeLegKey(a, b))?.path ?? null,
+          // 아직 결과가 없으면(조회 중) true로 둔다 — 값이 오기 전까지는
+          // "실제 경로로 확인됨"이라고 단언할 수 없다(기존 폴백 표시와
+          // 같은 기본값). 작업지시서 2026-09-15 "도보 구간이 직선으로
+          // 그려집니다" §4.
+          estimated: routeLegResults.get(routeLegKey(a, b))?.estimated ?? true,
         };
       }),
     [routeLegStops, routeLegResults],
