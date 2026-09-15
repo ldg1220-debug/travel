@@ -1777,19 +1777,15 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
 // course-brief 전체를 다시 무응답으로 되돌리면 안 된다(2026-09-01
 // "응답 시간" 사고를 반복하지 않는다).
 const MAP_CALL_TIMEOUT_MS = 5000;
-const MAP_WIDTH = 800;
-const MAP_HEIGHT = 500;
-const MAP_SCALE = 2; // 레티나 대응 — 실제 픽셀은 1600×1000
-
-// Google Static Maps의 marker label은 A-Z/0-9 단일 문자만 허용한다 — 그래서
-// 순서 1~9는 그대로 숫자, 10부터(최대 3일차까지 합쳐도 보통 20곳 안팎)는
-// A/B/C…로 넘어간다. "번호 라벨"이라는 요청 취지는 하루 기준(보통 5~7곳)
-// 케이스에서는 그대로 지켜지고, 흔치 않은 10번째 이후 스톱만 알파벳으로
-// 대체된다.
-function markerLabel(order: number): string {
-  if (order >= 1 && order <= 9) return String(order);
-  return String.fromCharCode(65 + ((order - 10) % 26));
-}
+// 작업지시서 2026-09-15 "OG 이미지 구도 3건" §3-③: 기존 800×500(scale 2)은
+// "실제 픽셀 1600×1000"이라는 옆 주석과 달리 실측 1280×1000으로 나왔다 —
+// Google Static Maps 무료 등급은 과금 연결 없이는 가로/세로 각각 640px
+// 상한이라, scale 곱하기 전 요청값 800이 640으로 조용히 잘린 뒤(640×2=1280)
+// scale이 적용된 것. 600×315는 상한(640) 밑이라 잘리지 않고, scale:2를
+// 곱하면 정확히 1200×630(카카오·페이스북이 기준으로 삼는 1.91:1)이 된다.
+const MAP_WIDTH = 600;
+const MAP_HEIGHT = 315;
+const MAP_SCALE = 2; // 레티나 대응 — 실제 픽셀은 1200×630
 
 // 이미지 자체에는 브랜드 표식을 넣지 않는다 — 작업지시서 2026-09-06
 // "정정 및 실측" §4-5: sharp로 픽셀에 굽던 "tradule.co.kr" 워터마크를
@@ -1816,10 +1812,14 @@ export function buildStaticMapUrl(apiKey: string, spots: { order: number; lat: n
   url.searchParams.set("size", `${MAP_WIDTH}x${MAP_HEIGHT}`);
   url.searchParams.set("scale", String(MAP_SCALE));
   url.searchParams.set("key", apiKey);
-  // 스톱 순서대로 번호 마커 — 한 곳당 markers 파라미터 하나(label은
-  // 그룹 전체에 적용되는 속성이라 스톱마다 값이 다르면 따로 줘야 한다).
+  // 작업지시서 2026-09-15 "OG 이미지 구도 3건" §3-②: Google Static Maps의
+  // label은 A-Z/0-9 단일 문자만 받아, 순서 10부터 A/B/C…로 넘어가면서
+  // 방문 순서를 읽을 수 없게 됐다("E, I, J …"). 썸네일 크기에서는 어차피
+  // 번호가 읽히지 않으니, 번호 라벨은 완전히 없애고 시작점만 다른
+  // 색+"S" 라벨로 구분한다 — 동선의 시작/방향만 보이면 충분하다.
   for (const spot of spots) {
-    url.searchParams.append("markers", `label:${markerLabel(spot.order)}|${spot.lat},${spot.lng}`);
+    const marker = spot.order === 1 ? `color:blue|label:S|${spot.lat},${spot.lng}` : `color:red|${spot.lat},${spot.lng}`;
+    url.searchParams.append("markers", marker);
   }
   // 동선을 잇는 경로선 — path=는 반복 가능한 파라미터라(Static Maps
   // 스펙) 구간마다 하나씩 따로 그린다. 작업지시서 2026-09-08 "이동

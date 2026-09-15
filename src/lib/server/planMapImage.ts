@@ -13,24 +13,30 @@ import type { ItineraryItem } from "@/lib/types";
  * 경로를 조회하지 않는다 — 대신 같은 날짜 안의 연속된 스톱끼리 직선으로
  * 잇는다. 어차피 카카오톡은 OG 이미지를 캐시하므로(지시서 §1 각주) 매
  * 요청마다 정밀도를 높이는 것보다 빠르고 저렴한 쪽을 택했다.
+ *
+ * 작업지시서 2026-09-15 "OG 이미지 구도 3건" §3-①: 전 일정을 한 장에
+ * 담으면(후쿠오카~유후인~아프리칸사파리처럼 넓게 퍼진 계획) 축척이
+ * 무너져 도심 스팟 여러 개가 한 점으로 뭉친다. og:image는 "대표 한 장"
+ * 역할이고 다일정 전체는 이미 9:16 스토리 이미지가 맡고 있으므로,
+ * 스팟이 가장 많은 하루만 골라 그린다 — 그 날이 화면을 꽉 채운다.
  */
 export function buildPlanMapSpotsAndPaths(items: ItineraryItem[]): { spots: { order: number; lat: number; lng: number }[]; mapPaths: string[] } {
+  if (items.length === 0) return { spots: [], mapPaths: [] };
   const dates = [...new Set(items.map((i) => i.date))].sort();
-  const spots: { order: number; lat: number; lng: number }[] = [];
+  const busiestDate = dates.reduce((best, date) => {
+    const count = items.filter((i) => i.date === date).length;
+    const bestCount = items.filter((i) => i.date === best).length;
+    return count > bestCount ? date : best;
+  }, dates[0]);
+  const dayItems = items
+    .filter((i) => i.date === busiestDate)
+    .sort((a, b) => a.time.localeCompare(b.time));
+  const spots = dayItems.map((item, i) => ({ order: i + 1, lat: item.coordinates.lat, lng: item.coordinates.lng }));
   const mapPaths: string[] = [];
-  let order = 1;
-  dates.forEach((date, dayIndex) => {
-    const dayItems = items.filter((i) => i.date === date).sort((a, b) => a.time.localeCompare(b.time));
-    for (const item of dayItems) {
-      spots.push({ order: order++, lat: item.coordinates.lat, lng: item.coordinates.lng });
-    }
-    // 날짜가 바뀌는 경계는 잇지 않는다 — course-brief의 같은 규칙과
-    // 이유(서로 다른 날 방문지를 선으로 잇는 게 의미가 없다).
-    for (let i = 0; i + 1 < dayItems.length; i++) {
-      const path = mapPathParam([dayItems[i].coordinates, dayItems[i + 1].coordinates]);
-      mapPaths.push(recolorMapPathForDay(path, dayIndex));
-    }
-  });
+  for (let i = 0; i + 1 < dayItems.length; i++) {
+    const path = mapPathParam([dayItems[i].coordinates, dayItems[i + 1].coordinates]);
+    mapPaths.push(recolorMapPathForDay(path, 0));
+  }
   return { spots, mapPaths };
 }
 
