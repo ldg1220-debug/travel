@@ -6,8 +6,10 @@ import {
   capAllDayFacilityDays,
   chunkByProximity,
   clusterByLocation,
+  computeViewport,
   dedupeByBrand,
   dedupeByProximity,
+  excludeOutlierSpots,
   fetchGoogleDirectionsRoute,
   fetchKakaoDrivingRoute,
   fetchLegRoute,
@@ -1031,11 +1033,11 @@ describe("buildStaticMapUrl — URL 길이 방어 (§2 ★)", () => {
     expect(url.searchParams.getAll("markers")).toHaveLength(2);
   });
 
-  it("labels only the first spot (start point) and leaves the rest unlabeled (작업지시서 2026-09-15 'OG 이미지 구도 3건' §3-②)", () => {
+  it("labels only the first spot (start point), shrinks the rest (작업지시서 2026-09-15 'OG 이미지 구도 3건' §3-②, 'OG 지도 잔여 2건' §4)", () => {
     const url = buildStaticMapUrl("test-key", spots, []);
     const markers = url.searchParams.getAll("markers");
     expect(markers[0]).toBe("color:blue|label:S|34.6,135.5");
-    expect(markers[1]).toBe("color:red|34.61,135.51");
+    expect(markers[1]).toBe("size:small|color:red|34.61,135.51");
     expect(markers[1]).not.toContain("label:");
   });
 
@@ -1043,6 +1045,18 @@ describe("buildStaticMapUrl — URL 길이 방어 (§2 ★)", () => {
     const url = buildStaticMapUrl("test-key", spots, []);
     expect(url.searchParams.get("size")).toBe("600x315");
     expect(url.searchParams.get("scale")).toBe("2");
+  });
+
+  it("leaves center/zoom unset (Google auto-fit) when no viewport is given", () => {
+    const url = buildStaticMapUrl("test-key", spots, []);
+    expect(url.searchParams.has("center")).toBe(false);
+    expect(url.searchParams.has("zoom")).toBe(false);
+  });
+
+  it("sets an explicit center/zoom when a viewport is given (작업지시서 2026-09-15 'OG 지도 잔여 2건' §2)", () => {
+    const url = buildStaticMapUrl("test-key", spots, [], { center: { lat: 34.6, lng: 135.5 }, zoom: 14 });
+    expect(url.searchParams.get("center")).toBe("34.6,135.5");
+    expect(url.searchParams.get("zoom")).toBe("14");
   });
 
   it("drops path= params but keeps markers when the assembled URL exceeds the limit", () => {
@@ -1058,6 +1072,74 @@ describe("buildStaticMapUrl — URL 길이 방어 (§2 ★)", () => {
     const hugePath = "color:0x0000ffcc|weight:3|" + "35.0,129.0|".repeat(500);
     const url = buildStaticMapUrl("test-key", spots, Array(10).fill(hugePath));
     expect(url.toString().length).toBeLessThan(8000);
+  });
+});
+
+describe("excludeOutlierSpots — 작업지시서 2026-09-15 'OG 지도 잔여 2건' §2", () => {
+  it("drops a spot far beyond 3x the median distance from the median center", () => {
+    const cluster = [
+      { lat: 33.59, lng: 130.4 },
+      { lat: 33.591, lng: 130.401 },
+      { lat: 33.592, lng: 130.402 },
+      { lat: 33.593, lng: 130.403 },
+      { lat: 33.594, lng: 130.404 },
+      { lat: 33.595, lng: 130.405 },
+    ];
+    const outlier = { lat: 33.52, lng: 130.53 }; // ~15km away
+    const core = excludeOutlierSpots([...cluster, outlier]);
+    expect(core).toHaveLength(6);
+    expect(core).not.toContainEqual(outlier);
+  });
+
+  it("keeps every spot when they are all close together", () => {
+    const spots = [
+      { lat: 33.59, lng: 130.4 },
+      { lat: 33.591, lng: 130.401 },
+      { lat: 33.592, lng: 130.402 },
+    ];
+    expect(excludeOutlierSpots(spots)).toEqual(spots);
+  });
+
+  it("does not filter when there are 2 or fewer points (median is undefined for outlier purposes)", () => {
+    const spots = [
+      { lat: 33.59, lng: 130.4 },
+      { lat: 35.0, lng: 135.0 },
+    ];
+    expect(excludeOutlierSpots(spots)).toEqual(spots);
+  });
+
+  it("never returns an empty result even in a pathological distribution", () => {
+    const spots = [{ lat: 0, lng: 0 }, { lat: 0, lng: 0 }, { lat: 10, lng: 10 }];
+    expect(excludeOutlierSpots(spots).length).toBeGreaterThan(0);
+  });
+});
+
+describe("computeViewport — 작업지시서 2026-09-15 'OG 지도 잔여 2건' §2", () => {
+  it("centers on the midpoint of the bounding box", () => {
+    const viewport = computeViewport([
+      { lat: 33.59, lng: 130.4 },
+      { lat: 33.6, lng: 130.42 },
+    ]);
+    expect(viewport.center.lat).toBeCloseTo(33.595, 5);
+    expect(viewport.center.lng).toBeCloseTo(130.41, 5);
+  });
+
+  it("zooms in tighter for a small spread than a large one", () => {
+    const tight = computeViewport([
+      { lat: 33.59, lng: 130.4 },
+      { lat: 33.591, lng: 130.401 },
+    ]);
+    const wide = computeViewport([
+      { lat: 33.0, lng: 130.0 },
+      { lat: 34.0, lng: 131.0 },
+    ]);
+    expect(tight.zoom).toBeGreaterThan(wide.zoom);
+  });
+
+  it("returns a sane default zoom for a single point", () => {
+    const viewport = computeViewport([{ lat: 33.59, lng: 130.4 }]);
+    expect(viewport.center).toEqual({ lat: 33.59, lng: 130.4 });
+    expect(viewport.zoom).toBeGreaterThan(0);
   });
 });
 
