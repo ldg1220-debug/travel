@@ -68,6 +68,17 @@ export interface CourseBrief {
    * 필드를 보고 "직선거리 기준" 표기를 자동으로 붙일 수 있다.
    */
   distanceSource: "route" | "straight";
+  /**
+   * 일차별 이동 거리·스팟 수 — 작업지시서 2026-09-15 "og:image가
+   * 404입니다" §4: AutoPipeline(지식iN 답변·블로그)이 "**1일차 (총 N
+   * km)**" 같은 일차별 표기를 쓰고 싶어 하는데, 지금까지는 전체 합산
+   * (totalDistanceKm)만 있어 1일 코스에서만 그 표기를 쓸 수 있었다.
+   * assembleDaySpots가 이미 날짜별로 거리를 나눠 계산해두므로 합산만
+   * 했다 — 클라이언트가 좌표로 추정하면 직선거리가 되어 부정확하다.
+   * 권역명(예: "도심", "항만")은 넣지 않는다 — 지시서 §4: 사람이 붙이는
+   * 이름이라 자동 판정하면 틀린다.
+   */
+  dayTotals: { day: 1 | 2 | 3; distanceKm: number; spotCount: number }[];
 }
 
 const DEFAULT_THEME: CourseTheme = "balanced";
@@ -193,6 +204,7 @@ export function isFreshBriefPayload(payload: CourseBrief): boolean {
   if (typeof payload.ratingSource !== "string") return false;
   if (typeof payload.distanceSource !== "string") return false;
   if (!Array.isArray(payload.spots)) return false;
+  if (!Array.isArray(payload.dayTotals)) return false; // 작업지시서 2026-09-15 §4 — 이 필드가 생기기 전 캐시는 미스로 취급한다.
   return payload.spots.every((s) => typeof (s as { day?: unknown }).day === "number");
 }
 
@@ -1897,6 +1909,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   let hadAnyStraightFallback = false;
   const allSpots: CourseBriefSpot[] = [];
   const mapPaths: string[] = [];
+  const dayTotals: CourseBrief["dayTotals"] = [];
   routedDays.forEach(({ stops, segments }, i) => {
     const { spots, distanceKm, hadStraightFallback } = assembleDaySpots(stops, segments, baseOrder, scope, region, (i + 1) as 1 | 2 | 3);
     allSpots.push(...spots);
@@ -1906,6 +1919,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
     // 되칠해, 여러 날짜 동선이 한 지도에 겹쳐도 하루씩 구분되게 한다.
     mapPaths.push(...segments.map((s) => recolorMapPathForDay(s.mapPath, i)));
     if (hadStraightFallback) hadAnyStraightFallback = true;
+    dayTotals.push({ day: (i + 1) as 1 | 2 | 3, distanceKm: round1(distanceKm), spotCount: spots.length });
   });
   // 실패해도 조용히 직선으로 폴백해왔다 — 작업지시서 2026-09-11 "해외
   // 경로가 조용히 직선으로 떨어지고 있습니다" §3: "그걸 아무도 모르게
@@ -1936,6 +1950,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
     appUrl,
     ratingSource: "google",
     distanceSource: hadAnyStraightFallback ? "straight" : "route",
+    dayTotals,
   };
 
   // 여기까지가 "구조" 단계 — 순서·실제 경로 거리/소요시간·카탈로그

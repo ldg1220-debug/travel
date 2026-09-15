@@ -6,44 +6,46 @@ import type { ItineraryItem } from "@/lib/types";
 
 /**
  * 공유 링크(/planner/{shareToken})의 og:image로 쓰는 지도 썸네일 —
- * 작업지시서 2026-09-15 "공유 품질 4건" §1: 카카오톡 공유 카드에
- * og:image가 없어 제목 한 줄만 뜨고 썸네일이 안 나왔다.
+ * 작업지시서 2026-09-15 "공유 품질 4건" §1, 이어서 "og:image가
+ * 404입니다" §2.
  *
- * course-brief의 /api/content/course-map과 같은 관례(캐시된 이미지
- * blob URL로 302 리다이렉트)를 따른다. `.png` 확장자가 붙은 요청
- * (og:image에 쓰는 형태, `{shareToken}.png`)과 안 붙은 요청 둘 다
- * 받는다 — 확장자는 크롤러/브라우저가 Content-Type을 짐작하는 데
- * 쓰이지만, 실제 응답은 302라 최종 Content-Type은 리다이렉트 대상이
- * 정한다.
+ * ★★★ 이 응답은 실패해도 404를 주지 않는다 — 크롤러(카카오톡 등)가
+ * og:image를 한 번 404로 확인하면 그 상태를 캐시해, 나중에 고쳐도
+ * 카드가 안 바뀐다(§2 "없는 것보다 나쁠 수 있다 — 크롤러가 깨진
+ * 이미지를 기억한다"). 지도를 못 만드는 모든 경우(계획 없음, 장소
+ * 없음, API 키 미설정, Google Static Maps 실패 등) 전부 사이트 기본
+ * og 이미지(/opengraph-image, 앱 루트의 next/og 이미지)로 302
+ * 리다이렉트한다 — "실패해도 200이어야 한다"는 요구를, 실제로는 302 뒤에
+ * 진짜 이미지가 오는 방식으로 만족한다(과거 course-map/route.ts가
+ * 성공 시에도 이미 이 방식 — Blob URL로 302 — 이라 크롤러가 못 따라갈
+ * 걱정은 없다).
+ *
+ * course-brief의 /api/content/course-map과 같은 관례를 따른다. `.png`
+ * 확장자가 붙은 요청(og:image에 쓰는 형태, `{shareToken}.png`)과 안
+ * 붙은 요청 둘 다 받는다.
  */
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+
+const DEFAULT_OG_IMAGE = "https://www.tradule.co.kr/opengraph-image";
 
 export const GET = withApiErrorHandling(async (_request: NextRequest, { params }: { params: Promise<{ shareToken: string }> }) => {
   const raw = (await params).shareToken;
   const shareToken = raw.endsWith(".png") ? raw.slice(0, -4) : raw;
   if (!shareToken) {
-    return NextResponse.json({ error: "missing shareToken" }, { status: 400 });
+    return NextResponse.redirect(DEFAULT_OG_IMAGE, 302);
   }
 
-  const result = await pool.query<{ placesData: ItineraryItem[] }>(
-    `select "placesData" from itineraries where "shareToken" = $1`,
+  const result = await pool.query<{ placesData: ItineraryItem[]; updated_at: string }>(
+    `select "placesData", updated_at from itineraries where "shareToken" = $1`,
     [shareToken],
   );
-  if (result.rowCount === 0) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-  const items = result.rows[0].placesData;
-  if (!Array.isArray(items) || items.length === 0) {
-    // 장소가 하나도 없는 계획(빈 초안 등)은 지도를 만들 수 없다 — 정직하게
-    // 404를 준다. <meta property="og:image">는 깨진 이미지로 보이는
-    // 정도라 페이지 자체가 망가지진 않는다.
-    return NextResponse.json({ error: "map not available for this plan yet" }, { status: 404 });
+  const row = result.rows[0];
+  const items = row?.placesData;
+  if (!row || !Array.isArray(items) || items.length === 0) {
+    return NextResponse.redirect(DEFAULT_OG_IMAGE, 302);
   }
 
-  const imageUrl = await generatePlanMapImage(shareToken, items);
-  if (!imageUrl) {
-    return NextResponse.json({ error: "map not available for this plan yet" }, { status: 404 });
-  }
-  return NextResponse.redirect(imageUrl, 302);
+  const imageUrl = await generatePlanMapImage(shareToken, items, new Date(row.updated_at).getTime());
+  return NextResponse.redirect(imageUrl ?? DEFAULT_OG_IMAGE, 302);
 });
