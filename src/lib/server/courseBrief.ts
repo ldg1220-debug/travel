@@ -1797,6 +1797,84 @@ const MAP_SCALE = 2; // 레티나 대응 — 실제 픽셀은 1200×630
 // Static Maps의 공식 URL 길이 상한은 8,192자 — 여유를 두고 이보다 낮게 잡는다.
 const STATIC_MAPS_URL_LIMIT = 8000;
 
+export interface MapViewport {
+  center: { lat: number; lng: number };
+  zoom: number;
+}
+
+function median(nums: number[]): number {
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// 작업지시서 2026-09-15 "OG 지도 잔여 2건" §2: "중앙값 거리의 3배 초과"를
+// 그대로 기준으로 쓴다.
+const OUTLIER_MEDIAN_DISTANCE_MULTIPLIER = 3;
+
+/**
+ * 좌표들의 중앙 지점(median lat/lng)에서 크게(중앙값 거리의 3배 초과)
+ * 벗어난 점을 뺀 "핵심 군집"을 돌려준다 — 대표 하루 안에도 멀리 떨어진
+ * 단독 방문지가 섞이면(후쿠오카 예: 도심 6곳 + 15km 밖 다자이후 1곳)
+ * 그 하나 때문에 화면 축척 전체가 무너진다. 이 함수는 "화면을 어디에
+ * 맞출지"만 정하는 용도라, 결과에서 빠진 점도 markers=에는 그대로
+ * 남는다(buildStaticMapUrl 호출부 책임) — 화면 밖이면 안 보일 뿐이다.
+ */
+export function excludeOutlierSpots<T extends { lat: number; lng: number }>(points: T[]): T[] {
+  if (points.length <= 2) return points; // 점이 2개 이하면 "중앙값에서 벗어남"이 정의되지 않는다
+  const medianLat = median(points.map((p) => p.lat));
+  const medianLng = median(points.map((p) => p.lng));
+  const distances = points.map((p) => haversineKm(p, { lat: medianLat, lng: medianLng }));
+  const medianDistance = median(distances);
+  if (medianDistance === 0) return points; // 전부 같은 지점 — 배제할 대상이 없다
+  const threshold = medianDistance * OUTLIER_MEDIAN_DISTANCE_MULTIPLIER;
+  const core = points.filter((_, i) => distances[i] <= threshold);
+  return core.length > 0 ? core : points; // 방어적 — 극단적 분포로 전부 빠지면 원본을 그대로 쓴다
+}
+
+const VIEWPORT_WORLD_DIM = 256; // Web Mercator 타일 한 변(줌 0 기준) — Google Maps의 표준 bounds-to-zoom 계산 상수
+const VIEWPORT_MAX_ZOOM = 20;
+const VIEWPORT_MIN_ZOOM = 2;
+const VIEWPORT_PADDING = 0.9; // 마커가 화면 가장자리에 딱 붙지 않도록 10% 여백을 둔다
+
+function mercatorY(lat: number): number {
+  const sin = Math.sin((lat * Math.PI) / 180);
+  const rad = Math.log((1 + sin) / (1 - sin)) / 2;
+  return Math.max(Math.min(rad, Math.PI), -Math.PI) / 2;
+}
+
+function zoomForFraction(pixelDim: number, fraction: number): number {
+  if (fraction <= 0) return VIEWPORT_MAX_ZOOM;
+  return Math.floor(Math.log2(pixelDim / VIEWPORT_WORLD_DIM / fraction));
+}
+
+/**
+ * 주어진 좌표들이 MAP_WIDTH×MAP_HEIGHT 프레임 안에 여유 있게 들어오는
+ * center/zoom을 계산한다 — Google Maps JS SDK의 표준 bounds-to-zoom
+ * 알고리즘(위도는 Web Mercator 투영, 경도는 선형)을 그대로 옮긴 것.
+ * excludeOutlierSpots로 걸러낸 "핵심 군집"에 적용해야
+ * 의도한 효과(이상치 제외한 화면)가 난다.
+ */
+export function computeViewport(points: { lat: number; lng: number }[]): MapViewport {
+  const lats = points.map((p) => p.lat);
+  const lngs = points.map((p) => p.lng);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const center = { lat: (minLat + maxLat) / 2, lng: (minLng + maxLng) / 2 };
+  if (points.length <= 1) return { center, zoom: 15 };
+
+  const latFraction = (mercatorY(maxLat) - mercatorY(minLat)) / Math.PI;
+  const lngDiffRaw = maxLng - minLng;
+  const lngFraction = (lngDiffRaw < 0 ? lngDiffRaw + 360 : lngDiffRaw) / 360;
+
+  const latZoom = zoomForFraction(MAP_HEIGHT * VIEWPORT_PADDING, latFraction);
+  const lngZoom = zoomForFraction(MAP_WIDTH * VIEWPORT_PADDING, lngFraction);
+  const zoom = Math.min(latZoom, lngZoom, VIEWPORT_MAX_ZOOM);
+  return { center, zoom: Math.max(zoom, VIEWPORT_MIN_ZOOM) };
+}
+
 /**
  * Static Maps 요청 URL을 조립한다 — generateCourseMapImage에서 분리한
  * 순수 함수라(네트워크 없음) 단위 테스트로 길이 방어 로직을 직접
@@ -1807,18 +1885,37 @@ const STATIC_MAPS_URL_LIMIT = 8000;
  * 예방되지만, 그래도 넘치면 경로선만 빼고 마커는 남긴다 — "지도가
  * 아예 없는 것보다 낫다").
  */
-export function buildStaticMapUrl(apiKey: string, spots: { order: number; lat: number; lng: number }[], mapPaths: string[]): URL {
+export function buildStaticMapUrl(
+  apiKey: string,
+  spots: { order: number; lat: number; lng: number }[],
+  mapPaths: string[],
+  viewport?: MapViewport,
+): URL {
   const url = new URL("https://maps.googleapis.com/maps/api/staticmap");
   url.searchParams.set("size", `${MAP_WIDTH}x${MAP_HEIGHT}`);
   url.searchParams.set("scale", String(MAP_SCALE));
+  // viewport가 주어지면 center/zoom을 명시해 Google의 기본 동작(마커+경로
+  // 전부를 감싸는 자동 축척)을 대신한다 — 작업지시서 2026-09-15 "OG 지도
+  // 잔여 2건" §2: 이상치 스팟(예: 도심에서 15km 떨어진 단독 방문지) 하나
+  // 때문에 축척이 무너져 나머지 스팟들이 한 점으로 뭉치는 문제. 이상치도
+  // markers=에는 그대로 남아 좌표는 정확하지만, 보이는 화면(center/zoom)은
+  // 핵심 군집(excludeOutlierSpots가 걸러낸 코어) 기준으로 맞춘다 — 화면
+  // 밖으로 벗어난 마커는 단순히 안 보일 뿐이다.
+  if (viewport) {
+    url.searchParams.set("center", `${viewport.center.lat},${viewport.center.lng}`);
+    url.searchParams.set("zoom", String(viewport.zoom));
+  }
   url.searchParams.set("key", apiKey);
   // 작업지시서 2026-09-15 "OG 이미지 구도 3건" §3-②: Google Static Maps의
   // label은 A-Z/0-9 단일 문자만 받아, 순서 10부터 A/B/C…로 넘어가면서
   // 방문 순서를 읽을 수 없게 됐다("E, I, J …"). 썸네일 크기에서는 어차피
   // 번호가 읽히지 않으니, 번호 라벨은 완전히 없애고 시작점만 다른
   // 색+"S" 라벨로 구분한다 — 동선의 시작/방향만 보이면 충분하다.
+  // 작업지시서 2026-09-15 "OG 지도 잔여 2건" §4: 나머지 마커는 기본
+  // 크기 그대로면 스팟이 몰린 도심에서 서로 겹쳐 안 보인다 — size:small로
+  // 줄이고, 시작점만 기본 크기로 남겨 대비를 준다.
   for (const spot of spots) {
-    const marker = spot.order === 1 ? `color:blue|label:S|${spot.lat},${spot.lng}` : `color:red|${spot.lat},${spot.lng}`;
+    const marker = spot.order === 1 ? `color:blue|label:S|${spot.lat},${spot.lng}` : `size:small|color:red|${spot.lat},${spot.lng}`;
     url.searchParams.append("markers", marker);
   }
   // 동선을 잇는 경로선 — path=는 반복 가능한 파라미터라(Static Maps
