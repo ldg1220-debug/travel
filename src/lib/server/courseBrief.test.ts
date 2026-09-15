@@ -1031,6 +1031,20 @@ describe("buildStaticMapUrl — URL 길이 방어 (§2 ★)", () => {
     expect(url.searchParams.getAll("markers")).toHaveLength(2);
   });
 
+  it("labels only the first spot (start point) and leaves the rest unlabeled (작업지시서 2026-09-15 'OG 이미지 구도 3건' §3-②)", () => {
+    const url = buildStaticMapUrl("test-key", spots, []);
+    const markers = url.searchParams.getAll("markers");
+    expect(markers[0]).toBe("color:blue|label:S|34.6,135.5");
+    expect(markers[1]).toBe("color:red|34.61,135.51");
+    expect(markers[1]).not.toContain("label:");
+  });
+
+  it("requests a 1200x630 (1.91:1 OG ratio) image (작업지시서 2026-09-15 'OG 이미지 구도 3건' §3-③)", () => {
+    const url = buildStaticMapUrl("test-key", spots, []);
+    expect(url.searchParams.get("size")).toBe("600x315");
+    expect(url.searchParams.get("scale")).toBe("2");
+  });
+
   it("drops path= params but keeps markers when the assembled URL exceeds the limit", () => {
     // 각 구간을 아주 긴 문자열로 채워 8,000자를 넘긴다 — 실제로는 raw
     // 좌표 나열(mapPathParam)이 이렇게 길어지던 게 §2의 실제 버그였다.
