@@ -949,6 +949,7 @@ describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미�
       appUrl: "https://example.com",
       ratingSource: "google",
       distanceSource: "route",
+      dayTotals: [{ day: 1, distanceKm: 10, spotCount: 1 }],
       ...overrides,
     };
   }
@@ -960,6 +961,12 @@ describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미�
   it("rejects an old cached payload from before distanceSource existed", () => {
     const stale = payload();
     delete (stale as { distanceSource?: unknown }).distanceSource;
+    expect(isFreshBriefPayload(stale)).toBe(false);
+  });
+
+  it("rejects an old cached payload from before dayTotals existed (작업지시서 2026-09-15 §4)", () => {
+    const stale = payload();
+    delete (stale as { dayTotals?: unknown }).dayTotals;
     expect(isFreshBriefPayload(stale)).toBe(false);
   });
 });
