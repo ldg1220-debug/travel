@@ -122,9 +122,11 @@ export interface RouteLegResult {
   durationMin: number | null;
   /** 실제 도로를 따라가는 좌표열 — null이면 실제 경로를 확인하지 못했다는 뜻(호출부가 점선 직선으로 대체). */
   path: { lat: number; lng: number }[] | null;
+  /** true면 위 값들이 실제 경로가 아니라 직선 추정이다 — 작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다" §4: path가 있어도(2점짜리 직선) 실선으로 그리면 안 된다, 이 값으로 판단한다. */
+  estimated: boolean;
 }
 
-const NO_ROUTE_RESULT: RouteLegResult = { distanceM: null, durationMin: null, path: null };
+const NO_ROUTE_RESULT: RouteLegResult = { distanceM: null, durationMin: null, path: null, estimated: true };
 
 /**
  * 계획 탭 지도·일정 시각용 실제 경로 조회 — 작업지시서 2026-09-11 "계획

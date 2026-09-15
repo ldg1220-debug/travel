@@ -187,7 +187,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 8; // GCP Directions API 제한이 풀려 해외 실제 경로가 처음으로 정상 작동 + 지도 URL 길이 방어·distanceSource 추가 — 작업지시서 2026-09-11 "해외 경로 해결 / 지도 이미지가 전부 사라졌습니다" §5 "COURSE_ALGO_VERSION 올려 재생성". 캐시된 옛 코스는 여전히 직선거리·지도 없음 상태다.
+export const COURSE_ALGO_VERSION = 9; // 해외 도보 구간이 이제 Google walking 실제 경로를 시도(예전엔 무조건 직선) + 정적 지도에서 추정 구간을 회색으로 구분 — 작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다" §6 "COURSE_ALGO_VERSION 올려 재생성". 캐시된 옛 코스는 여전히 도보 구간이 (요일 색의) 직선인 채로 남는다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -338,6 +338,17 @@ export function mapPathParamEncoded(points: GeoPoint[]): string {
  */
 export function recolorMapPathForDay(mapPath: string, dayIndex: number): string {
   return mapPath.replace(DEFAULT_MAP_PATH_COLOR, routeLegColorStaticParam(dayIndex));
+}
+
+// 작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다" §5 — Static
+// Maps는 점선을 못 그리니 색을 흐리게 해서 "이 구간은 추정"을 표시한다.
+// 요일별 팔레트(recolorMapPathForDay)보다 우선한다 — 실제 경로인지
+// 여부가 어느 날짜인지보다 더 중요한 신호라, 추정 구간은 날짜와
+// 무관하게 항상 이 회색을 쓴다.
+const ESTIMATED_MAP_PATH_COLOR = "0x9e9e9e88";
+
+export function recolorMapPathAsEstimated(mapPath: string): string {
+  return mapPath.replace(DEFAULT_MAP_PATH_COLOR, ESTIMATED_MAP_PATH_COLOR);
 }
 
 // 카카오 vertexes/구글 상세 경로는 도로 하나당 점이 수십~수백 개라
@@ -504,10 +515,27 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
   }
 }
 
-/** scope·mode에 맞는 실제 경로 조회로 라우팅하고, 확정적으로 "경로 없음"이면 "no-route"를, 그 외(타임아웃 등 판단 보류 포함)엔 직선 추정을 돌려준다. */
+/**
+ * scope·mode에 맞는 실제 경로 조회로 라우팅하고, 확정적으로 "경로 없음"이면
+ * "no-route"를, 그 외(타임아웃 등 판단 보류 포함)엔 직선 추정을 돌려준다.
+ *
+ * 도보(mode==="walk")는 원래 실경로 조회 대상이 아니었다(카카오모빌리티는
+ * 자동차 전용, 국내는 애초에 API가 없다) — 그런데 이 가정을 해외에도
+ * 그대로 적용해온 게 문제였다: 작업지시서 2026-09-15 "도보 구간이
+ * 직선으로 그려집니다" §3 실측 — Google DirectionsService를 직접
+ * 불러보니 해외(예: 후쿠오카)는 도보 경로가 정상적으로 나온다(한국만
+ * ZERO_RESULTS — 구글이 한국 도보 길안내를 제공하지 않는다, 지도 데이터
+ * 반출 제한). 그래서 해외 도보만 Google walking을 새로 태우고, 국내
+ * 도보는 여전히 직선 추정(§4 "국내 도보는 직선일 수밖에 없다")을 쓴다.
+ */
 async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, mode: TravelMode): Promise<RouteResult | "no-route"> {
-  if (mode === "walk") return straightRouteMeasurement(a, b, mode); // 도보는 실경로 조회 대상이 아니다(위 섹션 설명)
-  const outcome = scope === "domestic" ? await fetchKakaoDrivingRoute(a, b) : await fetchGoogleDirectionsRoute(a, b, mode === "transit" ? "transit" : "driving");
+  if (mode === "walk" && scope !== "overseas") return straightRouteMeasurement(a, b, mode); // 국내 도보 — 조회 대상 없음(위 설명)
+  const outcome =
+    mode === "walk"
+      ? await fetchGoogleDirectionsRoute(a, b, "walking")
+      : scope === "domestic"
+        ? await fetchKakaoDrivingRoute(a, b)
+        : await fetchGoogleDirectionsRoute(a, b, mode === "transit" ? "transit" : "driving");
   if (outcome === "no-route") return "no-route";
   if (outcome == null) return straightRouteMeasurement(a, b, mode); // 조회 실패/판단 보류 — 폴백, 스팟은 유지
   return applyDurationCap(outcome, mode); // §3 ★ 비정상적으로 크면(3시간 초과) "no-route"
@@ -525,9 +553,19 @@ export interface LegRouteResult {
    * 생긴 문제였다.
    */
   path: { lat: number; lng: number }[] | null;
+  /**
+   * true면 이 값(거리·시간·path)이 실제 경로 조회 결과가 아니라 두 점을
+   * 잇는 직선 추정이다 — 작업지시서 2026-09-15 "도보 구간이 직선으로
+   * 그려집니다" §4: 예전엔 직선 폴백도 `path`에 좌표 2개를 채워 돌려줘서
+   * `path !== null`만 보는 호출부가 실선으로 그려버렸다("path.length<=2로
+   * 판별해도 되지만, 서버가 명시하는 쪽이 안전하다 — 실제 경로가 우연히
+   * 2점일 수도 있다"). 호출부는 이 값이 true면 점선(추정 표시)으로
+   * 그려야 한다.
+   */
+  estimated: boolean;
 }
 
-const NO_ROUTE: LegRouteResult = { distanceM: null, durationMin: null, path: null };
+const NO_ROUTE: LegRouteResult = { distanceM: null, durationMin: null, path: null, estimated: true };
 
 /**
  * 계획 탭 지도/일정 시각용 구간 조회(/api/routes가 그대로 노출) —
@@ -558,15 +596,30 @@ export async function fetchLegRoute(a: GeoPoint, b: GeoPoint): Promise<LegRouteR
   const scope: CourseBriefScope = isDomesticCoordinate(a.lat, a.lng) ? "domestic" : "overseas";
   const mode = modeForDistance(km, scope);
   if (mode === "walk") {
+    // 작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다" §3 — 해외
+    // 도보는 routeSegment와 같은 이유로 Google walking을 시도한다. 실패
+    // (타임아웃 등 판단 보류)하면 직선으로 폴백하되 estimated:true로
+    // 표시한다 — 국내는 애초에 시도하지 않는다(§4, Google도 ZERO_RESULTS).
+    if (scope === "overseas") {
+      const outcome = await fetchGoogleDirectionsRoute(a, b, "walking");
+      if (outcome === "no-route") return NO_ROUTE; // 확정적으로 걸어갈 길이 없다
+      if (outcome != null) {
+        const capped = applyDurationCap(outcome, mode);
+        if (capped !== "no-route") {
+          return { distanceM: Math.round(capped.distanceKm * 1000), durationMin: capped.durationMinutes, path: capped.points, estimated: false };
+        }
+      }
+      // outcome == null(조회 실패/타임아웃) 또는 3시간 초과 — 아래 직선 폴백으로.
+    }
     const walk = straightRouteMeasurement(a, b, "walk");
-    return { distanceM: Math.round(walk.distanceKm * 1000), durationMin: walk.durationMinutes, path: [a, b] };
+    return { distanceM: Math.round(walk.distanceKm * 1000), durationMin: walk.durationMinutes, path: [a, b], estimated: true };
   }
 
   const outcome = scope === "domestic" ? await fetchKakaoDrivingRoute(a, b) : await fetchGoogleDirectionsRoute(a, b, mode === "transit" ? "transit" : "driving");
   if (outcome == null || outcome === "no-route") return NO_ROUTE;
   const capped = applyDurationCap(outcome, mode);
   if (capped === "no-route") return NO_ROUTE;
-  return { distanceM: Math.round(capped.distanceKm * 1000), durationMin: capped.durationMinutes, path: capped.points };
+  return { distanceM: Math.round(capped.distanceKm * 1000), durationMin: capped.durationMinutes, path: capped.points, estimated: false };
 }
 
 /**
@@ -1669,9 +1722,14 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
       distanceKm += seg.distanceKm;
       toNextMode = seg.mode;
       toNextMinutes = seg.durationMinutes;
-      // 도보(walk)는 애초에 실경로 조회 대상이 아니다(fetchKakaoDrivingRoute
-      // 위 설명 참고) — 의도된 직선 추정이라 "실패"로 세지 않는다.
-      if (seg.mode !== "walk" && seg.points == null) hadStraightFallback = true;
+      // 국내 도보는 애초에 실경로 조회 대상이 아니다(routeSegment 위
+      // 설명 참고) — 의도된 직선 추정이라 "실패"로 세지 않는다. 해외
+      // 도보는 작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다"
+      // §3 이후로 Google walking을 실제로 시도하므로, 그게 실패해서
+      // 직선으로 떨어진 경우는 다른 모드와 마찬가지로 "조용한 저하"로
+      // 센다 — distanceSource가 이걸 놓치면 §1의 재발("그걸 아무도
+      // 모르게 만든 게 코드 문제")과 같은 사고가 된다.
+      if (!(seg.mode === "walk" && scope === "domestic") && seg.points == null) hadStraightFallback = true;
     }
 
     let { rating, reviewCount } = qualityGate(stop.rating ?? null, stop.reviewCount ?? null);
@@ -1917,7 +1975,9 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
     baseOrder += spots.length;
     // 작업지시서 2026-09-15 "공유 품질 4건" §3 — 날짜(i)마다 다른 색으로
     // 되칠해, 여러 날짜 동선이 한 지도에 겹쳐도 하루씩 구분되게 한다.
-    mapPaths.push(...segments.map((s) => recolorMapPathForDay(s.mapPath, i)));
+    // 이어서 같은 날짜 "도보 구간이 직선으로 그려집니다" §5 — 실제 경로가
+    // 없는(points === null) 구간은 요일 색 대신 회색(추정 표시)이 우선한다.
+    mapPaths.push(...segments.map((s) => (s.points == null ? recolorMapPathAsEstimated(s.mapPath) : recolorMapPathForDay(s.mapPath, i))));
     if (hadStraightFallback) hadAnyStraightFallback = true;
     dayTotals.push({ day: (i + 1) as 1 | 2 | 3, distanceKm: round1(distanceKm), spotCount: spots.length });
   });

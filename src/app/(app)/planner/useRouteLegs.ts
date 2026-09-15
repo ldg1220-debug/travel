@@ -11,7 +11,7 @@ export interface RouteLegStop {
 }
 
 const DEBOUNCE_MS = 800;
-const NO_ROUTE_RESULT: RouteLegResult = { distanceM: null, durationMin: null, path: null };
+const NO_ROUTE_RESULT: RouteLegResult = { distanceM: null, durationMin: null, path: null, estimated: true };
 
 /** 인접한 두 스톱의 캐시 키 — (출발 placeId, 도착 placeId) 순서 그대로. */
 export function routeLegKey(a: Pick<RouteLegStop, "placeId">, b: Pick<RouteLegStop, "placeId">): string {

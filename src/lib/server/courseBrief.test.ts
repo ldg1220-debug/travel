@@ -22,6 +22,7 @@ import {
   reallocateStopsByDay,
   reassignByCentroid,
   rebalanceByDistance,
+  recolorMapPathAsEstimated,
   recolorMapPathForDay,
   resolveScope,
   simplifyPath,
@@ -832,6 +833,7 @@ describe("fetchLegRoute — /api/routes가 그대로 노출하는 계획 탭용 
     expect(result.distanceM).not.toBeNull();
     expect(result.durationMin).not.toBeNull();
     expect(result.path).toEqual([domesticNear, b]);
+    expect(result.estimated).toBe(true); // 작업지시서 2026-09-15 §4 — 직선 추정이라 점선으로 표시돼야 한다.
   });
 
   it("returns real distance/duration/path for a domestic leg via Kakao", async () => {
@@ -856,17 +858,18 @@ describe("fetchLegRoute — /api/routes가 그대로 노출하는 계획 탭용 
     expect(result.durationMin).toBe(51);
     expect(result.path).not.toBeNull();
     expect(result.path?.[0]).toEqual({ lat: domesticFar.lat, lng: domesticFar.lng });
+    expect(result.estimated).toBe(false);
   });
 
   it("returns NO_ROUTE (not a straight-line estimate) when Kakao confirms no route exists — 계획 탭은 추정치를 진짜처럼 보여주면 안 된다", async () => {
     vi.stubEnv("KAKAO_REST_API_KEY", "test-key");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ routes: [{ result_code: 1 }] }) }));
-    expect(await fetchLegRoute(domesticFar, domesticFarB)).toEqual({ distanceM: null, durationMin: null, path: null });
+    expect(await fetchLegRoute(domesticFar, domesticFarB)).toEqual({ distanceM: null, durationMin: null, path: null, estimated: true });
   });
 
   it("returns NO_ROUTE (not a straight-line estimate) when the lookup is inconclusive (no key/network failure)", async () => {
     vi.stubEnv("KAKAO_REST_API_KEY", "");
-    expect(await fetchLegRoute(domesticFar, domesticFarB)).toEqual({ distanceM: null, durationMin: null, path: null });
+    expect(await fetchLegRoute(domesticFar, domesticFarB)).toEqual({ distanceM: null, durationMin: null, path: null, estimated: true });
   });
 
   it("returns real distance/duration/decoded path for an overseas leg via Google Directions", async () => {
@@ -885,6 +888,7 @@ describe("fetchLegRoute — /api/routes가 그대로 노출하는 계획 탭용 
     expect(result.distanceM).toBe(5000);
     expect(result.durationMin).toBe(15);
     expect(result.path?.[0].lat).toBeCloseTo(38.5, 5);
+    expect(result.estimated).toBe(false);
   });
 
   it("returns NO_ROUTE once the segment exceeds the 3-hour cap (§3 ★)", async () => {
@@ -896,7 +900,44 @@ describe("fetchLegRoute — /api/routes가 그대로 노출하는 계획 탭용 
         json: async () => ({ routes: [{ result_code: 0, summary: { distance: 300000, duration: 200 * 60 }, sections: [] }] }),
       }),
     );
-    expect(await fetchLegRoute(domesticFar, domesticFarB)).toEqual({ distanceM: null, durationMin: null, path: null });
+    expect(await fetchLegRoute(domesticFar, domesticFarB)).toEqual({ distanceM: null, durationMin: null, path: null, estimated: true });
+  });
+
+  // 작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다" §3 — 해외 도보는
+  // 이제 Google walking을 실제로 시도한다(한국은 여전히 시도하지 않음, §4).
+  const overseasWalkA = { lat: 33.5902, lng: 130.4207 }; // 후쿠오카, 0.5km 이내
+  const overseasWalkB = { lat: 33.5935, lng: 130.4225 };
+
+  it("tries Google walking directions for a short overseas leg instead of skipping straight to a straight-line estimate", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "test-key");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "OK",
+        routes: [{ legs: [{ distance: { value: 600 }, duration: { value: 480 } }], overview_polyline: { points: "_p~iF~ps|U_ulLnnqC_mqNvxq`@" } }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await fetchLegRoute(overseasWalkA, overseasWalkB);
+    expect(fetchMock).toHaveBeenCalled();
+    const calledUrl = fetchMock.mock.calls[0][0] as URL;
+    expect(calledUrl.toString()).toContain("mode=walking");
+    expect(result.distanceM).toBe(600);
+    expect(result.durationMin).toBe(8);
+    expect(result.estimated).toBe(false);
+  });
+
+  it("falls back to a straight-line estimate (estimated:true) when overseas walking directions can't be confirmed", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "");
+    const result = await fetchLegRoute(overseasWalkA, overseasWalkB);
+    expect(result.path).toEqual([overseasWalkA, overseasWalkB]);
+    expect(result.estimated).toBe(true);
+  });
+
+  it("returns NO_ROUTE for an overseas walking leg Google confirms has no path", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "ZERO_RESULTS" }) }));
+    expect(await fetchLegRoute(overseasWalkA, overseasWalkB)).toEqual({ distanceM: null, durationMin: null, path: null, estimated: true });
   });
 });
 
@@ -925,11 +966,18 @@ describe("assembleDaySpots — distanceSource용 hadStraightFallback 판정", ()
     expect(hadStraightFallback).toBe(true);
   });
 
-  it("does not count a walk segment's straight-line estimate as a fallback (의도된 폴백)", () => {
+  it("does not count a domestic walk segment's straight-line estimate as a fallback (의도된 폴백 — §4 '국내 도보는 직선일 수밖에 없다')", () => {
     const stops = [stop("a", 0, 0), stop("b", 0, 1)];
     const segments = [routeSeg(0.3, 5, false, "walk")];
     const { hadStraightFallback } = assembleDaySpots(stops, segments, 1, "domestic", "경주", 1);
     expect(hadStraightFallback).toBe(false);
+  });
+
+  it("counts an overseas walk segment's straight-line estimate as a fallback (작업지시서 2026-09-15 §3 — 이제 Google walking을 실제로 시도하므로, 실패는 다른 모드와 같은 '조용한 저하'다)", () => {
+    const stops = [stop("a", 0, 0), stop("b", 0, 1)];
+    const segments = [routeSeg(0.3, 5, false, "walk")];
+    const { hadStraightFallback } = assembleDaySpots(stops, segments, 1, "overseas", "후쿠오카", 1);
+    expect(hadStraightFallback).toBe(true);
   });
 
   it("reports no fallback for a single-stop day (no segments to fail)", () => {
@@ -1087,5 +1135,19 @@ describe("recolorMapPathForDay — 작업지시서 2026-09-15 '공유 품질 4�
     const recolored = recolorMapPathForDay(path, 2);
     expect(recolored).toContain("weight:3");
     expect(recolored).toContain("35.1,129.1");
+  });
+});
+
+describe("recolorMapPathAsEstimated — 작업지시서 2026-09-15 '도보 구간이 직선으로 그려집니다' §5 (추정 구간은 회색)", () => {
+  it("replaces the default blue with the grey/translucent estimated color", () => {
+    const path = mapPathParam([{ lat: 1, lng: 2 }, { lat: 3, lng: 4 }]);
+    expect(recolorMapPathAsEstimated(path)).toBe(path.replace("0x0000ffcc", "0x9e9e9e88"));
+  });
+
+  it("takes priority over the day palette — an estimated segment is grey regardless of day", () => {
+    const path = mapPathParam([{ lat: 1, lng: 2 }]);
+    const estimated = recolorMapPathAsEstimated(path);
+    expect(estimated).not.toBe(recolorMapPathForDay(path, 0));
+    expect(estimated).not.toBe(recolorMapPathForDay(path, 1));
   });
 });
