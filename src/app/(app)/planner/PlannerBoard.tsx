@@ -86,7 +86,7 @@ import { shareToKakao } from "@/lib/kakaoShare";
 import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
 import { EmptyStateCard } from "@/components/EmptyStateCard";
 import { ShareImageSheet } from "@/components/ShareImageSheet";
-import type { ShareImageData } from "@/components/ShareImageCapture";
+import type { ShareImageData, ShareImageDaySection } from "@/components/ShareImageCapture";
 import { ROUTE_OPTIMIZED_ONCE_KEY } from "@/lib/tripStatus";
 import { nudgeGoogleMapResize } from "@/lib/maps/mapResize";
 import { nudgeKakaoMapResize, getKakaoMaps, type KakaoMapInstance } from "@/lib/maps/kakao-map";
@@ -632,13 +632,33 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
   // 공유 이미지는 activeDate에 일정이 있으면 그 날짜, 없으면 일정이 있는
   // 첫 보이는 날짜를 쓴다 — 완전히 빈 날짜를 공유하는 상황을 피한다.
+  // (정사각(1:1) 포맷 전용 — 스토리는 바로 아래 shareImageDays를 쓴다.)
   const shareImageDate = scheduleByDate[activeDate]?.length ? activeDate : (visibleDates.find((d) => scheduleByDate[d]?.length) ?? activeDate);
   const shareImageDates = [...new Set(items.map((i) => i.date))].sort();
+  // 스토리(9:16) 포맷용 — 작업지시서 2026-09-15 "공유 품질 4건" §2: 창에
+  // 보이는(visibleDates) 날짜가 아니라 계획 전체(items)의 모든 날짜를
+  // 담는다. 번호(order)는 날짜 경계와 무관하게 전체 여정에서 이어진다 —
+  // course-brief 스팟 번호(assembleDaySpots의 baseOrder)와 같은 관례.
+  const shareImageDays: ShareImageDaySection[] = useMemo(() => {
+    let order = 0;
+    return shareImageDates
+      .map((date, i) => {
+        const dayItems = items.filter((it) => it.date === date).slice().sort((a, b) => a.time.localeCompare(b.time));
+        return {
+          date,
+          dayLabel: shareImageDates.length > 1 ? `Day ${i + 1}/${shareImageDates.length}` : undefined,
+          items: dayItems.map((it) => ({ time: it.time, name: it.name, order: ++order })),
+        };
+      })
+      .filter((d) => d.items.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- shareImageDates is derived from items each render, listing it too would be redundant
+  }, [items]);
   const shareImageData: ShareImageData = {
     cityName: planTitle || "",
     date: shareImageDate,
     dayLabel: shareImageDates.length > 1 ? `Day ${shareImageDates.indexOf(shareImageDate) + 1}/${shareImageDates.length}` : undefined,
     items: (scheduleByDate[shareImageDate] ?? []).map((it, i) => ({ time: it.time, name: it.name, order: i + 1 })),
+    days: shareImageDays,
   };
 
   // A stop can now run past midnight (e.g. 22:00 → next-day 06:00) — for

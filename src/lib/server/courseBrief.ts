@@ -6,6 +6,7 @@ import { MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, s
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { allSpots, DOMESTIC_LOCALITY_NAMES, OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
+import { routeLegColorStaticParam } from "@/lib/mapRouteColors";
 
 /**
  * 트레쥴 콘텐츠 API(`/api/content/course-brief`)의 실제 조립 로직 —
@@ -288,10 +289,17 @@ export interface RouteResult extends RouteMeasurement {
   mode: TravelMode;
 }
 
+// mapPathParam/mapPathParamEncoded가 세그먼트를 만드는 시점엔 아직 "몇
+// 일차"인지 모른다(둘 다 leg 하나만 보고 호출되는 leg 단위 함수라서) —
+// 일단 이 기본색으로 찍어두고, 날짜별로 다 모인 뒤(buildBrief의
+// routedDays.forEach)에 recolorMapPathForDay가 실제 팔레트 색으로
+// 되칠한다. 작업지시서 2026-09-15 "공유 품질 4건" §3 참고.
+const DEFAULT_MAP_PATH_COLOR = "0x0000ffcc";
+
 /** Static Maps path= 값 하나를 좌표 목록으로 만든다 — 점 2개짜리 직선 폴백(straightRouteMeasurement)처럼 애초에 짧은 경우에만 쓴다. */
 export function mapPathParam(points: GeoPoint[]): string {
   const coords = points.map((p) => `${p.lat},${p.lng}`).join("|");
-  return `color:0x0000ffcc|weight:3|${coords}`;
+  return `color:${DEFAULT_MAP_PATH_COLOR}|weight:3|${coords}`;
 }
 
 /**
@@ -303,7 +311,21 @@ export function mapPathParam(points: GeoPoint[]): string {
  * Directions API가 애초에 인코딩된 형태를 줘서 이 문제가 없었다.
  */
 export function mapPathParamEncoded(points: GeoPoint[]): string {
-  return `color:0x0000ffcc|weight:3|enc:${encodePolyline(points)}`;
+  return `color:${DEFAULT_MAP_PATH_COLOR}|weight:3|enc:${encodePolyline(points)}`;
+}
+
+/**
+ * mapPathParam(Encoded)가 찍어둔 기본색을 날짜 인덱스에 맞는 팔레트
+ * 색으로 되칠한다 — 작업지시서 2026-09-15 "공유 품질 4건" §3: "날짜가
+ * 다르면 색 계열도 다르게 해주세요. 3일 계획이면 하루씩 구분돼야
+ * 합니다". 세그먼트를 만드는 leg 단위 함수들(mapPathParam 등)의
+ * 시그니처를 바꿔 day 인덱스를 전달하는 대신(그 함수들은 여러 곳에서
+ * leg 단위로 재사용되고 이미 단위 테스트로 고정돼 있다), 날짜별로 다
+ * 모인 뒤 이 순수 함수 하나로 문자열을 치환하는 쪽이 훨씬 적은 변경으로
+ * 같은 결과를 낸다.
+ */
+export function recolorMapPathForDay(mapPath: string, dayIndex: number): string {
+  return mapPath.replace(DEFAULT_MAP_PATH_COLOR, routeLegColorStaticParam(dayIndex));
 }
 
 // 카카오 vertexes/구글 상세 경로는 도로 하나당 점이 수십~수백 개라
@@ -459,7 +481,7 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
     return {
       distanceKm: leg.distance.value / 1000,
       durationMinutes: Math.round(leg.duration.value / 60),
-      mapPath: encoded ? `color:0x0000ffcc|weight:3|enc:${encoded}` : mapPathParam([a, b]),
+      mapPath: encoded ? `color:${DEFAULT_MAP_PATH_COLOR}|weight:3|enc:${encoded}` : mapPathParam([a, b]),
       points,
     };
   } catch (err) {
@@ -1880,7 +1902,9 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
     allSpots.push(...spots);
     totalDistanceKm += distanceKm;
     baseOrder += spots.length;
-    mapPaths.push(...segments.map((s) => s.mapPath));
+    // 작업지시서 2026-09-15 "공유 품질 4건" §3 — 날짜(i)마다 다른 색으로
+    // 되칠해, 여러 날짜 동선이 한 지도에 겹쳐도 하루씩 구분되게 한다.
+    mapPaths.push(...segments.map((s) => recolorMapPathForDay(s.mapPath, i)));
     if (hadStraightFallback) hadAnyStraightFallback = true;
   });
   // 실패해도 조용히 직선으로 폴백해왔다 — 작업지시서 2026-09-11 "해외
