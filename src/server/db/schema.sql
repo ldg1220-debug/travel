@@ -487,6 +487,28 @@ ALTER TABLE itineraries ADD COLUMN IF NOT EXISTS "sourceItineraryId" INTEGER REF
 CREATE UNIQUE INDEX IF NOT EXISTS itineraries_content_key_content_only_idx
   ON itineraries ("contentKey") WHERE origin = 'content';
 
+-- 계획 덮어쓰기 되돌리기용 이력 — 작업지시서 2026-09-16 "계획
+-- 덮어쓰기가 재발했습니다" §3-③: #251이 막은 건 course-open의 INSERT …
+-- ON CONFLICT 경로였는데, 이번엔 클라이언트가 평소에 쓰는 POST
+-- /api/itineraries의 id 기반 UPDATE 경로로 같은 종류의 사고(제목·내용이
+-- 어긋난 계획으로 덮임)가 재발했다. 이번 원인은 클라이언트 쪽에서
+-- 구조적으로 막았지만(itineraryStore.ts viewerModeActive — 공유
+-- 링크/course-open 콘텐츠를 보는 동안은 activePlanId가 가리키는 진짜
+-- 행으로 저장/공유 자체가 안 나간다), 다음에 뭔가 또 놓쳐 같은 일이
+-- 반복되더라도 "이력이 없어 원본을 영영 못 되살린다"는 사고까지는
+-- 반복하지 않도록 UPDATE 직전의 내용을 여기 남긴다. 되돌리기 UI/
+-- 엔드포인트는 아직 없다 — 지금은 사람이(Cowork/개발자가) 직접
+-- SELECT해서 복구하는 안전망이다.
+CREATE TABLE IF NOT EXISTS itinerary_revisions (
+  id SERIAL PRIMARY KEY,
+  "itineraryId" INTEGER NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  region VARCHAR(20) NOT NULL,
+  "placesData" JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS itinerary_revisions_itinerary_id_idx ON itinerary_revisions ("itineraryId", created_at DESC);
+
 -- 후기 코스 스냅샷 — 작업지시서 2026-09-14 §3: 후기가 원본 계획을
 -- 참조만 해서, 나중에 원본 계획이 수정·삭제되면 후기 속 코스도 같이
 -- 망가지거나 사라지는 구조였다(실제 사고: 리뷰가 가리키던 계획이 다른

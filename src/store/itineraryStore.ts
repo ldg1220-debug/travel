@@ -74,6 +74,14 @@ function placesFromItems(items: ItineraryItem[]): Place[] {
  * away from either never silently drops edits that haven't been synced yet.
  */
 function flushLiveState(state: ItineraryState): { savedPlans: SavedPlan[]; draft: SavedPlan | null } {
+  if (state.viewerModeActive) {
+    // 작업지시서 2026-09-16 "계획 덮어쓰기가 재발했습니다" §3-①: items/region이
+    // 지금 남의 계획(공유 링크·course-open 콘텐츠)을 보여주느라 잠깐
+    // 빌려온 내용이면, 스위처로 다른 계획을 열거나(loadPlan) 초안으로
+    // 돌아가도(openDraft) 그 빌려온 내용을 저장된 계획/초안 슬롯에 흘려
+    // 넣으면 안 된다 — 빌려온 내용은 그냥 버려진다.
+    return { savedPlans: state.savedPlans, draft: state.draft };
+  }
   const snapshot = {
     items: state.items,
     places: state.places,
@@ -311,6 +319,28 @@ interface ItineraryState {
    * the opposite-direction counterpart run on login.
    */
   clearPersonalDataOnLogout: () => void;
+
+  /**
+   * True while /planner/{shareToken} is showing someone else's plan or
+   * course-open's generated content rather than the signed-in user's own
+   * working itinerary — items/region are temporarily "borrowed" for
+   * display only. Deliberately NOT persisted (see partialize below): it
+   * describes what's on screen right now, not durable state.
+   *
+   * 작업지시서 2026-09-16 "계획 덮어쓰기가 재발했습니다" §3-①/§3-② —
+   * production 실측: 공유 링크/course-open 콘텐츠를 열면 그 내용이
+   * activePlanId는 그대로 둔 채 items에 그대로 실렸고, AppBar의 1.5초
+   * 디바운스 자동 저장·"초대하기"·"카카오톡 공유"가 그 상태를 구분하지
+   * 못해 이전에 열려 있던 진짜 계획(또는 초안)의 서버 행을 지금 보고
+   * 있는 남의 내용으로 덮어썼다(#251이 막은 course-open의 INSERT ...
+   * ON CONFLICT 경로와는 다른, 클라이언트 쪽 새 경로). savePlanAs·
+   * flushLiveState·syncPlanToServer가 전부 이 플래그를 먼저 확인해,
+   * "지금 보고 있는 게 내 것이 아니다"라는 사실 하나만으로 저장/공유/
+   * 스위처 스냅샷 전부를 막는다 — 어떤 UI 버튼을 깜빡 숨기지 못해도
+   * 서버로는 절대 안 나간다.
+   */
+  viewerModeActive: boolean;
+  setViewerModeActive: (active: boolean) => void;
 }
 
 export const useItineraryStore = create<ItineraryState>()(
@@ -329,6 +359,8 @@ export const useItineraryStore = create<ItineraryState>()(
       savedPlans: [],
       activePlanId: null,
       draft: null,
+      viewerModeActive: false,
+      setViewerModeActive: (active) => set({ viewerModeActive: active }),
       setCurrentCity: (city) => set({ currentCity: city }),
 
       setActiveDate: (date) => set({ activeDate: date }),
@@ -555,6 +587,10 @@ export const useItineraryStore = create<ItineraryState>()(
 
       savePlanAs: (name, overwriteId) => {
         const state = get();
+        // 작업지시서 2026-09-16 §3-① — 뷰어 모드에서는 "계획 저장" 자체가
+        // 막혀 있어야 한다(쓸 수 있는 건 담아가기뿐). UI가 버튼을 숨기지
+        // 못한 경우에도 여기서 한 번 더 막는다.
+        if (state.viewerModeActive) return null;
         if (overwriteId) {
           const exists = state.savedPlans.some((p) => p.id === overwriteId);
           if (!exists) return null;
@@ -622,6 +658,10 @@ export const useItineraryStore = create<ItineraryState>()(
           currentCity: plan.currentCity,
           region: plan.region,
           activePlanId: plan.id,
+          // 이제부터 items가 이 plan의 실제 내용과 일치하므로(빌려온
+          // 내용이 아니라) 뷰어 모드를 끈다 — 이후 자동 저장/공유는 이
+          // plan을 향해도 안전하다.
+          viewerModeActive: false,
         });
       },
 
@@ -738,6 +778,7 @@ export const useItineraryStore = create<ItineraryState>()(
           currentCity: d?.currentCity ?? "새 여행",
           region: d?.region ?? state.region,
           activePlanId: null,
+          viewerModeActive: false, // loadPlan과 같은 이유 — 이제 진짜 초안 내용이다.
         });
       },
 
@@ -751,6 +792,7 @@ export const useItineraryStore = create<ItineraryState>()(
           activeDate: todayISODate(),
           currentCity: "새 여행",
           activePlanId: null,
+          viewerModeActive: false, // loadPlan과 같은 이유 — 빈 새 계획이니 더는 빌려온 내용이 아니다.
         });
       },
 
