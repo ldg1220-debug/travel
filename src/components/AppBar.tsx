@@ -99,6 +99,7 @@ export function AppBar() {
   const setDraftRemoteInfo = useItineraryStore((s) => s.setDraftRemoteInfo);
   const openDraft = useItineraryStore((s) => s.openDraft);
   const startNewPlan = useItineraryStore((s) => s.startNewPlan);
+  const viewerModeActive = useItineraryStore((s) => s.viewerModeActive);
 
   const previewMarkedDates = useMemo(() => new Set((previewPlan?.items ?? []).map((i) => i.date)), [previewPlan]);
 
@@ -157,10 +158,20 @@ export function AppBar() {
   useEffect(() => {
     if (!session?.user) return;
     const s0 = useItineraryStore.getState();
+    // 작업지시서 2026-09-16 "계획 덮어쓰기가 재발했습니다" §3-①/§3-② —
+    // production 실측: 공유 링크·course-open 콘텐츠를 여는 순간 items가
+    // 바뀌고, activePlanId는 이전에 열려 있던 진짜 계획을 그대로 가리킨
+    // 채라, 이 1.5초 디바운스가 그 진짜 계획(또는 초안) 행을 지금 보고
+    // 있는 남의 내용으로 덮어썼다 — 사용자가 저장/공유 버튼을 누른 적도
+    // 없이. viewerModeActive가 켜져 있으면(뷰어 모드) 이 효과 자체를
+    // 완전히 건너뛴다. 디바운스 도중 값이 바뀔 수 있어 타이머 콜백
+    // 안에서도 다시 확인한다(아래).
+    if (s0.viewerModeActive) return;
     if (items.length === 0 && !s0.activePlanId && !s0.draft) return;
     if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
     autoSyncTimer.current = setTimeout(() => {
       const state = useItineraryStore.getState();
+      if (state.viewerModeActive) return;
       if (state.activePlanId) {
         // savePlanAs(name, activePlanId) refreshes that plan's own snapshot
         // in `savedPlans` from the LIVE working itinerary first — without
@@ -213,6 +224,14 @@ export function AppBar() {
     if (!session?.user) {
       setLoginReason("일정을 공유하려면 로그인해주세요.");
       setLoginOpen(true);
+      return;
+    }
+    // 작업지시서 2026-09-16 §3-①/§3-② — 이 버튼은 /planner/{shareToken}을
+    // 포함해 isPlanner이기만 하면 항상 보였다(아래 JSX). 뷰어 모드(남의
+    // 계획/콘텐츠를 보는 중)에서는 초대 링크 생성 자체가 곧 그 내용을
+    // 서버에 저장하는 것과 같아서 막는다.
+    if (viewerModeActive) {
+      showToast("남의 계획은 초대할 수 없어요");
       return;
     }
     try {
@@ -311,7 +330,7 @@ export function AppBar() {
           >
             <CalendarRange size={18} />
           </button>
-          {isPlanner && (
+          {isPlanner && !viewerModeActive && (
             <button
               onClick={handleInvite}
               aria-label="초대하기"

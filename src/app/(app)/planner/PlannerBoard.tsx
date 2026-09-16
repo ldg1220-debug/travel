@@ -240,6 +240,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const region = useItineraryStore((s) => s.region);
   const setRegion = useItineraryStore((s) => s.setRegion);
   const setItems = useItineraryStore((s) => s.setItems);
+  const setViewerModeActive = useItineraryStore((s) => s.setViewerModeActive);
   const savedPlaces = useItineraryStore((s) => s.savedPlaces);
   const removeSavedPlace = useItineraryStore((s) => s.removeSavedPlace);
   const upsertSavedPlace = useItineraryStore((s) => s.upsertSavedPlace);
@@ -596,6 +597,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     setShareSheetOpen(true);
   };
   const shareViaKakaoWithImage = async (imageUrl: string) => {
+    // 작업지시서 2026-09-16 §3-①/§3-② — 뷰어 모드(남의 계획/콘텐츠를
+    // 보는 중)에서는 공유 자체가 곧 저장이라 막는다. syncPlanToServer도
+    // 같은 조건으로 다시 막지만(방어의 실제 위치), 여기서 먼저 끊어야
+    // 사용자에게 원인이 분명한 토스트를 보여줄 수 있다.
+    if (useItineraryStore.getState().viewerModeActive) {
+      showToast("남의 계획은 공유할 수 없어요 — 먼저 내 계획으로 담아가세요");
+      return;
+    }
     // Reusing the active plan's own remoteId (if it has one from an
     // earlier save/share) updates that plan's own server row and link
     // instead of always creating a fresh row — otherwise every share
@@ -845,11 +854,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   }, []);
 
   // "비우기" (both the single-tap 오늘 일정 비우기 icon next to the map, and
-  // the toolbar's whole-plan 비우기) is destructive and — on a shared link —
-  // gets pushed to the server within a second, permanently wiping it for
-  // every viewer with no version history to recover from. An 8-second undo
-  // window doesn't help once someone has already left and come back, but it
-  // does cover the actual reported failure mode: a single mis-tap.
+  // the toolbar's whole-plan 비우기) is destructive — a mis-tap while
+  // AppBar's autosave is watching would push the empty result to whatever
+  // server row activePlanId/draft pointed at within ~1.5s, with no version
+  // history to recover from. An 8-second undo window doesn't help once
+  // someone has already left and come back, but it does cover the actual
+  // reported failure mode: a single mis-tap. Both buttons are also fully
+  // disabled in 뷰어 모드 (isViewerMode below) — 작업지시서 2026-09-16
+  // "계획 덮어쓰기가 재발했습니다" §3-①.
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null);
   const undoToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showUndoToast = (message: string, onUndo: () => void) => {
@@ -882,10 +894,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // ~1s, so anyone with the link could silently overwrite it for everyone
   // else (an accidental 비우기 from one viewer emptied it permanently, with
   // no way back). A shared link now behaves like a snapshot instead: it
-  // loads once, local edits while viewing stay local, and reopening the
-  // same link later shows the original data exactly as it was sent —
-  // nothing is ever written back unless the viewer explicitly saves their
-  // own copy via 계획 저장.
+  // loads once, and reopening the same link later shows the original data
+  // exactly as it was sent.
+  //
+  // ⚠️ "local edits stay local" turned out to be only half-enforced —
+  // 작업지시서 2026-09-16 "계획 덮어쓰기가 재발했습니다" §1/§2 실측:
+  // loading someone else's (or course-open's) content here writes straight
+  // into the SAME items/region the user's own working plan uses, without
+  // touching activePlanId — so AppBar's autosave and the 초대하기/카카오톡
+  // 공유 buttons, which key off activePlanId's remoteId, would silently
+  // push this borrowed content over whatever real plan (or draft) was
+  // active before navigating here. setViewerModeActive(true) below (for
+  // anyone but the plan's own owner) is the actual fix: every save/share
+  // path now refuses to run while it's set (see itineraryStore.ts
+  // flushLiveState/savePlanAs and planSync.ts's syncPlanToServer).
   const hasJumpedToSharedDateRef = useRef(false);
 
   const { data: sharedData } = useQuery({
@@ -895,9 +917,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     staleTime: Infinity,
   });
 
+  // UI 게이팅용 — 스토어의 viewerModeActive와 같은 조건이지만, 저기는
+  // 저장/공유 경로의 실제 방어(store/planSync.ts)라 렌더링 쪽에서 굳이
+  // 다시 구독하지 않고 여기서 같은 조건을 그대로 계산한다("계획 저장"/
+  // "카카오톡 공유"/"비우기" 버튼을 비활성화하는 용도일 뿐 — 실제 방어는
+  // 이 값과 무관하게 이미 걸려 있다).
+  const isViewerMode = Boolean(shareToken) && sharedData != null && !sharedData.isOwner;
+
   useEffect(() => {
     if (!sharedData) return;
 
+    // 소유자 본인은 계속 정상 편집 화면(뷰어 모드 아님) — 그 외(공유
+    // 받은 사람, course-open 콘텐츠를 연 누구나)는 이 내용이 "내
+    // activePlanId가 가리키는 진짜 계획"이 아니라는 신호를 켠다.
+    setViewerModeActive(!sharedData.isOwner);
     setRegion(sharedData.region);
     setItems(sharedData.placesData);
 
@@ -943,7 +976,16 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       });
     if (missing.length > 0) addPlaces(missing);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `places` intentionally excluded: only need it to seed missing markers once per incoming snapshot, not on every local places change
-  }, [sharedData, setRegion, setItems, addPlaces, setActiveDate]);
+  }, [sharedData, setRegion, setItems, addPlaces, setActiveDate, setViewerModeActive]);
+
+  // 이 화면을 벗어나면(다른 라우트로 이동해 언마운트되거나, shareToken
+  // 자체가 없어지면) 뷰어 모드를 반드시 끈다 — zustand 스토어는 컴포넌트
+  // 언마운트와 무관하게 살아남으므로, 여기서 안 끄면 남의 계획을 한 번
+  // 본 뒤로 계속 자동 저장이 막힌 채로 남는다.
+  useEffect(() => {
+    if (!shareToken) return;
+    return () => setViewerModeActive(false);
+  }, [shareToken, setViewerModeActive]);
 
   // "내 계획으로 담아가기" — 공유 링크를 받은 사람이 그 계획을 자기 것으로
   // 복사한다. 작업지시서 2026-09-14 "공유 링크에도 담아가기" §2. 로그인
@@ -2116,7 +2158,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   clearDate(activeDate);
                   showUndoToast(`${formatDateLabelShort(activeDate)} 일정을 비웠어요`, () => setItems(snapshot));
                 }}
-                disabled={schedule.length === 0}
+                disabled={schedule.length === 0 || isViewerMode}
                 aria-label="오늘 일정 비우기"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-500 shadow-sm backdrop-blur transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -2358,7 +2400,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <button
                     onClick={() => setSaveModalOpen(true)}
-                    className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3.5 py-2 text-[13.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                    // 작업지시서 2026-09-16 "계획 덮어쓰기가 재발했습니다" §3-①:
+                    // 뷰어 모드(남의 계획/콘텐츠를 보는 중)에서는 "계획
+                    // 저장"을 아예 못 누르게 한다 — 쓸 수 있는 건 위 배너의
+                    // "내 계획으로 담아가기"뿐이다.
+                    disabled={isViewerMode}
+                    className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3.5 py-2 text-[13.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     <Save size={15} />
                     계획 저장
@@ -2373,7 +2420,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   </button>
                   <button
                     onClick={handleShareToKakao}
-                    disabled={items.length === 0}
+                    disabled={items.length === 0 || isViewerMode}
                     className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3.5 py-2 text-[13.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     <CordixIcon name="share" size={15} />
@@ -2400,7 +2447,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   ) : (
                     <button
                       onClick={() => setClearConfirmOpen(true)}
-                      disabled={items.length === 0}
+                      disabled={items.length === 0 || isViewerMode}
                       className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3.5 py-2 text-[13.5px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       <CordixIcon name="trash" size={15} />
