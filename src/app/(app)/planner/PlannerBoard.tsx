@@ -857,17 +857,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // the toolbar's whole-plan 비우기) is destructive — a mis-tap while
   // AppBar's autosave is watching would push the empty result to whatever
   // server row activePlanId/draft pointed at within ~1.5s, with no version
-  // history to recover from. An 8-second undo window doesn't help once
-  // someone has already left and come back, but it does cover the actual
-  // reported failure mode: a single mis-tap. Both buttons are also fully
-  // disabled in 뷰어 모드 (isViewerMode below) — 작업지시서 2026-09-16
-  // "계획 덮어쓰기가 재발했습니다" §3-①.
+  // history to recover from (now there is — itinerary_revisions, #258 —
+  // but this toast is still the fast, no-round-trip undo for the common
+  // case: a single mis-tap noticed right away). Both buttons are also
+  // fully disabled in 뷰어 모드 (isViewerMode below) — 작업지시서
+  // 2026-09-16 "계획 덮어쓰기가 재발했습니다" §3-①. 전체 비우기(툴바)는
+  // 이 토스트에 더해 누르기 전에 "확인" 단계도 거친다(아래 clearConfirmOpen).
+  // 작업지시서 2026-09-16 "남은 작업 + 데이터 안전장치" §3: 창을 10초로
+  // 맞춘다(기존 8초에서 소폭 연장).
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null);
   const undoToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showUndoToast = (message: string, onUndo: () => void) => {
     setUndoToast({ message, onUndo });
     if (undoToastTimer.current) clearTimeout(undoToastTimer.current);
-    undoToastTimer.current = setTimeout(() => setUndoToast(null), 8000);
+    undoToastTimer.current = setTimeout(() => setUndoToast(null), 10000);
   };
 
   // 계획 저장 직후 공유 유도 — 작업지시서 2026-09-14 "공유 링크에도
@@ -930,7 +933,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     // 소유자 본인은 계속 정상 편집 화면(뷰어 모드 아님) — 그 외(공유
     // 받은 사람, course-open 콘텐츠를 연 누구나)는 이 내용이 "내
     // activePlanId가 가리키는 진짜 계획"이 아니라는 신호를 켠다.
-    setViewerModeActive(!sharedData.isOwner);
+    // 작업지시서 2026-09-16 "남은 작업 + 데이터 안전장치" §5: 상단 헤더가
+    // 뷰어 모드에서도 activePlanId가 가리키는 내 계획 제목을 그대로
+    // 보여줬다 — 지금 보고 있는 계획(sharedData)의 실제 제목을 넘긴다.
+    setViewerModeActive(!sharedData.isOwner, sharedData.title);
     setRegion(sharedData.region);
     setItems(sharedData.placesData);
 

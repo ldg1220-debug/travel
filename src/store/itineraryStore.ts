@@ -340,7 +340,17 @@ interface ItineraryState {
    * 서버로는 절대 안 나간다.
    */
   viewerModeActive: boolean;
-  setViewerModeActive: (active: boolean) => void;
+  /**
+   * 뷰어 모드일 때 지금 보고 있는 계획의 실제 제목 — 작업지시서
+   * 2026-09-16 "남은 작업 + 데이터 안전장치" §5: 뷰어 모드에서도 상단
+   * 헤더가 `activePlanId`가 가리키는(=이전에 열려 있던 내) 계획 제목을
+   * 그대로 보여줘서, 지금 보고 있는 게 남의 계획이라는 사실이 제목에서
+   * 안 드러났다. activePlanId는 일부러 안 건드리므로(뷰어 모드를
+   * 벗어나면 원래 계획으로 자연스럽게 돌아가야 한다) 제목만 따로 들고
+   * 있는다. viewerModeActive가 꺼지면 항상 null로 같이 정리된다.
+   */
+  viewerPlanTitle: string | null;
+  setViewerModeActive: (active: boolean, title?: string) => void;
 }
 
 export const useItineraryStore = create<ItineraryState>()(
@@ -360,7 +370,8 @@ export const useItineraryStore = create<ItineraryState>()(
       activePlanId: null,
       draft: null,
       viewerModeActive: false,
-      setViewerModeActive: (active) => set({ viewerModeActive: active }),
+      viewerPlanTitle: null,
+      setViewerModeActive: (active, title) => set({ viewerModeActive: active, viewerPlanTitle: active ? (title ?? null) : null }),
       setCurrentCity: (city) => set({ currentCity: city }),
 
       setActiveDate: (date) => set({ activeDate: date }),
@@ -662,6 +673,7 @@ export const useItineraryStore = create<ItineraryState>()(
           // 내용이 아니라) 뷰어 모드를 끈다 — 이후 자동 저장/공유는 이
           // plan을 향해도 안전하다.
           viewerModeActive: false,
+          viewerPlanTitle: null,
         });
       },
 
@@ -779,6 +791,7 @@ export const useItineraryStore = create<ItineraryState>()(
           region: d?.region ?? state.region,
           activePlanId: null,
           viewerModeActive: false, // loadPlan과 같은 이유 — 이제 진짜 초안 내용이다.
+          viewerPlanTitle: null,
         });
       },
 
@@ -793,6 +806,7 @@ export const useItineraryStore = create<ItineraryState>()(
           currentCity: "새 여행",
           activePlanId: null,
           viewerModeActive: false, // loadPlan과 같은 이유 — 빈 새 계획이니 더는 빌려온 내용이 아니다.
+          viewerPlanTitle: null,
         });
       },
 

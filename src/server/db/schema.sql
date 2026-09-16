@@ -523,6 +523,27 @@ CREATE INDEX IF NOT EXISTS itinerary_revisions_itinerary_id_idx ON itinerary_rev
 -- 한다(원본 계획이 지워지면 더 이상 조회할 곳이 없다).
 ALTER TABLE trip_posts ADD COLUMN IF NOT EXISTS "coursesSnapshot" JSONB;
 
+-- 1회성 백필 — 작업지시서 2026-09-16 "남은 작업 + 데이터 안전장치" §2
+-- (원래 지시서 "2026-09-14 담아가기 검토 및 백필"이 전달되지 않아 이
+-- 지시서가 대신 옮긴 내용): coursesSnapshot 컬럼이 생기기 전에 이미
+-- 작성된 후기들은 이 컬럼이 계속 NULL로 남아 "이 여행의 코스" 섹션도
+-- "담아가기" 버튼도 안 뜨고, POST /api/trip-posts/{id}/copy는 400을
+-- 돌려줬다. 그 후기가 가리키는 계획(itineraries."placesData")이 지금
+-- 살아 있는 동안 얼려서 채워 넣는다 — WHERE절이 "coursesSnapshot이 아직
+-- NULL인 행"만 대상으로 하므로 매 배포마다 재실행해도 이미 채워진(또는
+-- 앞으로 정상 작성 흐름이 채운) 행은 다시 건드리지 않는다. 작성자가
+-- 그 사이 자기 계획을 지웠거나(itineraries 행 자체가 없어짐) 다른
+-- 사람에게 넘겼으면(userId 불일치) 대상에서 자연히 빠진다 — 안전한
+-- 기본값(백필 안 함)이다.
+UPDATE trip_posts p
+   SET "coursesSnapshot" = jsonb_build_object(
+         'title', i.title, 'region', i.region, 'items', i."placesData")
+  FROM itineraries i
+ WHERE i.id = p."itineraryId"
+   AND i."userId" = p."userId"
+   AND p."itineraryId" IS NOT NULL
+   AND p."coursesSnapshot" IS NULL;
+
 -- 앱을 홈 화면에 설치했을 때(PWA) 실제 OS 팝업으로 뜨는 푸시 알림 구독
 -- 정보 — 브라우저/기기 하나당 한 구독(endpoint가 그 조합의 고유 식별자).
 -- 로그아웃해도 남겨두면 다른 계정으로 로그인 시 엉뚱한 사람에게 알림이

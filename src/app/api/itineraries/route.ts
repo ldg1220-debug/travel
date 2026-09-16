@@ -4,11 +4,7 @@ import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import type { ItineraryItem, Region } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-
-// 작업지시서 2026-09-16 "계획 덮어쓰기가 재발했습니다" §3-③ — 되돌리기용
-// 이력을 무한정 쌓지 않고 계획 하나당 최근 N개만 남긴다(id-기반 저장은
-// 자동 저장도 거치는 흔한 경로라 무제한으로 두면 금방 불어난다).
-const MAX_REVISIONS_PER_ITINERARY = 20;
+import { snapshotItineraryRevision } from "@/lib/server/itineraryRevisions";
 
 interface SaveItineraryBody {
   /**
@@ -86,17 +82,8 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
 
       // §3-③ — 덮어쓰기 직전 내용을 이력에 남긴다("이번 사고"의 핵심
       // 문제: 이력이 없어 원본을 복구할 방법이 없었다). 한 행당 최근
-      // MAX_REVISIONS개만 남기고 오래된 것부터 정리한다.
-      await pool.query(
-        `insert into itinerary_revisions ("itineraryId", title, region, "placesData") values ($1, $2, $3, $4)`,
-        [row.id, row.title, row.region, JSON.stringify(row.placesData)],
-      );
-      await pool.query(
-        `delete from itinerary_revisions where "itineraryId" = $1 and id not in (
-           select id from itinerary_revisions where "itineraryId" = $1 order by created_at desc limit $2
-         )`,
-        [row.id, MAX_REVISIONS_PER_ITINERARY],
-      );
+      // MAX_REVISIONS_PER_ITINERARY개만 남기고 오래된 것부터 정리한다.
+      await snapshotItineraryRevision(row.id, row.title, row.region, row.placesData);
 
       const shareToken = row.shareToken ?? randomUUID();
       await pool.query(
