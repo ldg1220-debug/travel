@@ -555,6 +555,35 @@ export async function deleteItinerary(id: number): Promise<void> {
   if (!res.ok) throw new Error("계획을 삭제하지 못했어요");
 }
 
+export interface ItineraryRevisionSummary {
+  id: number;
+  title: string;
+  region: Region;
+  itemCount: number;
+  createdAt: string;
+}
+
+/**
+ * "변경 내역" — 작업지시서 2026-09-16 "남은 작업 + 데이터 안전장치" §3:
+ * itinerary_revisions(#258)를 사용자가 직접 꺼내 볼 수 있게 한다. 목록엔
+ * 전체 일정(placesData)을 싣지 않는다 — 고르는 데는 제목·지역·스팟
+ * 수·시각이면 충분하고, 실제 내용은 restoreItineraryRevision이 서버
+ * 쪽에서만 다룬다.
+ */
+export async function fetchItineraryRevisions(itineraryId: number): Promise<ItineraryRevisionSummary[]> {
+  const res = await fetch(`/api/itineraries/${itineraryId}/revisions`);
+  if (!res.ok) throw new Error("변경 내역을 불러오지 못했어요");
+  const data = (await res.json()) as { revisions?: ItineraryRevisionSummary[] };
+  return data.revisions ?? [];
+}
+
+/** 고른 이력 시점으로 계획을 되돌린다 — 되돌리기 직전 내용도 새 이력으로 남아, 이 되돌리기 자체를 다시 되돌릴 수 있다. */
+export async function restoreItineraryRevision(itineraryId: number, revisionId: number): Promise<UserItinerary> {
+  const res = await fetch(`/api/itineraries/${itineraryId}/revisions/${revisionId}/restore`, { method: "POST" });
+  if (!res.ok) throw new Error("되돌리지 못했어요");
+  return res.json();
+}
+
 export interface SharedItinerary {
   title: string;
   region: Region;

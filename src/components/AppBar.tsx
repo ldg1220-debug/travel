@@ -14,6 +14,7 @@ import { MessageBell } from "@/components/MessageBell";
 import { ThemedLogo } from "@/components/BrandLogo";
 import { SavePlanModal } from "@/components/SavePlanModal";
 import { MonthCalendar } from "@/components/MonthCalendar";
+import { RevisionHistorySheet } from "@/components/RevisionHistorySheet";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { fetchUserItineraries, reviveAccount } from "@/lib/api";
 import { syncPlanToServer } from "@/lib/planSync";
@@ -64,6 +65,10 @@ export function AppBar() {
   // "세부일정 보기"를 눌러야 실제로 플래너로 이동하게 한다.
   const [previewPlan, setPreviewPlan] = useState<SavedPlan | null>(null);
   const [previewDate, setPreviewDate] = useState<string>("");
+  // "변경 내역" — 작업지시서 2026-09-16 "남은 작업 + 데이터 안전장치" §3.
+  // remoteId(서버 행 id)가 있어야 이력이 존재할 수 있으므로 그 값을 그대로
+  // 들고 있는다 — null이면 시트를 안 그린다.
+  const [revisionsForRemoteId, setRevisionsForRemoteId] = useState<number | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 탈퇴 유예기간 중 "계정 살리기" — 재로그인만으로는 자동 취소되지 않게
@@ -100,6 +105,7 @@ export function AppBar() {
   const openDraft = useItineraryStore((s) => s.openDraft);
   const startNewPlan = useItineraryStore((s) => s.startNewPlan);
   const viewerModeActive = useItineraryStore((s) => s.viewerModeActive);
+  const viewerPlanTitle = useItineraryStore((s) => s.viewerPlanTitle);
 
   const previewMarkedDates = useMemo(() => new Set((previewPlan?.items ?? []).map((i) => i.date)), [previewPlan]);
 
@@ -212,7 +218,13 @@ export function AppBar() {
   // actually been named — once the working itinerary matches a saved plan,
   // show that plan's real name instead.
   const activePlan = savedPlans.find((p) => p.id === activePlanId);
-  const plannerHeaderTitle = activePlan?.name ?? currentCity;
+  // 작업지시서 2026-09-16 "남은 작업 + 데이터 안전장치" §5 — 뷰어 모드
+  // (남의 계획/콘텐츠를 보는 중)에서는 activePlanId가 여전히 이전에
+  // 열려 있던 내 계획을 가리키므로(#258이 일부러 그대로 둔다 — 뷰어
+  // 모드를 벗어나면 원래 계획으로 돌아가야 한다), activePlan?.name을
+  // 그대로 쓰면 지금 보고 있는 게 남의 계획인데도 헤더엔 내 계획
+  // 제목이 떴다. 뷰어 모드일 땐 지금 보는 계획의 실제 제목(viewerPlanTitle)을 대신 쓴다.
+  const plannerHeaderTitle = viewerModeActive ? (viewerPlanTitle ?? currentCity) : (activePlan?.name ?? currentCity);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -533,8 +545,40 @@ export function AppBar() {
             >
               세부일정 보기
             </button>
+            {/* 작업지시서 2026-09-16 "남은 작업 + 데이터 안전장치" §3 —
+                remoteId(서버 동기화 이력)가 있는 계획만 변경 내역이 있을 수
+                있다. */}
+            {previewPlan.remoteId != null && (
+              <button
+                onClick={() => setRevisionsForRemoteId(previewPlan.remoteId!)}
+                className="mt-2 h-10 w-full rounded-xl border border-slate-200 text-[13px] font-semibold text-slate-500 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+              >
+                변경 내역
+              </button>
+            )}
           </div>
         </div>
+      )}
+
+      {revisionsForRemoteId != null && (
+        <RevisionHistorySheet
+          itineraryId={revisionsForRemoteId}
+          onClose={() => setRevisionsForRemoteId(null)}
+          onRestored={() => {
+            setRevisionsForRemoteId(null);
+            setPreviewPlan(null);
+            showToast("이전 시점으로 되돌렸어요");
+            // 서버가 실제로 바뀐 내용의 출처라, 로컬 저장된 계획/초안
+            // 목록을 다시 받아와 되돌린 내용을 즉시 반영한다 — 로그인 시
+            // 쓰는 것과 같은 재동기화 경로.
+            fetchUserItineraries()
+              .then(({ itineraries, draft }) => {
+                hydrateSavedPlansFromServer(itineraries);
+                hydrateDraftFromServer(draft);
+              })
+              .catch(() => {});
+          }}
+        />
       )}
 
       {toast && (
