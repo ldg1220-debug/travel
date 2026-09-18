@@ -22,6 +22,12 @@ export const FEATURE_EVENT_NAMES = [
   "home_hero_cta",
   "plan_copy_click",
   "plan_copy_completed",
+  // 작업지시서 2026-09-18 "트레쥴이 구글에 7페이지만 올라가 있습니다" §7:
+  // "코스 페이지 → 담아가기 전환율"을 보려면 최소한 클릭 자체가 남아야
+  // 한다. course-open GET이 그대로 리다이렉트라 완료 여부는 그 뒤
+  // /planner/{shareToken}에서의 plan_copy_click/completed로 이어서
+  // 추적된다 — 이 이벤트는 "코스 페이지에서 CTA를 눌렀다"만 남긴다.
+  "course_page_cta_click",
 ] as const;
 export type FeatureEventName = (typeof FEATURE_EVENT_NAMES)[number];
 
