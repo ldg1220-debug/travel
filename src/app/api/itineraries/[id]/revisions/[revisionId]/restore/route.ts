@@ -45,7 +45,7 @@ export const POST = withApiErrorHandling(
     }
     const rev = revision.rows[0];
 
-    await snapshotItineraryRevision(row.id, row.title, row.region, row.placesData);
+    await snapshotItineraryRevision(row.id, row.title, row.region, row.placesData, "restore");
 
     await pool.query(`update itineraries set title = $2, region = $3, "placesData" = $4, updated_at = now() where id = $1`, [
       id,

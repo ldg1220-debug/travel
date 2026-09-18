@@ -561,6 +561,17 @@ export interface ItineraryRevisionSummary {
   region: Region;
   itemCount: number;
   createdAt: string;
+  /** 'restore'면 어떤 되돌리기 실행 직전의 상태를 남긴 스냅샷이라는 뜻 — 작업지시서 2026-09-18 §7. */
+  createdBy: "save" | "restore";
+}
+
+export interface ItineraryRevisionDetail {
+  id: number;
+  title: string;
+  region: Region;
+  placesData: ItineraryItem[];
+  createdAt: string;
+  createdBy: "save" | "restore";
 }
 
 /**
@@ -581,6 +592,13 @@ export async function fetchItineraryRevisions(itineraryId: number): Promise<Itin
 export async function restoreItineraryRevision(itineraryId: number, revisionId: number): Promise<UserItinerary> {
   const res = await fetch(`/api/itineraries/${itineraryId}/revisions/${revisionId}/restore`, { method: "POST" });
   if (!res.ok) throw new Error("되돌리지 못했어요");
+  return res.json();
+}
+
+/** 이력 하나의 전체 일정 — 작업지시서 2026-09-18 §7 "되돌리기 전에 무엇으로 돌아가는지 볼 수 있어야 합니다"의 미리보기용. */
+export async function fetchItineraryRevisionDetail(itineraryId: number, revisionId: number): Promise<ItineraryRevisionDetail> {
+  const res = await fetch(`/api/itineraries/${itineraryId}/revisions/${revisionId}`);
+  if (!res.ok) throw new Error("변경 내역을 불러오지 못했어요");
   return res.json();
 }
 

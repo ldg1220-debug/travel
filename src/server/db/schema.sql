@@ -491,14 +491,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS itineraries_content_key_content_only_idx
 -- 덮어쓰기가 재발했습니다" §3-③: #251이 막은 건 course-open의 INSERT …
 -- ON CONFLICT 경로였는데, 이번엔 클라이언트가 평소에 쓰는 POST
 -- /api/itineraries의 id 기반 UPDATE 경로로 같은 종류의 사고(제목·내용이
--- 어긋난 계획으로 덮임)가 재발했다. 이번 원인은 클라이언트 쪽에서
--- 구조적으로 막았지만(itineraryStore.ts viewerModeActive — 공유
--- 링크/course-open 콘텐츠를 보는 동안은 activePlanId가 가리키는 진짜
--- 행으로 저장/공유 자체가 안 나간다), 다음에 뭔가 또 놓쳐 같은 일이
--- 반복되더라도 "이력이 없어 원본을 영영 못 되살린다"는 사고까지는
--- 반복하지 않도록 UPDATE 직전의 내용을 여기 남긴다. 되돌리기 UI/
--- 엔드포인트는 아직 없다 — 지금은 사람이(Cowork/개발자가) 직접
--- SELECT해서 복구하는 안전망이다.
+-- 어긋난 계획으로 덮임)가 재발했다.
+--
+-- ⚠️ #258의 클라이언트 쪽 방어(itineraryStore.ts viewerModeActive)만으로는
+-- 충분하지 않았다 — 작업지시서 2026-09-18 "뷰어 모드를 우회하는 저장
+-- 경로" 실측: 공유/콘텐츠 링크 탭을 몇 분 이상 열어두면 그 플래그가
+-- 어떤 경로로 초기값(false)으로 돌아가 자동 저장이 다시 새어 나갔다
+-- (id=13이 반복 희생). 그래서 route.ts에 지역 불일치 거부·Referer 확인을
+-- 추가하고, planSync.ts는 window.location.pathname을 직접 확인하는
+-- 서버 신뢰 불가 전제의 클라이언트 방어를 하나 더 둔다 — 이 테이블은
+-- 그래도 뭔가 또 새면 "이력이 없어 원본을 영영 못 되살린다"는 사고까지는
+-- 반복하지 않기 위한 마지막 안전망이다.
 CREATE TABLE IF NOT EXISTS itinerary_revisions (
   id SERIAL PRIMARY KEY,
   "itineraryId" INTEGER NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
@@ -508,6 +511,11 @@ CREATE TABLE IF NOT EXISTS itinerary_revisions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS itinerary_revisions_itinerary_id_idx ON itinerary_revisions ("itineraryId", created_at DESC);
+-- 작업지시서 2026-09-18 §7 — "되돌리기가 또 revision을 남겨 목록이
+-- 빨리 찹니다... 목록에 '되돌리기로 생성됨' 표시가 있으면 읽기 쉽습니다".
+-- 되돌리기(POST .../restore)가 남기는 스냅샷("덮어써지기 직전 상태")과
+-- 평소 저장이 남기는 스냅샷을 구분한다.
+ALTER TABLE itinerary_revisions ADD COLUMN IF NOT EXISTS "createdBy" VARCHAR(20) NOT NULL DEFAULT 'save';
 
 -- 후기 코스 스냅샷 — 작업지시서 2026-09-14 §3: 후기가 원본 계획을
 -- 참조만 해서, 나중에 원본 계획이 수정·삭제되면 후기 속 코스도 같이

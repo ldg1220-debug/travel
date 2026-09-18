@@ -29,7 +29,7 @@ export const GET = withApiErrorHandling(async (_request: NextRequest, { params }
   }
 
   const result = await pool.query(
-    `select id, title, region, jsonb_array_length("placesData") as "itemCount", created_at as "createdAt"
+    `select id, title, region, jsonb_array_length("placesData") as "itemCount", created_at as "createdAt", "createdBy"
      from itinerary_revisions where "itineraryId" = $1 order by created_at desc limit $2`,
     [id, MAX_REVISIONS_PER_ITINERARY],
   );
