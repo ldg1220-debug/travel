@@ -5,6 +5,7 @@ import { pool } from "@/lib/server/db";
 import type { ItineraryItem, Region } from "@/lib/types";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { snapshotItineraryRevision } from "@/lib/server/itineraryRevisions";
+import { refererIsSharedPlannerView } from "@/lib/server/sharedPlannerGuard";
 
 interface SaveItineraryBody {
   /**
@@ -61,6 +62,14 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
   const placesDataJson = JSON.stringify(body.placesData ?? []);
 
   if (body.id) {
+    // Referer 확인은 기존 행을 덮어쓰는 이 경로(id 있음)에만 건다 —
+    // 새로 만드는 경로(예: 게스트→계정 이관 migrateGuestPlans)는 사용자가
+    // 하필 공유 링크를 보다가 로그인했다는 이유만으로 자기 소유 계획을
+    // 못 옮기게 되는 오탐이 생길 수 있다. 기존 행 덮어쓰기는 그런
+    // 정상 시나리오가 없다 — 항상 의심스럽다.
+    if (refererIsSharedPlannerView(request)) {
+      return NextResponse.json({ error: "cannot save from a shared plan view" }, { status: 403 });
+    }
     const existing = await pool.query(
       `select id, "shareToken", origin, title, region, "placesData" from itineraries where id = $1 and "userId" = $2`,
       [body.id, session.user.id],
@@ -78,6 +87,19 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
       // 막자고 했지만, 그건 기존 설계와 충돌해 적용하지 않았다).
       if (row.origin === "content") {
         return NextResponse.json({ error: "cannot update a content-owned plan" }, { status: 403 });
+      }
+
+      // 작업지시서 2026-09-18 §5-③ — "도쿄 계획에 강릉이 들어가는 건
+      // 어떤 정상 시나리오에도 없습니다." 실측 사고 둘 다(9/17, 9/18)
+      // 정확히 이 패턴이었다: 기존 행에 이미 내용이 있는데(placesData
+      // 비어있지 않음) region이 통째로 바뀐 저장 — 정상적인 편집·이름
+      // 변경·스케줄 조정으로는 절대 나오지 않는 조합이다(region은
+      // 계획을 새로 시작할 때만 정해지고, 계속 편집하는 동안 바뀔 방법이
+      // 없다). Referer 확인(위)이 우회되거나 판단을 보류한 경우에도
+      // 이 값싼 확인이 마지막 방어선이 된다.
+      if (row.placesData.length > 0 && row.region !== body.region) {
+        console.warn(`[itineraries] refusing save — region mismatch on id=${row.id} (${row.region} -> ${body.region})`);
+        return NextResponse.json({ error: "region mismatch — refusing save" }, { status: 409 });
       }
 
       // §3-③ — 덮어쓰기 직전 내용을 이력에 남긴다("이번 사고"의 핵심

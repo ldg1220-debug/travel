@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { fetchItineraryRevisions, restoreItineraryRevision, type ItineraryRevisionSummary } from "@/lib/api";
+import {
+  fetchItineraryRevisionDetail,
+  fetchItineraryRevisions,
+  restoreItineraryRevision,
+  type ItineraryRevisionDetail,
+  type ItineraryRevisionSummary,
+} from "@/lib/api";
 
 /**
  * "변경 내역" — 작업지시서 2026-09-16 "남은 작업 + 데이터 안전장치" §3:
@@ -12,6 +18,12 @@ import { fetchItineraryRevisions, restoreItineraryRevision, type ItineraryRevisi
  * 목록엔 제목·시각·스팟 수만 보여준다(전체 일정은 실제로 되돌리기 전엔
  * 필요 없다) — 각 항목의 "이 시점으로 되돌리기"는 한 번 더 확인을 거친
  * 뒤 서버에 위임한다(복원 자체도 새 이력으로 남아 되돌릴 수 있다).
+ *
+ * 작업지시서 2026-09-18 "뷰어 모드를 우회하는 저장 경로" §7 — "되돌리기
+ * 전에 '무엇으로 돌아가는지' 볼 수 있어야 합니다": 확인 단계에서 스팟
+ * 목록을 펼쳐 보여준다(fetchItineraryRevisionDetail). "되돌리기로
+ * 생성됨" 표시(createdBy)도 함께 넣어, 목록에 왜 이 항목이 있는지
+ * 헷갈리지 않게 한다.
  */
 export function RevisionHistorySheet({
   itineraryId,
@@ -25,6 +37,8 @@ export function RevisionHistorySheet({
   const [revisions, setRevisions] = useState<ItineraryRevisionSummary[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [preview, setPreview] = useState<ItineraryRevisionDetail | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [restoringId, setRestoringId] = useState<number | null>(null);
   const [restoreError, setRestoreError] = useState(false);
 
@@ -41,6 +55,16 @@ export function RevisionHistorySheet({
       cancelled = true;
     };
   }, [itineraryId]);
+
+  const openConfirm = (revisionId: number) => {
+    setConfirmId(revisionId);
+    setPreview(null);
+    setPreviewLoading(true);
+    fetchItineraryRevisionDetail(itineraryId, revisionId)
+      .then(setPreview)
+      .catch(() => {})
+      .finally(() => setPreviewLoading(false));
+  };
 
   const handleRestore = async (revisionId: number) => {
     setRestoringId(revisionId);
@@ -75,36 +99,54 @@ export function RevisionHistorySheet({
             <p className="py-6 text-center text-[12.5px] text-slate-400">아직 저장된 변경 내역이 없어요</p>
           )}
           {revisions?.map((rev) => (
-            <div
-              key={rev.id}
-              className="flex items-center justify-between gap-2 border-b border-slate-50 py-2.5 last:border-0 dark:border-slate-800"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-semibold text-slate-700 dark:text-slate-200">{rev.title}</p>
-                <p className="text-[11px] text-slate-400">
-                  {formatRevisionTimestamp(rev.createdAt)} · {rev.itemCount}곳
-                </p>
-              </div>
-              {confirmId === rev.id ? (
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <button
-                    onClick={() => handleRestore(rev.id)}
-                    disabled={restoringId === rev.id}
-                    className="rounded-full bg-brand-700 px-2.5 py-1 text-[11.5px] font-semibold text-white disabled:opacity-60"
-                  >
-                    {restoringId === rev.id ? "되돌리는 중…" : "확인"}
-                  </button>
-                  <button onClick={() => setConfirmId(null)} className="text-[11.5px] text-slate-400">
-                    취소
-                  </button>
+            <div key={rev.id} className="border-b border-slate-50 py-2.5 last:border-0 dark:border-slate-800">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-semibold text-slate-700 dark:text-slate-200">{rev.title}</p>
+                  <p className="text-[11px] text-slate-400">
+                    {formatRevisionTimestamp(rev.createdAt)} · {rev.itemCount}곳
+                    {rev.createdBy === "restore" && <span className="ml-1 text-amber-600">· 되돌리기 전 상태</span>}
+                  </p>
                 </div>
-              ) : (
-                <button
-                  onClick={() => setConfirmId(rev.id)}
-                  className="shrink-0 rounded-full border border-slate-200 px-2.5 py-1 text-[11.5px] font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
-                >
-                  이 시점으로 되돌리기
-                </button>
+                {confirmId === rev.id ? (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      onClick={() => handleRestore(rev.id)}
+                      disabled={restoringId === rev.id}
+                      className="rounded-full bg-brand-700 px-2.5 py-1 text-[11.5px] font-semibold text-white disabled:opacity-60"
+                    >
+                      {restoringId === rev.id ? "되돌리는 중…" : "확인"}
+                    </button>
+                    <button onClick={() => setConfirmId(null)} className="text-[11.5px] text-slate-400">
+                      취소
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => openConfirm(rev.id)}
+                    className="shrink-0 rounded-full border border-slate-200 px-2.5 py-1 text-[11.5px] font-semibold text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                  >
+                    이 시점으로 되돌리기
+                  </button>
+                )}
+              </div>
+              {confirmId === rev.id && (
+                <div className="mt-2 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+                  <p className="mb-1 text-[11px] font-semibold text-slate-500">이 내용으로 돌아갑니다</p>
+                  {previewLoading && <p className="text-[11.5px] text-slate-400">불러오는 중…</p>}
+                  {!previewLoading && preview && (
+                    <ol className="space-y-0.5">
+                      {preview.placesData.slice(0, 8).map((item) => (
+                        <li key={item.id} className="truncate text-[11.5px] text-slate-600 dark:text-slate-300">
+                          · {item.name}
+                        </li>
+                      ))}
+                      {preview.placesData.length > 8 && (
+                        <li className="text-[11px] text-slate-400">외 {preview.placesData.length - 8}곳</li>
+                      )}
+                    </ol>
+                  )}
+                </div>
               )}
             </div>
           ))}

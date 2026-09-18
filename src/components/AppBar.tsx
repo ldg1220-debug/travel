@@ -173,11 +173,24 @@ export function AppBar() {
     // 완전히 건너뛴다. 디바운스 도중 값이 바뀔 수 있어 타이머 콜백
     // 안에서도 다시 확인한다(아래).
     if (s0.viewerModeActive) return;
+    // 작업지시서 2026-09-18 "뷰어 모드를 우회하는 저장 경로" §4/§5-② —
+    // 실측: viewerModeActive(useEffect가 갱신하는 리액트 상태)가 공유/
+    // 콘텐츠 링크 탭을 몇 분 열어두면 초기값(false)으로 되돌아가 자동
+    // 저장이 새어 나갔다. usePathname()은 렌더 주기와 무관하게 항상
+    // "지금 실제 URL"을 반영하므로, 같은 방식으로 값이 갱신 안 되는
+    // 실수가 재발할 수 없는 두 번째 신호로 쓴다 — /planner/{shareToken}
+    // (뷰어 화면)에 있는 동안은 이유를 막론하고 자동 저장을 아예 스케줄
+    // 하지 않는다.
+    if (pathname != null && pathname.startsWith("/planner/") && pathname !== "/planner/") return;
     if (items.length === 0 && !s0.activePlanId && !s0.draft) return;
     if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
     autoSyncTimer.current = setTimeout(() => {
       const state = useItineraryStore.getState();
       if (state.viewerModeActive) return;
+      // window.location(클로저에 갇히는 usePathname()과 달리 1.5초 뒤
+      // 이 콜백이 실제로 실행되는 시점의 진짜 URL)로 한 번 더 확인한다 —
+      // 타이머를 예약한 뒤 그 사이에 뷰어 화면으로 이동했을 수 있다.
+      if (typeof window !== "undefined" && window.location.pathname.startsWith("/planner/") && window.location.pathname !== "/planner/") return;
       if (state.activePlanId) {
         // savePlanAs(name, activePlanId) refreshes that plan's own snapshot
         // in `savedPlans` from the LIVE working itinerary first — without
@@ -208,7 +221,7 @@ export function AppBar() {
     return () => {
       if (autoSyncTimer.current) clearTimeout(autoSyncTimer.current);
     };
-  }, [items, session, setPlanRemoteInfo, setDraftRemoteInfo]);
+  }, [items, session, pathname, setPlanRemoteInfo, setDraftRemoteInfo]);
 
   const isPlanner = pathname?.startsWith("/planner") ?? false;
   // /planner is the base route; /planner/{shareToken} is the only sub-route.
