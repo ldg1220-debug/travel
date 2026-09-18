@@ -26,6 +26,8 @@ import { formatDateLabel } from "@/lib/timeline";
 import { shareToKakao } from "@/lib/kakaoShare";
 import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
 import { hashtagSlug } from "@/lib/hashtag";
+import NextLink from "next/link";
+import { daysToLabel, matchEnabledCourseRegion } from "@/lib/coursePages";
 import { VisibilitySelector } from "@/components/VisibilitySelector";
 import { LoginModal } from "@/components/LoginModal";
 import { ReportModal } from "@/components/ReportModal";
@@ -348,6 +350,11 @@ export function TripPostDetailPage() {
     return <div className="flex min-h-full items-center justify-center bg-slate-50 text-[13px] text-slate-400">불러오는 중…</div>;
   }
 
+  // 작업지시서 2026-09-18 §4 "후기 페이지와 상호 링크하세요" — 제목에서
+  // 공개된 코스 페이지 지역명을 찾는다(coursePages.ts, 구조화된 지역
+  // 컬럼이 없어 텍스트 매칭으로 대신한다).
+  const matchedCourseRegion = matchEnabledCourseRegion(post.title);
+
   return (
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       <div className="mx-auto max-w-lg px-4 pb-24 pt-6 sm:px-6">
@@ -520,6 +527,18 @@ export function TripPostDetailPage() {
                 </button>
               )}
             </div>
+            {matchedCourseRegion && (
+              // 작업지시서 2026-09-18 "트레쥴이 구글에 7페이지만 올라가
+              // 있습니다" §4 "후기 페이지와 상호 링크하세요" — 후기→코스
+              // 방향. 제목에서 찾은 지역명 기반 휴리스틱이라(구조화된
+              // 지역 컬럼이 없음) 항상 정확하진 않지만, 없는 것보다 낫다.
+              <NextLink
+                href={`/course/${encodeURIComponent(matchedCourseRegion)}/${encodeURIComponent(daysToLabel(3))}`}
+                className="mt-2 block text-[12.5px] text-brand-700 hover:underline"
+              >
+                {matchedCourseRegion} {daysToLabel(3)} 코스 페이지 보기 →
+              </NextLink>
+            )}
           </div>
         )}
 

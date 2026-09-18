@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { getCourseBrief, mapWithConcurrency, pickStaleTasks, type WarmTask } from "@/lib/server/courseBrief";
 import { flatRegions } from "@/lib/discoverData";
+import { ENABLED_COURSE_PAGE_REGIONS } from "@/lib/coursePages";
 
 /**
  * Vercel Cron(vercel.json, 하루 1회) — 블로그 파이프라인이 실제로 쓸
@@ -55,6 +56,12 @@ const WARM_TASKS: WarmTask[] = [
   ...flatRegions("domestic").map((r): WarmTask => ({ region: r.name, days: 1 })),
   ...flatRegions("overseas").map((r): WarmTask => ({ region: r.name, days: 2 })),
   ...flatRegions("overseas").map((r): WarmTask => ({ region: r.name, days: 3 })),
+  // 작업지시서 2026-09-18 "트레쥴이 구글에 7페이지만 올라가 있습니다" §4/§6:
+  // /course/{지역}/2박3일 공개 페이지(coursePages.ts 1단계 허용목록)가
+  // getCourseBrief를 요청 시점에 직접 부르는데, 여기서 워밍해두지 않으면
+  // (기존 목록은 국내 days=1만 워밍했다) 첫 방문자·크롤러가 콜드 캐시로
+  // 코스 생성(LLM+DP)을 그대로 기다리게 된다.
+  ...ENABLED_COURSE_PAGE_REGIONS.map((region): WarmTask => ({ region, days: 3 })),
 ];
 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
