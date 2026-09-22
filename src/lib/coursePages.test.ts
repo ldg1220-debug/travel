@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  ENABLED_COURSE_PAGE_DAYS,
+  ENABLED_COURSE_PAGES,
   ENABLED_COURSE_PAGE_REGIONS,
   buildCourseIntro,
   buildCourseItemListJsonLd,
@@ -66,8 +66,27 @@ describe("isCoursePageEnabled — 1단계 허용목록 (§5)", () => {
   });
 
   it("keeps the allow list to exactly the documented phase-1 scope", () => {
-    expect(ENABLED_COURSE_PAGE_REGIONS.length).toBe(20);
-    expect(ENABLED_COURSE_PAGE_DAYS).toEqual([3]);
+    expect(ENABLED_COURSE_PAGES.length).toBe(24);
+    expect(ENABLED_COURSE_PAGE_REGIONS.length).toBe(24);
+  });
+});
+
+describe("isCoursePageEnabled — 광역명(서울·부산·제주·인천)은 1박2일만 켜져 있다 (§3)", () => {
+  it("enables each metro/province-level region at 1박2일(days=2)", () => {
+    for (const region of ["서울", "부산", "제주", "인천"]) {
+      expect(isCoursePageEnabled(region, 2)).toBe(true);
+    }
+  });
+
+  it("does not enable those regions at any other day count — days=3 wasn't verified for them", () => {
+    for (const region of ["서울", "부산", "제주", "인천"]) {
+      expect(isCoursePageEnabled(region, 1)).toBe(false);
+      expect(isCoursePageEnabled(region, 3)).toBe(false);
+    }
+  });
+
+  it("does not enable the existing city-level regions at days=2 — they're 2박3일-only", () => {
+    expect(isCoursePageEnabled("경주", 2)).toBe(false);
   });
 });
 

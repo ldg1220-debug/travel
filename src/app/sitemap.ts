@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { pool } from "@/lib/server/db";
-import { daysToLabel, ENABLED_COURSE_PAGE_DAYS, ENABLED_COURSE_PAGE_REGIONS } from "@/lib/coursePages";
+import { daysToLabel, ENABLED_COURSE_PAGES } from "@/lib/coursePages";
 
 /**
  * 작업지시서(2026-08-24, "아고다 반려 진단 + 제휴 심사 공통 요건") 2항 —
@@ -50,14 +50,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: r.priority,
   }));
 
-  const coursePageEntries: MetadataRoute.Sitemap = ENABLED_COURSE_PAGE_REGIONS.flatMap((region) =>
-    ENABLED_COURSE_PAGE_DAYS.map((days) => ({
-      url: `${base}/course/${encodeURIComponent(region)}/${encodeURIComponent(daysToLabel(days))}`,
-      lastModified: now,
-      changeFrequency: "weekly" as const,
-      priority: 0.7,
-    })),
-  );
+  const coursePageEntries: MetadataRoute.Sitemap = ENABLED_COURSE_PAGES.map(({ region, days }) => ({
+    url: `${base}/course/${encodeURIComponent(region)}/${encodeURIComponent(daysToLabel(days))}`,
+    lastModified: now,
+    changeFrequency: "weekly" as const,
+    priority: 0.7,
+  }));
 
   let tripPostEntries: MetadataRoute.Sitemap = [];
   try {
