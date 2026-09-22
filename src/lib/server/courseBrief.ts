@@ -744,6 +744,33 @@ function hasRatingHint(scope: CourseBriefScope, region: string, stop: FinalStop)
   return catalogRatingFor(scope, region, stop) != null;
 }
 
+/**
+ * 작업지시서 2026-09-23 "404 결정적 단서 + 후보 급감 실측 데이터" §3-b —
+ * 하루의 첫 스팟(방문자가 페이지에서 가장 먼저 보는 곳)이 평점 신호
+ * 없이 시작하지 않도록, 같은 날짜 안에서 평점 신호가 있는 스팟을
+ * 앞으로 옮긴다. 스팟을 빼지 않는다(§3-a 제외는 여전히 보류) — 순서만
+ * 바꾼다.
+ *
+ * 반드시 routeDayStops(구간 이동시간 계산) **이전에** 불러야 한다 —
+ * 이동시간은 "순서상 이웃한 두 스톱" 사이만 조회하므로, 순서를 먼저
+ * 정하면 그 다음 조회가 항상 실제 순서와 맞는다. 라우팅 뒤에 순서만
+ * 바꾸면 구간 이동시간이 엉뚱한 스팟 쌍을 가리키게 된다.
+ *
+ * hasRatingHint(기존 중복 제거 로직이 쓰는 것과 같은 힌트)만으로
+ * 판단한다 — 이 시점엔 아직 buildBrief 후반부의 liveEnrichSpots(라이브
+ * Google 평점 보강)가 돌기 전이라, "완전히 확정된 최종 평점"은 알 수
+ * 없다. 그래도 카탈로그 매칭(사전에 실측으로 확인해둔 값)은 이미 쓸 수
+ * 있어, 완벽하지 않아도 의미 있는 개선이다.
+ */
+export function preferRatedFirstStop(scope: CourseBriefScope, region: string, stops: FinalStop[]): FinalStop[] {
+  if (stops.length < 2 || hasRatingHint(scope, region, stops[0])) return stops;
+  const ratedIndex = stops.findIndex((s, i) => i > 0 && hasRatingHint(scope, region, s));
+  if (ratedIndex === -1) return stops;
+  const reordered = [...stops];
+  [reordered[0], reordered[ratedIndex]] = [reordered[ratedIndex], reordered[0]];
+  return reordered;
+}
+
 // 중복 스팟 제거(작업지시서 2026-09-01 "중복 스팟" §1, 이어서 "PR #223
 // 검증 결과" §2) — 날짜를 넘나드는 중복(1일차 vs 2일차)뿐 아니라 같은
 // 날짜 안에서도 courseRecommendV2 자체의 중복 방지가 못 잡는 사례
@@ -2003,6 +2030,16 @@ export const DEFAULT_ENRICH_BUDGET_MS = 6000;
  * 가설은 코드상 근거가 없었다). 블로그 글의 대표 코스인 1일차만 LLM
  * 큐레이션 품질을 유지한다.
  */
+// 작업지시서 2026-09-23 §2 — API의 기존 "스팟 3곳 미만이면 글을 쓰지
+// 않는다"(insufficient_spots) 기준과 맞춘다. 1일차 하나만으로 이 밑으로
+// 떨어지면 사실상 하루짜리 코스로도 못 쓸 정도라 재시도할 가치가 있다.
+const MIN_DAY0_STOPS = 3;
+
+/** 1일차 LLM 큐레이션 결과가 너무 적을 때, skipLlm 재시도 결과와 비교해 더 나은(스팟이 더 많은) 쪽을 고른다 — 재시도도 실패하면 원본을 그대로 쓴다(둘 다 나쁘더라도 최소한 원본만큼은 보장). */
+export function pickBetterDayResult(original: FinalStop[], retry: FinalStop[]): FinalStop[] {
+  return retry.length > original.length ? retry : original;
+}
+
 async function generateDay(scope: CourseBriefScope, region: string, dayIndex: number, priorDays: FinalStop[][]): Promise<FinalStop[]> {
   const priorStops = priorDays.flat();
   let result: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme };
@@ -2024,7 +2061,29 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
   }
   // 같은 날짜 안의 중복(예: "경주 황리단길"/"황리단길")도 여기서 한 번 거른다.
   const deduped = dedupeWithinList(stopsOf(result), scope, region);
-  if (priorDays.length === 0) return deduped;
+  if (priorDays.length === 0) {
+    // 작업지시서 2026-09-23 "404 결정적 단서 + 후보 급감 실측 데이터" §2 —
+    // 1일차만 LLM 취향 큐레이션을 쓰는데(위 주석 참고), 그 결과가 가끔
+    // 지나치게 적을 수 있다(실측: 오사카 2일 요청의 1일차, 교토 1일
+    // 요청 — 둘 다 2곳 안팎). getCourseBrief의 캐시는 이 결과를 그대로
+    // 26시간 박아두므로, 한 번의 나쁜 LLM 응답이 그 지역·일수 조합
+    // 전체를 하루 종일 얇은 코스로 고정시킨다. 1일차가 너무 적으면
+    // 2·3일차에서 이미 안정적으로 쓰고 있는 결정론 경로(skipLlm:true)로
+    // 한 번 더 시도해, 둘 중 더 나은 쪽을 쓴다 — deterministicTaste
+    // 자체는 건드리지 않는다(지시서 §3 — 공유 함수라 라이브 검증 없이
+    // 손대지 않기로 한 결정 유지).
+    if (deduped.length < MIN_DAY0_STOPS) {
+      const retryResult: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme } = await generateCourseV2(scope, region, DEFAULT_THEME, DEFAULT_RADIUS, {
+        skipLlm: true,
+      }).catch((err) => {
+        console.error(`[courseBrief] day1 skipLlm 재시도 실패:`, err);
+        return { course: [], source: "mock", theme: DEFAULT_THEME };
+      });
+      const retryDeduped = dedupeWithinList(stopsOf(retryResult), scope, region);
+      return pickBetterDayResult(deduped, retryDeduped);
+    }
+    return deduped;
+  }
   // excludeIds/excludeNames는 정확히 같은 id/문자열일 때만 걸러 날짜를
   // 넘나드는 "이름만 다른 같은 곳"까지는 못 잡는다 — 여기서 한 번 더 거른다.
   return dedupeCrossDay(priorDays, deduped, region);
@@ -2047,7 +2106,15 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   // 스팟 선정은 위까지 끝났다 — 이제 "어느 날·어느 순서로 방문할지"만
   // 좌표 기준으로 다시 정한다(작업지시서 2026-09-06 "일자 배분이
   // 지리적으로 나뉘지 않습니다" 참고, reallocateStopsByDay 주석).
-  const finalDayGroups = reallocateStopsByDay(dayStops);
+  const geoOrderedDayGroups = reallocateStopsByDay(dayStops);
+  // 작업지시서 2026-09-23 §3-b — 각 날짜의 첫 스팟이 평점 신호 없이
+  // 시작하지 않도록 순서를 조정한다. 반드시 라우팅(바로 아래
+  // routeDayStops) 이전에 해야 한다 — 이후에 순서만 바꾸면 구간
+  // 이동시간(toNextMinutes)이 실제와 다른 스팟 쌍을 가리키게 된다
+  // (routeDayStops는 "순서상 이웃한 두 스톱" 사이만 조회하므로, 순서를
+  // 정한 뒤에 조회해야 항상 맞는다). preferRatedFirstStop 주석 참고 —
+  // 스팟을 빼지 않고 순서만 바꾼다(§3-a 제외는 여전히 보류).
+  const finalDayGroups = geoOrderedDayGroups.map((stops) => preferRatedFirstStop(scope, region, stops));
 
   // 하루 안의 구간(순서상 이웃한 두 스톱)마다 실제 경로를 조회한다 —
   // 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다" §3. 경로가

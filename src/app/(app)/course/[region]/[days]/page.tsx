@@ -62,7 +62,21 @@ interface CoursePageParams {
  */
 const loadEnabledCourseBrief = cache(async (region: string, daysLabel: string): Promise<CourseBrief | null> => {
   const days = labelToDays(daysLabel);
-  if (days == null || !isCoursePageEnabled(region, days)) return null;
+  const enabled = days != null && isCoursePageEnabled(region, days);
+  if (!enabled) {
+    // 작업지시서 2026-09-23 "404 결정적 단서 + 후보 급감 실측 데이터"
+    // §1이 요청한 "함수 진입 직후" 로그 — getCourseBrief를 부르기도
+    // 전에 이 게이트에서 걸러지는지, 걸러진다면 정확히 왜인지(days
+    // 파싱 실패인지, 허용목록 불일치인지)를 코드 포인트까지 남겨
+    // 유니코드 정규화 차이(예: NFC/NFD) 같은 눈에 안 보이는 불일치도
+    // 드러나게 한다.
+    console.warn(
+      `[course-page] gate rejected: region=${JSON.stringify(region)} codePoints=[${Array.from(region)
+        .map((c) => c.codePointAt(0))
+        .join(",")}] daysLabel=${JSON.stringify(daysLabel)} parsedDays=${days}`,
+    );
+    return null;
+  }
   let brief: CourseBrief;
   try {
     brief = await getCourseBrief(region, days);

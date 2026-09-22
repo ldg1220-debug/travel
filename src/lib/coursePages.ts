@@ -93,8 +93,24 @@ export const ENABLED_COURSE_PAGES: readonly EnabledCoursePage[] = [
 /** ENABLED_COURSE_PAGES에서 뽑은 고유 지역명 — matchEnabledCourseRegion(일수와 무관하게 지역만 필요)과 클라이언트 상호 링크에 쓴다. */
 export const ENABLED_COURSE_PAGE_REGIONS: readonly string[] = Array.from(new Set(ENABLED_COURSE_PAGES.map((p) => p.region)));
 
+/**
+ * 작업지시서 2026-09-23 "404 결정적 단서 + 후보 급감 실측 데이터" §1 —
+ * 실측: `/course/경주/2박3일`이 캐시 미스 라이브 생성(11~14초, 정상
+ * 동작 확인됨)까지 가지도 못하고 1.2초 만에 404를 반환한다. 이건
+ * getCourseBrief를 부르기 전, 이 게이트에서 걸러진다는 뜻이다 —
+ * 유력한 원인 하나가 URL 세그먼트 디코딩 결과가 유니코드 정규화
+ * 형식(NFC/NFD)에서 이 파일의 문자열 리터럴과 다를 수 있다는 것
+ * (예: macOS 계열 도구가 한글을 NFD로 다루는 경우). 시각적으로
+ * 완전히 같은 "경주"인데도 `===` 비교가 실패할 수 있다 — 양쪽을
+ * NFC로 정규화한 뒤 비교해 이 경로를 안전하게 만든다.
+ */
+function normalizeRegion(region: string): string {
+  return region.normalize("NFC");
+}
+
 export function isCoursePageEnabled(region: string, days: number): boolean {
-  return ENABLED_COURSE_PAGES.some((p) => p.region === region && p.days === days);
+  const normalized = normalizeRegion(region);
+  return ENABLED_COURSE_PAGES.some((p) => normalizeRegion(p.region) === normalized && p.days === days);
 }
 
 /**

@@ -90,6 +90,14 @@ describe("isCoursePageEnabled — 광역명(서울·부산·제주·인천)은 1
   });
 });
 
+describe("isCoursePageEnabled — 유니코드 정규화(NFC/NFD)가 달라도 같은 지역으로 인식한다 (작업지시서 2026-09-23 §1)", () => {
+  it("enables a region whose URL-decoded string is NFD-decomposed (visually identical, different code points)", () => {
+    const nfd = "경주".normalize("NFD");
+    expect(nfd).not.toBe("경주"); // 전제 확인 — 실제로 다른 문자열이어야 이 테스트가 의미 있다
+    expect(isCoursePageEnabled(nfd, 3)).toBe(true);
+  });
+});
+
 describe("matchEnabledCourseRegion — 후기 제목 → 코스 페이지 역방향 링크 (§4)", () => {
   it("finds an enabled region name inside the title", () => {
     expect(matchEnabledCourseRegion("경주에서 보낸 2박3일")).toBe("경주");
