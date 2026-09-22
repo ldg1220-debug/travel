@@ -9,6 +9,7 @@ import {
   computeViewport,
   dedupeByBrand,
   dedupeByProximity,
+  dedupeInFlight,
   excludeOutlierSpots,
   fetchGoogleDirectionsRoute,
   fetchKakaoDrivingRoute,
@@ -1245,5 +1246,60 @@ describe("recolorMapPathAsEstimated — 작업지시서 2026-09-15 '도보 구�
     const estimated = recolorMapPathAsEstimated(path);
     expect(estimated).not.toBe(recolorMapPathForDay(path, 0));
     expect(estimated).not.toBe(recolorMapPathForDay(path, 1));
+  });
+});
+
+describe("dedupeInFlight — 같은 key의 동시 라이브 생성을 하나로 합친다 (작업지시서 2026-09-22 '24개 전부 아직 404입니다' §4/§6)", () => {
+  it("concurrent calls with the same key share one run() invocation and one result", async () => {
+    const inFlight = new Map<string, Promise<number>>();
+    let runCount = 0;
+    let resolveRun!: (value: number) => void;
+    const run = () =>
+      new Promise<number>((resolve) => {
+        runCount++;
+        resolveRun = resolve;
+      });
+
+    // 첫 번째 호출이 아직 안 끝난 상태에서(resolveRun을 아직 안 부름)
+    // 같은 key로 또 부른다 — generateMetadata와 페이지 본문이 거의 동시에
+    // getCourseBrief(같은 region·days)를 부르는 상황을 흉내낸다.
+    const first = dedupeInFlight(inFlight, "경주:3", run);
+    const second = dedupeInFlight(inFlight, "경주:3", run);
+    expect(runCount).toBe(1); // run()이 두 번이 아니라 한 번만 불렸다
+
+    resolveRun(12);
+    await expect(first).resolves.toBe(12);
+    await expect(second).resolves.toBe(12); // 같은 Promise라 완전히 같은 값
+  });
+
+  it("a different key runs independently, not deduped with the first", async () => {
+    const inFlight = new Map<string, Promise<number>>();
+    let runCount = 0;
+    const run = async () => {
+      runCount++;
+      return runCount;
+    };
+
+    await dedupeInFlight(inFlight, "경주:3", run);
+    await dedupeInFlight(inFlight, "강릉:3", run);
+    expect(runCount).toBe(2);
+  });
+
+  it("removes the key once settled, so a later call for the same key runs again", async () => {
+    const inFlight = new Map<string, Promise<number>>();
+    let runCount = 0;
+    const run = async () => ++runCount;
+
+    await dedupeInFlight(inFlight, "경주:3", run);
+    expect(inFlight.has("경주:3")).toBe(false);
+    await dedupeInFlight(inFlight, "경주:3", run);
+    expect(runCount).toBe(2); // 첫 실행이 끝난 뒤라 두 번째 호출은 새로 돈다
+  });
+
+  it("removes the key even when run() rejects, so a failed build doesn't wedge the key forever", async () => {
+    const inFlight = new Map<string, Promise<number>>();
+    const failing = dedupeInFlight(inFlight, "경주:3", () => Promise.reject(new Error("boom")));
+    await expect(failing).rejects.toThrow("boom");
+    expect(inFlight.has("경주:3")).toBe(false);
   });
 });

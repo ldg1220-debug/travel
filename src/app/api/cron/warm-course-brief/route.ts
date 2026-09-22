@@ -57,12 +57,12 @@ const WARM_TASKS: WarmTask[] = [
   ...flatRegions("overseas").map((r): WarmTask => ({ region: r.name, days: 2 })),
   ...flatRegions("overseas").map((r): WarmTask => ({ region: r.name, days: 3 })),
   // 작업지시서 2026-09-18 "트레쥴이 구글에 7페이지만 올라가 있습니다" §4/§6:
-  // /course/{지역}/{일수} 공개 페이지(coursePages.ts 1단계 허용목록)가
-  // 워밍된 캐시만 읽는다(작업지시서 2026-09-22 §2 이후 —
-  // getCachedCourseBrief는 라이브 생성으로 폴백하지 않는다) — 여기서
-  // 미리 채워두지 않으면 그 지역·일수는 크론이 돌 때까지 계속 404다.
-  // (region, days) 쌍 그대로 워밍한다 — 서울·부산·제주·인천(§3, days=2)이
-  // 기존 20곳(days=3)과 다른 일수라 곱집합으로 되돌리면 안 된다.
+  // /course/{지역}/{일수} 공개 페이지(coursePages.ts 1단계 허용목록)는
+  // getCourseBrief(캐시 미스 시 라이브 생성 폴백 있음)를 쓰지만, 그래도
+  // 여기서 미리 채워둬야 첫 방문자·크롤러가 콜드 캐시로 라이브 생성
+  // (LLM+DP, 최대 수십 초)을 그대로 기다리지 않는다. (region, days) 쌍
+  // 그대로 워밍한다 — 서울·부산·제주·인천(§3, days=2)이 기존 20곳
+  // (days=3)과 다른 일수라 곱집합으로 되돌리면 안 된다.
   ...ENABLED_COURSE_PAGES.map(({ region, days }): WarmTask => ({ region, days })),
 ];
 

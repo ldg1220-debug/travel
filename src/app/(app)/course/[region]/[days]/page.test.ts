@@ -2,26 +2,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CourseBrief, CourseBriefSpot } from "@/lib/server/courseBrief";
 
 // 작업지시서 2026-09-22 "sitemap에 올린 코스 페이지 20개가 전부
-// 404입니다" §2 — 기존 19개 단위 테스트(coursePages.test.ts)는 게이트
+// 404입니다" §2 — 기존 단위 테스트(coursePages.test.ts)는 게이트
 // 함수(isCoursePageEnabled/isCourseBriefThin 등)를 직접 불렀을 뿐, 실제
 // 라우트(generateMetadata + 페이지 컴포넌트)를 부르지 않아 "메타데이터는
-// 성공하고 본문만 notFound()를 던진다"는 이번 회귀를 못 잡았다(문서
-// §2 "단위 테스트는 게이트 함수를 직접 부르고, 실제 라우트를 부르지
-// 않습니다"). 이 테스트는 실제 page.tsx 모듈(generateMetadata + 기본
-// export)을 그대로 불러 두 곳이 같은 입력에 대해 항상 같은 결론을
-// 내는지 확인한다 — getCachedCourseBrief를 모킹해 결정적인 입력을 준다
-// (courseBrief.ts는 Postgres pool을 끌고 오므로 이 저장소의 다른
-// 테스트들처럼 순수 함수만 테스트하는 대신, 여기선 불가피하게 처음으로
-// vi.mock을 쓴다 — region.tsx가 실제로 부르는 모듈 경계 자체가
-// 회귀의 원인이라 우회할 수 없다).
+// 성공하고 본문만 notFound()를 던진다"는 회귀를 못 잡았다. 이 테스트는
+// 실제 page.tsx 모듈(generateMetadata + 기본 export)을 그대로 불러 두
+// 곳이 같은 입력에 대해 항상 같은 결론을 내는지 확인한다 —
+// getCourseBrief를 모킹해 결정적인 입력을 준다(courseBrief.ts는
+// Postgres pool을 끌고 오므로 이 저장소의 다른 테스트들처럼 순수 함수만
+// 테스트하는 대신, 여기선 불가피하게 vi.mock을 쓴다 — page.tsx가 실제로
+// 부르는 모듈 경계 자체가 회귀의 원인이라 우회할 수 없다).
+//
+// 두 호출부가 실제로 결과를 공유하는지(React cache()가 통하는지)는 이
+// 테스트로 검증할 수 없다 — 모킹된 getCourseBrief는 항상 같은 값을
+// 돌려주므로 애초에 같은 값만 관찰된다. 그 dedup 자체은
+// courseBrief.test.ts의 dedupeInFlight 테스트가 검증한다.
 
-const getCachedCourseBriefMock = vi.fn<(region: string, days: 1 | 2 | 3) => Promise<CourseBrief | null>>();
+const getCourseBriefMock = vi.fn<(region: string, days: 1 | 2 | 3) => Promise<CourseBrief>>();
 
 vi.mock("@/lib/server/courseBrief", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/server/courseBrief")>();
   return {
     ...actual,
-    getCachedCourseBrief: (region: string, days: 1 | 2 | 3) => getCachedCourseBriefMock(region, days),
+    getCourseBrief: (region: string, days: 1 | 2 | 3) => getCourseBriefMock(region, days),
   };
 });
 
@@ -62,11 +65,11 @@ function thickBrief(overrides: Partial<CourseBrief> = {}): CourseBrief {
 
 describe("generateMetadata와 CoursePage가 같은 입력에 대해 항상 일치한다 (§2 회귀 방지)", () => {
   beforeEach(() => {
-    getCachedCourseBriefMock.mockReset();
+    getCourseBriefMock.mockReset();
   });
 
-  it("실제 코스가 캐시에 있으면 메타데이터가 실제 제목을 쓰고, 본문도 notFound()를 던지지 않는다", async () => {
-    getCachedCourseBriefMock.mockResolvedValue(thickBrief());
+  it("실제 코스가 있으면 메타데이터가 실제 제목을 쓰고, 본문도 notFound()를 던지지 않는다", async () => {
+    getCourseBriefMock.mockResolvedValue(thickBrief());
     const { generateMetadata, default: CoursePage } = await import("./page");
     const params = Promise.resolve({ region: "경주", days: "2박3일" });
 
@@ -77,30 +80,30 @@ describe("generateMetadata와 CoursePage가 같은 입력에 대해 항상 일�
     await expect(CoursePage({ params })).resolves.toBeTruthy();
   });
 
-  it("캐시가 비어 있으면(아직 안 채워짐) 메타데이터도 본문도 똑같이 '못 찾음'으로 일치한다", async () => {
-    getCachedCourseBriefMock.mockResolvedValue(null);
-    const { generateMetadata, default: CoursePage } = await import("./page");
-    const params = Promise.resolve({ region: "경주", days: "2박3일" });
-
-    const metadata = await generateMetadata({ params });
-    expect(metadata.title).toBe("코스를 찾을 수 없어요 - 트레쥴");
-
-    await expect(CoursePage({ params })).rejects.toThrow();
-  });
-
-  it("허용목록에 없는 지역은 캐시에 실제 코스가 있어도 둘 다 '못 찾음'으로 일치한다", async () => {
-    getCachedCourseBriefMock.mockResolvedValue(thickBrief({ region: "발리" }));
+  it("허용목록에 없는 지역은 getCourseBrief를 부르지도 않고 둘 다 '못 찾음'으로 일치한다", async () => {
+    getCourseBriefMock.mockResolvedValue(thickBrief({ region: "발리" }));
     const { generateMetadata, default: CoursePage } = await import("./page");
     const params = Promise.resolve({ region: "발리", days: "2박3일" });
 
     const metadata = await generateMetadata({ params });
     expect(metadata.title).toBe("코스를 찾을 수 없어요 - 트레쥴");
     await expect(CoursePage({ params })).rejects.toThrow();
-    expect(getCachedCourseBriefMock).not.toHaveBeenCalled();
+    expect(getCourseBriefMock).not.toHaveBeenCalled();
   });
 
-  it("얇은 콘텐츠(스팟<5)면 캐시 히트여도 둘 다 '못 찾음'으로 일치한다", async () => {
-    getCachedCourseBriefMock.mockResolvedValue(thickBrief({ spots: [spot(), spot(), spot()] }));
+  it("미지원 지역 에러(UnsupportedRegionError)가 나면 둘 다 '못 찾음'으로 일치한다", async () => {
+    const { UnsupportedRegionError } = await vi.importActual<typeof import("@/lib/server/courseBrief")>("@/lib/server/courseBrief");
+    getCourseBriefMock.mockRejectedValue(new UnsupportedRegionError("경주"));
+    const { generateMetadata, default: CoursePage } = await import("./page");
+    const params = Promise.resolve({ region: "경주", days: "2박3일" });
+
+    const metadata = await generateMetadata({ params });
+    expect(metadata.title).toBe("코스를 찾을 수 없어요 - 트레쥴");
+    await expect(CoursePage({ params })).rejects.toThrow();
+  });
+
+  it("얇은 콘텐츠(스팟<5)면 둘 다 '못 찾음'으로 일치한다", async () => {
+    getCourseBriefMock.mockResolvedValue(thickBrief({ spots: [spot(), spot(), spot()] }));
     const { generateMetadata, default: CoursePage } = await import("./page");
     const params = Promise.resolve({ region: "경주", days: "2박3일" });
 
