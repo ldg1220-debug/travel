@@ -39,33 +39,62 @@ export function labelToDays(label: string): 1 | 2 | 3 | null {
 // 61곳) 중 여행 검색 수요가 높은 곳을 골랐다 — 지시서가 특정 20곳을
 // 지목하지 않아 이 세션의 판단이다. 2단계(일수 확장)·3단계(해외 확장)는
 // 색인 추이를 본 뒤 이 배열만 넓히면 된다 — 라우트·렌더링은 그대로다.
-export const ENABLED_COURSE_PAGE_REGIONS: readonly string[] = [
-  "경주",
-  "강릉",
-  "속초",
-  "여수",
-  "순천",
-  "통영",
-  "거제",
-  "전주",
-  "제주시",
-  "서귀포",
-  "애월",
-  "성산",
-  "중문",
-  "해운대",
-  "광안리",
-  "남포동",
-  "춘천",
-  "남해",
-  "포항",
-  "안동",
+//
+// (region, days) 쌍의 명시적 목록이다 — 작업지시서 2026-09-22 "sitemap에
+// 올린 코스 페이지 20개가 전부 404입니다" §3 이전엔 지역 배열과 일수
+// 배열의 곱집합(region×days 전부 조합)이었는데, flatRegions("domestic")의
+// `parent`(서울·부산·제주·인천 등 9개 광역명)가 실측으로 확인된 건
+// days=2뿐이라(§3 "course-brief?region=서울&days=2 → 200") 기존 20곳
+// (days=3)과 같은 일수로 묶을 수 없었다. 이 배열이 실제로 검증된
+// (region, days) 조합만 담고, days별 그룹 짓기는 아래 파생값들이 한다.
+export interface EnabledCoursePage {
+  region: string;
+  days: 1 | 2 | 3;
+}
+
+export const ENABLED_COURSE_PAGES: readonly EnabledCoursePage[] = [
+  ...(
+    [
+      "경주",
+      "강릉",
+      "속초",
+      "여수",
+      "순천",
+      "통영",
+      "거제",
+      "전주",
+      "제주시",
+      "서귀포",
+      "애월",
+      "성산",
+      "중문",
+      "해운대",
+      "광안리",
+      "남포동",
+      "춘천",
+      "남해",
+      "포항",
+      "안동",
+    ] as const
+  ).map((region) => ({ region, days: 3 as const })),
+  // 작업지시서 §3 — flatRegions("domestic")의 `.name`(구체 지역)만 보고
+  // 고른 위 20곳엔 검색량이 가장 큰 광역명(`.parent`) 넷이 빠져 있었다.
+  // course-brief는 이 광역명도 그대로 받아 실제 그 지역 스팟으로 응답한다
+  // (실측: 서울→영등포전통시장·이랜드크루즈, 부산→자갈치시장·초량밀면,
+  // 제주→서귀포매일올레시장·용머리해안, 인천→신포국제시장·코스모40 —
+  // "발리"류 오매칭 없음). 지시서가 실측한 일수(days=2, 1박2일)만 켠다 —
+  // days=3은 이 세션에서 검증하지 않았다.
+  { region: "서울", days: 2 },
+  { region: "부산", days: 2 },
+  { region: "제주", days: 2 },
+  { region: "인천", days: 2 },
 ];
 
-export const ENABLED_COURSE_PAGE_DAYS: readonly (1 | 2 | 3)[] = [3];
+/** ENABLED_COURSE_PAGES에서 뽑은 고유 지역명 — matchEnabledCourseRegion(일수와 무관하게 지역만 필요)과 클라이언트 상호 링크에 쓴다. */
+export const ENABLED_COURSE_PAGE_REGIONS: readonly string[] = Array.from(new Set(ENABLED_COURSE_PAGES.map((p) => p.region)));
 
 export function isCoursePageEnabled(region: string, days: number): boolean {
-  return ENABLED_COURSE_PAGE_REGIONS.includes(region) && ENABLED_COURSE_PAGE_DAYS.includes(days as 1 | 2 | 3);
+  return ENABLED_COURSE_PAGES.some((p) => p.region === region && p.days === days);
 }
 
 /**

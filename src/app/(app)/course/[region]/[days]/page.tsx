@@ -2,7 +2,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCourseBrief, UnsupportedRegionError, type CourseBrief } from "@/lib/server/courseBrief";
+import { getCachedCourseBrief, UnsupportedRegionError, type CourseBrief } from "@/lib/server/courseBrief";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
 import {
   buildCourseIntro,
@@ -25,7 +25,7 @@ import { CourseCtaLink } from "@/components/CourseCtaLink";
  */
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // /api/content/course-brief와 같은 예산 — 코스 생성(LLM+DP)이 캐시 미스면 느릴 수 있다.
+export const revalidate = 0; // force-dynamic과 중복이지만, 캐시 관련 오판을 하나라도 줄이기 위해 명시한다 — 아래 주석 참고.
 
 interface CoursePageParams {
   region: string;
@@ -33,21 +33,33 @@ interface CoursePageParams {
 }
 
 /**
- * generateMetadata와 페이지 컴포넌트가 같은 요청 안에서 두 번 로드하지
- * 않도록 React cache()로 묶는다 — course-brief 자체도 별도 캐시가 있어
- * 중복 호출이 치명적이진 않지만, 굳이 두 번 부를 이유가 없다.
+ * 작업지시서 2026-09-22 "sitemap에 올린 코스 페이지 20개가 전부
+ * 404입니다" §2 — 이전엔 여기서 getCourseBrief(캐시 미스 시 라이브
+ * 생성으로 폴백)를 불렀다. generateMetadata와 페이지 본문이 React
+ * cache()로 같은 함수를 공유하는데도, 실측에서 메타데이터는 실제
+ * 코스(12곳·19.8km)를 보여주고 본문만 notFound()를 던지는 모순이
+ * 나왔다 — courseBrief.ts의 getCachedCourseBrief 주석에 적은 대로,
+ * 캐시가 비어 있으면 두 호출이 실제로 결과를 공유하지 못한 채 각자
+ * 라이브 생성을 한 번씩 더 돌렸고, 그 생성엔 진짜 무작위성이 있어
+ * 서로 다른 스팟 조합이 나올 수 있었다.
+ *
+ * getCachedCourseBrief로 바꿔 요청 경로에서 라이브 생성 자체를 없앤다 —
+ * 캐시 읽기는 결정적이라 generateMetadata와 페이지가 몇 번을 불러도
+ * 항상 같은 결과를 받는다(cache()는 이제 정확성이 아니라 중복 DB 조회를
+ * 한 번 아끼는 용도로만 남는다). 캐시가 없는 지역·일수는 warm-course-brief
+ * 크론이 다음 실행 때 채울 때까지 "아직 준비 안 됨"으로 404를 준다.
  */
 const loadEnabledCourseBrief = cache(async (region: string, daysLabel: string): Promise<CourseBrief | null> => {
   const days = labelToDays(daysLabel);
   if (days == null || !isCoursePageEnabled(region, days)) return null;
-  let brief: CourseBrief;
+  let brief: CourseBrief | null;
   try {
-    brief = await getCourseBrief(region, days);
+    brief = await getCachedCourseBrief(region, days);
   } catch (err) {
     if (err instanceof UnsupportedRegionError) return null;
     throw err;
   }
-  if (isCourseBriefThin(brief.spots)) return null;
+  if (!brief || isCourseBriefThin(brief.spots)) return null;
   return brief;
 });
 
@@ -80,7 +92,13 @@ export async function generateMetadata({ params }: { params: Promise<CoursePageP
 export default async function CoursePage({ params }: { params: Promise<CoursePageParams> }) {
   const { region, days: daysLabel } = await params;
   const brief = await loadEnabledCourseBrief(region, daysLabel);
-  if (!brief) notFound();
+  if (!brief) {
+    // 이 로그 하나가 §2류 회귀를 다음엔 실측 없이 바로 잡아준다 —
+    // Vercel 로그에서 region·daysLabel을 보면 "허용목록에 없음"과
+    // "캐시가 아직 안 채워짐"을 바로 구분할 수 있다.
+    console.warn(`[course-page] notFound: region=${region} daysLabel=${daysLabel}`);
+    notFound();
+  }
 
   const intro = buildCourseIntro(brief);
   const itemListJsonLd = buildCourseItemListJsonLd(brief);

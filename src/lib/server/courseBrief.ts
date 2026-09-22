@@ -2152,6 +2152,37 @@ export async function getCourseBrief(region: string, days: 1 | 2 | 3, enrichBudg
 }
 
 /**
+ * getCourseBrief과 달리 캐시 미스여도 buildBrief(라이브 생성)로 폴백하지
+ * 않고 곧장 null을 돌려준다 — 작업지시서 2026-09-22 "sitemap에 올린
+ * 코스 페이지 20개가 전부 404입니다" §2 원인: `/course/{지역}/{일수}`
+ * 공개 페이지의 generateMetadata와 페이지 본문이 (React cache()로
+ * 묶어뒀음에도) 이 요청 안에서 실제로 결과를 공유하지 못하는 경우가
+ * 있었고, 캐시가 비어 있을 때 각자 독립적으로 getCourseBrief→buildBrief를
+ * 한 번씩 더 돌리면 generateCourseV2 후보 선정에 있는 실제 무작위성
+ * (courseRecommend.ts의 `pool[Math.floor(Math.random()*pool.length)]`)
+ * 때문에 완전히 같은 region·days를 넣고도 서로 다른 스팟 조합이 나올 수
+ * 있었다 — 실측에서 한쪽(생성 메타데이터)은 얇은 콘텐츠 게이트를
+ * 통과하고 다른 쪽(페이지 본문)은 통과하지 못해, 메타데이터는 실제
+ * 코스를 보여주고 본문만 notFound()를 던지는 모순이 나왔다.
+ *
+ * `/course/{지역}/{일수}`는 warm-course-brief 크론이 매일 미리 채워두는
+ * 고정 허용목록(coursePages.ts)만 서비스한다 — 요청 경로에서 라이브
+ * 생성을 아예 하지 않아도 된다. 캐시가 없으면(크론이 아직 못 돌았거나
+ * TTL이 지났으면) "아직 준비 안 됨"으로 보고 그대로 404를 주는 편이,
+ * 요청마다 결과가 갈릴 수 있는 라이브 생성보다 안전하다 — 다음 크론이
+ * 돌면 저절로 채워진다.
+ */
+export async function getCachedCourseBrief(region: string, days: 1 | 2 | 3): Promise<CourseBrief | null> {
+  if (!isSupportedRegion(region)) throw new UnsupportedRegionError(region);
+  const scope = resolveScope(region);
+  const cacheKey = briefCacheKey(scope, region, days);
+  return readBriefCache(cacheKey).catch((err) => {
+    console.error("[courseBrief] getCachedCourseBrief cache read failed:", err);
+    return null;
+  });
+}
+
+/**
  * 워밍 크론이 "이번 실행에 어느 지역을 처리할지" 고를 때 쓴다 — 캐시가
  * 아예 없는 지역(가장 급함) → 캐시가 가장 오래된 지역 순으로 최대
  * limit개를 고른다. 작업지시서 2026-09-02 "워밍 재설계" §A-3: 58개
