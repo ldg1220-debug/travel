@@ -2,7 +2,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCourseBrief, UnsupportedRegionError, type CourseBrief } from "@/lib/server/courseBrief";
+import { getCourseBrief, type CourseBrief } from "@/lib/server/courseBrief";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
 import {
   buildCourseIntro,
@@ -25,7 +25,8 @@ import { CourseCtaLink } from "@/components/CourseCtaLink";
  */
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // /api/content/course-brief와 같은 예산 — 코스 생성(LLM+DP)이 캐시 미스면 느릴 수 있다.
+export const runtime = "nodejs"; // 작업지시서 2026-09-22 "이번엔 라우트 자체가 인식되지 않습니다" §4 — pg(Postgres) 드라이버가 Edge 런타임과 호환되지 않는다. 다른 course-brief 소비처(route.ts들)는 App Router 기본 런타임(nodejs)으로 이미 잘 동작하지만, 이 페이지에서만 원인 불명으로 라우트 자체가 인식되지 않는 회귀가 있어 추론에 맡기지 않고 명시한다.
+export const maxDuration = 60; // /api/content/course-brief와 같은 예산 — 코스 생성(LLM+DP)이 캐시 미스면 느릴 수 있다. 같은 값을 쓰는 그 라우트가 정상 동작하는 것으로 실측 확인돼(작업지시서 §5 회신), 이 값 자체가 이번 회귀의 원인은 아닌 것으로 판단한다 — 그래도 낮추지 않고 그대로 둔다.
 
 interface CoursePageParams {
   region: string;
@@ -34,7 +35,7 @@ interface CoursePageParams {
 
 /**
  * 작업지시서 2026-09-22 "sitemap에 올린 코스 페이지 20개가 전부
- * 404입니다" §2 이후 두 라운드에 걸친 히스토리:
+ * 404입니다" §2 이후 세 라운드에 걸친 히스토리:
  *
  * 1) 원래 이 함수는 getCourseBrief(캐시 미스 시 라이브 생성 폴백)를
  *    썼는데, generateMetadata는 실제 코스를 불러오고 본문만 notFound()를
@@ -46,13 +47,18 @@ interface CoursePageParams {
  * 2) 그 다음 라운드(PR #262)는 라이브 생성 자체를 없앤 getCachedCourseBrief로
  *    바꿨는데, "캐시가 없으면 크론이 돌 때까지 무조건 404"라는 더 나쁜
  *    회귀를 냈다(작업지시서 "24개 전부 아직 404입니다").
- * 3) 지금은 getCourseBrief로 되돌리되, courseBrief.ts 쪽에 "같은
- *    (지역,일수)의 라이브 생성은 동시에 한 번만 돈다"는 보장
- *    (dedupeInFlight, 모듈 스코프 Map)을 추가했다 — React cache()는
- *    generateMetadata/페이지 사이에서 안 통했지만, 모듈 스코프 Map은
- *    같은 Node 프로세스 안에서 항상 공유된다. 이 cache()는 이제 정확성이
- *    아니라(courseBrief.ts 쪽이 이미 보장한다) 같은 요청 안 중복 DB
- *    조회 한 번을 아끼는 용도로만 남는다.
+ * 3) getCourseBrief로 되돌리고 courseBrief.ts에 dedupeInFlight(모듈
+ *    스코프 Map)를 추가했는데(작업지시서 "이번엔 라우트 자체가 인식되지
+ *    않습니다"), 이번엔 generateMetadata조차 실행되지 않는 것처럼
+ *    보이는 더 심한 증상이 실측됐다 — Next 자체 404 문구가 아니라
+ *    Vercel 플랫폼 404 문구("404: This page could not be found.",
+ *    콜론 표기)에 가까워 코드가 아예 실행되지 않았거나 아주 이른
+ *    단계에서 처리되지 않은 예외로 죽었을 가능성이 있다. 이 세션은
+ *    Vercel 런타임 로그에 접근할 수 없어 확정하지 못했다 — 대신 아래
+ *    catch를 UnsupportedRegionError만이 아니라 모든 에러로 넓혀서,
+ *    getCourseBrief가 무엇을 던지든(예: LLM/외부 API 일시 장애, 환경
+ *    변수 문제) 페이지가 정체불명의 방식으로 죽는 대신 항상 제어된
+ *    notFound()로 내려가게 한다 — 로그로 원인은 남긴다.
  */
 const loadEnabledCourseBrief = cache(async (region: string, daysLabel: string): Promise<CourseBrief | null> => {
   const days = labelToDays(daysLabel);
@@ -61,8 +67,8 @@ const loadEnabledCourseBrief = cache(async (region: string, daysLabel: string): 
   try {
     brief = await getCourseBrief(region, days);
   } catch (err) {
-    if (err instanceof UnsupportedRegionError) return null;
-    throw err;
+    console.error(`[course-page] getCourseBrief threw: region=${region} days=${days}`, err);
+    return null;
   }
   if (isCourseBriefThin(brief.spots)) return null;
   return brief;

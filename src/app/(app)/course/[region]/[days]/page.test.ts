@@ -102,6 +102,19 @@ describe("generateMetadata와 CoursePage가 같은 입력에 대해 항상 일�
     await expect(CoursePage({ params })).rejects.toThrow();
   });
 
+  it("getCourseBrief가 어떤 에러를 던지든(LLM/외부 API 일시 장애 등) 페이지가 정체불명으로 죽는 대신 제어된 '못 찾음'으로 내려간다 (작업지시서 2026-09-22 '이번엔 라우트 자체가 인식되지 않습니다' §5)", async () => {
+    getCourseBriefMock.mockRejectedValue(new Error("anthropic 500"));
+    const { generateMetadata, default: CoursePage } = await import("./page");
+    const params = Promise.resolve({ region: "경주", days: "2박3일" });
+
+    const metadata = await generateMetadata({ params });
+    expect(metadata.title).toBe("코스를 찾을 수 없어요 - 트레쥴");
+    // notFound()가 던지는 특수 에러로 내려가야 한다 — getCourseBrief의
+    // 원본 에러("anthropic 500")가 그대로 페이지 밖으로 새 나가면 안 된다.
+    await expect(CoursePage({ params })).rejects.toThrow();
+    await expect(CoursePage({ params })).rejects.not.toThrow("anthropic 500");
+  });
+
   it("얇은 콘텐츠(스팟<5)면 둘 다 '못 찾음'으로 일치한다", async () => {
     getCourseBriefMock.mockResolvedValue(thickBrief({ spots: [spot(), spot(), spot()] }));
     const { generateMetadata, default: CoursePage } = await import("./page");
