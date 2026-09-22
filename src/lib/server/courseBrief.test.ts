@@ -21,7 +21,9 @@ import {
   mapPathParamEncoded,
   medoidOf,
   orderByNearestNeighbor,
+  pickBetterDayResult,
   planRouteForDay,
+  preferRatedFirstStop,
   reallocateStopsByDay,
   reassignByCentroid,
   rebalanceByDistance,
@@ -1301,5 +1303,58 @@ describe("dedupeInFlight — 같은 key의 동시 라이브 생성을 하나로 
     const failing = dedupeInFlight(inFlight, "경주:3", () => Promise.reject(new Error("boom")));
     await expect(failing).rejects.toThrow("boom");
     expect(inFlight.has("경주:3")).toBe(false);
+  });
+});
+
+describe("preferRatedFirstStop — 하루의 첫 스팟이 평점 신호 없이 시작하지 않게 순서만 바꾼다 (작업지시서 2026-09-23 §3-b)", () => {
+  it("moves the first later rated stop to position 0 when the current first stop has no rating", () => {
+    const stops = [stop("a", 35.8, 129.2), stop("b", 35.81, 129.21, { rating: 4.5 }), stop("c", 35.82, 129.22)];
+    const result = preferRatedFirstStop("domestic", "경주", stops);
+    expect(result.map((s) => s.id)).toEqual(["b", "a", "c"]);
+  });
+
+  it("leaves the order untouched when the first stop already has a rating", () => {
+    const stops = [stop("a", 35.8, 129.2, { rating: 4.0 }), stop("b", 35.81, 129.21, { rating: 4.5 })];
+    const result = preferRatedFirstStop("domestic", "경주", stops);
+    expect(result.map((s) => s.id)).toEqual(["a", "b"]);
+  });
+
+  it("leaves the order untouched when no stop in the day has a rating signal", () => {
+    const stops = [stop("a", 35.8, 129.2), stop("b", 35.81, 129.21)];
+    const result = preferRatedFirstStop("domestic", "경주", stops);
+    expect(result.map((s) => s.id)).toEqual(["a", "b"]);
+  });
+
+  it("doesn't remove any stop — only reorders", () => {
+    const stops = [stop("a", 35.8, 129.2), stop("b", 35.81, 129.21, { rating: 4.5 }), stop("c", 35.82, 129.22)];
+    const result = preferRatedFirstStop("domestic", "경주", stops);
+    expect(result).toHaveLength(3);
+    expect(new Set(result.map((s) => s.id))).toEqual(new Set(["a", "b", "c"]));
+  });
+
+  it("leaves a single-stop or empty day untouched", () => {
+    const single = [stop("a", 35.8, 129.2)];
+    expect(preferRatedFirstStop("domestic", "경주", single)).toEqual(single);
+    expect(preferRatedFirstStop("domestic", "경주", [])).toEqual([]);
+  });
+});
+
+describe("pickBetterDayResult — 1일차 LLM 큐레이션이 너무 적으면 skipLlm 재시도 결과 중 더 나은 쪽을 쓴다 (작업지시서 2026-09-23 §2)", () => {
+  it("prefers the retry when it has more stops", () => {
+    const original = [stop("a", 35.8, 129.2)];
+    const retry = [stop("b", 35.8, 129.2), stop("c", 35.81, 129.21), stop("d", 35.82, 129.22)];
+    expect(pickBetterDayResult(original, retry)).toBe(retry);
+  });
+
+  it("keeps the original when the retry isn't better", () => {
+    const original = [stop("a", 35.8, 129.2), stop("b", 35.81, 129.21)];
+    const retry = [stop("c", 35.8, 129.2)];
+    expect(pickBetterDayResult(original, retry)).toBe(original);
+  });
+
+  it("keeps the original on a tie", () => {
+    const original = [stop("a", 35.8, 129.2), stop("b", 35.81, 129.21)];
+    const retry = [stop("c", 35.8, 129.2), stop("d", 35.81, 129.21)];
+    expect(pickBetterDayResult(original, retry)).toBe(original);
   });
 });
