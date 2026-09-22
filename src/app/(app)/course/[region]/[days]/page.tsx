@@ -2,7 +2,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCachedCourseBrief, UnsupportedRegionError, type CourseBrief } from "@/lib/server/courseBrief";
+import { getCourseBrief, UnsupportedRegionError, type CourseBrief } from "@/lib/server/courseBrief";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
 import {
   buildCourseIntro,
@@ -25,7 +25,7 @@ import { CourseCtaLink } from "@/components/CourseCtaLink";
  */
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0; // force-dynamic과 중복이지만, 캐시 관련 오판을 하나라도 줄이기 위해 명시한다 — 아래 주석 참고.
+export const maxDuration = 60; // /api/content/course-brief와 같은 예산 — 코스 생성(LLM+DP)이 캐시 미스면 느릴 수 있다.
 
 interface CoursePageParams {
   region: string;
@@ -34,32 +34,37 @@ interface CoursePageParams {
 
 /**
  * 작업지시서 2026-09-22 "sitemap에 올린 코스 페이지 20개가 전부
- * 404입니다" §2 — 이전엔 여기서 getCourseBrief(캐시 미스 시 라이브
- * 생성으로 폴백)를 불렀다. generateMetadata와 페이지 본문이 React
- * cache()로 같은 함수를 공유하는데도, 실측에서 메타데이터는 실제
- * 코스(12곳·19.8km)를 보여주고 본문만 notFound()를 던지는 모순이
- * 나왔다 — courseBrief.ts의 getCachedCourseBrief 주석에 적은 대로,
- * 캐시가 비어 있으면 두 호출이 실제로 결과를 공유하지 못한 채 각자
- * 라이브 생성을 한 번씩 더 돌렸고, 그 생성엔 진짜 무작위성이 있어
- * 서로 다른 스팟 조합이 나올 수 있었다.
+ * 404입니다" §2 이후 두 라운드에 걸친 히스토리:
  *
- * getCachedCourseBrief로 바꿔 요청 경로에서 라이브 생성 자체를 없앤다 —
- * 캐시 읽기는 결정적이라 generateMetadata와 페이지가 몇 번을 불러도
- * 항상 같은 결과를 받는다(cache()는 이제 정확성이 아니라 중복 DB 조회를
- * 한 번 아끼는 용도로만 남는다). 캐시가 없는 지역·일수는 warm-course-brief
- * 크론이 다음 실행 때 채울 때까지 "아직 준비 안 됨"으로 404를 준다.
+ * 1) 원래 이 함수는 getCourseBrief(캐시 미스 시 라이브 생성 폴백)를
+ *    썼는데, generateMetadata는 실제 코스를 불러오고 본문만 notFound()를
+ *    던지는 모순이 실측됐다 — 캐시가 비어 있을 때 두 호출이 결과를
+ *    공유하지 못한 채 각자 독립적으로 라이브 생성을 한 번씩 더 돌렸기
+ *    때문으로 보인다(courseBrief.ts의 getCourseBrief/dedupeInFlight
+ *    주석 참고 — 1일차 LLM 취향 큐레이션에 temperature 고정이 없어
+ *    같은 입력에도 다른 결과가 날 수 있다).
+ * 2) 그 다음 라운드(PR #262)는 라이브 생성 자체를 없앤 getCachedCourseBrief로
+ *    바꿨는데, "캐시가 없으면 크론이 돌 때까지 무조건 404"라는 더 나쁜
+ *    회귀를 냈다(작업지시서 "24개 전부 아직 404입니다").
+ * 3) 지금은 getCourseBrief로 되돌리되, courseBrief.ts 쪽에 "같은
+ *    (지역,일수)의 라이브 생성은 동시에 한 번만 돈다"는 보장
+ *    (dedupeInFlight, 모듈 스코프 Map)을 추가했다 — React cache()는
+ *    generateMetadata/페이지 사이에서 안 통했지만, 모듈 스코프 Map은
+ *    같은 Node 프로세스 안에서 항상 공유된다. 이 cache()는 이제 정확성이
+ *    아니라(courseBrief.ts 쪽이 이미 보장한다) 같은 요청 안 중복 DB
+ *    조회 한 번을 아끼는 용도로만 남는다.
  */
 const loadEnabledCourseBrief = cache(async (region: string, daysLabel: string): Promise<CourseBrief | null> => {
   const days = labelToDays(daysLabel);
   if (days == null || !isCoursePageEnabled(region, days)) return null;
-  let brief: CourseBrief | null;
+  let brief: CourseBrief;
   try {
-    brief = await getCachedCourseBrief(region, days);
+    brief = await getCourseBrief(region, days);
   } catch (err) {
     if (err instanceof UnsupportedRegionError) return null;
     throw err;
   }
-  if (!brief || isCourseBriefThin(brief.spots)) return null;
+  if (isCourseBriefThin(brief.spots)) return null;
   return brief;
 });
 

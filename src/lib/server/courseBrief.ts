@@ -2135,7 +2135,51 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   return brief;
 }
 
-/** GET /api/content/course-brief와 워밍 크론이 공통으로 쓰는 진입점 — 캐시 확인 → 미스 시 buildBrief. */
+/**
+ * 같은 key로 부른 여러 호출을 하나의 진행 중인 Promise로 합친다 — 작업
+ * 지시서 2026-09-22 "24개 전부 아직 404입니다" §4가 지적한 대로, 지난
+ * 라운드(PR #262, getCachedCourseBrief로 라이브 생성 자체를 없앰)는
+ * "캐시가 없으면 크론이 돌 때까지 404"라는 더 나쁜 회귀를 냈다 — 실측
+ * (`/api/content/course-brief`)으로 확인된 대로 캐시가 비어 있어도
+ * 라이브 생성 자체는 정상 동작하니, 폴백을 없애는 대신 "같은 key의
+ * 라이브 생성이 동시에 두 번 이상 돌지 않게" 막는 쪽이 맞다.
+ *
+ * courseBrief.ts의 실제 생성 경로(generateDay→generateCourseV2)의 1일차는
+ * Anthropic LLM 취향 큐레이션(curateTaste)을 거치는데(2·3일차는 이미
+ * skipLlm:true), 이 호출엔 temperature를 고정하지 않아 완전히 같은
+ * 프롬프트를 넣어도 매번 다른 상위 3개 숏리스트가 나올 수 있다 —
+ * 원래 지시서(2026-09-22 "sitemap에 올린 코스 페이지 20개가 전부
+ * 404입니다") §2가 관찰한 "메타데이터는 성공, 본문만 notFound()" 모순의
+ * 실제 원인으로 보인다(직전 라운드가 지목한 courseRecommend.ts의
+ * pickDeterministic은 v1 전용 함수라 이 경로에서 애초에 호출되지 않는다
+ * — 그 진단은 틀렸었다). React `cache()`는 generateMetadata와 페이지
+ * 본문 사이에서 이 LLM 호출의 결과를 공유해주지 못했다(Next.js 16
+ * 스트리밍 메타데이터가 둘을 별도 실행 트랙으로 다루는 것으로 보이며,
+ * 정확한 내부 메커니즘은 확증하지 못함) — 반면 이 Map은 React의
+ * 요청 스코프가 아니라 모듈 스코프(같은 Node 프로세스 안에서는 항상
+ * 공유됨)라 그 경계와 무관하게 동작한다.
+ *
+ * LLM 출력 자체를 결정론으로 만드는 건(temperature=0으로도 완전한
+ * bit-for-bit 재현은 보장되지 않는다) 이 지시서 범위를 넘는 코스 생성
+ * 품질 변경이라 손대지 않았다 — 대신 "같은 key로는 라이브 생성이
+ * 정확히 한 번만 돈다"를 보장해 그 비결정성이 결과에 드러날 기회
+ * 자체를 없앤다. 진행 중인 build가 끝나면(성공/실패 상관없이) map에서
+ * 지운다 — 그래야 다음 요청이 새로 캐시를 확인하고, 정말 필요하면 새
+ * build를 다시 시도할 수 있다.
+ */
+export function dedupeInFlight<T>(inFlight: Map<string, Promise<T>>, key: string, run: () => Promise<T>): Promise<T> {
+  const existing = inFlight.get(key);
+  if (existing) return existing;
+  const promise = run().finally(() => {
+    inFlight.delete(key);
+  });
+  inFlight.set(key, promise);
+  return promise;
+}
+
+const inFlightBriefBuilds = new Map<string, Promise<CourseBrief>>();
+
+/** GET /api/content/course-brief와 워밍 크론이 공통으로 쓰는 진입점 — 캐시 확인 → 미스 시 buildBrief(같은 key는 dedupeInFlight로 한 번만). */
 export async function getCourseBrief(region: string, days: 1 | 2 | 3, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
   // 캐시를 들여다보기도 전에 거른다 — 이 검사가 생기기 전에 "발리" 같은
   // 미지원 지역이 이미 잘못된 응답으로 캐시돼 있었을 수 있는데, 캐시부터
@@ -2148,38 +2192,7 @@ export async function getCourseBrief(region: string, days: 1 | 2 | 3, enrichBudg
     return null;
   });
   if (cached) return cached;
-  return buildBrief(scope, region, days, cacheKey, enrichBudgetMs);
-}
-
-/**
- * getCourseBrief과 달리 캐시 미스여도 buildBrief(라이브 생성)로 폴백하지
- * 않고 곧장 null을 돌려준다 — 작업지시서 2026-09-22 "sitemap에 올린
- * 코스 페이지 20개가 전부 404입니다" §2 원인: `/course/{지역}/{일수}`
- * 공개 페이지의 generateMetadata와 페이지 본문이 (React cache()로
- * 묶어뒀음에도) 이 요청 안에서 실제로 결과를 공유하지 못하는 경우가
- * 있었고, 캐시가 비어 있을 때 각자 독립적으로 getCourseBrief→buildBrief를
- * 한 번씩 더 돌리면 generateCourseV2 후보 선정에 있는 실제 무작위성
- * (courseRecommend.ts의 `pool[Math.floor(Math.random()*pool.length)]`)
- * 때문에 완전히 같은 region·days를 넣고도 서로 다른 스팟 조합이 나올 수
- * 있었다 — 실측에서 한쪽(생성 메타데이터)은 얇은 콘텐츠 게이트를
- * 통과하고 다른 쪽(페이지 본문)은 통과하지 못해, 메타데이터는 실제
- * 코스를 보여주고 본문만 notFound()를 던지는 모순이 나왔다.
- *
- * `/course/{지역}/{일수}`는 warm-course-brief 크론이 매일 미리 채워두는
- * 고정 허용목록(coursePages.ts)만 서비스한다 — 요청 경로에서 라이브
- * 생성을 아예 하지 않아도 된다. 캐시가 없으면(크론이 아직 못 돌았거나
- * TTL이 지났으면) "아직 준비 안 됨"으로 보고 그대로 404를 주는 편이,
- * 요청마다 결과가 갈릴 수 있는 라이브 생성보다 안전하다 — 다음 크론이
- * 돌면 저절로 채워진다.
- */
-export async function getCachedCourseBrief(region: string, days: 1 | 2 | 3): Promise<CourseBrief | null> {
-  if (!isSupportedRegion(region)) throw new UnsupportedRegionError(region);
-  const scope = resolveScope(region);
-  const cacheKey = briefCacheKey(scope, region, days);
-  return readBriefCache(cacheKey).catch((err) => {
-    console.error("[courseBrief] getCachedCourseBrief cache read failed:", err);
-    return null;
-  });
+  return dedupeInFlight(inFlightBriefBuilds, cacheKey, () => buildBrief(scope, region, days, cacheKey, enrichBudgetMs));
 }
 
 /**

@@ -28,8 +28,19 @@ import { daysToLabel, ENABLED_COURSE_PAGES } from "@/lib/coursePages";
  * 매 요청 실행되는 건 아니라, 명시적으로 강제하지 않으면 Next.js가
  * 빌드 시점 스냅샷으로 정적 캐싱한다(새 후기가 다음 배포 전까지
  * sitemap에 안 잡힘).
+ *
+ * 작업지시서 2026-09-22 "24개 전부 아직 404입니다" §5/§9-1: 코스 페이지가
+ * 두 라운드 연속으로 프로덕션에서 404를 낸 전례가 있어(§2 원인 수정 →
+ * PR #262가 다른 방식으로 또 24개 전부 404), 이번 코스 생성 경로 수정
+ * (courseBrief.ts의 dedupeInFlight)이 실제로 200을 내는지 Cowork가
+ * 프로덕션에서 확인하기 전까지는 sitemap에서 코스 URL을 뺀다 —
+ * "고쳤다고 믿고 다시 24개를 제출"보다 "확인 후 넣기"가 안전하다.
+ * COURSE_PAGES_IN_SITEMAP만 true로 바꾸면 즉시 재등록된다(URL 생성
+ * 로직 자체는 그대로 두었다).
  */
 export const dynamic = "force-dynamic";
+
+const COURSE_PAGES_IN_SITEMAP = false;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = "https://www.tradule.co.kr";
@@ -50,12 +61,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: r.priority,
   }));
 
-  const coursePageEntries: MetadataRoute.Sitemap = ENABLED_COURSE_PAGES.map(({ region, days }) => ({
-    url: `${base}/course/${encodeURIComponent(region)}/${encodeURIComponent(daysToLabel(days))}`,
-    lastModified: now,
-    changeFrequency: "weekly" as const,
-    priority: 0.7,
-  }));
+  const coursePageEntries: MetadataRoute.Sitemap = COURSE_PAGES_IN_SITEMAP
+    ? ENABLED_COURSE_PAGES.map(({ region, days }) => ({
+        url: `${base}/course/${encodeURIComponent(region)}/${encodeURIComponent(daysToLabel(days))}`,
+        lastModified: now,
+        changeFrequency: "weekly" as const,
+        priority: 0.7,
+      }))
+    : [];
 
   let tripPostEntries: MetadataRoute.Sitemap = [];
   try {
