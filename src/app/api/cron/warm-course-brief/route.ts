@@ -61,6 +61,18 @@ const WARM_CONCURRENCY = 3; // 지시서 §A-3 권장값
 // 태스크는 별도 풀로 떼어 매 실행마다 고정된 몫(PRIORITY_BATCH_SIZE)을
 // 먼저 배정하고, 남는 자리만 나머지 태스크에 준다 — 전체 BATCH_SIZE는
 // 그대로라 실행 시간 예산(90초)에 새 위험을 더하지 않는다.
+//
+// 지시서는 크론 주기도 TTL보다 짧게(6시간마다) 줄이라고 했으나, 그
+// 설정(vercel.json "0 */6 * * *")은 PR #270 배포에서 Vercel이 거부했다 —
+// "Hobby accounts are limited to daily cron jobs." 이 프로젝트는 Hobby
+// 플랜이라 하루 1회보다 잦은 크론을 못 쓴다(vercel.json은 하루 1회로
+// 되돌렸다). 그래서 이 우선순위 분리만으로는 24개 전부가 항상 TTL 안에
+// 갱신된다고 보장하지 못한다 — 하루 1회·회당 PRIORITY_BATCH_SIZE(8)개면
+// 24개를 한 바퀴 채우는 데 최대 3일이 걸린다. 그래도 이전(태스크 수백
+// 개와 무순위 경쟁)보다는 훨씬 낫다. 완전히 해결하려면 Pro 플랜으로
+// 크론을 늘리거나, BATCH_SIZE/maxDuration을 함께 올려야 하는데 후자는
+// 실제 실행 시간 실측 없이는 위험하다(90초 예산을 넘기면 배치 전체가
+// 실패할 수 있다 — 위 BATCH_SIZE 주석 참고).
 const PRIORITY_BATCH_SIZE = 8;
 
 const PRIORITY_TASKS: WarmTask[] = ENABLED_COURSE_PAGES.map(({ region, days }): WarmTask => ({ region, days }));
