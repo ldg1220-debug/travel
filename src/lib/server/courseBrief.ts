@@ -2089,6 +2089,22 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
   return dedupeCrossDay(priorDays, deduped, region);
 }
 
+// /api/content/course-brief가 "insufficient_spots"(422)로 거절하는
+// 기준과 같은 값이다 — buildBrief가 캐시를 쓸지 말지도 같은 기준을
+// 봐야 한다(아래 writeBriefCache 가드 참고). 한 곳에만 두고 라우트가
+// 이 상수를 가져다 쓴다.
+export const MIN_VIABLE_SPOTS = 3;
+
+/**
+ * 작업지시서 2026-09-23 "#266 검증: 둘은 됐고, 404는 라우트 미실행이
+ * 거의 확실합니다" §3 — 실패(스팟 부족) 결과까지 26시간 캐시했더니
+ * "고쳤는데 그대로"가 반복됐다. buildBrief가 캐시를 쓸지 판단하는
+ * 조건을 순수 함수로 뽑아 단위 테스트로 고정한다.
+ */
+export function isCacheableBrief(spots: CourseBriefSpot[]): boolean {
+  return spots.length >= MIN_VIABLE_SPOTS;
+}
+
 export async function buildBrief(scope: CourseBriefScope, region: string, days: 1 | 2 | 3, cacheKey: string, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
   const appUrl = appUrlFor(region, days);
 
@@ -2186,18 +2202,32 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   // 2026-09-01 "응답 시간" §2-2). 대신 ROUTING_BUDGET_MS로 예산을 두고,
   // 넘기면 직선 추정으로 조용히 폴백한다(routeDayStops 주석 참고) — 여기서
   // 무한정 기다려 응답 자체가 늦어지지 않게 한다.
-  await writeBriefCache(cacheKey, brief).catch((err) => {
-    console.error("[courseBrief] structure cache write failed:", err);
-  });
+  //
+  // 작업지시서 2026-09-23 "#266 검증: 둘은 됐고, 404는 라우트 미실행이
+  // 거의 확실합니다" §3 — 실측: "고베 d2 → 422 insufficient_spots ·
+  // 321ms"에서 321ms는 라이브 생성이 아니라 캐시 히트였다. 스팟이 API
+  // 자체 최소 기준(MIN_VIABLE_SPOTS) 미만인 실패 결과까지 그대로
+  // 캐시했더니, 수정을 배포해도 캐시 TTL(26시간)이 지나기 전까지 같은
+  // 실패가 그대로 반복되는 문제가 났다 — "일시적 실패"가 "하루짜리
+  // 장애"로 굳는다. 이 밑으로는 캐시하지 않는다 — 다음 요청이 처음부터
+  // 다시 시도할 기회를 갖는다(dedupeInFlight가 여전히 동시 요청은
+  // 하나로 합친다).
+  if (isCacheableBrief(allSpots)) {
+    await writeBriefCache(cacheKey, brief).catch((err) => {
+      console.error("[courseBrief] structure cache write failed:", err);
+    });
+  }
 
   const deadline = Date.now() + enrichBudgetMs;
   const enrichedSpots = await liveEnrichSpots(brief.spots, scope, region, deadline);
   const imageUrl = await generateCourseMapImage(cacheKey, enrichedSpots, mapPaths);
   brief = { ...brief, spots: enrichedSpots, imageUrl };
 
-  await writeBriefCache(cacheKey, brief).catch((err) => {
-    console.error("[courseBrief] final cache write failed:", err);
-  });
+  if (isCacheableBrief(brief.spots)) {
+    await writeBriefCache(cacheKey, brief).catch((err) => {
+      console.error("[courseBrief] final cache write failed:", err);
+    });
+  }
 
   return brief;
 }
