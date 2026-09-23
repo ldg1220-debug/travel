@@ -187,7 +187,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 9; // 해외 도보 구간이 이제 Google walking 실제 경로를 시도(예전엔 무조건 직선) + 정적 지도에서 추정 구간을 회색으로 구분 — 작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다" §6 "COURSE_ALGO_VERSION 올려 재생성". 캐시된 옛 코스는 여전히 도보 구간이 (요일 색의) 직선인 채로 남는다.
+export const COURSE_ALGO_VERSION = 10; // 작업지시서 2026-09-23 "ASCII 라우트가 증명했습니다 + 기존 실패 캐시를 비워주세요" §2 — preferRatedFirstStop(1번 자리 평점 우선)과 실패 캐시 금지(isCacheableBrief)가 캐시 키에 반영되지 않아, 이미 채워진 옛 캐시(예: 경주 d3의 1번 스팟이 여전히 "경주원조콩국 ★없음", 고베/교토/오사카의 스팟 부족 422)가 그대로 남아 있었다. 버전을 올려 한 번에 무효화한다 — 다음 워밍 크론(또는 수동 실행)이 새 로직으로 다시 채운다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -205,6 +205,13 @@ export function isFreshBriefPayload(payload: CourseBrief): boolean {
   if (typeof payload.distanceSource !== "string") return false;
   if (!Array.isArray(payload.spots)) return false;
   if (!Array.isArray(payload.dayTotals)) return false; // 작업지시서 2026-09-15 §4 — 이 필드가 생기기 전 캐시는 미스로 취급한다.
+  // 작업지시서 2026-09-23 "ASCII 라우트가 증명했습니다 + 기존 실패 캐시를
+  // 비워주세요" §3 — isCacheableBrief(쓰기 경로, #268)는 앞으로 스팟 부족
+  // brief가 캐시에 새로 들어가는 것만 막는다. 이미 들어간 빈약한 brief는
+  // 읽기 경로에서 계속 그대로 반환돼 route가 다시 422를 낸다(고베
+  // d2·교토 d1·오사카 d2). 여기서도 같은 기준(MIN_VIABLE_SPOTS)으로
+  // 걸러 캐시 미스로 취급해야 재생성된다.
+  if (payload.spots.length < MIN_VIABLE_SPOTS) return false;
   return payload.spots.every((s) => typeof (s as { day?: unknown }).day === "number");
 }
 

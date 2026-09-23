@@ -994,17 +994,21 @@ describe("assembleDaySpots — distanceSource용 hadStraightFallback 판정", ()
 });
 
 describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미스로 취급", () => {
+  function spotAt(order: number): CourseBrief["spots"][number] {
+    return { name: `spot-${order}`, category: "관광지", rating: null, reviewCount: null, lat: 0, lng: 0, order, day: 1, toNextMinutes: null, toNextMode: "car" };
+  }
+
   function payload(overrides: Partial<CourseBrief> = {}): CourseBrief {
     return {
       region: "오사카",
       days: 1,
       totalDistanceKm: 10,
-      spots: [{ name: "a", category: "관광지", rating: null, reviewCount: null, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: null, toNextMode: "car" }],
+      spots: [spotAt(1), spotAt(2), spotAt(3)],
       imageUrl: null,
       appUrl: "https://example.com",
       ratingSource: "google",
       distanceSource: "route",
-      dayTotals: [{ day: 1, distanceKm: 10, spotCount: 1 }],
+      dayTotals: [{ day: 1, distanceKm: 10, spotCount: 3 }],
       ...overrides,
     };
   }
@@ -1023,6 +1027,16 @@ describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미�
     const stale = payload();
     delete (stale as { dayTotals?: unknown }).dayTotals;
     expect(isFreshBriefPayload(stale)).toBe(false);
+  });
+
+  // 작업지시서 2026-09-23 "ASCII 라우트가 증명했습니다 + 기존 실패 캐시를
+  // 비워주세요" §3 — isCacheableBrief(#268)는 쓰기 경로만 막아 새로 생긴
+  // 스팟 부족 brief는 캐시되지 않지만, #268 이전에 이미 캐시된 스팟
+  // 부족 brief(고베 d2·교토 d1·오사카 d2)는 읽기 경로에서 계속
+  // 그대로 반환돼 route가 다시 422를 냈다. 읽기 경로도 같은 기준으로 걸러야 한다.
+  it("rejects a thinly-cached payload with fewer than MIN_VIABLE_SPOTS spots", () => {
+    const thin = payload({ spots: [spotAt(1), spotAt(2)] });
+    expect(isFreshBriefPayload(thin)).toBe(false);
   });
 });
 
