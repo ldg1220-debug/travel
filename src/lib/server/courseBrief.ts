@@ -4,7 +4,7 @@ import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/s
 import { decodePolyline, encodePolyline, haversineKm } from "@/lib/server/courseRoute";
 import { MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, stripBranchSuffix, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
-import { allSpots, DOMESTIC_LOCALITY_NAMES, OVERSEAS_LOCALITY_NAMES } from "@/lib/discoverData";
+import { allSpots, DOMESTIC_LOCALITY_NAMES, OVERSEAS_LOCALITY_NAMES, resolveRegionAlias } from "@/lib/discoverData";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { routeLegColorStaticParam } from "@/lib/mapRouteColors";
 
@@ -2246,8 +2246,19 @@ export function dedupeInFlight<T>(inFlight: Map<string, Promise<T>>, key: string
 
 const inFlightBriefBuilds = new Map<string, Promise<CourseBrief>>();
 
-/** GET /api/content/course-brief와 워밍 크론이 공통으로 쓰는 진입점 — 캐시 확인 → 미스 시 buildBrief(같은 key는 dedupeInFlight로 한 번만). */
-export async function getCourseBrief(region: string, days: 1 | 2 | 3, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
+/**
+ * GET /api/content/course-brief와 워밍 크론이 공통으로 쓰는 진입점 —
+ * 별칭 정규화 → 캐시 확인 → 미스 시 buildBrief(같은 key는
+ * dedupeInFlight로 한 번만).
+ *
+ * 작업지시서 2026-09-23 "한국인이 가장 많이 가는 나라 셋이 0개입니다"
+ * §5 — resolveRegionAlias를 이 함수의 맨 앞, 다른 어떤 처리보다도
+ * 먼저 부른다. 이후의 모든 것(isSupportedRegion, resolveScope, 캐시
+ * 키, buildBrief)이 정본 이름만 보게 되므로, 호출부 각각이 별칭을
+ * 알 필요가 없다.
+ */
+export async function getCourseBrief(rawRegion: string, days: 1 | 2 | 3, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
+  const region = resolveRegionAlias(rawRegion);
   // 캐시를 들여다보기도 전에 거른다 — 이 검사가 생기기 전에 "발리" 같은
   // 미지원 지역이 이미 잘못된 응답으로 캐시돼 있었을 수 있는데, 캐시부터
   // 확인하면 그 오염된 응답을 이 수정 이후에도 계속 돌려주게 된다.

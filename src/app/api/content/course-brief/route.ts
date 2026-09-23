@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { getCourseBrief, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { suggestOverseasRegions } from "@/lib/discoverData";
 
 /**
  * 트레쥴 콘텐츠 API — 블로그 자동 발행 파이프라인(AutoPipeline, 별도
@@ -43,7 +44,14 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     // 않고, AutoPipeline이 "지원 안 함"과 "일시적 실패"를 구분할 수
     // 있도록 명시적으로 거부한다.
     if (err instanceof UnsupportedRegionError) {
-      return NextResponse.json({ error: "unsupported_region", region: err.region, message: "지원하지 않는 지역입니다." }, { status: 404 });
+      // 작업지시서 2026-09-23 "한국인이 가장 많이 가는 나라 셋이
+      // 0개입니다" §5 — "지원 안 함"만 알려주고 끝내는 대신, 실제로
+      // 안정적으로 동작하는 대안을 같이 준다(기존 필드는 그대로 유지 —
+      // AutoPipeline과의 계약이라 구조를 바꾸지 않고 추가만 한다).
+      return NextResponse.json(
+        { error: "unsupported_region", region: err.region, message: "지원하지 않는 지역입니다.", suggestions: suggestOverseasRegions() },
+        { status: 404 },
+      );
     }
     throw err;
   }
