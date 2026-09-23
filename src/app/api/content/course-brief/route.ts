@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { getCourseBrief, MIN_VIABLE_SPOTS, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
 import { suggestOverseasRegions } from "@/lib/discoverData";
 
 /**
@@ -57,7 +57,10 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   }
   // §4 — 스팟 3곳 미만이면 C-2 계약("스팟 3곳 미만이면 글을 쓰지
   // 않는다")의 판단을 AutoPipeline에만 맡기지 않고 서버가 명시한다.
-  if (brief.spots.length < 3) {
+  // MIN_VIABLE_SPOTS는 courseBrief.ts의 캐시 기록 여부 판단과 같은
+  // 상수다 — 이 응답이 실패로 보는 기준과 "캐시할 가치가 있다"는
+  // 기준이 어긋나면 안 된다(작업지시서 2026-09-23 "#266 검증" §3).
+  if (brief.spots.length < MIN_VIABLE_SPOTS) {
     return NextResponse.json({ error: "insufficient_spots", count: brief.spots.length }, { status: 422 });
   }
   return NextResponse.json(brief);

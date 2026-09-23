@@ -14,6 +14,7 @@ import {
   fetchGoogleDirectionsRoute,
   fetchKakaoDrivingRoute,
   fetchLegRoute,
+  isCacheableBrief,
   isFreshBriefPayload,
   isSupportedRegion,
   looksLikeMismatchedOverseasResult,
@@ -33,6 +34,7 @@ import {
   simplifyPath,
   straightRouteMeasurement,
   type CourseBrief,
+  type CourseBriefSpot,
   type RouteResult,
 } from "./courseBrief";
 import { decodePolyline, haversineKm } from "./courseRoute";
@@ -1345,6 +1347,22 @@ describe("preferRatedFirstStop — 하루의 첫 스팟이 평점 신호 없이 
     const single = [stop("a", 35.8, 129.2)];
     expect(preferRatedFirstStop("domestic", "경주", single)).toEqual(single);
     expect(preferRatedFirstStop("domestic", "경주", [])).toEqual([]);
+  });
+});
+
+describe("isCacheableBrief — 스팟이 너무 적은 실패 결과는 캐시하지 않는다 (작업지시서 2026-09-23 '#266 검증' §3)", () => {
+  function courseBriefSpot(): CourseBriefSpot {
+    return { name: "x", category: "x", rating: null, reviewCount: null, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: null, toNextMode: "walk" };
+  }
+
+  it("refuses to cache a result below MIN_VIABLE_SPOTS (실측: 고베 d2가 insufficient_spots를 26시간 캐시했다)", () => {
+    expect(isCacheableBrief([courseBriefSpot(), courseBriefSpot()])).toBe(false);
+    expect(isCacheableBrief([])).toBe(false);
+  });
+
+  it("caches a result at or above MIN_VIABLE_SPOTS", () => {
+    expect(isCacheableBrief([courseBriefSpot(), courseBriefSpot(), courseBriefSpot()])).toBe(true);
+    expect(isCacheableBrief(Array.from({ length: 12 }, courseBriefSpot))).toBe(true);
   });
 });
 
