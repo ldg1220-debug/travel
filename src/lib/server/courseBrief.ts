@@ -667,18 +667,25 @@ export async function planRouteForDay<T extends GeoPoint>(
 }
 
 /**
+ * 두 지점 사이 실제 경로를 조회한다 — 예산(deadline)을 넘기면 조회 자체를
+ * 생략하고 직선 추정으로 채운다("시간이 없어서 확인을 못 했다"를 "경로가
+ * 없다"로 오판하지 않는다). routeDayStops(하루 전체를 순서대로 조회)와
+ * reorderRatedFirstStopAfterEnrichment(§3-b 재배치로 바뀐 구간 1~3개만
+ * 다시 조회)가 같은 조회 규칙을 공유해야 해서 이 함수로 뽑아 뒀다.
+ */
+async function resolveRouteSegment(scope: CourseBriefScope, last: GeoPoint, candidate: GeoPoint, deadline: number): Promise<RouteResult | "no-route"> {
+  const km = haversineKm(last, candidate);
+  const mode = modeForDistance(km, scope);
+  if (Date.now() > deadline) return straightRouteMeasurement(last, candidate, mode);
+  return routeSegment(scope, last, candidate, mode);
+}
+
+/**
  * 하루치 스톱에 실제 경로 조회(routeSegment)를 적용한다 — planRouteForDay의
- * 실제 호출부. 예산(deadline)을 넘기면 남은 구간은 조회 자체를 생략하고
- * 직선 추정으로 채운다 — "시간이 없어서 확인을 못 했다"를 "경로가
- * 없다"로 오판하지 않는다.
+ * 실제 호출부.
  */
 async function routeDayStops(scope: CourseBriefScope, stops: FinalStop[], deadline: number): Promise<{ stops: FinalStop[]; segments: RouteResult[] }> {
-  return planRouteForDay(stops, async (last, candidate) => {
-    const km = haversineKm(last, candidate);
-    const mode = modeForDistance(km, scope);
-    if (Date.now() > deadline) return straightRouteMeasurement(last, candidate, mode);
-    return routeSegment(scope, last, candidate, mode);
-  });
+  return planRouteForDay(stops, (last, candidate) => resolveRouteSegment(scope, last, candidate, deadline));
 }
 
 function normalizeForMatch(s: string): string {
@@ -1728,6 +1735,28 @@ async function liveEnrichSpots(spots: CourseBriefSpot[], scope: CourseBriefScope
 }
 
 /**
+ * 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §3 —
+ * preferRatedFirstStop(라우팅 이전)은 카탈로그 매칭까지만 평점 신호로
+ * 본다. 국내 스코프에서 카탈로그에 없는 스팟은 바로 위 liveEnrichSpots
+ * (Google Places 라이브 조회)를 거쳐야 비로소 평점이 생긴다 — 그래서
+ * 하루의 스팟이 전부 카탈로그 미매칭이면 preferRatedFirstStop 시점엔
+ * "평점 있는 곳이 하나도 없다"로 보여 순서를 못 바꾼다(실측: 경주 d1 —
+ * 경주중앙시장·경주원조콩국·테라로사 경주점·경주보문관광단지 넷 다
+ * 카탈로그 미매칭. 테라로사(★4.5)·보문관광단지(★4.3)는 라이브 조회로만
+ * 평점이 생겼다).
+ *
+ * liveEnrichSpots 이후 최종 평점을 알게 된 지금, 하루치 스팟(day
+ * 슬라이스, order 순서)에 같은 규칙을 한 번 더 적용해 1번 자리와 맞바꿀
+ * 상대 위치(슬라이스 내 인덱스)를 판단만 한다(네트워크 없는 순수 함수 —
+ * 실제 구간 재조회·교체는 buildBrief가 이 결과로 수행한다).
+ */
+export function findRatedFirstStopSwapIndex(daySpots: readonly CourseBriefSpot[]): number | null {
+  if (daySpots.length < 2 || daySpots[0].rating != null) return null;
+  const j = daySpots.findIndex((s, i) => i > 0 && s.rating != null);
+  return j === -1 ? null : j;
+}
+
+/**
  * 하루치 스톱 배열을 API 응답의 spots 조각(순서·구간 이동시간·이동수단
  * 포함)으로 변환한다. order는 baseOrder부터 이어서 매긴다(2일치를
  * 이어붙일 때 order가 1..N으로 연속되도록) — 스펙엔 날짜 구분 필드가
@@ -2093,7 +2122,39 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
   }
   // excludeIds/excludeNames는 정확히 같은 id/문자열일 때만 걸러 날짜를
   // 넘나드는 "이름만 다른 같은 곳"까지는 못 잡는다 — 여기서 한 번 더 거른다.
-  return dedupeCrossDay(priorDays, deduped, region);
+  const crossDayDeduped = dedupeCrossDay(priorDays, deduped, region);
+
+  // 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §4 — 실측:
+  // 고베 d1(1일 단독 요청)은 5곳인데, 같은 지역 d2(2일 요청) 호출은 총
+  // 2곳으로 끝났다. COURSE_ALGO_VERSION을 올려 캐시를 강제로 비운 뒤에도
+  // 재현돼 캐시 탓이 아니다. excludeIds는 "정확히 같은 장소"만 거르는
+  // 안전한 필터지만, excludeNames는 sameShop(같은 브랜드) 기준으로 훨씬
+  // 넓게 거른다 — 고베처럼 후보 풀이 원래 작은 지역은 이전 날짜가 쓴 몇
+  // 곳의 "브랜드"까지 통째로 빠지면 이 날짜의 후보가 급격히 줄어들 수
+  // 있다(1일차 자체가 LLM 비결정성으로 이미 적게 나온 경우 특히 더).
+  // 이 날짜가 너무 적으면 excludeNames를 뺀(excludeIds만 유지 — 완전히
+  // 같은 장소 반복은 여전히 막는다) 재시도로 더 나은 쪽을 고른다.
+  // avoidCentroid/avoidCuisines는 후보를 제거하지 않고 점수만 깎는 연성
+  // 페널티라(clusterPenalty·cuisinePenalty, courseRecommendV2.ts) 후보 수
+  // 감소의 원인이 될 수 없어 그대로 둔다 — deterministicTaste 등 공유
+  // 스코어링 자체는 여전히 손대지 않는다(2026-09-23 §2, 라이브 검증 없이
+  // 손대지 않기로 한 결정 유지).
+  if (crossDayDeduped.length < MIN_DAY0_STOPS) {
+    const retryResult: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme } = await generateCourseV2(scope, region, DEFAULT_THEME, DEFAULT_RADIUS, {
+      excludeIds: new Set(priorStops.map((s) => s.id)),
+      avoidCentroid: { lat: priorStops.reduce((sum, s) => sum + s.lat, 0) / priorStops.length, lng: priorStops.reduce((sum, s) => sum + s.lng, 0) / priorStops.length },
+      avoidCuisines: [...new Set(priorStops.map((s) => cuisineKeyword(s.name)).filter((c): c is string => Boolean(c)))],
+      dayIndex,
+      skipLlm: true,
+    }).catch((err) => {
+      console.error(`[courseBrief] day${dayIndex + 1} excludeNames 완화 재시도 실패:`, err);
+      return { course: [], source: "mock", theme: DEFAULT_THEME };
+    });
+    const retryDeduped = dedupeWithinList(stopsOf(retryResult), scope, region);
+    const retryCrossDayDeduped = dedupeCrossDay(priorDays, retryDeduped, region);
+    return pickBetterDayResult(crossDayDeduped, retryCrossDayDeduped);
+  }
+  return crossDayDeduped;
 }
 
 // /api/content/course-brief가 "insufficient_spots"(422)로 거절하는
@@ -2227,8 +2288,83 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
 
   const deadline = Date.now() + enrichBudgetMs;
   const enrichedSpots = await liveEnrichSpots(brief.spots, scope, region, deadline);
-  const imageUrl = await generateCourseMapImage(cacheKey, enrichedSpots, mapPaths);
-  brief = { ...brief, spots: enrichedSpots, imageUrl };
+
+  // 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §3 — 위
+  // liveEnrichSpots로 최종 평점이 확정된 지금, findRatedFirstStopSwapIndex로
+  // 하루씩 다시 확인한다. 스팟을 옮기거나 빼지 않는다 — 자리(order/day)는
+  // 그대로 두고 1번 자리와 상대 위치의 "내용"(이름·카테고리·평점·좌표)만
+  // 맞바꾼다. 좌표가 바뀌는 구간(최대 3개: (0,1)·(j-1,j)·(j,j+1) — j가
+  // 1이면 앞의 둘이 같은 구간이라 실제로는 최대 2개)만 실제 경로를 다시
+  // 조회해 이동시간·거리·지도 경로를 갱신한다. 이미 라우팅이 확정한
+  // 나머지 구간은 좌표가 안 바뀌었으니 다시 조회하지 않는다. 새 구간 중
+  // 하나라도 "no-route"면 그 날은 통째로 되돌린다(원래 1번 유지) —
+  // preferRatedFirstStop과 같은 보수적 원칙. enrichBudgetMs를 넘겼으면
+  // resolveRouteSegment 자체가 조용히 직선 추정으로 폴백한다(기존 규칙
+  // 그대로) — 여기서 별도로 예산을 늘리지 않는다.
+  let finalSpots = enrichedSpots;
+  const finalMapPaths = [...mapPaths];
+  let dayOffset = 0;
+  let mapPathOffset = 0;
+  for (let d = 0; d < routedDays.length; d++) {
+    const dayLen = routedDays[d].stops.length;
+    const start = dayOffset;
+    const daySlice = finalSpots.slice(start, start + dayLen);
+    const j = findRatedFirstStopSwapIndex(daySlice);
+    if (j != null) {
+      const globalJ = start + j;
+      const affectedLocalEdges = new Set<number>([0]);
+      if (j - 1 > 0) affectedLocalEdges.add(j - 1);
+      if (j + 1 < dayLen) affectedLocalEdges.add(j);
+
+      const swappedSlice = [...daySlice];
+      [swappedSlice[0], swappedSlice[j]] = [swappedSlice[j], swappedSlice[0]];
+
+      const newSegByLocalEdge = new Map<number, RouteResult>();
+      let aborted = false;
+      for (const localEdge of affectedLocalEdges) {
+        const outcome = await resolveRouteSegment(scope, swappedSlice[localEdge], swappedSlice[localEdge + 1], deadline);
+        if (outcome === "no-route") {
+          aborted = true;
+          break;
+        }
+        newSegByLocalEdge.set(localEdge, outcome);
+      }
+
+      if (!aborted) {
+        const startSpot = daySlice[0];
+        const jSpot = daySlice[j];
+        const nextArr = [...finalSpots];
+        nextArr[start] = { ...jSpot, order: startSpot.order, day: startSpot.day, toNextMinutes: startSpot.toNextMinutes, toNextMode: startSpot.toNextMode };
+        nextArr[globalJ] = { ...startSpot, order: jSpot.order, day: jSpot.day, toNextMinutes: jSpot.toNextMinutes, toNextMode: jSpot.toNextMode };
+
+        let dayDeltaKm = 0;
+        for (const [localEdge, seg] of newSegByLocalEdge) {
+          const globalEdgeIdx = start + localEdge;
+          const oldDistanceKm = routedDays[d].segments[localEdge].distanceKm;
+          nextArr[globalEdgeIdx] = { ...nextArr[globalEdgeIdx], toNextMinutes: seg.durationMinutes, toNextMode: seg.mode };
+          dayDeltaKm += seg.distanceKm - oldDistanceKm;
+          const globalMapPathIdx = mapPathOffset + localEdge;
+          finalMapPaths[globalMapPathIdx] = seg.points == null ? recolorMapPathAsEstimated(seg.mapPath) : recolorMapPathForDay(seg.mapPath, d);
+          if (seg.points == null && !(seg.mode === "walk" && scope === "domestic")) hadAnyStraightFallback = true;
+        }
+        finalSpots = nextArr;
+        totalDistanceKm += dayDeltaKm;
+        dayTotals[d] = { ...dayTotals[d], distanceKm: round1(dayTotals[d].distanceKm + dayDeltaKm) };
+      }
+    }
+    dayOffset += dayLen;
+    mapPathOffset += Math.max(0, dayLen - 1);
+  }
+
+  const imageUrl = await generateCourseMapImage(cacheKey, finalSpots, finalMapPaths);
+  brief = {
+    ...brief,
+    spots: finalSpots,
+    imageUrl,
+    totalDistanceKm: round1(totalDistanceKm),
+    distanceSource: hadAnyStraightFallback ? "straight" : "route",
+    dayTotals: [...dayTotals],
+  };
 
   if (isCacheableBrief(brief.spots)) {
     await writeBriefCache(cacheKey, brief).catch((err) => {

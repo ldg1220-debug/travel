@@ -140,6 +140,26 @@ export function isCourseBriefThin(spots: CourseBriefSpot[]): boolean {
   return unrated / spots.length >= 0.5;
 }
 
+// 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §5 — "향미사을(를)
+// 포함해"처럼 받침 유무와 무관하게 항상 "을(를)"을 찍고 있었다. 마지막
+// 글자가 한글 음절(가–힣, U+AC00–U+D7A3)이면 종성(받침) 유무로 조사를
+// 고른다 — 유니코드 한글 음절 코드는 (초성×21+중성)×28+종성+0xAC00 로
+// 구성돼 있어 코드값을 28로 나눈 나머지가 0이면 받침이 없다. 한글 음절이
+// 아닌 문자(영문·숫자 등)로 끝나면 실측할 발음 규칙이 없어 받침 없는
+// 쪽(를/가/는/와)을 기본값으로 삼는다 — 장소명은 절대다수가 한글이라
+// 실제로 이 분기를 타는 경우는 드물다.
+function hasFinalConsonant(word: string): boolean {
+  const lastChar = word.trim().slice(-1);
+  const code = lastChar.codePointAt(0) ?? 0;
+  if (code < 0xac00 || code > 0xd7a3) return false;
+  return (code - 0xac00) % 28 !== 0;
+}
+
+/** 받침 유무에 따라 조사를 고른다 — 예: pickJosa("황리단길", "을", "를") === "을". */
+function pickJosa(word: string, withBatchim: string, withoutBatchim: string): string {
+  return hasFinalConsonant(word) ? withBatchim : withoutBatchim;
+}
+
 /**
  * 페이지 리드 문단/메타 description에 쓸 소개 문장 — 작업지시서 §5
  * "설명문을 템플릿 문장으로 찍으면 블로그와 같은 결과가 난다"에 대한
@@ -155,7 +175,8 @@ export function buildCourseIntro(brief: Pick<CourseBrief, "region" | "days" | "t
   if (rated.length === 0) return `${stats}.`;
   const top = rated.reduce((best, s) => (s.rating > best.rating ? s : best));
   const reviewPart = top.reviewCount != null ? `(리뷰 ${top.reviewCount.toLocaleString()}개)` : "";
-  return `${stats}. 방문자 평점 ${top.rating.toFixed(1)}점${reviewPart}인 ${top.name}을(를) 포함해 실제 평점·리뷰 기준으로 짰습니다.`;
+  const josa = pickJosa(top.name, "을", "를");
+  return `${stats}. 방문자 평점 ${top.rating.toFixed(1)}점${reviewPart}인 ${top.name}${josa} 포함해 실제 평점·리뷰 기준으로 짰습니다.`;
 }
 
 /** 스팟 하나를 소개하는 짧은 문장 — 다음 스팟까지 이동시간이 있으면 그 정보도 붙인다. */

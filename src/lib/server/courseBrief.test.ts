@@ -14,6 +14,7 @@ import {
   fetchGoogleDirectionsRoute,
   fetchKakaoDrivingRoute,
   fetchLegRoute,
+  findRatedFirstStopSwapIndex,
   isCacheableBrief,
   isFreshBriefPayload,
   isSupportedRegion,
@@ -1361,6 +1362,32 @@ describe("preferRatedFirstStop — 하루의 첫 스팟이 평점 신호 없이 
     const single = [stop("a", 35.8, 129.2)];
     expect(preferRatedFirstStop("domestic", "경주", single)).toEqual(single);
     expect(preferRatedFirstStop("domestic", "경주", [])).toEqual([]);
+  });
+});
+
+describe("findRatedFirstStopSwapIndex — liveEnrichSpots 이후 최종 평점으로 1번 자리를 다시 확인한다 (작업지시서 2026-09-23 '코스 페이지가 열립니다 + 남은 4건' §3)", () => {
+  function briefSpot(overrides: Partial<CourseBriefSpot> = {}): CourseBriefSpot {
+    return { name: "x", category: "x", rating: null, reviewCount: null, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: null, toNextMode: "walk", ...overrides };
+  }
+
+  it("returns the index of the first later spot with a rating when position 0 has none (실측: 경주 d1 — 테라로사가 라이브 조회로만 평점이 생긴 경우)", () => {
+    const day = [briefSpot({ name: "경주중앙시장" }), briefSpot({ name: "경주원조콩국" }), briefSpot({ name: "테라로사 경주점", rating: 4.5 }), briefSpot({ name: "경주보문관광단지", rating: 4.3 })];
+    expect(findRatedFirstStopSwapIndex(day)).toBe(2);
+  });
+
+  it("returns null when position 0 already has a rating", () => {
+    const day = [briefSpot({ rating: 4.2 }), briefSpot({ rating: 4.5 })];
+    expect(findRatedFirstStopSwapIndex(day)).toBeNull();
+  });
+
+  it("returns null when no spot in the day has a rating (preferRatedFirstStop과 같은 결론)", () => {
+    const day = [briefSpot(), briefSpot()];
+    expect(findRatedFirstStopSwapIndex(day)).toBeNull();
+  });
+
+  it("returns null for a single-stop or empty day", () => {
+    expect(findRatedFirstStopSwapIndex([briefSpot()])).toBeNull();
+    expect(findRatedFirstStopSwapIndex([])).toBeNull();
   });
 });
 
