@@ -34,6 +34,32 @@ interface CoursePageParams {
 }
 
 /**
+ * 작업지시서 2026-09-23 "404 원인 확정: params가 디코딩되지 않습니다" —
+ * Vercel 런타임 로그로 확정된 진짜 원인. 이전 라운드들은 `params.region`이
+ * 이미 URL 디코딩된 "경주" 문자열로 온다고 가정했지만, 실측 로그는
+ * `region="%EA%B2%BD%EC%A3%BC"`(퍼센트 인코딩 그대로), `codePoints`의
+ * 첫 값이 37('%')임을 보여줬다 — 애초에 한글이 아니었다. #266의 NFC
+ * 정규화(isCoursePageEnabled 내부)는 원인이 아니었다(인코딩된 문자열은
+ * 정규화해도 "경주"가 되지 않는다) — 그래도 유지한다, 정상적으로
+ * 디코딩된 입력에 NFC 변형이 섞이는 경우까지 함께 방어하기 위해서다.
+ *
+ * decodeURIComponent를 try/catch로 감싼다 — params가 이미 디코딩된
+ * 상태(정상 케이스)에서 값 자체에 '%' 문자가 포함돼 있으면(예:
+ * 실제로 '%'가 들어간 지역명은 없지만 방어적으로) URIError가 난다.
+ * 디코딩 다음에 NFC 정규화한다 — 순서가 바뀌면 인코딩된 문자열을
+ * 정규화하는 의미 없는 일이 된다.
+ */
+function normalizeParam(value: string): string {
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // 이미 디코딩된 값이거나 '%'를 포함한 형식이 아닌 문자열 — 원본을 그대로 쓴다.
+  }
+  return decoded.normalize("NFC");
+}
+
+/**
  * 작업지시서 2026-09-22 "sitemap에 올린 코스 페이지 20개가 전부
  * 404입니다" §2 이후 세 라운드에 걸친 히스토리:
  *
@@ -89,7 +115,9 @@ const loadEnabledCourseBrief = cache(async (region: string, daysLabel: string): 
 });
 
 export async function generateMetadata({ params }: { params: Promise<CoursePageParams> }): Promise<Metadata> {
-  const { region, days: daysLabel } = await params;
+  const raw = await params;
+  const region = normalizeParam(raw.region);
+  const daysLabel = normalizeParam(raw.days);
   const brief = await loadEnabledCourseBrief(region, daysLabel);
   if (!brief) return { title: "코스를 찾을 수 없어요 - 트레쥴" };
 
@@ -115,7 +143,9 @@ export async function generateMetadata({ params }: { params: Promise<CoursePageP
 }
 
 export default async function CoursePage({ params }: { params: Promise<CoursePageParams> }) {
-  const { region, days: daysLabel } = await params;
+  const raw = await params;
+  const region = normalizeParam(raw.region);
+  const daysLabel = normalizeParam(raw.days);
   const brief = await loadEnabledCourseBrief(region, daysLabel);
   if (!brief) {
     // 이 로그 하나가 §2류 회귀를 다음엔 실측 없이 바로 잡아준다 —

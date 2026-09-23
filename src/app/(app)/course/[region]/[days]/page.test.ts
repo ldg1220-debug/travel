@@ -80,6 +80,35 @@ describe("generateMetadata와 CoursePage가 같은 입력에 대해 항상 일�
     await expect(CoursePage({ params })).resolves.toBeTruthy();
   });
 
+  // 작업지시서 2026-09-23 "404 원인 확정: params가 디코딩되지 않습니다" —
+  // Vercel 런타임 로그로 확정된 진짜 원인: params.region/days가
+  // 퍼센트 인코딩된 채로("%EA%B2%BD%EC%A3%BC") 들어오는 경우가
+  // 있었는데, 그동안의 테스트는 항상 디코딩된 문자열("경주")을 직접
+  // 넣어 이 경로를 한 번도 실행하지 않았다(§4의 지적 그대로).
+  it("params가 퍼센트 인코딩된 채로 와도(실제 런타임 로그에서 확인된 상황) 정상 동작한다", async () => {
+    getCourseBriefMock.mockResolvedValue(thickBrief());
+    const { generateMetadata, default: CoursePage } = await import("./page");
+    const params = Promise.resolve({ region: encodeURIComponent("경주"), days: encodeURIComponent("2박3일") });
+
+    const metadata = await generateMetadata({ params });
+    expect(metadata.title).toContain("12곳");
+    expect(metadata.title).toContain("19.8km");
+    await expect(CoursePage({ params })).resolves.toBeTruthy();
+    // 디코딩된 값으로 getCourseBrief를 불렀는지도 확인한다 — 인코딩된
+    // 문자열 그대로 넘겼다면 isCoursePageEnabled에서 걸러져 아예 호출되지 않았을 것이다.
+    expect(getCourseBriefMock).toHaveBeenCalledWith("경주", 3);
+  });
+
+  it("NFD(자모 분해)로 정규화된 params도 정상 동작한다 (#266의 NFC 정규화와 이번 디코딩이 함께 필요한 경우)", async () => {
+    getCourseBriefMock.mockResolvedValue(thickBrief());
+    const { generateMetadata, default: CoursePage } = await import("./page");
+    const params = Promise.resolve({ region: "경주".normalize("NFD"), days: "2박3일" });
+
+    const metadata = await generateMetadata({ params });
+    expect(metadata.title).toContain("12곳");
+    await expect(CoursePage({ params })).resolves.toBeTruthy();
+  });
+
   it("허용목록에 없는 지역은 getCourseBrief를 부르지도 않고 둘 다 '못 찾음'으로 일치한다", async () => {
     getCourseBriefMock.mockResolvedValue(thickBrief({ region: "발리" }));
     const { generateMetadata, default: CoursePage } = await import("./page");
