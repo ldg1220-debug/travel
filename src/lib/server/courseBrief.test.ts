@@ -1159,8 +1159,17 @@ describe("isSupportedRegion — 작업지시서 2026-09-14 '미지원 지역이 
     expect(isSupportedRegion("발리")).toBe(false);
   });
 
-  it("rejects a catalog-less overseas city cited in the work order", () => {
-    expect(isSupportedRegion("싱가포르")).toBe(false);
+  // 작업지시서 2026-09-23 "한국인이 가장 많이 가는 나라 셋이 0개입니다"
+  // 이전엔 싱가포르가 WORLD_CITIES에 없어 이 테스트가 false를 기대했다 —
+  // 이제 discoverData.ts에 추가됐으니 true로 뒤집는다.
+  it("accepts 싱가포르 — added 2026-09-23 (이전엔 미지원이었다)", () => {
+    expect(isSupportedRegion("싱가포르")).toBe(true);
+  });
+
+  it("accepts the other 2026-09-23 additions (필리핀·인도네시아·말레이시아 도시)", () => {
+    for (const name of ["세부", "보라카이", "우붓", "자카르타", "코타키나발루", "괌", "치앙마이"]) {
+      expect(isSupportedRegion(name)).toBe(true);
+    }
   });
 
   // ★ 작업지시서 §2는 "인도네시아·싱가포르·홍콩·필리핀·괌이 없습니다"라고

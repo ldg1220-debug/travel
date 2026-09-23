@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { allSpots, isPlaceholderSpot, OVERSEAS_LOCALITY_NAMES, parseSearchQuery, regionHierarchy, resolveLeafCityCoords } from "./discoverData";
+import {
+  allSpots,
+  flatRegions,
+  isPlaceholderSpot,
+  OVERSEAS_LOCALITY_NAMES,
+  parseSearchQuery,
+  regionHierarchy,
+  resolveLeafCityCoords,
+  resolveRegionAlias,
+  suggestOverseasRegions,
+} from "./discoverData";
 
 describe("parseSearchQuery", () => {
   it("strips a trailing intent keyword and tags the category", () => {
@@ -198,5 +208,76 @@ describe("OVERSEAS_LOCALITY_NAMES", () => {
     expect(OVERSEAS_LOCALITY_NAMES.has("서울")).toBe(false);
     expect(OVERSEAS_LOCALITY_NAMES.has("부산")).toBe(false);
     expect(OVERSEAS_LOCALITY_NAMES.has("서귀포")).toBe(false);
+  });
+
+  // 작업지시서 2026-09-23 "한국인이 가장 많이 가는 나라 셋이 0개입니다" —
+  // 필리핀·인도네시아·싱가포르·말레이시아가 통째로 빠져 있어 "코타키나발루"
+  // 같은 검색량 큰 지역이 전부 미지원이었다.
+  it("2026-09-23 추가분 — 필리핀·인도네시아·싱가포르·말레이시아·괌·사이판·치앙마이를 담고 있다", () => {
+    for (const name of ["필리핀", "세부", "보라카이", "마닐라", "팔라완", "인도네시아", "우붓", "쿠타", "스미냑", "자카르타", "싱가포르", "말레이시아", "코타키나발루", "쿠알라룸푸르", "페낭", "괌", "사이판", "치앙마이"]) {
+      expect(OVERSEAS_LOCALITY_NAMES.has(name)).toBe(true);
+    }
+  });
+});
+
+describe("resolveRegionAlias — 사용자 표기를 카탈로그 정본 이름으로 정규화 (작업지시서 2026-09-23 §5)", () => {
+  it("maps a known alias to its canonical, data-backed name", () => {
+    expect(resolveRegionAlias("나트랑")).toBe("냐짱");
+    expect(resolveRegionAlias("타이페이")).toBe("타이베이");
+  });
+
+  it("maps 호찌민 to 호치민 — inverted from the work order's example, since 호치민 is the name the catalog actually has data under", () => {
+    expect(resolveRegionAlias("호찌민")).toBe("호치민");
+  });
+
+  it("every alias target actually exists in the overseas catalog — an alias to nowhere is worse than no alias", () => {
+    expect(OVERSEAS_LOCALITY_NAMES.has("냐짱")).toBe(true);
+    expect(OVERSEAS_LOCALITY_NAMES.has("호치민")).toBe(true);
+    expect(OVERSEAS_LOCALITY_NAMES.has("타이베이")).toBe(true);
+  });
+
+  it("passes through a region that isn't an alias unchanged", () => {
+    expect(resolveRegionAlias("경주")).toBe("경주");
+    expect(resolveRegionAlias("세부")).toBe("세부");
+  });
+});
+
+describe("flatRegions(overseas) — aliases/popularity 부가 정보 (작업지시서 2026-09-23 §6)", () => {
+  const overseas = flatRegions("overseas");
+
+  it("attaches aliases to a region that has one", () => {
+    const nyachang = overseas.find((r) => r.name === "냐짱");
+    expect(nyachang?.aliases).toEqual(["나트랑"]);
+  });
+
+  it("omits the aliases field for a region with no alias", () => {
+    const osaka = overseas.find((r) => r.name === "오사카");
+    expect(osaka?.aliases).toBeUndefined();
+  });
+
+  it("attaches popularity to countries the work order ranked, ranking 일본 above 필리핀", () => {
+    const tokyo = overseas.find((r) => r.name === "도쿄" && r.parent === "일본");
+    const cebu = overseas.find((r) => r.name === "세부" && r.parent === "필리핀");
+    expect(tokyo?.popularity).toBeDefined();
+    expect(cebu?.popularity).toBeDefined();
+    expect(tokyo!.popularity!).toBeLessThan(cebu!.popularity!);
+  });
+
+  it("omits popularity for a country the work order didn't rank", () => {
+    const nairobi = overseas.find((r) => r.name === "나이로비" && r.parent === "케냐");
+    expect(nairobi?.popularity).toBeUndefined();
+  });
+});
+
+describe("suggestOverseasRegions — 미지원 지역 응답에 실을 고정 대안 목록 (작업지시서 2026-09-23 §5)", () => {
+  it("only returns regions that are actually in the supported catalog", () => {
+    for (const s of suggestOverseasRegions()) {
+      expect(OVERSEAS_LOCALITY_NAMES.has(s.name)).toBe(true);
+    }
+  });
+
+  it("returns a non-empty, stable list", () => {
+    expect(suggestOverseasRegions().length).toBeGreaterThan(0);
+    expect(suggestOverseasRegions()).toEqual(suggestOverseasRegions());
   });
 });
