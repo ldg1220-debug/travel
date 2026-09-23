@@ -218,6 +218,11 @@ describe("OVERSEAS_LOCALITY_NAMES", () => {
       expect(OVERSEAS_LOCALITY_NAMES.has(name)).toBe(true);
     }
   });
+
+  // 작업지시서 2026-09-23 "#267 검증" §3 — 필리핀 수요 2위권인데 목록에 없었다.
+  it("보홀을 담고 있다 (작업지시서 2026-09-23 '#267 검증' §3)", () => {
+    expect(OVERSEAS_LOCALITY_NAMES.has("보홀")).toBe(true);
+  });
 });
 
 describe("resolveRegionAlias — 사용자 표기를 카탈로그 정본 이름으로 정규화 (작업지시서 2026-09-23 §5)", () => {
@@ -234,6 +239,16 @@ describe("resolveRegionAlias — 사용자 표기를 카탈로그 정본 이름�
     expect(OVERSEAS_LOCALITY_NAMES.has("냐짱")).toBe(true);
     expect(OVERSEAS_LOCALITY_NAMES.has("호치민")).toBe(true);
     expect(OVERSEAS_LOCALITY_NAMES.has("타이베이")).toBe(true);
+    expect(OVERSEAS_LOCALITY_NAMES.has("우붓")).toBe(true);
+    expect(OVERSEAS_LOCALITY_NAMES.has("코타키나발루")).toBe(true);
+  });
+
+  // 작업지시서 2026-09-23 "#267 검증: 새 지역은 잘 됩니다 / 지역 목록이
+  // 24시간 옛것으로 나갑니다 / '발리'가 404" §3 — 한국인 출국 10위
+  // 지역을 사람들이 부르는 이름은 "발리"이지 우붓이 아니다.
+  it("maps 발리 to 우붓 and 코타 to 코타키나발루 (작업지시서 2026-09-23 '#267 검증' §3)", () => {
+    expect(resolveRegionAlias("발리")).toBe("우붓");
+    expect(resolveRegionAlias("코타")).toBe("코타키나발루");
   });
 
   it("passes through a region that isn't an alias unchanged", () => {

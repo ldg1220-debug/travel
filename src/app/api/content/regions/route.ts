@@ -20,11 +20,20 @@ import { flatRegions } from "@/lib/discoverData";
  * 쪽 책임으로 남긴다.
  */
 
-export const revalidate = 86400; // 지시서 요건 "캐시 24시간 이상" — 정본 카탈로그 기반이라 사실상 정적에 가깝다.
+// 작업지시서 2026-09-23 "#267 검증: 새 지역은 잘 됩니다 / 지역 목록이
+// 24시간 옛것으로 나갑니다 / '발리'가 404" §2 — 24시간 캐시는 "목록이
+// 자주 안 바뀐다"는 전제엔 맞았지만, 배포 자체가 이 캐시를 비우지
+// 않는다는 걸 놓쳤다. 실측: #267(지역 60여 곳 추가) 배포 뒤 몇 시간이
+// 지나도 쿼리 없는 요청은 옛 목록(137곳)을 그대로 받았다. 이 주소를
+// 쿼리 없이 그대로 부르는 AutoPipeline이 "코타키나발루가 미지원"이라고
+// 오판한 사고로 이어졌다 — 실제로는 이미 지원 중이었다. 1시간으로
+// 줄인다 — 목록이 자주 바뀌진 않지만, 바뀌었을 때 하루 늦게 반영되면
+// 안 된다.
+export const revalidate = 3600;
 
 export const GET = withApiErrorHandling(async () => {
   return NextResponse.json(
     { domestic: flatRegions("domestic"), overseas: flatRegions("overseas") },
-    { headers: { "Cache-Control": "public, max-age=86400, s-maxage=86400" } },
+    { headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" } },
   );
 });
