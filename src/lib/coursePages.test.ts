@@ -148,6 +148,20 @@ describe("buildCourseIntro — 지역마다 실제로 달라지는 소개 문장
     expect(intro).toContain("안동");
     expect(intro).not.toContain("undefined");
   });
+
+  // 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §5 — "향미사을(를)
+  // 포함해"처럼 받침 유무와 무관하게 "을(를)"을 그대로 찍고 있었다.
+  it("받침 있는 스팟명엔 '을'을 붙인다 (예: 황리단길)", () => {
+    const intro = buildCourseIntro({ region: "경주", days: 3, totalDistanceKm: 10, spots: [spot({ name: "황리단길", rating: 4.8, reviewCount: 100 })] });
+    expect(intro).toContain("황리단길을 포함해");
+    expect(intro).not.toContain("을(를)");
+  });
+
+  it("받침 없는 스팟명엔 '를'을 붙인다 (예: 향미사)", () => {
+    const intro = buildCourseIntro({ region: "부산", days: 1, totalDistanceKm: 5, spots: [spot({ name: "향미사", rating: 4.7, reviewCount: 185 })] });
+    expect(intro).toContain("향미사를 포함해");
+    expect(intro).not.toContain("을(를)");
+  });
 });
 
 describe("buildSpotDescription", () => {

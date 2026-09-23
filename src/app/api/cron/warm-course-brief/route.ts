@@ -52,6 +52,19 @@ const BATCH_SIZE = 12;
 const PER_REGION_ENRICH_BUDGET_MS = 8000; // 지시서 §A-3 권장값
 const WARM_CONCURRENCY = 3; // 지시서 §A-3 권장값
 
+// 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §2 —
+// pickStaleTasks가 WARM_TASKS 전체(수백 개)를 하나의 풀로 놓고 가장
+// 오래된 BATCH_SIZE(12)개만 뽑다 보니, sitemap에 올라가는 24개
+// (ENABLED_COURSE_PAGES)도 그 큰 풀 안에서 순번을 기다려야 했다 —
+// 한 번 워밍된 뒤 다시 그 24개 차례가 오기까지 전체 태스크 수에 비례한
+// 날짜가 걸려 TTL(26시간) 안에 못 돌아올 수 있었다. sitemap 우선순위
+// 태스크는 별도 풀로 떼어 매 실행마다 고정된 몫(PRIORITY_BATCH_SIZE)을
+// 먼저 배정하고, 남는 자리만 나머지 태스크에 준다 — 전체 BATCH_SIZE는
+// 그대로라 실행 시간 예산(90초)에 새 위험을 더하지 않는다.
+const PRIORITY_BATCH_SIZE = 8;
+
+const PRIORITY_TASKS: WarmTask[] = ENABLED_COURSE_PAGES.map(({ region, days }): WarmTask => ({ region, days }));
+
 const WARM_TASKS: WarmTask[] = [
   ...flatRegions("domestic").map((r): WarmTask => ({ region: r.name, days: 1 })),
   ...flatRegions("overseas").map((r): WarmTask => ({ region: r.name, days: 2 })),
@@ -63,8 +76,12 @@ const WARM_TASKS: WarmTask[] = [
   // (LLM+DP, 최대 수십 초)을 그대로 기다리지 않는다. (region, days) 쌍
   // 그대로 워밍한다 — 서울·부산·제주·인천(§3, days=2)이 기존 20곳
   // (days=3)과 다른 일수라 곱집합으로 되돌리면 안 된다.
-  ...ENABLED_COURSE_PAGES.map(({ region, days }): WarmTask => ({ region, days })),
+  ...PRIORITY_TASKS,
 ];
+
+// 위 우선순위 풀과 겹치는 태스크를 일반 풀에서 뺀다 — 같은 (region,
+// days)가 두 풀 모두에서 뽑혀 한 배치 안에서 두 번 워밍되는 낭비를 막는다.
+const GENERAL_TASKS: WarmTask[] = WARM_TASKS.filter((t) => !PRIORITY_TASKS.some((p) => p.region === t.region && p.days === t.days));
 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const secret = process.env.CRON_SECRET;
@@ -75,7 +92,9 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const batch = await pickStaleTasks(WARM_TASKS, BATCH_SIZE);
+  const priorityBatch = await pickStaleTasks(PRIORITY_TASKS, PRIORITY_BATCH_SIZE);
+  const generalBatch = await pickStaleTasks(GENERAL_TASKS, BATCH_SIZE - priorityBatch.length);
+  const batch = [...priorityBatch, ...generalBatch];
 
   const warmed = await mapWithConcurrency(batch, WARM_CONCURRENCY, async ({ region, days }) => {
     try {
