@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { getCourseBrief, maxDaysForStyle, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { styleForRegion } from "@/lib/discoverData";
 
 /**
  * 트레쥴 콘텐츠 API — 동선 지도 이미지 전용 엔드포인트. 작업지시서
@@ -27,8 +28,15 @@ export const maxDuration = 60; // course-brief와 동일(2026-09-06 §4-2로 60�
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const region = (request.nextUrl.searchParams.get("region") ?? "").trim().slice(0, 40);
   if (!region) return NextResponse.json({ error: "missing region" }, { status: 400 });
+  // 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §1·§6 —
+  // course-brief/route.ts와 같은 스타일별 상한 검사(styleForRegion 주석 참고).
   const days = parseDays(request.nextUrl.searchParams.get("days"));
-  if (days == null) return NextResponse.json({ error: "days must be 1, 2, or 3" }, { status: 400 });
+  if (days == null) return NextResponse.json({ error: "days must be an integer from 1 to 7" }, { status: 400 });
+  const style = styleForRegion(region);
+  const maxDays = maxDaysForStyle(style);
+  if (days > maxDays) {
+    return NextResponse.json({ error: "days exceeds this region's style limit", style, maxDays }, { status: 400 });
+  }
 
   let brief;
   try {

@@ -45,8 +45,22 @@ describe("daysToLabel / labelToDays", () => {
     expect(labelToDays("2박3일")).toBe(3);
   });
 
+  // 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §6 —
+  // 4~7일 라벨이 새로 추가됐다. days=6·7은 "6박7일"이 아니라 "5박6일"·
+  // "5박7일"이다(지시서 §6 원문 — 장거리 휴양지 상품 표기 관례).
+  it("round-trips the new 4~7 day labels", () => {
+    expect(daysToLabel(4)).toBe("3박4일");
+    expect(daysToLabel(5)).toBe("4박5일");
+    expect(daysToLabel(6)).toBe("5박6일");
+    expect(daysToLabel(7)).toBe("5박7일");
+    expect(labelToDays("3박4일")).toBe(4);
+    expect(labelToDays("4박5일")).toBe(5);
+    expect(labelToDays("5박6일")).toBe(6);
+    expect(labelToDays("5박7일")).toBe(7);
+  });
+
   it("returns null for an unknown label", () => {
-    expect(labelToDays("3박4일")).toBeNull();
+    expect(labelToDays("6박7일")).toBeNull();
     expect(labelToDays("")).toBeNull();
   });
 });
