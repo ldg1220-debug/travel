@@ -8,6 +8,7 @@ import {
   regionHierarchy,
   resolveLeafCityCoords,
   resolveRegionAlias,
+  RESORT_REGIONS,
   suggestOverseasRegions,
 } from "./discoverData";
 
@@ -281,6 +282,38 @@ describe("flatRegions(overseas) — aliases/popularity 부가 정보 (작업지�
   it("omits popularity for a country the work order didn't rank", () => {
     const nairobi = overseas.find((r) => r.name === "나이로비" && r.parent === "케냐");
     expect(nairobi?.popularity).toBeUndefined();
+  });
+});
+
+// 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §3 —
+// AutoPipeline이 제목·구성·일수 상한을 이 필드로 가른다.
+describe("flatRegions — style 필드 (작업지시서 2026-09-23 '자동 코스 일수 확장' §3)", () => {
+  it("tags a resort region (overseas) as resort", () => {
+    const overseas = flatRegions("overseas");
+    const cebu = overseas.find((r) => r.name === "세부");
+    expect(cebu?.style).toBe("resort");
+  });
+
+  it("tags a resort region (domestic — 제주 하위 동네) as resort", () => {
+    const domestic = flatRegions("domestic");
+    const seogwipo = domestic.find((r) => r.name === "서귀포");
+    expect(seogwipo?.style).toBe("resort");
+  });
+
+  it("tags a non-resort region as city", () => {
+    const overseas = flatRegions("overseas");
+    const osaka = overseas.find((r) => r.name === "오사카");
+    expect(osaka?.style).toBe("city");
+    const domestic = flatRegions("domestic");
+    const gyeongju = domestic.find((r) => r.name === "경주");
+    expect(gyeongju?.style).toBe("city");
+  });
+
+  it("every RESORT_REGIONS entry actually exists in the domestic or overseas catalog", () => {
+    const allNames = new Set([...flatRegions("domestic").map((r) => r.name), ...flatRegions("overseas").map((r) => r.name)]);
+    for (const name of RESORT_REGIONS) {
+      expect(allNames.has(name)).toBe(true);
+    }
   });
 });
 

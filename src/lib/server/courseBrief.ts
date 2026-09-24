@@ -4,7 +4,7 @@ import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/s
 import { decodePolyline, encodePolyline, haversineKm } from "@/lib/server/courseRoute";
 import { MODE_SPEED_KMH, cuisineKeyword, googleTop, isLargeFacility, sameShop, stripBranchSuffix, type CourseTheme, type TravelMode, type TravelRadius } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
-import { allSpots, DOMESTIC_LOCALITY_NAMES, OVERSEAS_LOCALITY_NAMES, resolveRegionAlias } from "@/lib/discoverData";
+import { allSpots, DOMESTIC_LOCALITY_NAMES, OVERSEAS_LOCALITY_NAMES, resolveRegionAlias, styleForRegion, type RegionStyle } from "@/lib/discoverData";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { routeLegColorStaticParam } from "@/lib/mapRouteColors";
 
@@ -25,6 +25,13 @@ import { routeLegColorStaticParam } from "@/lib/mapRouteColors";
 
 export type CourseBriefScope = "domestic" | "overseas";
 
+// 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §1·§6 —
+// 3일 상한(D-053)은 알고리즘 한계가 아니라 이 타입의 하드코딩된 범위였다.
+// 도시형 최대 5일(4박5일), 휴양형 최대 7일(5박7일)까지 넓힌다 — 실제
+// 상한 검사는 maxDaysForStyle()이 스타일별로 한다(이 타입 자체는 "이
+// 시스템이 다루는 범위"만 표현한다).
+export type CourseDays = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
 export interface CourseBriefSpot {
   name: string;
   category: string;
@@ -37,14 +44,14 @@ export interface CourseBriefSpot {
   // order가 날짜 구분 없는 평면 배열(1..N)이라 AutoPipeline이 블로그
   // 일차별 타임라인 표를 만들 수 없었다. 순수 추가 필드라 기존 계약을
   // 깨지 않는다.
-  day: 1 | 2 | 3;
+  day: CourseDays;
   toNextMinutes: number | null;
   toNextMode: TravelMode;
 }
 
 export interface CourseBrief {
   region: string;
-  days: 1 | 2 | 3;
+  days: CourseDays;
   totalDistanceKm: number;
   spots: CourseBriefSpot[];
   imageUrl: string | null;
@@ -78,7 +85,7 @@ export interface CourseBrief {
    * 권역명(예: "도심", "항만")은 넣지 않는다 — 지시서 §4: 사람이 붙이는
    * 이름이라 자동 판정하면 틀린다.
    */
-  dayTotals: { day: 1 | 2 | 3; distanceKm: number; spotCount: number }[];
+  dayTotals: { day: CourseDays; distanceKm: number; spotCount: number }[];
 }
 
 const DEFAULT_THEME: CourseTheme = "balanced";
@@ -133,15 +140,46 @@ export function looksLikeMismatchedOverseasResult(scope: CourseBriefScope, spots
 // 세 라우트(course-brief/course-map/course-open)가 공통으로 쓰는 days
 // 파싱 — 작업지시서 2026-09-06 "승격 후 실측" §7-5: 승격 전 프로덕션이
 // days=3 요청을 조용히 days=1로 깎아 응답했다("지원하지 않는 값은 조용히
-// 축소하지 말고 400으로 거절"). 값이 없으면(생략) 1을 기본값으로 쓰고,
-// 1|2|3이 아닌 값(예: "4", "abc")은 null을 돌려줘 호출부가 400을 내게
-// 한다.
-export function parseDays(value: string | null): 1 | 2 | 3 | null {
+// 축소하지 말고 400으로 거절"). 값이 없으면(생략) 1을 기본값으로 쓴다.
+//
+// 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §1·§6 —
+// 1~3 하드코딩을 1~7로 넓힌다. 여기서는 형식(1~7 정수인지)만 본다 —
+// 스타일별 상한(도시형 5·휴양형 7)은 지역을 알아야 판단할 수 있어 이
+// 함수의 책임 밖이다(호출부가 maxDaysForStyle로 별도 확인한다).
+export function parseDays(value: string | null): CourseDays | null {
   if (value == null) return 1;
-  if (value === "1") return 1;
-  if (value === "2") return 2;
-  if (value === "3") return 3;
+  if (/^[1-7]$/.test(value)) return Number(value) as CourseDays;
   return null;
+}
+
+/**
+ * 스타일별 최대 일수 — 작업지시서 §1: "도시형 하루 4~5곳을 돌면 4~5일이면
+ * 대부분 다 봄", "휴양형은 5박7일이 흔함". D-053의 sanitizeDaysAgainstTripData
+ * 는 AutoPipeline 쪽(별도 저장소) 로직이라 여기서 건드리지 않는다 — 이
+ * 함수는 트레쥴 API 자체의 상한만 정한다.
+ */
+export function maxDaysForStyle(style: RegionStyle): CourseDays {
+  return style === "resort" ? 7 : 5;
+}
+
+/**
+ * 작업지시서 §4 표(정확히 그대로 구현) — city: days×4, resort: days×2,
+ * 공통 바닥값 3(1일짜리조차 스팟 3곳 미만이면 애초에 코스라고 부르기
+ * 어렵다는 기존 MIN_VIABLE_SPOTS 전제는 스타일과 무관하게 유지).
+ *
+ * ⚠️ city는 days=1부터 기존 고정값(MIN_VIABLE_SPOTS=3)보다 엄격해진다
+ * (1일=4, 2일=8, 3일=12) — 기존 3이라는 바닥은 "도시형 하루 4~5곳"이라는
+ * 실제 목표치보다 낮게 잡혀 있었을 뿐, 이 지시서가 그 기준 자체를
+ * 올리라고 명시했다(§4 표). 그래서 이 변경은 기존 city 2·3일 요청 중
+ * 일부(스팟 수가 새 기준에 못 미치던 지역)를 insufficient_spots로
+ * 새로 거절할 수 있다 — 이 세션은 실제 지역별 스팟 수 분포를 라이브로
+ * 확인할 수 없어 그 영향 범위를 가늠하지 못했다. resort는 days=1에서만
+ * 바닥값(3)이 적용되고(2×1=2 < 3), 그 이상은 기존과 무관하게 새 기준
+ * (2×days)을 따른다.
+ */
+export function minViableSpots(style: RegionStyle, days: CourseDays): number {
+  const perDay = style === "resort" ? 2 : 4;
+  return Math.max(MIN_VIABLE_SPOTS, perDay * days);
 }
 
 /** "코스 만들기" 화면 — course-open이 빈 코스(스팟 0개)일 때 대체 목적지로 쓴다. appUrlFor와 분리해둬야 그쪽이 course-open URL로 바뀌어도 순환 리다이렉트가 안 생긴다. */
@@ -155,7 +193,7 @@ export function courseBuilderUrlFor(region: string): string {
 // 공유 페이지로 보냄)을 하므로, appUrl 자체를 그 엔드포인트로 바꾼다
 // (방법 A — course-open 자체 URL로 교체. course-open은 idempotent해서
 // 여러 번 클릭해도 같은 계획으로 수렴한다).
-export function appUrlFor(region: string, days: 1 | 2 | 3): string {
+export function appUrlFor(region: string, days: CourseDays): string {
   return `https://www.tradule.co.kr/api/content/course-open?region=${encodeURIComponent(region)}&days=${days}`;
 }
 
@@ -209,9 +247,12 @@ export function isFreshBriefPayload(payload: CourseBrief): boolean {
   // 비워주세요" §3 — isCacheableBrief(쓰기 경로, #268)는 앞으로 스팟 부족
   // brief가 캐시에 새로 들어가는 것만 막는다. 이미 들어간 빈약한 brief는
   // 읽기 경로에서 계속 그대로 반환돼 route가 다시 422를 낸다(고베
-  // d2·교토 d1·오사카 d2). 여기서도 같은 기준(MIN_VIABLE_SPOTS)으로
-  // 걸러 캐시 미스로 취급해야 재생성된다.
-  if (payload.spots.length < MIN_VIABLE_SPOTS) return false;
+  // d2·교토 d1·오사카 d2). 여기서도 같은 기준으로 걸러 캐시 미스로
+  // 취급해야 재생성된다. 작업지시서 2026-09-23 "자동 코스 일수 확장
+  // (도시형 5일·휴양형 7일)" §4 이후로는 그 기준이 스타일·일수에 따라
+  // 다르다(minViableSpots) — payload 자체에 region/days가 이미 있어
+  // 별도 인자 없이 여기서 구할 수 있다.
+  if (payload.spots.length < minViableSpots(styleForRegion(payload.region), payload.days)) return false;
   return payload.spots.every((s) => typeof (s as { day?: unknown }).day === "number");
 }
 
@@ -284,6 +325,17 @@ const ROUTE_CALL_TIMEOUT_MS = 4000;
 // 2026-09-01 §2-1)을 여기도 적용한다 — 구조 캐시를 쓰기 전 단계라
 // 여기서 무한정 기다리면 응답 자체가 늦어진다.
 const ROUTING_BUDGET_MS = 15000;
+// 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §5 —
+// 위 고정값은 기존 최대 3일(약 10구간) 기준으로 실측·검증된 값이다.
+// 최대 일수가 5·7일로 늘면 구간 수도 그만큼 늘어(도시형 5일 약 20구간,
+// 휴양형 7일 약 14구간 — 지시서 §5 자체 추산) 같은 예산을 나눠 쓰면
+// 뒤쪽 구간일수록 예산 초과로 직선 추정 폴백이 잦아진다. 구간 수에
+// 비례해 늘리되, 기존 1~3일 실측 검증치(15초) 밑으로는 절대 줄지
+// 않는다 — ROUTING_BUDGET_MS_PER_SEGMENT는 15000ms÷약 10구간(3일 기준)의
+// 근사치다. 실제 늘어난 예산이 충분한지는 이 세션이 라이브로 확인하지
+// 못했다(§7 "먼저 재보라"는 실측 지시를 배포 환경 접근 없이 수행할 수
+// 없었다) — Cowork가 배포 후 확인해야 한다.
+const ROUTING_BUDGET_MS_PER_SEGMENT = 1500;
 // 작업지시서 §3 ★ "소요시간이 비정상적으로 큼(예: 3시간 초과)" — 실제
 // 경로가 잡히더라도 이 이상이면 사실상 당일 코스에 못 낄 곳으로 보고
 // 뺀다(예: 육로로 크게 돌아가야 하는 곳).
@@ -1774,7 +1826,7 @@ export function findRatedFirstStopSwapIndex(daySpots: readonly CourseBriefSpot[]
  * 마찬가지로, 이 함수의 결과만으로도 완결된 코스 구조를 즉시 캐시에
  * 쓸 수 있어야 한다.
  */
-export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], baseOrder: number, scope: CourseBriefScope, region: string, day: 1 | 2 | 3): { spots: CourseBriefSpot[]; distanceKm: number; hadStraightFallback: boolean } {
+export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], baseOrder: number, scope: CourseBriefScope, region: string, day: CourseDays): { spots: CourseBriefSpot[]; distanceKm: number; hadStraightFallback: boolean } {
   let distanceKm = 0;
   let hadStraightFallback = false;
   const spots: CourseBriefSpot[] = stops.map((stop, i) => {
@@ -2076,14 +2128,14 @@ export function pickBetterDayResult(original: FinalStop[], retry: FinalStop[]): 
   return retry.length > original.length ? retry : original;
 }
 
-async function generateDay(scope: CourseBriefScope, region: string, dayIndex: number, priorDays: FinalStop[][]): Promise<FinalStop[]> {
+async function generateDay(scope: CourseBriefScope, region: string, dayIndex: number, priorDays: FinalStop[][], theme: CourseTheme): Promise<FinalStop[]> {
   const priorStops = priorDays.flat();
   let result: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme };
   try {
     result =
       priorDays.length === 0
-        ? await generateCourseV2(scope, region, DEFAULT_THEME, DEFAULT_RADIUS, {})
-        : await generateCourseV2(scope, region, DEFAULT_THEME, DEFAULT_RADIUS, {
+        ? await generateCourseV2(scope, region, theme, DEFAULT_RADIUS, {})
+        : await generateCourseV2(scope, region, theme, DEFAULT_RADIUS, {
             excludeIds: new Set(priorStops.map((s) => s.id)),
             excludeNames: priorStops.map((s) => s.name),
             avoidCentroid: { lat: priorStops.reduce((sum, s) => sum + s.lat, 0) / priorStops.length, lng: priorStops.reduce((sum, s) => sum + s.lng, 0) / priorStops.length },
@@ -2093,7 +2145,7 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
           });
   } catch (err) {
     console.error(`[courseBrief] day${dayIndex + 1} generateCourseV2 threw:`, err);
-    result = { course: [], source: "mock", theme: DEFAULT_THEME };
+    result = { course: [], source: "mock", theme };
   }
   // 같은 날짜 안의 중복(예: "경주 황리단길"/"황리단길")도 여기서 한 번 거른다.
   const deduped = dedupeWithinList(stopsOf(result), scope, region);
@@ -2109,11 +2161,11 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
     // 자체는 건드리지 않는다(지시서 §3 — 공유 함수라 라이브 검증 없이
     // 손대지 않기로 한 결정 유지).
     if (deduped.length < MIN_DAY0_STOPS) {
-      const retryResult: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme } = await generateCourseV2(scope, region, DEFAULT_THEME, DEFAULT_RADIUS, {
+      const retryResult: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme } = await generateCourseV2(scope, region, theme, DEFAULT_RADIUS, {
         skipLlm: true,
       }).catch((err) => {
         console.error(`[courseBrief] day1 skipLlm 재시도 실패:`, err);
-        return { course: [], source: "mock", theme: DEFAULT_THEME };
+        return { course: [], source: "mock", theme };
       });
       const retryDeduped = dedupeWithinList(stopsOf(retryResult), scope, region);
       return pickBetterDayResult(deduped, retryDeduped);
@@ -2140,7 +2192,7 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
   // 스코어링 자체는 여전히 손대지 않는다(2026-09-23 §2, 라이브 검증 없이
   // 손대지 않기로 한 결정 유지).
   if (crossDayDeduped.length < MIN_DAY0_STOPS) {
-    const retryResult: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme } = await generateCourseV2(scope, region, DEFAULT_THEME, DEFAULT_RADIUS, {
+    const retryResult: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme } = await generateCourseV2(scope, region, theme, DEFAULT_RADIUS, {
       excludeIds: new Set(priorStops.map((s) => s.id)),
       avoidCentroid: { lat: priorStops.reduce((sum, s) => sum + s.lat, 0) / priorStops.length, lng: priorStops.reduce((sum, s) => sum + s.lng, 0) / priorStops.length },
       avoidCuisines: [...new Set(priorStops.map((s) => cuisineKeyword(s.name)).filter((c): c is string => Boolean(c)))],
@@ -2148,7 +2200,7 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
       skipLlm: true,
     }).catch((err) => {
       console.error(`[courseBrief] day${dayIndex + 1} excludeNames 완화 재시도 실패:`, err);
-      return { course: [], source: "mock", theme: DEFAULT_THEME };
+      return { course: [], source: "mock", theme };
     });
     const retryDeduped = dedupeWithinList(stopsOf(retryResult), scope, region);
     const retryCrossDayDeduped = dedupeCrossDay(priorDays, retryDeduped, region);
@@ -2168,13 +2220,24 @@ export const MIN_VIABLE_SPOTS = 3;
  * 거의 확실합니다" §3 — 실패(스팟 부족) 결과까지 26시간 캐시했더니
  * "고쳤는데 그대로"가 반복됐다. buildBrief가 캐시를 쓸지 판단하는
  * 조건을 순수 함수로 뽑아 단위 테스트로 고정한다.
+ *
+ * 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §4 —
+ * 고정값(MIN_VIABLE_SPOTS) 대신 스타일·일수별 기준(minViableSpots)을
+ * 쓴다 — 휴양형은 하루 스팟이 적은 게 정상이라 고정 기준을 그대로 쓰면
+ * 정상 결과까지 "캐시할 가치 없음"으로 오판한다.
  */
-export function isCacheableBrief(spots: CourseBriefSpot[]): boolean {
-  return spots.length >= MIN_VIABLE_SPOTS;
+export function isCacheableBrief(spots: CourseBriefSpot[], style: RegionStyle, days: CourseDays): boolean {
+  return spots.length >= minViableSpots(style, days);
 }
 
-export async function buildBrief(scope: CourseBriefScope, region: string, days: 1 | 2 | 3, cacheKey: string, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
+export async function buildBrief(scope: CourseBriefScope, region: string, days: CourseDays, cacheKey: string, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
   const appUrl = appUrlFor(region, days);
+  // 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §3·§4 —
+  // RESORT_REGIONS 소속이면 "resort" 테마(하루 3슬롯 — 액티비티·휴식·
+  // 저녁)로, 아니면 기존 그대로 DEFAULT_THEME(balanced, 하루 7슬롯)으로
+  // 생성한다. 최소 스팟 기준도 이 style을 따른다(minViableSpots).
+  const style = styleForRegion(region);
+  const theme: CourseTheme = style === "resort" ? "resort" : DEFAULT_THEME;
 
   // 실패해도 절대 던지지 않는다(스펙 §1 "에러를 던지지 말 것") — 빈
   // spots로 조용히 폴백해 AutoPipeline이 그 지역을 건너뛰게 한다. 어느
@@ -2182,7 +2245,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   // 2일차 로직(day1Stops.length===0이면 2일차 생략)의 일반화.
   const dayStops: FinalStop[][] = [];
   for (let i = 0; i < days; i++) {
-    const stops = await generateDay(scope, region, i, dayStops);
+    const stops = await generateDay(scope, region, i, dayStops, theme);
     if (stops.length === 0) break;
     dayStops.push(stops);
   }
@@ -2206,8 +2269,11 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   // (routeDayStops 주석 참고) — 그래서 reallocateStopsByDay가 정한
   // "어느 날"은 그대로 두되, 실제로 갈 수 있는 곳만 남긴 뒤에야 스팟
   // 형태로 조립한다. 날짜별로 서로 독립이라 병렬로 돌린다 — deadline은
-  // 코스 전체(모든 날짜 합산) 공유 예산이다.
-  const routingDeadline = Date.now() + ROUTING_BUDGET_MS;
+  // 코스 전체(모든 날짜 합산) 공유 예산이다. 구간 수(총 스팟 수 - 날짜
+  // 수)에 비례해 예산을 늘린다 — 위 ROUTING_BUDGET_MS_PER_SEGMENT 주석 참고.
+  const estimatedSegments = finalDayGroups.reduce((sum, stops) => sum + Math.max(0, stops.length - 1), 0);
+  const routingBudgetMs = Math.max(ROUTING_BUDGET_MS, estimatedSegments * ROUTING_BUDGET_MS_PER_SEGMENT);
+  const routingDeadline = Date.now() + routingBudgetMs;
   const routedDays = await Promise.all(finalDayGroups.map((stops) => routeDayStops(scope, stops, routingDeadline)));
 
   let baseOrder = 1;
@@ -2217,7 +2283,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   const mapPaths: string[] = [];
   const dayTotals: CourseBrief["dayTotals"] = [];
   routedDays.forEach(({ stops, segments }, i) => {
-    const { spots, distanceKm, hadStraightFallback } = assembleDaySpots(stops, segments, baseOrder, scope, region, (i + 1) as 1 | 2 | 3);
+    const { spots, distanceKm, hadStraightFallback } = assembleDaySpots(stops, segments, baseOrder, scope, region, (i + 1) as CourseDays);
     allSpots.push(...spots);
     totalDistanceKm += distanceKm;
     baseOrder += spots.length;
@@ -2227,7 +2293,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
     // 없는(points === null) 구간은 요일 색 대신 회색(추정 표시)이 우선한다.
     mapPaths.push(...segments.map((s) => (s.points == null ? recolorMapPathAsEstimated(s.mapPath) : recolorMapPathForDay(s.mapPath, i))));
     if (hadStraightFallback) hadAnyStraightFallback = true;
-    dayTotals.push({ day: (i + 1) as 1 | 2 | 3, distanceKm: round1(distanceKm), spotCount: spots.length });
+    dayTotals.push({ day: (i + 1) as CourseDays, distanceKm: round1(distanceKm), spotCount: spots.length });
   });
   // 실패해도 조용히 직선으로 폴백해왔다 — 작업지시서 2026-09-11 "해외
   // 경로가 조용히 직선으로 떨어지고 있습니다" §3: "그걸 아무도 모르게
@@ -2248,7 +2314,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   // 날짜 자체를 없애지 않는다 — §3은 "그 스팟을 빼라"는 것이지 "그
   // 날짜를 스킵하라"는 게 아니다(스팟이 3곳 미만이 되는 지역 전체를
   // 스킵할지는 이 응답을 쓰는 AutoPipeline 쪽 C-2 계약의 몫).
-  const actualDays = Math.max(1, finalDayGroups.length) as 1 | 2 | 3;
+  const actualDays = Math.max(1, finalDayGroups.length) as CourseDays;
   let brief: CourseBrief = {
     region,
     days: actualDays,
@@ -2280,7 +2346,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   // 장애"로 굳는다. 이 밑으로는 캐시하지 않는다 — 다음 요청이 처음부터
   // 다시 시도할 기회를 갖는다(dedupeInFlight가 여전히 동시 요청은
   // 하나로 합친다).
-  if (isCacheableBrief(allSpots)) {
+  if (isCacheableBrief(allSpots, style, days)) {
     await writeBriefCache(cacheKey, brief).catch((err) => {
       console.error("[courseBrief] structure cache write failed:", err);
     });
@@ -2366,7 +2432,7 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
     dayTotals: [...dayTotals],
   };
 
-  if (isCacheableBrief(brief.spots)) {
+  if (isCacheableBrief(brief.spots, style, days)) {
     await writeBriefCache(cacheKey, brief).catch((err) => {
       console.error("[courseBrief] final cache write failed:", err);
     });
@@ -2430,7 +2496,7 @@ const inFlightBriefBuilds = new Map<string, Promise<CourseBrief>>();
  * 키, buildBrief)이 정본 이름만 보게 되므로, 호출부 각각이 별칭을
  * 알 필요가 없다.
  */
-export async function getCourseBrief(rawRegion: string, days: 1 | 2 | 3, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
+export async function getCourseBrief(rawRegion: string, days: CourseDays, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
   const region = resolveRegionAlias(rawRegion);
   // 캐시를 들여다보기도 전에 거른다 — 이 검사가 생기기 전에 "발리" 같은
   // 미지원 지역이 이미 잘못된 응답으로 캐시돼 있었을 수 있는데, 캐시부터
@@ -2459,7 +2525,7 @@ export async function getCourseBrief(rawRegion: string, days: 1 | 2 | 3, enrichB
  */
 export interface WarmTask {
   region: string;
-  days: 1 | 2 | 3;
+  days: CourseDays;
 }
 
 /**

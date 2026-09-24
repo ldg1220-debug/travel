@@ -20,7 +20,15 @@ export interface RecommendSlot {
   meal?: boolean;
 }
 
-export type CourseTheme = "balanced" | "foodie" | "healing" | "culture" | "active";
+// "resort" — 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형
+// 7일)" §4·§6 — RESORT_REGIONS(discoverData.ts)에 속한 지역은 courseBrief.ts가
+// 이 테마를 자동으로 고른다(사용자가 직접 고르는 값이 아니다 — 기존 5개
+// 테마와 달리 CourseClient.tsx의 테마 선택 UI는 자체 하드코딩 목록을 쓰므로
+// 이 값이 추가돼도 그 UI에 새 옵션이 뜨진 않는다). 다른 테마는 하루
+// 7슬롯(관광지 순회)을 가정하지만, 리조트 여행은 "한 곳에 머물며 하루
+// 1~2개 일정 + 휴식"이 실제 패턴이라 슬롯 자체를 3개로 줄인다 — 아래
+// THEME_SLOTS.resort 참고.
+export type CourseTheme = "balanced" | "foodie" | "healing" | "culture" | "active" | "resort";
 
 /**
  * User-selectable cap on travel between consecutive stops, in minutes.
@@ -100,6 +108,7 @@ export const THEME_LABELS: Record<CourseTheme, string> = {
   healing: "힐링·감성",
   culture: "역사·문화",
   active: "액티비티",
+  resort: "휴양 (리조트에서 쉬며 하루 1~2개 일정)",
 };
 
 // 테마별 하루 골격. 슬롯 키워드가 도시명 뒤에 붙어 라이브 검색어가 된다
@@ -165,6 +174,19 @@ export const THEME_SLOTS: Record<CourseTheme, RecommendSlot[]> = {
     { key: "night", label: "야경 명소", keyword: "야경 명소", hour: 19, category: "attraction" },
     // balanced/foodie와 같은 이유.
     { key: "dinner", label: "저녁", keyword: "저녁 맛집", hour: 20, category: "restaurant", meal: true },
+  ],
+  // 작업지시서 2026-09-23 §4 — 다른 테마의 7슬롯(하루 4~5곳 순회)을 그대로
+  // 쓰면 "하루 스팟 부족"으로 리조트 지역이 통째로 거부되거나, 안 가도
+  // 될 관광지가 억지로 채워진다. 3슬롯으로 줄이고 관광지 대신 호핑·
+  // 스노클링·투어 같은 액티비티, 스파·마사지, 야시장을 낀 저녁으로
+  // 바꿨다 — "리조트 휴식"처럼 슬롯 자체가 없는 시간은 결함이 아니라
+  // 의도된 여백이다. 실제 후보가 잘 잡히는지는 이 세션에서 라이브
+  // 검증하지 못했다(§7 "먼저 재보라"는 실측 지시를 이 세션은 배포 환경
+  // 접근 없이 수행할 수 없었다) — Cowork가 배포 후 확인해야 한다.
+  resort: [
+    { key: "activity", label: "액티비티", keyword: "액티비티 투어", hour: 10, category: "attraction" },
+    { key: "relax", label: "휴식·스파", keyword: "스파 마사지", hour: 15, category: "attraction" },
+    { key: "dinner", label: "저녁·야시장", keyword: "야시장 맛집", hour: 19, category: "restaurant", meal: true },
   ],
 };
 
@@ -249,6 +271,12 @@ const THEME_SLOT_TEMPLATES: Record<CourseTheme, SlotTemplate[]> = {
     { key: "market", label: "거리·쇼핑", keyword: "거리 쇼핑", category: "attraction", durationMinutes: 60 },
     { key: "night", label: "야경 명소", keyword: "야경 명소", category: "attraction", durationMinutes: 60 },
     { key: "dinner", label: "저녁", keyword: "저녁 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
+  ],
+  // THEME_SLOTS.resort와 같은 키/라벨/키워드/카테고리 — 위 주석 참고.
+  resort: [
+    { key: "activity", label: "액티비티", keyword: "액티비티 투어", category: "attraction", durationMinutes: 150 },
+    { key: "relax", label: "휴식·스파", keyword: "스파 마사지", category: "attraction", durationMinutes: 90 },
+    { key: "dinner", label: "저녁·야시장", keyword: "야시장 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
   ],
 };
 

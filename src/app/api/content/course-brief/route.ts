@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, MIN_VIABLE_SPOTS, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
-import { suggestOverseasRegions } from "@/lib/discoverData";
+import { getCourseBrief, maxDaysForStyle, minViableSpots, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { styleForRegion, suggestOverseasRegions } from "@/lib/discoverData";
 
 /**
  * 트레쥴 콘텐츠 API — 블로그 자동 발행 파이프라인(AutoPipeline, 별도
@@ -32,8 +32,19 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // 않는 값은 조용히 깎지 않고 400으로 거절한다(같은 날짜 "승격 후
   // 실측" §7-5 — 승격 전 프로덕션이 days=3 요청을 조용히 1로 깎아
   // 응답한 게 뒤늦게 드러난 적이 있다).
+  //
+  // 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §1·§6 —
+  // parseDays는 형식(1~7 정수인지)만 본다. 스타일별 상한은 지역을 먼저
+  // 별칭 해석해야 정확히 판단할 수 있어(styleForRegion 주석 참고) 여기서
+  // 별도로 확인한다 — 허용 범위를 넘으면 조용히 깎지 않고 400과 함께
+  // 그 지역에서 실제로 허용되는 범위를 알려준다.
   const days = parseDays(request.nextUrl.searchParams.get("days"));
-  if (days == null) return NextResponse.json({ error: "days must be 1, 2, or 3" }, { status: 400 });
+  if (days == null) return NextResponse.json({ error: "days must be an integer from 1 to 7" }, { status: 400 });
+  const style = styleForRegion(region);
+  const maxDays = maxDaysForStyle(style);
+  if (days > maxDays) {
+    return NextResponse.json({ error: "days exceeds this region's style limit", style, maxDays }, { status: 400 });
+  }
 
   let brief;
   try {
@@ -55,13 +66,17 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     }
     throw err;
   }
-  // §4 — 스팟 3곳 미만이면 C-2 계약("스팟 3곳 미만이면 글을 쓰지
+  // §4 — 스팟이 너무 적으면 C-2 계약("스팟이 부족하면 글을 쓰지
   // 않는다")의 판단을 AutoPipeline에만 맡기지 않고 서버가 명시한다.
-  // MIN_VIABLE_SPOTS는 courseBrief.ts의 캐시 기록 여부 판단과 같은
-  // 상수다 — 이 응답이 실패로 보는 기준과 "캐시할 가치가 있다"는
-  // 기준이 어긋나면 안 된다(작업지시서 2026-09-23 "#266 검증" §3).
-  if (brief.spots.length < MIN_VIABLE_SPOTS) {
-    return NextResponse.json({ error: "insufficient_spots", count: brief.spots.length }, { status: 422 });
+  // minViableSpots는 courseBrief.ts의 캐시 기록 여부 판단과 같은 기준
+  // 함수다 — 이 응답이 실패로 보는 기준과 "캐시할 가치가 있다"는 기준이
+  // 어긋나면 안 된다(작업지시서 2026-09-23 "#266 검증" §3). 고정값
+  // 대신 스타일·일수별 기준을 쓴다(작업지시서 2026-09-23 "자동 코스
+  // 일수 확장" §4) — 휴양형은 하루 스팟이 적은 게 정상이라 도시형
+  // 기준을 그대로 쓰면 정상 결과까지 거절하게 된다.
+  const threshold = minViableSpots(style, days);
+  if (brief.spots.length < threshold) {
+    return NextResponse.json({ error: "insufficient_spots", count: brief.spots.length, threshold }, { status: 422 });
   }
   return NextResponse.json(brief);
 });

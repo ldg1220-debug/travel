@@ -1,4 +1,4 @@
-import type { CourseBrief, CourseBriefSpot } from "./server/courseBrief";
+import type { CourseBrief, CourseBriefSpot, CourseDays } from "./server/courseBrief";
 
 /**
  * `/course/{지역}/{일수}` 공개 SSR 페이지 — 작업지시서 2026-09-18
@@ -17,18 +17,31 @@ import type { CourseBrief, CourseBriefSpot } from "./server/courseBrief";
  * DB 조회가 필요한 부분(관련 후기 목록)은 별도로 lib/server/coursePageLinks.ts에 둔다.
  */
 
-export const COURSE_PAGE_DAY_LABELS: Record<string, 1 | 2 | 3> = {
-  당일치기: 1,
-  "1박2일": 2,
-  "2박3일": 3,
+// 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §6 —
+// 4일 이상 라벨을 추가한다. days=6·7은 "6박7일"이 아니라 "5박6일"·
+// "5박7일"이다(지시서 §6 원문 그대로) — 장거리 휴양지 상품이 흔히 이
+// 표기를 쓴다(예: 왕복 야간 비행을 낀 "발리 5박7일"). days-1을 기계적으로
+// 계산하지 않고 표를 그대로 옮긴 이유가 이것이다.
+const DAY_LABELS: Record<CourseDays, string> = {
+  1: "당일치기",
+  2: "1박2일",
+  3: "2박3일",
+  4: "3박4일",
+  5: "4박5일",
+  6: "5박6일",
+  7: "5박7일",
 };
 
-export function daysToLabel(days: 1 | 2 | 3): string {
-  return days === 1 ? "당일치기" : days === 2 ? "1박2일" : "2박3일";
+export const COURSE_PAGE_DAY_LABELS: Record<string, CourseDays> = Object.fromEntries(
+  (Object.entries(DAY_LABELS) as [string, string][]).map(([days, label]) => [label, Number(days) as CourseDays]),
+);
+
+export function daysToLabel(days: CourseDays): string {
+  return DAY_LABELS[days];
 }
 
-/** URL 세그먼트("2박3일" 등)를 courseBrief가 받는 days(1|2|3)로 되돌린다 — 모르는 라벨이면 null. */
-export function labelToDays(label: string): 1 | 2 | 3 | null {
+/** URL 세그먼트("2박3일" 등)를 courseBrief가 받는 days(1~7)로 되돌린다 — 모르는 라벨이면 null. */
+export function labelToDays(label: string): CourseDays | null {
   return COURSE_PAGE_DAY_LABELS[label] ?? null;
 }
 
@@ -49,7 +62,7 @@ export function labelToDays(label: string): 1 | 2 | 3 | null {
 // (region, days) 조합만 담고, days별 그룹 짓기는 아래 파생값들이 한다.
 export interface EnabledCoursePage {
   region: string;
-  days: 1 | 2 | 3;
+  days: CourseDays;
 }
 
 export const ENABLED_COURSE_PAGES: readonly EnabledCoursePage[] = [

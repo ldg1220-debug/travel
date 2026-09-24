@@ -1330,6 +1330,9 @@ export function regionHierarchy(scope: DiscoverScope): RegionNode[] {
   }));
 }
 
+/** 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §3 — RESORT_REGIONS 소속 여부. courseBrief.ts(일수 상한·테마·최소 스팟 기준)와 discoverData.ts(regions API 응답) 양쪽이 같은 타입을 쓴다. */
+export type RegionStyle = "resort" | "city";
+
 /** `{name, parent}` 형태로 평탄화한 지역 하나 — course-brief?region=에 그대로 넣어 동작하는 단위(국내는 시/군·독립 권역 동네, 해외는 도시). */
 export interface FlatRegion {
   name: string;
@@ -1338,7 +1341,40 @@ export interface FlatRegion {
   aliases?: string[];
   /** 한국인 출국 상위국 기준 상대적 인기 순위(작을수록 인기 높음) — 해외만, 지시서가 통계를 인용한 국가만 채워진다. 나머지는 생략. */
   popularity?: number;
+  /**
+   * 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §3 —
+   * AutoPipeline이 제목·본문 구성·일수 상한을 이 값으로 가른다. aliases/
+   * popularity와 달리 모든 지역이 둘 중 하나이므로 생략하지 않고 항상 채운다.
+   */
+  style: RegionStyle;
 }
+
+// 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §3 —
+// "리조트 한곳에 머물며 하루 1~2개 일정 + 식사 + 휴식"이 실제 패턴인
+// 지역들. WORLD_CITIES/regions.ts와 같은 방식의 작은 별도 집합이다 —
+// 이름만 여기 나열하면 되고, 좌표 카탈로그 자체를 건드리지 않는다.
+export const RESORT_REGIONS: ReadonlySet<string> = new Set([
+  "세부",
+  "보라카이",
+  "보홀",
+  "팔라완",
+  "코타키나발루",
+  "페낭",
+  "우붓",
+  "스미냑",
+  "쿠타",
+  "괌",
+  "사이판",
+  "푸꾸옥",
+  "냐짱",
+  "코사무이",
+  "끄라비",
+  "후아힌",
+  "오키나와",
+  "서귀포",
+  "중문",
+  "애월",
+]);
 
 /**
  * regionHierarchy()를 course-brief 호환 단위로 평탄화한다 — /api/content/regions
@@ -1357,7 +1393,7 @@ export function flatRegions(scope: DiscoverScope): FlatRegion[] {
       ),
     );
   }
-  return tree.flatMap((province) => province.children.map((city) => ({ name: city.label, parent: province.label })));
+  return tree.flatMap((province) => province.children.map((city) => attachRegionMeta({ name: city.label, parent: province.label })));
 }
 
 /**
@@ -1402,6 +1438,18 @@ export function resolveRegionAlias(region: string): string {
   return REGION_ALIASES[region] ?? region;
 }
 
+/**
+ * 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §3 —
+ * 별칭을 먼저 정본으로 풀고 나서 RESORT_REGIONS를 봐야 한다 — 예를 들어
+ * "발리"는 RESORT_REGIONS에 없지만(그 자체를 WORLD_CITIES에 올리지 않기로
+ * 한 결정, 위 REGION_ALIASES 주석 참고) 정본 "우붓"은 있다. 별칭 해석
+ * 없이 원문 그대로 확인하면 "발리 5박7일" 요청이 도시형 상한(5일)에
+ * 잘못 걸린다.
+ */
+export function styleForRegion(region: string): RegionStyle {
+  return RESORT_REGIONS.has(resolveRegionAlias(region)) ? "resort" : "city";
+}
+
 // 작업지시서 §6 — 2026년 한국인 출국 상위 국가 순위(지시서가 인용한
 // 공개 통계의 순위만 반영한다. 정확한 방문자 수까지는 이 파일에서
 // 주장하지 않는다 — AutoPipeline이 "어디부터 쓸지" 우선순위를 정하는
@@ -1420,11 +1468,12 @@ const OVERSEAS_COUNTRY_POPULARITY: Readonly<Record<string, number>> = {
   인도네시아: 10,
 };
 
-function attachRegionMeta(region: FlatRegion): FlatRegion {
+function attachRegionMeta(region: Omit<FlatRegion, "style">): FlatRegion {
   const aliases = ALIASES_BY_CANONICAL.get(region.name);
   const popularity = OVERSEAS_COUNTRY_POPULARITY[region.parent];
   return {
     ...region,
+    style: styleForRegion(region.name),
     ...(aliases ? { aliases } : {}),
     ...(popularity != null ? { popularity } : {}),
   };
@@ -1442,11 +1491,11 @@ function attachRegionMeta(region: FlatRegion): FlatRegion {
  */
 export function suggestOverseasRegions(): readonly FlatRegion[] {
   return [
-    { name: "도쿄", parent: "일본" },
-    { name: "오사카", parent: "일본" },
-    { name: "다낭", parent: "베트남" },
-    { name: "방콕", parent: "태국" },
-    { name: "타이베이", parent: "대만" },
+    { name: "도쿄", parent: "일본", style: "city" },
+    { name: "오사카", parent: "일본", style: "city" },
+    { name: "다낭", parent: "베트남", style: "city" },
+    { name: "방콕", parent: "태국", style: "city" },
+    { name: "타이베이", parent: "대만", style: "city" },
   ];
 }
 
