@@ -2118,17 +2118,27 @@ export const DEFAULT_ENRICH_BUDGET_MS = 6000;
  * 가설은 코드상 근거가 없었다). 블로그 글의 대표 코스인 1일차만 LLM
  * 큐레이션 품질을 유지한다.
  */
-// 작업지시서 2026-09-23 §2 — API의 기존 "스팟 3곳 미만이면 글을 쓰지
-// 않는다"(insufficient_spots) 기준과 맞춘다. 1일차 하나만으로 이 밑으로
-// 떨어지면 사실상 하루짜리 코스로도 못 쓸 정도라 재시도할 가치가 있다.
-const MIN_DAY0_STOPS = 3;
-
 /** 1일차 LLM 큐레이션 결과가 너무 적을 때, skipLlm 재시도 결과와 비교해 더 나은(스팟이 더 많은) 쪽을 고른다 — 재시도도 실패하면 원본을 그대로 쓴다(둘 다 나쁘더라도 최소한 원본만큼은 보장). */
 export function pickBetterDayResult(original: FinalStop[], retry: FinalStop[]): FinalStop[] {
   return retry.length > original.length ? retry : original;
 }
 
 async function generateDay(scope: CourseBriefScope, region: string, dayIndex: number, priorDays: FinalStop[][], theme: CourseTheme): Promise<FinalStop[]> {
+  // 작업지시서 2026-09-26 "일수 확장 실측: 비단조 버그 + 휴양지 스팟 풀
+  // 부족" §1 — 실측: 유후인 days=1(count=3, threshold=4)은 422인데
+  // days=2(spots=9)는 200이었다. 원인: 이 날짜의 재시도 여부를 정하던
+  // 옛 고정값(MIN_DAY0_STOPS=3)이, 작업지시서 2026-09-23 "자동 코스
+  // 일수 확장"이 도입한 실제 통과 기준(minViableSpots — city 하루 4곳)과
+  // 완전히 분리돼 있었다. 하루 3곳은 옛 기준(3)보다 작지 않아 재시도가
+  // 아예 일어나지 않았는데, 정작 진짜 통과 기준(4)에는 못 미쳐 그대로
+  // 422로 떨어졌다 — "더 쉬운 요청(1일)이 더 어려운 요청(2일)보다 먼저
+  // 실패"하는 비단조 동작의 직접 원인이다. 이 날짜 하나가 채워야 할
+  // "공정한 몫"을 minViableSpots(style, 1)로 재정의해 재시도 기준으로
+  // 쓴다 — city는 4(기존 3보다 엄격해짐), resort는 3(기존과 동일, 회귀
+  // 없음). 지시서 §1 "최소 조건"(전면 재구조화 대신 재시도만으로 단조성
+  // 근접) 그대로다 — threshold 공식(minViableSpots) 자체는 손대지 않는다.
+  const style: RegionStyle = theme === "resort" ? "resort" : "city";
+  const perDayTarget = minViableSpots(style, 1);
   const priorStops = priorDays.flat();
   let result: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme };
   try {
@@ -2155,12 +2165,13 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
     // 지나치게 적을 수 있다(실측: 오사카 2일 요청의 1일차, 교토 1일
     // 요청 — 둘 다 2곳 안팎). getCourseBrief의 캐시는 이 결과를 그대로
     // 26시간 박아두므로, 한 번의 나쁜 LLM 응답이 그 지역·일수 조합
-    // 전체를 하루 종일 얇은 코스로 고정시킨다. 1일차가 너무 적으면
-    // 2·3일차에서 이미 안정적으로 쓰고 있는 결정론 경로(skipLlm:true)로
-    // 한 번 더 시도해, 둘 중 더 나은 쪽을 쓴다 — deterministicTaste
-    // 자체는 건드리지 않는다(지시서 §3 — 공유 함수라 라이브 검증 없이
-    // 손대지 않기로 한 결정 유지).
-    if (deduped.length < MIN_DAY0_STOPS) {
+    // 전체를 하루 종일 얇은 코스로 고정시킨다. 1일차가 이 날짜의 공정한
+    // 몫(perDayTarget, 위 주석 참고)에 못 미치면 2·3일차에서 이미
+    // 안정적으로 쓰고 있는 결정론 경로(skipLlm:true)로 한 번 더 시도해,
+    // 둘 중 더 나은 쪽을 쓴다 — deterministicTaste 자체는 건드리지
+    // 않는다(지시서 §3 — 공유 함수라 라이브 검증 없이 손대지 않기로 한
+    // 결정 유지).
+    if (deduped.length < perDayTarget) {
       const retryResult: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme } = await generateCourseV2(scope, region, theme, DEFAULT_RADIUS, {
         skipLlm: true,
       }).catch((err) => {
@@ -2191,7 +2202,7 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
   // 감소의 원인이 될 수 없어 그대로 둔다 — deterministicTaste 등 공유
   // 스코어링 자체는 여전히 손대지 않는다(2026-09-23 §2, 라이브 검증 없이
   // 손대지 않기로 한 결정 유지).
-  if (crossDayDeduped.length < MIN_DAY0_STOPS) {
+  if (crossDayDeduped.length < perDayTarget) {
     const retryResult: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme } = await generateCourseV2(scope, region, theme, DEFAULT_RADIUS, {
       excludeIds: new Set(priorStops.map((s) => s.id)),
       avoidCentroid: { lat: priorStops.reduce((sum, s) => sum + s.lat, 0) / priorStops.length, lng: priorStops.reduce((sum, s) => sum + s.lng, 0) / priorStops.length },
