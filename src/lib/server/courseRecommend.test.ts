@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   radiusKmFor,
   parseTravelMode,
@@ -10,6 +10,7 @@ import {
   sameShop,
   isLargeFacility,
   cuisineKeyword,
+  googleTop,
   THEME_LABELS,
   type CourseTheme,
 } from "./courseRecommend";
@@ -287,5 +288,54 @@ describe("buildDynamicSlots", () => {
     for (const t of Object.keys(THEME_LABELS) as CourseTheme[]) {
       expect(() => buildDynamicSlots(t, 9 * 60, 22 * 60)).not.toThrow();
     }
+  });
+});
+
+// 작업지시서 2026-09-27 "해외 코스 후보가 2개로 무너졌습니다" A-1 —
+// 실패를 조용히 빈 배열로 삼켜(status만 보고 return []) Vercel 로그에
+// 아무것도 안 남는 바람에 고베 d2·교토 d1·오사카 d2가 왜 count=2로
+// 무너졌는지 원인을 볼 수 없었다. 실패 시 상태코드·응답 본문을
+// console.error로 남기도록 고쳤다 — 그 로그가 실제로 남는지 고정한다.
+describe("googleTop — 실패 시 원인을 로그로 남긴다 (작업지시서 2026-09-27 A-1)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("returns [] and logs status+body when Google Places rejects the request (예: 429 쿼터 초과, 403 키 권한 문제)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 429, text: async () => '{"error":{"message":"Quota exceeded"}}' }),
+    );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await googleTop("오사카 관광지", "test-key");
+
+    expect(result).toEqual([]);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("status=429"));
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Quota exceeded"));
+  });
+
+  it("still returns [] (never throws) even if reading the error body itself fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: () => Promise.reject(new Error("stream already read")),
+      }),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(googleTop("오사카 맛집", "test-key")).resolves.toEqual([]);
+  });
+
+  it("returns the parsed places on success (unchanged behavior)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ places: [{ id: "p1", displayName: { text: "오사카성" } }] }) }),
+    );
+    const result = await googleTop("오사카 관광지", "test-key");
+    expect(result).toEqual([{ id: "p1", displayName: { text: "오사카성" } }]);
   });
 });

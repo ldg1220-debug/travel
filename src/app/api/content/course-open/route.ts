@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { pool } from "@/lib/server/db";
-import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, maxDaysForStyle, parseDays, resolveScope, UnsupportedRegionError, type CourseBriefSpot } from "@/lib/server/courseBrief";
+import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, maxDaysForStyle, parseDays, resolveScope, TransientApiFailureError, UnsupportedRegionError, type CourseBriefSpot } from "@/lib/server/courseBrief";
 import { styleForRegion } from "@/lib/discoverData";
 import { DEFAULT_DURATION_MINUTES, formatTime, shiftISODate, todayISODate } from "@/lib/timeline";
 import type { ItineraryItem, Region } from "@/lib/types";
@@ -145,6 +145,13 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     // "빈 코스" 처리(아래)와 같은 관례로 코스 만들기 화면으로 보낸다 —
     // 미지원 지역 이름으로 엉뚱한 코스가 계획으로 저장되는 걸 막는다.
     if (err instanceof UnsupportedRegionError) {
+      return NextResponse.redirect(courseBuilderUrlFor(region), 302);
+    }
+    // 작업지시서 2026-09-27 A-6 — 이 라우트도 raw JSON이 아니라 코스
+    // 만들기 화면으로 보내는 관례를 따른다(위 UnsupportedRegionError와
+    // 같은 이유) — 일시적 실패도 사용자에게는 "지금 이 코스를 못 연다"는
+    // 점에서 같은 처리가 맞다.
+    if (err instanceof TransientApiFailureError) {
       return NextResponse.redirect(courseBuilderUrlFor(region), 302);
     }
     throw err;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, maxDaysForStyle, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { getCourseBrief, maxDaysForStyle, parseDays, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
 import { styleForRegion } from "@/lib/discoverData";
 
 /**
@@ -46,6 +46,10 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     // 지역엔 엉뚱한 코스 지도 대신 명시적으로 거부한다.
     if (err instanceof UnsupportedRegionError) {
       return NextResponse.json({ error: "unsupported_region", region: err.region, message: "지원하지 않는 지역입니다." }, { status: 404 });
+    }
+    // course-brief/route.ts와 같은 이유(작업지시서 2026-09-27 A-6).
+    if (err instanceof TransientApiFailureError) {
+      return NextResponse.json({ error: "temporarily_unavailable", region: err.region, message: "일시적으로 지도를 만들 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
     }
     throw err;
   }
