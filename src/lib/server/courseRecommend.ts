@@ -490,7 +490,13 @@ export function sameShop(a: string, b: string): boolean {
 // 재사용한다 — 검색 요청 자체는 여기 있는 로직 그대로 쓰고, 호출부에서
 // 캐시하는 방식(courseRecommend.ts 자체의 place_candidate_cache와 같은
 // 패턴)으로 쿼터를 지킨다.
-export async function googleTop(query: string, apiKey: string, includedType?: string, signal?: AbortSignal): Promise<GooglePlace[]> {
+export async function googleTop(
+  query: string,
+  apiKey: string,
+  includedType?: string,
+  signal?: AbortSignal,
+  onFailure?: (status: number) => void,
+): Promise<GooglePlace[]> {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     cache: "no-store",
@@ -503,7 +509,24 @@ export async function googleTop(query: string, apiKey: string, includedType?: st
     },
     body: JSON.stringify({ textQuery: query, maxResultCount: 20, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
   });
-  if (!res.ok) return [];
+  if (!res.ok) {
+    // 작업지시서 2026-09-27 "해외 코스 후보가 2개로 무너졌습니다" A-1 —
+    // 고베 d2·교토 d1·오사카 d2가 전부 정확히 count=2로 붕괴했는데,
+    // 원인 후보(쿼터 초과·키 오분기·질의 변경) 중 무엇인지 Vercel
+    // 로그에서 전혀 확인할 수 없었다 — 실패를 여기서 조용히 빈 배열로
+    // 삼켜 호출부(fetchSlotCandidatesLive)도 그 이유를 모른 채 넘어갔기
+    // 때문이다. 상태코드와 응답 본문(에러 사유)을 남긴다 — 429(쿼터)·
+    // 403(키 권한)·400(질의 오류)을 로그만 보고 구분할 수 있게 한다.
+    const body = await res.text().catch(() => "(응답 본문을 읽지 못함)");
+    console.error(`[courseRecommend] Google Places Text Search 실패: status=${res.status} query="${query}" body=${body.slice(0, 500)}`);
+    // 작업지시서 2026-09-27 "Places API 비용 절감" A-6 — 실패가 원인인
+    // 얇은 결과와 그냥 그 지역 데이터가 얇은 것을 구분하려면, 호출부가
+    // "이번 코스 생성 중 실패가 있었는지"를 알아야 한다. onFailure는
+    // 요청(코스 생성 1회) 스코프로 넘겨받는 콜백이다 — 프로세스 전역
+    // 상태를 두지 않는다(서버리스 인스턴스마다 별개라 신뢰할 수 없다).
+    onFailure?.(res.status);
+    return [];
+  }
   const data = (await res.json()) as { places?: GooglePlace[] };
   return data.places ?? [];
 }
@@ -714,7 +737,13 @@ export function cuisineKeyword(name: string): string | undefined {
  * `extraQuery`(다일정 후반 날짜용, CATEGORY_SYNONYM_LABEL 참고) — 동의어로
  * 한 번 더 검색해 합친, 기본 풀과 "겹치지만 다른" 더 큰 풀을 쓴다.
  */
-export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: string, slot: RecommendSlot, extraQuery = false): Promise<Place[]> {
+export async function fetchSlotCandidates(
+  scope: "overseas" | "domestic",
+  city: string,
+  slot: RecommendSlot,
+  extraQuery = false,
+  onFailure?: (status: number) => void,
+): Promise<Place[]> {
   const cacheKey = candidateCacheKey(scope, city, slot, extraQuery);
   // applyQualityGate(passesQualityGate 기반)는 캐시에 굽지 않고 읽는
   // 시점에만 적용한다 — 임계값을 나중에 튜닝해도 캐시 TTL(7일)을 기다리지
@@ -728,7 +757,7 @@ export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: 
   // 써진 캐시 행이 TTL 동안 남아있을 수 있다.
   if (cached) return qualityFilter(cached.filter(isValidPlace));
 
-  const fresh = (await fetchSlotCandidatesLive(scope, city, slot, extraQuery)).filter(isValidPlace);
+  const fresh = (await fetchSlotCandidatesLive(scope, city, slot, extraQuery, onFailure)).filter(isValidPlace);
   // 빈 결과는 캐시하지 않는다 — 진짜 "이 검색은 결과가 없다"인지, API가
   // 일시적으로 실패해 빈 배열이 온 건지(googleTop/kakaoTop 둘 다 !res.ok면
   // 조용히 []을 반환) 구분할 수 없어, 다음 요청은 항상 다시 라이브로
@@ -737,17 +766,23 @@ export async function fetchSlotCandidates(scope: "overseas" | "domestic", city: 
   return qualityFilter(fresh);
 }
 
-async function fetchSlotCandidatesLive(scope: "overseas" | "domestic", city: string, slot: RecommendSlot, extraQuery = false): Promise<Place[]> {
+async function fetchSlotCandidatesLive(
+  scope: "overseas" | "domestic",
+  city: string,
+  slot: RecommendSlot,
+  extraQuery = false,
+  onFailure?: (status: number) => void,
+): Promise<Place[]> {
   if (scope === "overseas") {
     const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!apiKey) return [];
     const type = slot.category ? CATEGORY_TYPE[slot.category] : undefined;
     const label = slot.category ? CATEGORY_LABEL[slot.category] : "";
-    const results = await googleTop(`${city} ${slot.keyword}${label ? " " + label : ""}`, apiKey, type);
+    const results = await googleTop(`${city} ${slot.keyword}${label ? " " + label : ""}`, apiKey, type, undefined, onFailure);
     let all = results;
     if (extraQuery) {
       const synonym = slot.category ? CATEGORY_SYNONYM_LABEL[slot.category] : undefined;
-      const extra = await googleTop(`${city} ${slot.keyword}${synonym ? " " + synonym : ""}`, apiKey, type);
+      const extra = await googleTop(`${city} ${slot.keyword}${synonym ? " " + synonym : ""}`, apiKey, type, undefined, onFailure);
       const seenIds = new Set(all.map((p) => p.id));
       all = [...all, ...extra.filter((p) => !seenIds.has(p.id))];
     }

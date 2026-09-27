@@ -127,6 +127,26 @@ export class UnsupportedRegionError extends Error {
 }
 
 /**
+ * 작업지시서 2026-09-27 "해외 코스 후보가 2개로 무너졌습니다" / "Places
+ * API 비용 절감" A-6 — 고베 d2·교토 d1·오사카 d2가 전부 정확히 count=2로
+ * 무너졌는데, 이게 "이 지역은 원래 후보가 적다"(정상적인 422 대상)인지
+ * "Places 호출이 실패해서 얇아졌다"(일시적 문제, 재시도하면 나아질 수
+ * 있음)인지 응답만으로 구분할 방법이 없었다. getCourseBrief가 이번
+ * 생성 중 실제로 Places 호출 실패가 있었는지(onCandidateFetchFailure)를
+ * 알고 있을 때만 이 에러를 던진다 — route.ts가 이걸 잡아 422가 아니라
+ * 503(잠시 후 재시도)으로 응답한다.
+ */
+export class TransientApiFailureError extends Error {
+  constructor(
+    public readonly region: string,
+    public readonly spotCount: number,
+  ) {
+    super(`transient API failure while building course for ${region} (${spotCount} spots)`);
+    this.name = "TransientApiFailureError";
+  }
+}
+
+/**
  * §3 "최소한 이것만이라도" — isSupportedRegion을 통과한(=해외 카탈로그에
  * 있는) 이름이라도, 실제 라이브 검색 결과 좌표가 전부 한반도 안이면
  * 이름만 맞고 완전히 다른 곳을 찾아온 것일 가능성이 크다. 순수 함수로
@@ -2123,7 +2143,14 @@ export function pickBetterDayResult(original: FinalStop[], retry: FinalStop[]): 
   return retry.length > original.length ? retry : original;
 }
 
-async function generateDay(scope: CourseBriefScope, region: string, dayIndex: number, priorDays: FinalStop[][], theme: CourseTheme): Promise<FinalStop[]> {
+async function generateDay(
+  scope: CourseBriefScope,
+  region: string,
+  dayIndex: number,
+  priorDays: FinalStop[][],
+  theme: CourseTheme,
+  onCandidateFetchFailure?: (status: number) => void,
+): Promise<FinalStop[]> {
   // 작업지시서 2026-09-26 "일수 확장 실측: 비단조 버그 + 휴양지 스팟 풀
   // 부족" §1 — 실측: 유후인 days=1(count=3, threshold=4)은 422인데
   // days=2(spots=9)는 200이었다. 원인: 이 날짜의 재시도 여부를 정하던
@@ -2144,7 +2171,7 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
   try {
     result =
       priorDays.length === 0
-        ? await generateCourseV2(scope, region, theme, DEFAULT_RADIUS, {})
+        ? await generateCourseV2(scope, region, theme, DEFAULT_RADIUS, { onCandidateFetchFailure })
         : await generateCourseV2(scope, region, theme, DEFAULT_RADIUS, {
             excludeIds: new Set(priorStops.map((s) => s.id)),
             excludeNames: priorStops.map((s) => s.name),
@@ -2152,6 +2179,7 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
             avoidCuisines: [...new Set(priorStops.map((s) => cuisineKeyword(s.name)).filter((c): c is string => Boolean(c)))],
             dayIndex,
             skipLlm: true,
+            onCandidateFetchFailure,
           });
   } catch (err) {
     console.error(`[courseBrief] day${dayIndex + 1} generateCourseV2 threw:`, err);
@@ -2174,6 +2202,7 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
     if (deduped.length < perDayTarget) {
       const retryResult: GenerateResultV2 | { course: []; source: "mock"; theme: CourseTheme } = await generateCourseV2(scope, region, theme, DEFAULT_RADIUS, {
         skipLlm: true,
+        onCandidateFetchFailure,
       }).catch((err) => {
         console.error(`[courseBrief] day1 skipLlm 재시도 실패:`, err);
         return { course: [], source: "mock", theme };
@@ -2209,6 +2238,7 @@ async function generateDay(scope: CourseBriefScope, region: string, dayIndex: nu
       avoidCuisines: [...new Set(priorStops.map((s) => cuisineKeyword(s.name)).filter((c): c is string => Boolean(c)))],
       dayIndex,
       skipLlm: true,
+      onCandidateFetchFailure,
     }).catch((err) => {
       console.error(`[courseBrief] day${dayIndex + 1} excludeNames 완화 재시도 실패:`, err);
       return { course: [], source: "mock", theme };
@@ -2241,7 +2271,14 @@ export function isCacheableBrief(spots: CourseBriefSpot[], style: RegionStyle, d
   return spots.length >= minViableSpots(style, days);
 }
 
-export async function buildBrief(scope: CourseBriefScope, region: string, days: CourseDays, cacheKey: string, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
+export async function buildBrief(
+  scope: CourseBriefScope,
+  region: string,
+  days: CourseDays,
+  cacheKey: string,
+  enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS,
+  onCandidateFetchFailure?: (status: number) => void,
+): Promise<CourseBrief> {
   const appUrl = appUrlFor(region, days);
   // 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §3·§4 —
   // RESORT_REGIONS 소속이면 "resort" 테마(하루 3슬롯 — 액티비티·휴식·
@@ -2254,9 +2291,15 @@ export async function buildBrief(scope: CourseBriefScope, region: string, days: 
   // spots로 조용히 폴백해 AutoPipeline이 그 지역을 건너뛰게 한다. 어느
   // 날짜든 비면(특히 1일차) 그 다음 날짜는 시도하지 않는다 — 기존
   // 2일차 로직(day1Stops.length===0이면 2일차 생략)의 일반화.
+  //
+  // onCandidateFetchFailure는 이 계약을 바꾸지 않는다 — buildBrief는
+  // 여전히 항상 CourseBrief를 반환한다. 호출부(getCourseBrief)가 이
+  // 콜백으로 "이번 생성 중 Places 호출이 실패했는지"를 전달받아, 결과가
+  // 그런데도 얇으면 422 대신 503을 내야 하는지 스스로 판단한다(작업지시서
+  // 2026-09-27 "Places API 비용 절감" A-6).
   const dayStops: FinalStop[][] = [];
   for (let i = 0; i < days; i++) {
-    const stops = await generateDay(scope, region, i, dayStops, theme);
+    const stops = await generateDay(scope, region, i, dayStops, theme, onCandidateFetchFailure);
     if (stops.length === 0) break;
     dayStops.push(stops);
   }
@@ -2514,13 +2557,30 @@ export async function getCourseBrief(rawRegion: string, days: CourseDays, enrich
   // 확인하면 그 오염된 응답을 이 수정 이후에도 계속 돌려주게 된다.
   if (!isSupportedRegion(region)) throw new UnsupportedRegionError(region);
   const scope = resolveScope(region);
+  const style = styleForRegion(region);
   const cacheKey = briefCacheKey(scope, region, days);
   const cached = await readBriefCache(cacheKey).catch((err) => {
     console.error("[courseBrief] cache read failed:", err);
     return null;
   });
   if (cached) return cached;
-  return dedupeInFlight(inFlightBriefBuilds, cacheKey, () => buildBrief(scope, region, days, cacheKey, enrichBudgetMs));
+  // 작업지시서 2026-09-27 "Places API 비용 절감" A-6 — 실패 추적(tracker)과
+  // 판단을 dedupeInFlight의 run() 클로저 안에서 전부 끝낸다. run()은
+  // 같은 cacheKey로 동시에 들어온 요청 중 "처음 한 번"만 실행되고,
+  // 나머지는 그 Promise를 그대로 공유해서 기다린다 — tracker를 run()
+  // 바깥(이 함수 스코프)에 두면, 동시 요청 중 실제로 run()을 실행하지
+  // 않은 쪽의 tracker는 절대 값이 바뀌지 않는다. 성공이든 실패(throw)든
+  // 이 Promise 하나로 모든 동시 대기자에게 동일하게 전달된다.
+  return dedupeInFlight(inFlightBriefBuilds, cacheKey, async () => {
+    let hadCandidateFetchFailure = false;
+    const brief = await buildBrief(scope, region, days, cacheKey, enrichBudgetMs, () => {
+      hadCandidateFetchFailure = true;
+    });
+    if (hadCandidateFetchFailure && !isCacheableBrief(brief.spots, style, days)) {
+      throw new TransientApiFailureError(region, brief.spots.length);
+    }
+    return brief;
+  });
 }
 
 /**

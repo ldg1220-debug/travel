@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, maxDaysForStyle, minViableSpots, parseDays, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { getCourseBrief, maxDaysForStyle, minViableSpots, parseDays, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
 import { styleForRegion, suggestOverseasRegions } from "@/lib/discoverData";
 
 /**
@@ -62,6 +62,19 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
       return NextResponse.json(
         { error: "unsupported_region", region: err.region, message: "지원하지 않는 지역입니다.", suggestions: suggestOverseasRegions() },
         { status: 404 },
+      );
+    }
+    // 작업지시서 2026-09-27 "해외 코스 후보가 2개로 무너졌습니다" / "Places
+    // API 비용 절감" A-6 — 고베 d2·교토 d1·오사카 d2가 전부 count=2로
+    // 무너졌을 때 422("이 조합은 원래 지원 안 함")를 냈는데, 실제로는
+    // Places 호출 실패로 얇아진 것일 수 있었다. 이번 생성 중 실제 API
+    // 실패가 있었다고 확인된 경우에만 이 에러가 던져진다 — 422 대신
+    // 503("잠시 후 재시도")으로 구분해, AutoPipeline이 "영구 미지원"과
+    // "일시적 장애"를 다르게 처리할 수 있게 한다.
+    if (err instanceof TransientApiFailureError) {
+      return NextResponse.json(
+        { error: "temporarily_unavailable", region: err.region, count: err.spotCount, message: "일시적으로 코스를 만들 수 없습니다. 잠시 후 다시 시도해주세요." },
+        { status: 503 },
       );
     }
     throw err;

@@ -351,6 +351,16 @@ export interface GenerateCourseOptions {
    * 사용자 요청)는 이 옵션을 쓰지 않아 기존 품질을 그대로 유지한다.
    */
   skipLlm?: boolean;
+  /**
+   * 작업지시서 2026-09-27 "Places API 비용 절감" A-6 — 이 날짜의 후보
+   * 검색(fetchSlotCandidates → 라이브 검색) 중 하나라도 실패하면 호출된다.
+   * 요청(코스 생성 1회) 스코프로 courseBrief.ts가 넘긴다 — 결과가
+   * 비정상적으로 얇을 때 "그 지역 데이터가 원래 얇다"와 "API가 실패해서
+   * 얇아졌다"를 구분해, 후자는 422(지원 안 함)가 아니라 503(잠시 후 재시도)
+   * 으로 응답하기 위해서다. 프로세스 전역 상태를 쓰지 않는다 —
+   * 서버리스 인스턴스마다 별개라 신뢰할 수 없다.
+   */
+  onCandidateFetchFailure?: (status: number) => void;
 }
 
 /** dayIndex가 이 값 이상이면 fetchSlotCandidates에 extraQuery(동의어 2차 검색)를 켠다 — 실측(오사카 3박4일)에서 정확히 3일차부터 슬롯 공백이 나 이 값으로 잡았다. */
@@ -415,7 +425,7 @@ export async function generateCourseV2(
   const widenPool = (options.dayIndex ?? 0) >= WIDEN_POOL_FROM_DAY_INDEX;
   const rawPools = await Promise.all(
     slots.map(async (slot) => {
-      let raw = await fetchSlotCandidates(scope, city, slot, widenPool);
+      let raw = await fetchSlotCandidates(scope, city, slot, widenPool, options.onCandidateFetchFailure);
       if (options.excludeIds) raw = raw.filter((p) => !options.excludeIds!.has(p.id));
       if (options.excludeNames && options.excludeNames.length > 0) raw = raw.filter((p) => !options.excludeNames!.some((n) => sameShop(n, p.name)));
       // 출발일엔 테마파크 같은 대형 시설이 짧은 슬롯에 꽂히면 안 된다
