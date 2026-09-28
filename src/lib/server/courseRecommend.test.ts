@@ -9,6 +9,9 @@ import {
   applyQualityGate,
   sameShop,
   isLargeFacility,
+  isTravelAgency,
+  isSpa,
+  isBeach,
   cuisineKeyword,
   googleTop,
   THEME_LABELS,
@@ -359,5 +362,65 @@ describe("THEME_SLOTS.resort — activity/relax 슬롯은 category가 없어야 
   it("keeps the dinner slot as a restaurant (unaffected by this fix)", () => {
     const dinner = THEME_SLOTS.resort.find((s) => s.key === "dinner");
     expect(dinner?.category).toBe("restaurant");
+  });
+});
+
+// 작업지시서 2026-09-29 "세부 7일이 열렸는데, 여행사 사무실과 스파로
+// 채워졌습니다" §3-② — activity 슬롯 검색어의 "투어"가 투어 업체를
+// 부르는 원인으로 보여, 방문 대상을 가리키는 구체 명사로 바꿨다.
+describe("THEME_SLOTS.resort — activity 슬롯 검색어에 '투어'가 없다 (작업지시서 2026-09-29 §3-②)", () => {
+  it("no longer searches for '투어' (tour) — replaced with concrete beach/snorkeling nouns", () => {
+    const activity = THEME_SLOTS.resort.find((s) => s.key === "activity");
+    expect(activity?.keyword).not.toContain("투어");
+    expect(activity?.keyword).toContain("해변");
+  });
+});
+
+describe("isTravelAgency — 여행사 사무실 제외 (작업지시서 2026-09-29 §3-①)", () => {
+  it("flags a place whose Google primaryType is travel_agency", () => {
+    expect(isTravelAgency(place({ category: "travel_agency", name: "GEM Travels" }))).toBe(true);
+  });
+
+  it("flags a place whose name contains an English tour/travel word even with a different category", () => {
+    expect(isTravelAgency(place({ category: "point_of_interest", name: "Cebu Daily Tours" }))).toBe(true);
+    expect(isTravelAgency(place({ category: "point_of_interest", name: "Explore Cebu Tours & Travel" }))).toBe(true);
+  });
+
+  it("flags a place whose name contains 여행사", () => {
+    expect(isTravelAgency(place({ category: "point_of_interest", name: "세부 홀리데이 여행사" }))).toBe(true);
+  });
+
+  it("does not flag an actual attraction or restaurant", () => {
+    expect(isTravelAgency(place({ category: "tourist_attraction", name: "마젤란의 십자가" }))).toBe(false);
+    expect(isTravelAgency(place({ category: "restaurant", name: "House of Lechon" }))).toBe(false);
+  });
+});
+
+describe("isSpa — 휴양형 스파 상한 판정용 (작업지시서 2026-09-29 §3-③)", () => {
+  it("flags a place by Google primaryType spa", () => {
+    expect(isSpa(place({ category: "spa", name: "Cheeva Spa" }))).toBe(true);
+  });
+
+  it("flags a place by name even without a spa category", () => {
+    expect(isSpa(place({ category: "point_of_interest", name: "Thai Royale Spa Cebu City Branch" }))).toBe(true);
+    expect(isSpa(place({ category: "point_of_interest", name: "피톤치드 spa" }))).toBe(true);
+  });
+
+  it("does not flag an unrelated place", () => {
+    expect(isSpa(place({ category: "restaurant", name: "Cabana Restaurant" }))).toBe(false);
+  });
+});
+
+describe("isBeach — 휴양형 해변 보장 판정용 (작업지시서 2026-09-29 §3-④)", () => {
+  it("flags a place by Google primaryType beach", () => {
+    expect(isBeach(place({ category: "beach", name: "화이트 비치" }))).toBe(true);
+  });
+
+  it("flags a place by name even without a beach category", () => {
+    expect(isBeach(place({ category: "point_of_interest", name: "막탄 해변" }))).toBe(true);
+  });
+
+  it("does not flag an unrelated place", () => {
+    expect(isBeach(place({ category: "restaurant", name: "Cabana Restaurant" }))).toBe(false);
   });
 });
