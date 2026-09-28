@@ -12,6 +12,7 @@ import {
   cuisineKeyword,
   googleTop,
   THEME_LABELS,
+  THEME_SLOTS,
   type CourseTheme,
 } from "./courseRecommend";
 import type { Place } from "@/lib/types";
@@ -337,5 +338,26 @@ describe("googleTop — 실패 시 원인을 로그로 남긴다 (작업지시�
     );
     const result = await googleTop("오사카 관광지", "test-key");
     expect(result).toEqual([{ id: "p1", displayName: { text: "오사카성" } }]);
+  });
+});
+
+// 작업지시서 2026-09-28 "새 기준선이 멀쩡한 도시를 떨어뜨립니다" §3 —
+// 실측(세부 d3): 액티비티·해변·스파가 0곳, 음식점·관광지만 나왔다.
+// 원인은 activity/relax 슬롯이 category:"attraction"을 그대로 써서
+// Google 호출이 includedType="tourist_attraction"으로 강하게 제한되고
+// (스파·투어업체가 배제됨), 검색어 뒤에도 "관광명소"가 붙었기 때문이다
+// (fetchSlotCandidatesLive 주석 참고). 이 회귀가 되돌아오지 않도록
+// resort 테마의 슬롯 구성을 고정한다.
+describe("THEME_SLOTS.resort — activity/relax 슬롯은 category가 없어야 한다 (작업지시서 2026-09-28 §3)", () => {
+  it("does not constrain activity/relax to the attraction Google type or append its label", () => {
+    const activity = THEME_SLOTS.resort.find((s) => s.key === "activity");
+    const relax = THEME_SLOTS.resort.find((s) => s.key === "relax");
+    expect(activity?.category).toBeUndefined();
+    expect(relax?.category).toBeUndefined();
+  });
+
+  it("keeps the dinner slot as a restaurant (unaffected by this fix)", () => {
+    const dinner = THEME_SLOTS.resort.find((s) => s.key === "dinner");
+    expect(dinner?.category).toBe("restaurant");
   });
 });
