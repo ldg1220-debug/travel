@@ -1002,21 +1002,20 @@ describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미�
     return { name: `spot-${order}`, category: "관광지", rating: null, reviewCount: null, lat: 0, lng: 0, order, day: 1, toNextMinutes: null, toNextMode: "car" };
   }
 
-  // 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §4 —
-  // "오사카"는 city 스타일이라 minViableSpots("city", 1) === 4다. 4곳을
-  // 기본으로 둔다(3곳이던 이전 값은 이제 이 기준 미만이라 스팟 부족으로
-  // 거절된다 — 아래 "thin" 테스트가 바로 그 경계를 확인한다).
+  // 작업지시서 2026-09-28 "새 기준선이 멀쩡한 도시를 떨어뜨립니다" §2 —
+  // city 계수를 4 → 3으로 임시로 낮췄다(A-2가 들어올 때까지). "오사카"는
+  // city 스타일이라 minViableSpots("city", 1) === 3이다.
   function payload(overrides: Partial<CourseBrief> = {}): CourseBrief {
     return {
       region: "오사카",
       days: 1,
       totalDistanceKm: 10,
-      spots: [spotAt(1), spotAt(2), spotAt(3), spotAt(4)],
+      spots: [spotAt(1), spotAt(2), spotAt(3)],
       imageUrl: null,
       appUrl: "https://example.com",
       ratingSource: "google",
       distanceSource: "route",
-      dayTotals: [{ day: 1, distanceKm: 10, spotCount: 4 }],
+      dayTotals: [{ day: 1, distanceKm: 10, spotCount: 3 }],
       ...overrides,
     };
   }
@@ -1047,12 +1046,19 @@ describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미�
     expect(isFreshBriefPayload(thin)).toBe(false);
   });
 
-  // 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §4 —
-  // 휴양형은 하루 스팟이 적은 게 정상이라(minViableSpots("resort", 1) === 3)
-  // city 기준(4)을 그대로 쓰면 정상 결과까지 거절한다.
-  it("accepts a 3-spot payload for a resort-style region where city style would reject it", () => {
-    const resortDay1 = payload({ region: "세부", spots: [spotAt(1), spotAt(2), spotAt(3)], dayTotals: [{ day: 1, distanceKm: 10, spotCount: 3 }] });
-    expect(isFreshBriefPayload(resortDay1)).toBe(true);
+  // 작업지시서 2026-09-28 "새 기준선이 멀쩡한 도시를 떨어뜨립니다" §2 —
+  // city 계수가 3으로 낮아지면서 days=1에서는 둘 다 공통 바닥값(3)에
+  // 걸려 구분이 안 된다(city: max(3,3)=3, resort: max(3,2)=3) — days=2로
+  // 확인해야 휴양형이 여전히 더 낮은 기준(4 vs 6)을 쓴다는 걸 볼 수 있다.
+  it("accepts a payload below the city threshold for a resort-style region at days=2", () => {
+    const resortDay2 = payload({
+      region: "세부",
+      days: 2,
+      spots: [spotAt(1), spotAt(2), spotAt(3), spotAt(4)],
+      dayTotals: [{ day: 1, distanceKm: 10, spotCount: 4 }],
+    });
+    expect(isFreshBriefPayload(resortDay2)).toBe(true); // resort 2일 기준(max(3,4))=4 — 통과
+    expect(isFreshBriefPayload({ ...resortDay2, region: "오사카" })).toBe(false); // city 2일 기준(max(3,6))=6 — 미달
   });
 });
 
@@ -1420,13 +1426,13 @@ describe("isCacheableBrief — 스팟이 너무 적은 실패 결과는 캐시�
     expect(isCacheableBrief(Array.from({ length: 12 }, courseBriefSpot), "city", 3)).toBe(true);
   });
 
-  // 작업지시서 2026-09-23 "자동 코스 일수 확장(도시형 5일·휴양형 7일)" §4 —
-  // 스타일별 기준이 다르다: city는 하루 4곳, resort는 하루 2곳(최소 3곳
-  // 바닥은 공통)이 기준이다.
+  // 작업지시서 2026-09-28 "새 기준선이 멀쩡한 도시를 떨어뜨립니다" §2 —
+  // city 계수가 3으로 낮아지면서 days=1은 둘 다 공통 바닥값(3)에 걸려
+  // 구분이 안 된다 — days=2(city=6, resort=4)로 확인한다.
   it("uses a lower per-day threshold for resort style than city style", () => {
-    const threeSpots = [courseBriefSpot(), courseBriefSpot(), courseBriefSpot()];
-    expect(isCacheableBrief(threeSpots, "resort", 1)).toBe(true); // resort 1일 기준(max(3,2))=3 — 통과
-    expect(isCacheableBrief(threeSpots, "city", 1)).toBe(false); // city 1일 기준(max(3,4))=4 — 미달
+    const fourSpots = [courseBriefSpot(), courseBriefSpot(), courseBriefSpot(), courseBriefSpot()];
+    expect(isCacheableBrief(fourSpots, "resort", 2)).toBe(true); // resort 2일 기준(max(3,4))=4 — 통과
+    expect(isCacheableBrief(fourSpots, "city", 2)).toBe(false); // city 2일 기준(max(3,6))=6 — 미달
   });
 });
 
@@ -1456,12 +1462,18 @@ describe("maxDaysForStyle — 작업지시서 2026-09-23 §1", () => {
   });
 });
 
-describe("minViableSpots — 작업지시서 2026-09-23 §4 표(city: days×4, resort: days×2, 공통 바닥 3)", () => {
-  it("matches the work order's table exactly for city", () => {
-    expect(minViableSpots("city", 1)).toBe(4);
-    expect(minViableSpots("city", 2)).toBe(8);
-    expect(minViableSpots("city", 3)).toBe(12);
-    expect(minViableSpots("city", 5)).toBe(20);
+describe("minViableSpots — city는 임시로 days×3(작업지시서 2026-09-28 §2), resort는 days×2, 공통 바닥 3", () => {
+  // 작업지시서 2026-09-28 "새 기준선이 멀쩡한 도시를 떨어뜨립니다" §2 —
+  // days×4(2026-09-23 §4 원안)는 후보 풀이 아직 일수에 맞춰 늘지 않은
+  // 상태(A-2 이전)에서 너무 엄격했다 — 오사카 d2(7/8)·경주 d3(10/12) 등
+  // 멀쩡한 지역이 1~2곳 차로 떨어졌다. A-2(후보 풀을 일수와 무관하게
+  // 한 번만 수집)가 들어올 때까지 3으로 낮춘다 — "되돌리는 게 아니라
+  // 순서를 맞추는 것"(지시서 원문). A-2 완료 후 다시 4로 올려야 한다.
+  it("matches the temporarily-lowered city coefficient (×3)", () => {
+    expect(minViableSpots("city", 1)).toBe(3);
+    expect(minViableSpots("city", 2)).toBe(6);
+    expect(minViableSpots("city", 3)).toBe(9);
+    expect(minViableSpots("city", 5)).toBe(15);
   });
 
   it("matches the work order's table exactly for resort, with the 3-spot floor only affecting day 1", () => {

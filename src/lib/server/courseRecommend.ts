@@ -180,12 +180,25 @@ export const THEME_SLOTS: Record<CourseTheme, RecommendSlot[]> = {
   // 될 관광지가 억지로 채워진다. 3슬롯으로 줄이고 관광지 대신 호핑·
   // 스노클링·투어 같은 액티비티, 스파·마사지, 야시장을 낀 저녁으로
   // 바꿨다 — "리조트 휴식"처럼 슬롯 자체가 없는 시간은 결함이 아니라
-  // 의도된 여백이다. 실제 후보가 잘 잡히는지는 이 세션에서 라이브
-  // 검증하지 못했다(§7 "먼저 재보라"는 실측 지시를 이 세션은 배포 환경
-  // 접근 없이 수행할 수 없었다) — Cowork가 배포 후 확인해야 한다.
+  // 의도된 여백이다.
+  //
+  // 작업지시서 2026-09-28 "새 기준선이 멀쩡한 도시를 떨어뜨립니다" §3 —
+  // 실측(세부 d3): 결과가 음식점 3·관광지 2·기타 1로, 액티비티·해변·
+  // 스파가 0이었다. 원인: activity/relax 슬롯에 category: "attraction"을
+  // 그대로 썼는데, googleTop 호출부(fetchSlotCandidatesLive)가 이
+  // category를 두 군데에 쓴다 — (1) CATEGORY_TYPE["attraction"] =
+  // "tourist_attraction"을 Google의 includedType으로 넘겨 결과를 그
+  // 타입으로만 강하게 제한하고(스파·투어업체는 이 타입이 아니라
+  // 배제됨), (2) CATEGORY_LABEL["attraction"] = "관광명소"를 검색어
+  // 뒤에 붙여("세부 액티비티 투어 관광명소") 검색 자체를 일반 관광지
+  // 쪽으로 밀었다. category를 아예 비워 이 두 부작용을 없앤다 — 품질
+  // 하한(passesQualityGate)은 category별 값이 없으면 DEFAULT_MIN_REVIEWS
+  // (12)로 자연히 폴백한다. 실제로 호핑·스노클링·스파 후보가 잘
+  // 잡히는지는 이 세션이 라이브 검증하지 못했다 — Cowork가 배포 후
+  // 확인해야 한다.
   resort: [
-    { key: "activity", label: "액티비티", keyword: "액티비티 투어", hour: 10, category: "attraction" },
-    { key: "relax", label: "휴식·스파", keyword: "스파 마사지", hour: 15, category: "attraction" },
+    { key: "activity", label: "액티비티", keyword: "액티비티 투어", hour: 10 },
+    { key: "relax", label: "휴식·스파", keyword: "스파 마사지", hour: 15 },
     { key: "dinner", label: "저녁·야시장", keyword: "야시장 맛집", hour: 19, category: "restaurant", meal: true },
   ],
 };
@@ -272,10 +285,11 @@ const THEME_SLOT_TEMPLATES: Record<CourseTheme, SlotTemplate[]> = {
     { key: "night", label: "야경 명소", keyword: "야경 명소", category: "attraction", durationMinutes: 60 },
     { key: "dinner", label: "저녁", keyword: "저녁 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
   ],
-  // THEME_SLOTS.resort와 같은 키/라벨/키워드/카테고리 — 위 주석 참고.
+  // THEME_SLOTS.resort와 같은 키/라벨/키워드/카테고리(작업지시서
+  // 2026-09-28 §3 — category를 비운 이유는 위 THEME_SLOTS.resort 주석 참고).
   resort: [
-    { key: "activity", label: "액티비티", keyword: "액티비티 투어", category: "attraction", durationMinutes: 150 },
-    { key: "relax", label: "휴식·스파", keyword: "스파 마사지", category: "attraction", durationMinutes: 90 },
+    { key: "activity", label: "액티비티", keyword: "액티비티 투어", durationMinutes: 150 },
+    { key: "relax", label: "휴식·스파", keyword: "스파 마사지", durationMinutes: 90 },
     { key: "dinner", label: "저녁·야시장", keyword: "야시장 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
   ],
 };
@@ -757,13 +771,28 @@ export async function fetchSlotCandidates(
   // 써진 캐시 행이 TTL 동안 남아있을 수 있다.
   if (cached) return qualityFilter(cached.filter(isValidPlace));
 
-  const fresh = (await fetchSlotCandidatesLive(scope, city, slot, extraQuery, onFailure)).filter(isValidPlace);
+  const liveResults = await fetchSlotCandidatesLive(scope, city, slot, extraQuery, onFailure);
+  const fresh = liveResults.filter(isValidPlace);
   // 빈 결과는 캐시하지 않는다 — 진짜 "이 검색은 결과가 없다"인지, API가
   // 일시적으로 실패해 빈 배열이 온 건지(googleTop/kakaoTop 둘 다 !res.ok면
   // 조용히 []을 반환) 구분할 수 없어, 다음 요청은 항상 다시 라이브로
   // 시도하게 둔다.
   if (fresh.length > 0) await writeCandidateCache(cacheKey, fresh);
-  return qualityFilter(fresh);
+  const gated = qualityFilter(fresh);
+  // 작업지시서 2026-09-28 "새 기준선이 멀쩡한 도시를 떨어뜨립니다" §4 —
+  // 교토 d1이 TransientApiFailureError로 분류되지 않았는데도(Google
+  // 호출 자체는 실패가 아니었다는 뜻) 후보가 2곳으로 무너졌다. "슬롯별
+  // 반환 개수·필터에서 몇 개가 빠졌는지"를 Vercel 로그에서 확인해
+  // 달라는 요청에 답할 수 있는 로그가 지금까지 없었다 — 콜드(캐시 미스)
+  // 경로에서 raw(원본)·isValidPlace 통과·품질 게이트(평점·리뷰수) 통과
+  // 개수를 각각 남긴다. 게이트를 통과한 수가 raw보다 뚜렷이 적으면
+  // 평점·리뷰수 하한(passesQualityGate/MIN_REVIEWS_BY_CATEGORY)이 원인,
+  // raw 자체가 이미 적으면 Google 검색 결과 자체(질의·타입 제한)가
+  // 원인이라는 걸 이 로그만으로 구분할 수 있다.
+  console.log(
+    `[courseRecommend] fetchSlotCandidates ${scope}/${city}/"${slot.keyword}"(${slot.category ?? "no-category"}${extraQuery ? ":x2" : ""}): raw=${liveResults.length} valid=${fresh.length} gated=${gated.length}`,
+  );
+  return gated;
 }
 
 async function fetchSlotCandidatesLive(

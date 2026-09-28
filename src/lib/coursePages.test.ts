@@ -127,18 +127,26 @@ describe("matchEnabledCourseRegion — 후기 제목 → 코스 페이지 역방
 });
 
 describe("isCourseBriefThin — 얇은 콘텐츠 판정 (§5)", () => {
-  it("flags a course with fewer than 5 spots", () => {
-    expect(isCourseBriefThin([spot(), spot(), spot()])).toBe(true);
+  // 작업지시서 2026-09-28 §2-② — 기준값(minSpots)은 이제 호출부가 넘긴다
+  // (courseBrief.ts의 minViableSpots를 몰라도 되는 순수 함수로 유지하기
+  // 위해서 — 파일 상단 docstring 참고). 여기서는 API와 같은 기준을
+  // 재현하기 위해 5를 그대로 인자로 넘긴다.
+  it("flags a course with fewer spots than the given minimum", () => {
+    expect(isCourseBriefThin([spot(), spot(), spot()], 5)).toBe(true);
   });
 
   it("flags a course where half or more spots have no rating", () => {
     const spots = [spot(), spot(), spot({ rating: null }), spot({ rating: null }), spot({ rating: null })];
-    expect(isCourseBriefThin(spots)).toBe(true);
+    expect(isCourseBriefThin(spots, 5)).toBe(true);
   });
 
-  it("does not flag a healthy 5+ spot, mostly-rated course", () => {
+  it("does not flag a healthy course at or above the given minimum, mostly-rated", () => {
     const spots = [spot(), spot(), spot(), spot(), spot(), spot({ rating: null })];
-    expect(isCourseBriefThin(spots)).toBe(false);
+    expect(isCourseBriefThin(spots, 5)).toBe(false);
+  });
+
+  it("respects a lower minimum (e.g. resort-style days=1) — a 3-spot course isn't flagged as thin", () => {
+    expect(isCourseBriefThin([spot(), spot(), spot()], 3)).toBe(false);
   });
 });
 

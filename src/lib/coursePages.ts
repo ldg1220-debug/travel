@@ -147,8 +147,19 @@ export function matchEnabledCourseRegion(title: string): string | null {
 // 작업지시서 §5 "데이터가 얇으면 만들지 마세요 — 스팟 5곳 미만·평점 없는
 // 곳이 절반 이상 → 그 조합은 페이지를 만들지 않음. 없는 페이지가 나쁜
 // 페이지보다 낫습니다."
-export function isCourseBriefThin(spots: CourseBriefSpot[]): boolean {
-  if (spots.length < 5) return true;
+//
+// 작업지시서 2026-09-28 "새 기준선이 멀쩡한 도시를 떨어뜨립니다" §2-② —
+// 이 함수가 고정 5를 쓰는 동안 API(course-brief route.ts)는 스타일·
+// 일수별 minViableSpots(courseBrief.ts)를 썼다 — 그래서 경주 2박3일이
+// API로는 11 < 12(당시 기준)로 거절되는 순간에도 페이지는 11 >= 5라
+// 그대로 렌더됐다("페이지와 API가 같은 판정 함수를 쓰게" 요청). 이
+// 파일은 클라이언트 번들에도 들어가(위 파일 docstring 참고) courseBrief.ts
+// 의 값(pool을 끄는 서버 전용 모듈)을 직접 import할 수 없으므로, 기준값
+// 자체는 호출부(page.tsx, 서버 컴포넌트)가 minViableSpots(style, days)로
+// 계산해 여기엔 숫자로만 넘긴다 — 이 함수는 여전히 courseBrief.ts를
+// 몰라도 되는 순수 함수로 남는다.
+export function isCourseBriefThin(spots: CourseBriefSpot[], minSpots: number): boolean {
+  if (spots.length < minSpots) return true;
   const unrated = spots.filter((s) => s.rating == null).length;
   return unrated / spots.length >= 0.5;
 }

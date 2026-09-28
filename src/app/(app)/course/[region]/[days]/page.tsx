@@ -2,7 +2,8 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCourseBrief, type CourseBrief } from "@/lib/server/courseBrief";
+import { getCourseBrief, minViableSpots, type CourseBrief } from "@/lib/server/courseBrief";
+import { styleForRegion } from "@/lib/discoverData";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
 import {
   buildCourseIntro,
@@ -110,7 +111,10 @@ const loadEnabledCourseBrief = cache(async (region: string, daysLabel: string): 
     console.error(`[course-page] getCourseBrief threw: region=${region} days=${days}`, err);
     return null;
   }
-  if (isCourseBriefThin(brief.spots)) return null;
+  // 작업지시서 2026-09-28 §2-② — API(course-brief route.ts)와 같은
+  // 기준(minViableSpots)을 쓴다. 고정 5를 쓰던 이전 버전은 API가 거절한
+  // 조합을 페이지가 그대로 렌더하는 불일치를 냈다(경주 2박3일 실측).
+  if (isCourseBriefThin(brief.spots, minViableSpots(styleForRegion(region), days))) return null;
   return brief;
 });
 
