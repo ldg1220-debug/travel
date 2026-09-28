@@ -710,6 +710,32 @@ export function isBeach(p: Place): boolean {
   return p.category?.toLowerCase() === "beach" || /해변|비치|beach/i.test(p.name);
 }
 
+// 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로
+// 들어갑니다" §2 — 세부 d3(2박3일, 여행 중간날)에 "막탄 세부 국제공항"이
+// 그대로 방문지로 들어간 실측이 있었다. 해변/리조트 권역 검색(특히
+// ensureResortBeachSpot의 "해변" 전용 검색)이 공항 인근 좌표를 함께
+// 돌려주는 것으로 보인다 — isTravelAgency와 같은 자리(fetchSlotCandidates
+// 읽기 시점)에서 전 테마 공통으로 제외한다. 페리 선착장은 호핑 출발지일
+// 수 있어 지시서가 명시적으로 건드리지 말라고 했다 — 아래 타입·이름
+// 패턴 어디에도 선착장/페리/ferry는 넣지 않았다. 다만 "터미널"이라는
+// 단어 자체는 국제선박터미널(페리) 이름에도 흔히 쓰여, "OO여객터미널"
+// 같은 실제 항구 시설을 함께 걸러낼 위험이 있다 — 지시서가 준 패턴을
+// 그대로 따르되(§0 "지시서 그대로") 오탐 가능성은 처리 결과에 남긴다.
+const TRANSIT_FACILITY_TYPES = new Set(["airport", "international_airport", "bus_station", "train_station", "transit_station"]);
+const TRANSIT_FACILITY_NAME_PATTERN = /공항|airport|terminal|터미널/i;
+export function isTransitFacility(p: Place): boolean {
+  return TRANSIT_FACILITY_TYPES.has(p.category?.toLowerCase() ?? "") || TRANSIT_FACILITY_NAME_PATTERN.test(p.name);
+}
+
+// 같은 지시서 §4 — 해외 코스는 현지 음식이 목적인데, 한국어로 검색하면서
+// 한국인 대상 업소가 상위에 오는 경향이 실측(세부 7일 음식점 7곳 중
+// 한식 3곳)에서 확인됐다. courseBrief.ts가 이 판정으로 해외 코스 전체
+// 한식당을 1곳 이하로 캡한다(국내 코스는 당연히 전부 한식이라 이 캡을
+// 적용하지 않는다 — scope==="overseas"일 때만 courseBrief.ts에서 호출).
+export function isKoreanRestaurant(p: Place): boolean {
+  return p.category?.toLowerCase() === "korean_restaurant" || /korean|한식|한국/i.test(p.name);
+}
+
 // 슬롯 카테고리별 최소 리뷰 수. 2차 실측(오사카 3박4일)에서 "성합지"
 // (4.2)/"구치나와자카"(4.1) 같은 항목이 평점 유무 게이트는 통과해
 // "리뷰 수 절대량" 기준으로 바꿨는데, 처음엔 실측 정상 스팟(오사카 성
@@ -810,10 +836,11 @@ export async function fetchSlotCandidates(
   // 않고 바로 반영되게 하기 위함(경계선 후보를 캐시에서 아예 지워버리면
   // 나중 튜닝으로도 못 살림). isValidPlace는 반대로 구조 자체가 틀린
   // 항목이라 캐시에 쓰기 전에 영구히 걸러낸다.
-  // isTravelAgency도 applyQualityGate와 같은 이유로 캐시에 굽지 않고 읽는
-  // 시점에 적용한다(작업지시서 2026-09-29 §3-①) — 판정 로직을 나중에
-  // 넓히거나 좁혀도 캐시 TTL(7일)을 기다리지 않고 바로 반영된다.
-  const qualityFilter = (places: Place[]) => applyQualityGate(places, scope, slot.category).filter((p) => !isTravelAgency(p));
+  // isTravelAgency/isTransitFacility도 applyQualityGate와 같은 이유로
+  // 캐시에 굽지 않고 읽는 시점에 적용한다(작업지시서 2026-09-29 §3-①,
+  // "#276 검증" §2) — 판정 로직을 나중에 넓히거나 좁혀도 캐시 TTL(7일)을
+  // 기다리지 않고 바로 반영된다.
+  const qualityFilter = (places: Place[]) => applyQualityGate(places, scope, slot.category).filter((p) => !isTravelAgency(p) && !isTransitFacility(p));
 
   const cached = await readCandidateCache(cacheKey);
   // 캐시된 값도 isValidPlace로 걸러야 한다 — 이 검증이 추가되기 전에 이미

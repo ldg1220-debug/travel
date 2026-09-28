@@ -12,6 +12,8 @@ import {
   isTravelAgency,
   isSpa,
   isBeach,
+  isTransitFacility,
+  isKoreanRestaurant,
   cuisineKeyword,
   googleTop,
   THEME_LABELS,
@@ -422,5 +424,48 @@ describe("isBeach — 휴양형 해변 보장 판정용 (작업지시서 2026-09
 
   it("does not flag an unrelated place", () => {
     expect(isBeach(place({ category: "restaurant", name: "Cabana Restaurant" }))).toBe(false);
+  });
+});
+
+// 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로
+// 들어갑니다" §2 — 해변/리조트 권역 검색이 공항을 함께 돌려줘, 세부
+// 2박3일 2일차에 "막탄 세부 국제공항"이 방문지로 들어간 실측이 있었다.
+describe("isTransitFacility — 공항·교통 시설 제외 (작업지시서 2026-09-29 '#276 검증' §2)", () => {
+  it("flags a place by Google primaryType (airport, bus/train/transit station)", () => {
+    expect(isTransitFacility(place({ category: "airport", name: "막탄 세부 국제공항" }))).toBe(true);
+    expect(isTransitFacility(place({ category: "international_airport", name: "Mactan-Cebu International Airport" }))).toBe(true);
+    expect(isTransitFacility(place({ category: "bus_station", name: "동부시외버스터미널" }))).toBe(true);
+    expect(isTransitFacility(place({ category: "train_station", name: "Cebu Station" }))).toBe(true);
+  });
+
+  it("flags a place by name even without a matching category", () => {
+    expect(isTransitFacility(place({ category: "point_of_interest", name: "Mactan-Cebu International Airport" }))).toBe(true);
+    expect(isTransitFacility(place({ category: "point_of_interest", name: "센트럴 터미널" }))).toBe(true);
+  });
+
+  it("does not flag an actual attraction, restaurant, or beach", () => {
+    expect(isTransitFacility(place({ category: "beach", name: "막탄 해변" }))).toBe(false);
+    expect(isTransitFacility(place({ category: "restaurant", name: "House of Lechon" }))).toBe(false);
+  });
+
+  // 지시서 §2 — "페리 선착장은 호핑 출발지일 수 있으니 이번엔 건드리지
+  // 마세요": ferry_terminal 타입이나 "선착장"/"페리" 이름은 걸리지 않아야 한다.
+  it("does not flag a ferry pier by type or by name unless it says 터미널/airport/공항", () => {
+    expect(isTransitFacility(place({ category: "ferry_terminal", name: "카오하간 선착장" }))).toBe(false);
+  });
+});
+
+describe("isKoreanRestaurant — 해외 코스 한식당 상한 판정용 (작업지시서 2026-09-29 '#276 검증' §4)", () => {
+  it("flags a place by Google primaryType korean_restaurant", () => {
+    expect(isKoreanRestaurant(place({ category: "korean_restaurant", name: "88식당 88 korean restaurant" }))).toBe(true);
+  });
+
+  it("flags a place by name even without that category", () => {
+    expect(isKoreanRestaurant(place({ category: "restaurant", name: "Da-In Korean Restaurant" }))).toBe(true);
+    expect(isKoreanRestaurant(place({ category: "restaurant", name: "한식당 소반" }))).toBe(true);
+  });
+
+  it("does not flag a local (non-Korean) restaurant", () => {
+    expect(isKoreanRestaurant(place({ category: "restaurant", name: "House of Lechon" }))).toBe(false);
   });
 });
