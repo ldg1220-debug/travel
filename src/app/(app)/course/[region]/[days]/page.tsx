@@ -2,7 +2,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCourseBrief, minViableSpots, type CourseBrief } from "@/lib/server/courseBrief";
+import { getCourseBrief, meetsResortBeachRequirement, minViableSpots, type CourseBrief } from "@/lib/server/courseBrief";
 import { styleForRegion } from "@/lib/discoverData";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
 import {
@@ -115,6 +115,10 @@ const loadEnabledCourseBrief = cache(async (region: string, daysLabel: string): 
   // 기준(minViableSpots)을 쓴다. 고정 5를 쓰던 이전 버전은 API가 거절한
   // 조합을 페이지가 그대로 렌더하는 불일치를 냈다(경주 2박3일 실측).
   if (isCourseBriefThin(brief.spots, minViableSpots(styleForRegion(region), days))) return null;
+  // 작업지시서 2026-09-29 "#277 검증" §2 — 같은 이유로, 해변이 하나도
+  // 없는 휴양형 코스도 API(route.ts)와 같은 기준(meetsResortBeachRequirement)
+  // 으로 페이지에서 거절해야 한다.
+  if (!meetsResortBeachRequirement(brief.spots, styleForRegion(region))) return null;
   return brief;
 });
 

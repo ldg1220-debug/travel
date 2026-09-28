@@ -706,8 +706,28 @@ export function isSpa(p: Place): boolean {
 // 같은 지시서 §3-④ — 휴양형 코스 전체에 해변이 하나도 없는 사례(세부 d3
 // 실측: 액티비티 0·해변 0)가 있었다. courseBrief.ts의
 // ensureResortBeachSpot이 이 판정으로 "이미 해변이 있는지"를 확인한다.
-export function isBeach(p: Place): boolean {
+// 작업지시서 2026-09-29 "#277 검증: 세 가지는 됐고, 7일 코스에서 해변이
+// 사라졌습니다" §2 — 이 판정을 courseBrief.ts의 meetsResortBeachRequirement
+// (CourseBriefSpot 배열 — id/placeId/color/icon 등 Place의 다른 필드는
+// 없다)에서도 재사용해야 해서, 실제로 쓰는 두 필드(category/name)만
+// 요구하도록 파라미터 타입을 Place에서 좁혔다 — Place는 이 타입의
+// 구조적 부분집합이라 기존 호출부(FinalStop 등)는 전혀 바뀌지 않는다.
+export function isBeach(p: { category?: string; name: string }): boolean {
   return p.category?.toLowerCase() === "beach" || /해변|비치|beach/i.test(p.name);
+}
+
+// 같은 지시서(#277 검증) §3-② — 휴양형 activity/relax 슬롯이
+// category를 비워(작업지시서 2026-09-28 §3) Google 타입 제한이 없어진
+// 대신, 스파 검색("스파 마사지")이 스파를 갖춘 호텔 자체를 후보로
+// 돌려주는 사례(세부 d5 "웰컴 호텔")가 생겼다. 숙소는 리조트 앵커
+// 하나(예: 샹그릴라 막탄 세부)만 코스에 남아야 한다 — courseBrief.ts의
+// capLodgingToOne이 이 판정으로 "이게 숙소인가"를 확인한다. 이름
+// 패턴은 쓰지 않는다 — 호텔 이름이 지나치게 다양해 오탐 위험이 이
+// 코드베이스의 다른 이름 매칭보다 크다고 판단, isLargeFacility처럼
+// primaryType만으로 판정한다.
+const LODGING_TYPES = new Set(["lodging", "hotel", "resort_hotel", "motel", "guest_house", "hostel", "bed_and_breakfast"]);
+export function isLodging(p: Place): boolean {
+  return LODGING_TYPES.has(p.category?.toLowerCase() ?? "");
 }
 
 // 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로
