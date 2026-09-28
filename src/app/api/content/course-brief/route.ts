@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, maxDaysForStyle, minViableSpots, parseDays, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { getCourseBrief, maxDaysForStyle, meetsResortBeachRequirement, minViableSpots, parseDays, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
 import { styleForRegion, suggestOverseasRegions } from "@/lib/discoverData";
 
 /**
@@ -88,7 +88,13 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // 일수 확장" §4) — 휴양형은 하루 스팟이 적은 게 정상이라 도시형
   // 기준을 그대로 쓰면 정상 결과까지 거절하게 된다.
   const threshold = minViableSpots(style, days);
-  if (brief.spots.length < threshold) {
+  // 작업지시서 2026-09-29 "#277 검증: 세 가지는 됐고, 7일 코스에서
+  // 해변이 사라졌습니다" §2 — 스팟 수가 충분해도 휴양형 코스에 해변이
+  // 하나도 없으면 "휴양 코스로 성립하지 않는다"(지시서 원문)는 별도
+  // 판정이다. isCacheableBrief(쓰기)·isFreshBriefPayload(읽기)와 같은
+  // 기준(meetsResortBeachRequirement)을 여기서도 써야 어긋나지 않는다
+  // (작업지시서 2026-09-28 §2② 원칙 — 페이지·API가 같은 기준을 쓸 것).
+  if (brief.spots.length < threshold || !meetsResortBeachRequirement(brief.spots, style)) {
     return NextResponse.json({ error: "insufficient_spots", count: brief.spots.length, threshold }, { status: 422 });
   }
   return NextResponse.json(brief);

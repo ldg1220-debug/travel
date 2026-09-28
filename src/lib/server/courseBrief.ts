@@ -10,6 +10,7 @@ import {
   isBeach,
   isKoreanRestaurant,
   isLargeFacility,
+  isLodging,
   isSpa,
   sameShop,
   stripBranchSuffix,
@@ -264,7 +265,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 12; // 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로 들어갑니다" §5 — 공항·교통 시설 제외, 스파 하루 상한을 재배치 이후로 옮긴 수정, 해외 한식당 상한이 전부 이 최종 브리프 조립 로직(courseBrief.ts)과 fetchSlotCandidates 읽기 시점 필터에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 세부 d3·d7 같은 지역이 26시간 동안 공항·스파 중복이 그대로인 옛 구성을 반환한다. 이전(11)과 같은 이유로 한 번에 무효화.
+export const COURSE_ALGO_VERSION = 13; // 작업지시서 2026-09-29 "#277 검증: 세 가지는 됐고, 7일 코스에서 해변이 사라졌습니다" §4 — 해변 보장을 재배치·상한·재배분 이후의 "마지막 단계"로 옮긴 수정, 하루 최소 2곳 재배분(redistributeThinResortDays), 숙소 1곳 캡(capLodgingToOne)이 전부 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 세부 d7 같은 지역이 26시간 동안 해변 없는 옛 구성을 그대로 반환한다. 이전(12)과 같은 이유로 한 번에 무효화.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -292,6 +293,11 @@ export function isFreshBriefPayload(payload: CourseBrief): boolean {
   // 다르다(minViableSpots) — payload 자체에 region/days가 이미 있어
   // 별도 인자 없이 여기서 구할 수 있다.
   if (payload.spots.length < minViableSpots(styleForRegion(payload.region), payload.days)) return false;
+  // 작업지시서 2026-09-29 "#277 검증: 세 가지는 됐고, 7일 코스에서
+  // 해변이 사라졌습니다" §2 — 스팟 수 기준과 같은 이유로, 해변이 하나도
+  // 없는 휴양형 결과도 읽기 경로에서 캐시 미스로 취급해야 한다(안
+  // 그러면 캐시 TTL 26시간 동안 해변 없는 "휴양 코스"가 계속 나간다).
+  if (!meetsResortBeachRequirement(payload.spots, styleForRegion(payload.region))) return false;
   return payload.spots.every((s) => typeof (s as { day?: unknown }).day === "number");
 }
 
@@ -2287,7 +2293,20 @@ export const MIN_VIABLE_SPOTS = 3;
  * 정상 결과까지 "캐시할 가치 없음"으로 오판한다.
  */
 export function isCacheableBrief(spots: CourseBriefSpot[], style: RegionStyle, days: CourseDays): boolean {
-  return spots.length >= minViableSpots(style, days);
+  return spots.length >= minViableSpots(style, days) && meetsResortBeachRequirement(spots, style);
+}
+
+/**
+ * 작업지시서 2026-09-29 "#277 검증: 세 가지는 됐고, 7일 코스에서 해변이
+ * 사라졌습니다" §2 — 지시서 원문: "세부 7일인데 섬도 해변도 없는 코스는
+ * 휴양 코스로 성립하지 않는다." 스팟 수(minViableSpots)와 별개의 축이라
+ * — 스팟이 충분해도 해변이 하나도 없으면 통과시키지 않는다. 도시형은
+ * 검사하지 않는다(해변이 없는 게 당연함). isCacheableBrief(쓰기)·
+ * isFreshBriefPayload(읽기)·route.ts(422 응답) 셋 다 같은 기준을 써야
+ * 한다는 원칙(작업지시서 2026-09-28 §2②)을 그대로 따른다.
+ */
+export function meetsResortBeachRequirement(spots: { category: string; name: string }[], style: RegionStyle): boolean {
+  return style !== "resort" || spots.some(isBeach);
 }
 
 // 평점*리뷰수 — 이 파일의 다른 두 곳(중복 스팟 중 더 나은 쪽 고르기,
@@ -2373,6 +2392,19 @@ export function capOverseasKoreanRestaurants(dayStops: FinalStop[][]): FinalStop
  * "해변" 전용 검색을 한 번 더 해서 채운다. 후보를 못 찾으면 그대로
  * 둔다 — 억지로 만들어내지 않는다는 이 코드베이스의 기존 원칙(§3-③
  * capResortSpaSpots 주석 참고) 그대로다.
+ *
+ * 작업지시서 2026-09-29 "#277 검증: 세 가지는 됐고, 7일 코스에서 해변이
+ * 사라졌습니다" §2 — 처음엔 이 함수를 reallocateStopsByDay(지리적
+ * 재배치) *이전*에 불렀는데, 실측(세부 d7)에서 어제(#276) 있던 해변
+ * 2곳이 오늘(#277) 0곳으로 사라졌다. 해변(섬 등)은 다른 스팟들과
+ * 지리적으로 멀리 떨어진 경우가 흔해, 재배치 파이프라인(거리 기반
+ * 재균형·이상치 제거를 포함)이 "지리적으로 덜 어울리는 후보"로 보고
+ * 빼버렸을 가능성이 크다 — 정확한 단계는 특정하지 못했지만(라이브
+ * 검증 불가), 지시서의 처방("모든 필터·상한·일자 배분이 끝난 마지막
+ * 단계에서 검사")이 원인 규명 없이도 문제를 구조적으로 없앤다: 재배치·
+ * 스파 하루 상한·하루 최소 2곳 재배분이 전부 끝난 뒤에 이 함수를
+ * 불러(buildBrief 참고), 그 이후엔 이 결과를 건드리는 단계가 없으므로
+ * 재배치가 다시 해변을 밀어낼 수 없다.
  */
 async function ensureResortBeachSpot(
   scope: CourseBriefScope,
@@ -2396,6 +2428,51 @@ async function ensureResortBeachSpot(
   const targetIdx = dayStops.reduce((minIdx, stops, idx, arr) => (stops.length < arr[minIdx].length ? idx : minIdx), 0);
   const beachStop: FinalStop = { ...pick, slotKey: "beach", slotLabel: "해변", hour: 11, meal: false };
   return dayStops.map((stops, idx) => (idx === targetIdx ? [...stops, beachStop] : stops));
+}
+
+/**
+ * 작업지시서 2026-09-29 "#277 검증" §3-② — 휴양형 activity/relax
+ * 슬롯이 category 제한 없이 검색해(작업지시서 2026-09-28 §3), 스파를
+ * 갖춘 호텔 자체가 "스파 마사지" 검색에 걸리는 사례(세부 d5 "웰컴
+ * 호텔")가 생겼다. 숙소는 리조트 앵커 하나(예: 샹그릴라 막탄 세부)만
+ * 남기고 나머지는 뺀다 — 대체하지 않는다(다른 캡 함수와 같은 원칙).
+ * 코스 전체 총량 캡이라 capResortSpaSpotsTotal과 같은 자리(재배치
+ * 이전)에서 부른다 — "리조트 앵커"라는 개념 자체가 날짜와 무관하다.
+ */
+export function capLodgingToOne(dayStops: FinalStop[][]): FinalStop[][] {
+  const all = dayStops.flat().filter(isLodging);
+  if (all.length <= 1) return dayStops;
+  const keepId = [...all].sort((a, b) => popularity(b) - popularity(a))[0].id;
+  const dropIds = new Set(all.filter((s) => s.id !== keepId).map((s) => s.id));
+  return dayStops.map((stops) => stops.filter((s) => !dropIds.has(s.id)));
+}
+
+/**
+ * 작업지시서 2026-09-29 "#277 검증" §3-① — 휴양형도 하루 최소 2곳은
+ * 있어야 "하루"가 성립한다(실측: 스파 1곳뿐인 날, 작은 동물원 1곳뿐인
+ * 날). 새 후보를 검색하지 않고 이미 확보한 스팟만 재배치한다 — 스팟이
+ * 3곳 이상(옮겨도 2곳 이상 남는) 날 중 가장 여유로운 날에서, 식사가
+ * 아닌 스팟 중 가장 인기 낮은 것을 옮긴다. reallocateStopsByDay(지리적
+ * 재배치)·capResortSpaSpotsPerDay(하루 스파 상한) *이후*에 불러야 한다
+ * — 그 전에 부르면 이후 단계가 다시 분포를 흐트러뜨릴 수 있다.
+ *
+ * 스팟 총량 자체가 부족하면(예: 하루 이상이 도저히 2곳을 못 채움) 일부
+ * 날은 여전히 1곳으로 남을 수 있다 — 새로 만들어내지 않는다는 원칙상
+ * 이 함수가 보장할 수 있는 건 "가진 걸 최대한 고르게 나누는 것"까지다.
+ */
+export function redistributeThinResortDays(dayGroups: FinalStop[][]): FinalStop[][] {
+  const result = dayGroups.map((stops) => [...stops]);
+  for (const recipient of result) {
+    if (recipient.length >= 2) continue;
+    const donor = result.filter((d) => d !== recipient && d.length > 2).sort((a, b) => b.length - a.length)[0];
+    if (!donor) continue;
+    const movableIdx = donor.reduce<number[]>((acc, s, idx) => (!s.meal ? [...acc, idx] : acc), []);
+    if (movableIdx.length === 0) continue;
+    const pickIdx = movableIdx.reduce((best, idx) => (popularity(donor[idx]) < popularity(donor[best]) ? idx : best));
+    const [moved] = donor.splice(pickIdx, 1);
+    recipient.push(moved);
+  }
+  return result;
 }
 
 export async function buildBrief(
@@ -2431,13 +2508,15 @@ export async function buildBrief(
     dayStops.push(stops);
   }
 
-  // 작업지시서 2026-09-29 §3-③·§3-④·§4 — 후보 "구성"을 후처리한다(스파
-  // 총량 상한 + 해변 최소 1곳 보장 + 해외 한식당 상한). 셋 다
-  // reallocateStopsByDay/routeDayStops 이전에 해야 한다 — 이후엔 순서·
-  // 구간 이동시간이 이미 확정돼, 스팟을 넣거나 빼면 다시 어긋난다.
+  // 작업지시서 2026-09-29 §3-③·§4, "#277 검증" §3-② — 후보 "구성"을
+  // 후처리한다(스파 총량 상한 + 해외 한식당 상한 + 숙소 1곳). 셋 다
+  // "코스 전체 총량" 캡이라 날짜 배정과 무관해, reallocateStopsByDay
+  // 이전에 해도 안전하다 — reallocateStopsByDay/routeDayStops 이전에
+  // 해야 한다는 원칙(이후엔 순서·구간 이동시간이 이미 확정돼 스팟을
+  // 넣거나 빼면 다시 어긋난다)은 그대로 유지.
   let composedDayStops = scope === "overseas" ? capOverseasKoreanRestaurants(dayStops) : dayStops;
   if (style === "resort") {
-    composedDayStops = await ensureResortBeachSpot(scope, region, capResortSpaSpotsTotal(composedDayStops, days), onCandidateFetchFailure);
+    composedDayStops = capLodgingToOne(capResortSpaSpotsTotal(composedDayStops, days));
   }
 
   // 스팟 선정은 위까지 끝났다 — 이제 "어느 날·어느 순서로 방문할지"만
@@ -2449,6 +2528,17 @@ export async function buildBrief(
   // 한다 — 위 capResortSpaSpotsTotal 주석 참고. 실측(세부 2박3일 1일차에
   // 스파 2곳)이 이 순서 문제였다.
   const spaCappedDayGroups = style === "resort" ? capResortSpaSpotsPerDay(geoOrderedDayGroups) : geoOrderedDayGroups;
+  // 작업지시서 2026-09-29 "#277 검증" §3-① — 스파 상한 등으로 하루
+  // 스팟이 1곳까지 줄어든 날을, 여유 있는 날에서 옮겨와 최소 2곳으로
+  // 맞춘다. spaCappedDayGroups 이후에 해야 한다(스파 상한이 만든 1곳짜리
+  // 날을 대상으로 하므로) — redistributeThinResortDays 주석 참고.
+  const redistributedDayGroups = style === "resort" ? redistributeThinResortDays(spaCappedDayGroups) : spaCappedDayGroups;
+  // 작업지시서 2026-09-29 "#277 검증" §2 — 해변 보장은 "모든 필터·상한·
+  // 일자 배분이 끝난 마지막 단계"에서 해야 한다(지시서 원문). 재배치·
+  // 스파 상한·1곳짜리 날 재배분이 전부 끝난 지금이 그 시점이다 — 이
+  // 이후로는 이 배열을 건드리는 단계가 없으므로, 여기서 채운 해변이
+  // 뒤에서 다시 밀려날 수 없다(ensureResortBeachSpot 주석 참고).
+  const beachEnsuredDayGroups = style === "resort" ? await ensureResortBeachSpot(scope, region, redistributedDayGroups, onCandidateFetchFailure) : redistributedDayGroups;
   // 작업지시서 2026-09-23 §3-b — 각 날짜의 첫 스팟이 평점 신호 없이
   // 시작하지 않도록 순서를 조정한다. 반드시 라우팅(바로 아래
   // routeDayStops) 이전에 해야 한다 — 이후에 순서만 바꾸면 구간
@@ -2456,7 +2546,7 @@ export async function buildBrief(
   // (routeDayStops는 "순서상 이웃한 두 스톱" 사이만 조회하므로, 순서를
   // 정한 뒤에 조회해야 항상 맞는다). preferRatedFirstStop 주석 참고 —
   // 스팟을 빼지 않고 순서만 바꾼다(§3-a 제외는 여전히 보류).
-  const finalDayGroups = spaCappedDayGroups.map((stops) => preferRatedFirstStop(scope, region, stops));
+  const finalDayGroups = beachEnsuredDayGroups.map((stops) => preferRatedFirstStop(scope, region, stops));
 
   // 하루 안의 구간(순서상 이웃한 두 스톱)마다 실제 경로를 조회한다 —
   // 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다" §3. 경로가

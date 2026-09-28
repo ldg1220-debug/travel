@@ -14,6 +14,7 @@ import {
   isBeach,
   isTransitFacility,
   isKoreanRestaurant,
+  isLodging,
   cuisineKeyword,
   googleTop,
   THEME_LABELS,
@@ -467,5 +468,25 @@ describe("isKoreanRestaurant — 해외 코스 한식당 상한 판정용 (작�
 
   it("does not flag a local (non-Korean) restaurant", () => {
     expect(isKoreanRestaurant(place({ category: "restaurant", name: "House of Lechon" }))).toBe(false);
+  });
+});
+
+// 작업지시서 2026-09-29 "#277 검증: 세 가지는 됐고, 7일 코스에서 해변이
+// 사라졌습니다" §3-② — 스파를 갖춘 호텔("웰컴 호텔")이 "스파 마사지"
+// 검색에 걸려 두 번째 숙소로 들어간 실측이 있었다. 이름 패턴은 쓰지
+// 않는다 — 호텔 이름이 너무 다양해 오탐 위험이 크다고 판단.
+describe("isLodging — 휴양형 숙소 1곳 캡 판정용 (작업지시서 2026-09-29 '#277 검증' §3-②)", () => {
+  it("flags a place by Google primaryType (hotel/lodging/resort_hotel/motel/etc.)", () => {
+    expect(isLodging(place({ category: "hotel", name: "웰컴 호텔" }))).toBe(true);
+    expect(isLodging(place({ category: "lodging", name: "샹그릴라 막탄 세부" }))).toBe(true);
+    expect(isLodging(place({ category: "resort_hotel", name: "어떤 리조트" }))).toBe(true);
+  });
+
+  it("does not flag a place by name alone — only Google's type is trusted", () => {
+    expect(isLodging(place({ category: "restaurant", name: "OO 호텔 레스토랑" }))).toBe(false);
+  });
+
+  it("does not flag an unrelated place", () => {
+    expect(isLodging(place({ category: "spa", name: "Cheeva Spa" }))).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import {
   assembleDaySpots,
   buildStaticMapUrl,
   capAllDayFacilityDays,
+  capLodgingToOne,
   capOverseasKoreanRestaurants,
   capResortSpaSpotsPerDay,
   capResortSpaSpotsTotal,
@@ -26,6 +27,7 @@ import {
   mapPathParamEncoded,
   maxDaysForStyle,
   medoidOf,
+  meetsResortBeachRequirement,
   minViableSpots,
   orderByNearestNeighbor,
   parseDays,
@@ -34,6 +36,7 @@ import {
   preferRatedFirstStop,
   reallocateStopsByDay,
   reassignByCentroid,
+  redistributeThinResortDays,
   rebalanceByDistance,
   recolorMapPathAsEstimated,
   recolorMapPathForDay,
@@ -1057,7 +1060,10 @@ describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미�
     const resortDay2 = payload({
       region: "세부",
       days: 2,
-      spots: [spotAt(1), spotAt(2), spotAt(3), spotAt(4)],
+      // 작업지시서 2026-09-29 "#277 검증" §2 — 휴양형은 해변이 최소 1곳
+      // 있어야 하므로(meetsResortBeachRequirement), 이 임계값 비교
+      // 테스트가 그 요건 때문에 실패하지 않도록 해변 스팟을 하나 포함한다.
+      spots: [spotAt(1), spotAt(2), spotAt(3), { ...spotAt(4), name: "막탄 해변", category: "beach" }],
       dayTotals: [{ day: 1, distanceKm: 10, spotCount: 4 }],
     });
     expect(isFreshBriefPayload(resortDay2)).toBe(true); // resort 2일 기준(max(3,4))=4 — 통과
@@ -1433,9 +1439,44 @@ describe("isCacheableBrief — 스팟이 너무 적은 실패 결과는 캐시�
   // city 계수가 3으로 낮아지면서 days=1은 둘 다 공통 바닥값(3)에 걸려
   // 구분이 안 된다 — days=2(city=6, resort=4)로 확인한다.
   it("uses a lower per-day threshold for resort style than city style", () => {
-    const fourSpots = [courseBriefSpot(), courseBriefSpot(), courseBriefSpot(), courseBriefSpot()];
+    // 작업지시서 2026-09-29 "#277 검증" §2 — 휴양형은 해변이 최소 1곳
+    // 있어야 하므로, 이 임계값 비교 테스트가 그 요건 때문에 실패하지
+    // 않도록 해변 스팟을 하나 포함한다.
+    const fourSpots = [courseBriefSpot(), courseBriefSpot(), courseBriefSpot(), { ...courseBriefSpot(), name: "막탄 해변", category: "beach" }];
     expect(isCacheableBrief(fourSpots, "resort", 2)).toBe(true); // resort 2일 기준(max(3,4))=4 — 통과
     expect(isCacheableBrief(fourSpots, "city", 2)).toBe(false); // city 2일 기준(max(3,6))=6 — 미달
+  });
+
+  // 작업지시서 2026-09-29 "#277 검증: 세 가지는 됐고, 7일 코스에서
+  // 해변이 사라졌습니다" §2 — 스팟 수가 충분해도 휴양형 코스에 해변이
+  // 하나도 없으면 캐시하지 않는다.
+  it("refuses to cache a resort result with enough spots but no beach", () => {
+    const spots = Array.from({ length: 20 }, courseBriefSpot); // category:"x" — 해변 아님
+    expect(isCacheableBrief(spots, "resort", 7)).toBe(false);
+  });
+
+  it("caches a resort result once at least one spot is a beach", () => {
+    const spots = [...Array.from({ length: 19 }, courseBriefSpot), { ...courseBriefSpot(), name: "막탄 해변", category: "beach" }];
+    expect(isCacheableBrief(spots, "resort", 7)).toBe(true);
+  });
+
+  it("does not require a beach for city style", () => {
+    const spots = Array.from({ length: 12 }, courseBriefSpot);
+    expect(isCacheableBrief(spots, "city", 3)).toBe(true);
+  });
+});
+
+describe("meetsResortBeachRequirement — 휴양형 코스는 해변이 최소 1곳 있어야 성립 (작업지시서 2026-09-29 '#277 검증' §2)", () => {
+  it("always passes for city style regardless of spots", () => {
+    expect(meetsResortBeachRequirement([], "city")).toBe(true);
+  });
+
+  it("fails for resort style with no beach spot", () => {
+    expect(meetsResortBeachRequirement([{ name: "House of Lechon", category: "restaurant" }], "resort")).toBe(false);
+  });
+
+  it("passes for resort style once a beach spot is present", () => {
+    expect(meetsResortBeachRequirement([{ name: "House of Lechon", category: "restaurant" }, { name: "막탄 해변", category: "beach" }], "resort")).toBe(true);
   });
 });
 
@@ -1535,6 +1576,86 @@ describe("capOverseasKoreanRestaurants — 해외 코스 한식당 코스 전체
   it("does not touch a course with zero or one Korean restaurant", () => {
     const days = [[stop("d1-kr", 10, 120, { category: "korean_restaurant", rating: 4.5, reviewCount: 100 }), stop("d1-local", 10, 120, { category: "restaurant" })]];
     expect(capOverseasKoreanRestaurants(days)).toEqual(days);
+  });
+});
+
+// 작업지시서 2026-09-29 "#277 검증: 세 가지는 됐고, 7일 코스에서 해변이
+// 사라졌습니다" §3-② — 스파를 갖춘 호텔("웰컴 호텔")이 두 번째 숙소로
+// 들어간 실측이 있었다. 리조트 앵커 하나만 남긴다.
+describe("capLodgingToOne — 휴양형 숙소는 코스 전체 1곳(리조트 앵커) (작업지시서 2026-09-29 '#277 검증' §3-②)", () => {
+  it("keeps only the most popular lodging when there is more than one", () => {
+    const days = [
+      [stop("d2-anchor", 10, 120, { name: "샹그릴라 막탄 세부", category: "lodging", rating: 4.7, reviewCount: 5000 })],
+      [stop("d5-extra", 10, 120, { name: "웰컴 호텔", category: "hotel", rating: 3.9, reviewCount: 40 }), stop("d5-food", 10, 120, { category: "restaurant" })],
+    ];
+    const result = capLodgingToOne(days);
+    expect(result[0].map((s) => s.id)).toEqual(["d2-anchor"]);
+    expect(result[1].map((s) => s.id)).toEqual(["d5-food"]);
+  });
+
+  it("does not touch a course with zero or one lodging", () => {
+    const days = [[stop("d1-lodging", 10, 120, { category: "lodging", rating: 4.5, reviewCount: 100 }), stop("d1-food", 10, 120, { category: "restaurant" })]];
+    expect(capLodgingToOne(days)).toEqual(days);
+  });
+});
+
+// 작업지시서 2026-09-29 "#277 검증" §3-① — 실측: 세부 7일 분포가
+// 3·2·2·2·4·1·1(day6=스파 1곳, day7=Crocolandia 1곳)이었다. 새 후보를
+// 찾지 않고, 여유 있는 날(day5, 4곳)에서 옮겨와 최소 2곳을 맞춘다.
+describe("redistributeThinResortDays — 휴양형도 하루 최소 2곳 (작업지시서 2026-09-29 '#277 검증' §3-①)", () => {
+  it("moves a spot from the largest surplus day to each single-spot day", () => {
+    const days = [
+      [stop("d1-a", 10, 120), stop("d1-b", 10, 120), stop("d1-c", 10, 120)],
+      [stop("d2-a", 10, 120), stop("d2-b", 10, 120)],
+      [stop("d3-a", 10, 120), stop("d3-b", 10, 120)],
+      [stop("d4-a", 10, 120), stop("d4-b", 10, 120)],
+      [
+        stop("d5-a", 10, 120, { rating: 4.0, reviewCount: 10 }),
+        stop("d5-b", 10, 120, { rating: 4.8, reviewCount: 900 }),
+        stop("d5-c", 10, 120, { rating: 4.2, reviewCount: 50 }),
+        stop("d5-d", 10, 120, { rating: 3.5, reviewCount: 5 }), // 가장 인기 낮음 — 옮겨질 후보
+      ],
+      [stop("d6-spa", 10, 120, { category: "spa" })],
+      [stop("d7-zoo", 10, 120)],
+    ];
+    const result = redistributeThinResortDays(days);
+    // 3·2·2·2·4·1·1 → 모든 날 2곳 이상, 총 15곳 보존(어느 날이 donor가
+    // 되는지는 동점 처리 순서에 따라 달라질 수 있어 정확한 분포는
+    // 확인하지 않는다).
+    expect(result.every((d) => d.length >= 2)).toBe(true);
+    expect(result.flat()).toHaveLength(15);
+    // day6(원래 1곳)이 가장 먼저 처리돼, 그 시점 유일한 최대 여유(day5,
+    // 4곳)에서 가장 인기 낮은 스팟(d5-d)을 받는다.
+    expect(result[4].map((s) => s.id)).not.toContain("d5-d");
+    expect(result[5].map((s) => s.id)).toContain("d5-d");
+  });
+
+  it("does not move a meal (dinner) slot even if it's the donor day's least popular spot", () => {
+    const days = [
+      [
+        stop("d1-a", 10, 120, { rating: 3.0, reviewCount: 5, meal: true }), // 인기 최저지만 meal:true라 옮기면 안 됨
+        stop("d1-b", 10, 120, { rating: 4.5, reviewCount: 200 }),
+        stop("d1-c", 10, 120, { rating: 4.0, reviewCount: 80 }),
+      ],
+      [stop("d2-thin", 10, 120)],
+    ];
+    const result = redistributeThinResortDays(days);
+    expect(result[0].map((s) => s.id)).toContain("d1-a"); // meal 슬롯은 그대로 남는다
+    expect(result[1].length).toBe(2);
+  });
+
+  it("leaves an already-healthy distribution untouched", () => {
+    const days = [
+      [stop("d1-a", 10, 120), stop("d1-b", 10, 120)],
+      [stop("d2-a", 10, 120), stop("d2-b", 10, 120), stop("d2-c", 10, 120)],
+    ];
+    expect(redistributeThinResortDays(days)).toEqual(days);
+  });
+
+  it("leaves a thin day untouched when no donor with more than 2 spots exists", () => {
+    const days = [[stop("d1-a", 10, 120), stop("d1-b", 10, 120)], [stop("d2-solo", 10, 120)]];
+    const result = redistributeThinResortDays(days);
+    expect(result[1].length).toBe(1); // 채울 수 없으면 그대로 둔다 — 새로 만들어내지 않음
   });
 });
 
