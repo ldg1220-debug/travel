@@ -4,6 +4,7 @@ import {
   assembleDaySpots,
   buildStaticMapUrl,
   capAllDayFacilityDays,
+  capResortSpaSpots,
   chunkByProximity,
   clusterByLocation,
   computeViewport,
@@ -1433,6 +1434,44 @@ describe("isCacheableBrief — 스팟이 너무 적은 실패 결과는 캐시�
     const fourSpots = [courseBriefSpot(), courseBriefSpot(), courseBriefSpot(), courseBriefSpot()];
     expect(isCacheableBrief(fourSpots, "resort", 2)).toBe(true); // resort 2일 기준(max(3,4))=4 — 통과
     expect(isCacheableBrief(fourSpots, "city", 2)).toBe(false); // city 2일 기준(max(3,6))=6 — 미달
+  });
+});
+
+// 작업지시서 2026-09-29 "세부 7일이 열렸는데, 여행사 사무실과 스파로
+// 채워졌습니다" §3-③ — 휴양형 relax 슬롯("스파 마사지")이 매일 스파를
+// 검색해, 방치하면 코스 전체가 스파로만 채워진다(실측: 세부 7일에
+// 스파 5~6곳, 하루 2곳인 날도 있었음). 하루 1곳·코스 전체 ⌈days/2⌉곳
+// 이하로 캡한다.
+describe("capResortSpaSpots — 휴양형 스파 상한: 하루 1곳 · 코스 전체 ⌈days/2⌉곳 (작업지시서 2026-09-29 §3-③)", () => {
+  it("keeps only the most popular spa when a single day has more than one", () => {
+    const days = [
+      [
+        stop("d1-spa-weak", 10, 120, { name: "Cheeva Spa", category: "spa", rating: 4.0, reviewCount: 20 }),
+        stop("d1-spa-strong", 10, 120, { name: "Thai Royale Spa", category: "spa", rating: 4.8, reviewCount: 500 }),
+        stop("d1-food", 10, 120, { name: "House of Lechon", category: "restaurant" }),
+      ],
+    ];
+    const result = capResortSpaSpots(days, 1);
+    expect(result[0].map((s) => s.id)).toEqual(["d1-spa-strong", "d1-food"]);
+  });
+
+  it("does not touch a day with zero or one spa", () => {
+    const days = [[stop("d1-spa", 10, 120, { name: "Cheeva Spa", category: "spa", rating: 4.5, reviewCount: 100 }), stop("d1-food", 10, 120, { category: "restaurant" })]];
+    expect(capResortSpaSpots(days, 1)).toEqual(days);
+  });
+
+  it("caps total spa count across the whole course at ⌈days/2⌉, dropping the least popular ones first", () => {
+    const days = Array.from({ length: 7 }, (_, i) => [stop(`d${i}-spa`, 10, 120, { name: `Spa ${i}`, category: "spa", rating: 4.0, reviewCount: (i + 1) * 10 })]);
+    const result = capResortSpaSpots(days, 7);
+    const remainingIds = result.flat().map((s) => s.id);
+    expect(remainingIds).toHaveLength(4); // ⌈7/2⌉ = 4
+    // 리뷰수(=인기)가 가장 낮은 4곳(d0~d3)이 빠지고, 가장 인기 있는 4곳(d3~d6 중 상위)이 남는다.
+    expect(remainingIds).toEqual(["d3-spa", "d4-spa", "d5-spa", "d6-spa"]);
+  });
+
+  it("leaves a course with no spa entirely untouched", () => {
+    const days = [[stop("d1-food", 10, 120, { category: "restaurant" })]];
+    expect(capResortSpaSpots(days, 1)).toEqual(days);
   });
 });
 

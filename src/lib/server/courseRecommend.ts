@@ -193,11 +193,22 @@ export const THEME_SLOTS: Record<CourseTheme, RecommendSlot[]> = {
   // 뒤에 붙여("세부 액티비티 투어 관광명소") 검색 자체를 일반 관광지
   // 쪽으로 밀었다. category를 아예 비워 이 두 부작용을 없앤다 — 품질
   // 하한(passesQualityGate)은 category별 값이 없으면 DEFAULT_MIN_REVIEWS
-  // (12)로 자연히 폴백한다. 실제로 호핑·스노클링·스파 후보가 잘
-  // 잡히는지는 이 세션이 라이브 검증하지 못했다 — Cowork가 배포 후
-  // 확인해야 한다.
+  // (12)로 자연히 폴백한다.
+  //
+  // 작업지시서 2026-09-29 "세부 7일이 열렸는데, 여행사 사무실과 스파로
+  // 채워졌습니다" §3-② — category를 비운 뒤에도 activity 슬롯 실측(세부
+  // 7일)이 여행사 사무실 4곳 + 스파 5~6곳으로 채워지고, 해변·호핑은
+  // 0이었다. 검색어 자체의 "투어"라는 단어가 (업체가 아니라 "투어를
+  // 파는 곳")을 찾게 만든 게 원인으로 보인다 — "투어"를 지우고 실제
+  // 방문 대상을 가리키는 구체 명사(해변·스노클링)로 바꿨다. 여행사
+  // 제외는 isTravelAgency로 별도 처리(위 fetchSlotCandidates)하지만,
+  // 검색어 자체가 여행사를 덜 부르게 하는 게 먼저다. 지역마다 좌표를
+  // 하드코딩하지 않고(리조트 권역 앵커는 여전히 보류, 2026-09-28 문서
+  // 참고) 모든 휴양형 지역에 공통으로 쓰는 일반 명사만 바꿨다 — 실제로
+  // 호핑·스노클링·해변 후보가 잘 잡히는지는 이 세션이 라이브 검증하지
+  // 못했다 — Cowork가 배포 후 확인해야 한다.
   resort: [
-    { key: "activity", label: "액티비티", keyword: "액티비티 투어", hour: 10 },
+    { key: "activity", label: "액티비티", keyword: "스노클링 해변 액티비티", hour: 10 },
     { key: "relax", label: "휴식·스파", keyword: "스파 마사지", hour: 15 },
     { key: "dinner", label: "저녁·야시장", keyword: "야시장 맛집", hour: 19, category: "restaurant", meal: true },
   ],
@@ -286,9 +297,11 @@ const THEME_SLOT_TEMPLATES: Record<CourseTheme, SlotTemplate[]> = {
     { key: "dinner", label: "저녁", keyword: "저녁 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
   ],
   // THEME_SLOTS.resort와 같은 키/라벨/키워드/카테고리(작업지시서
-  // 2026-09-28 §3 — category를 비운 이유는 위 THEME_SLOTS.resort 주석 참고).
+  // 2026-09-28 §3 — category를 비운 이유는 위 THEME_SLOTS.resort 주석 참고;
+  // 2026-09-29 §3-② — activity 키워드를 "액티비티 투어"에서 바꾼 이유도
+  // 위 THEME_SLOTS.resort 주석 참고).
   resort: [
-    { key: "activity", label: "액티비티", keyword: "액티비티 투어", durationMinutes: 150 },
+    { key: "activity", label: "액티비티", keyword: "스노클링 해변 액티비티", durationMinutes: 150 },
     { key: "relax", label: "휴식·스파", keyword: "스파 마사지", durationMinutes: 90 },
     { key: "dinner", label: "저녁·야시장", keyword: "야시장 맛집", category: "restaurant", mealWindow: "dinner", durationMinutes: 90 },
   ],
@@ -664,6 +677,39 @@ export function isValidPlace(p: Place): boolean {
   return Boolean(p.id) && Boolean(p.name?.trim()) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0);
 }
 
+// 작업지시서 2026-09-29 "세부 7일이 열렸는데, 여행사 사무실과 스파로
+// 채워졌습니다" §3-① — 휴양형 activity 슬롯이 "투어"를 검색어에 포함해
+// (THEME_SLOTS.resort), 실제 방문지가 아니라 투어를 파는 여행사 사무실
+// 4곳(Cebu Daily Tours 등)이 세부 7일 실측에서 후보로 섞여 들어왔다.
+// Google Places가 이런 업체엔 primaryType "travel_agency"를 붙인다 —
+// 이름에 tour/travel/여행사가 들어간 경우까지 함께 걸러, primaryType이
+// 다르게 잡히거나 폴백 카테고리를 쓰는 사례에도 대비한다. 한글은 이
+// 코드베이스의 다른 이름 매칭(liveCategoryBucket.ts의 술집·카페 판별 등)과
+// 마찬가지로 단어 경계 없는 부분 문자열 검사다 — "OO여행사진관"처럼
+// "여행사"를 부분 문자열로 포함하는 드문 실제 상호명은 오탐 가능성이
+// 있으나, 실제 여행사 사무실을 놓치는 것보다 낫다고 판단했다.
+const TRAVEL_AGENCY_NAME_PATTERN = /\b(tours?|travels?|travel agency)\b|여행사/i;
+export function isTravelAgency(p: Place): boolean {
+  return p.category?.toLowerCase() === "travel_agency" || TRAVEL_AGENCY_NAME_PATTERN.test(p.name);
+}
+
+// 같은 지시서 §3-③ — 휴양형 relax 슬롯(THEME_SLOTS.resort, "스파 마사지")이
+// 매일 스파를 검색해, 방치하면 7일 코스가 스파만 7곳이 된다. 하루/코스
+// 전체 상한을 courseBrief.ts의 capResortSpaSpots가 적용하는데, 그 판정에
+// 쓰는 "이게 스파인가"를 여기 둔다(候補 필터가 아니라 상한 로직이라
+// isTravelAgency처럼 fetchSlotCandidates 안에서 걸러내지 않는다 — relax
+// 슬롯은 스파를 찾는 게 정상이라 후보 자체를 막으면 안 된다).
+export function isSpa(p: Place): boolean {
+  return p.category?.toLowerCase() === "spa" || /스파|마사지|spa|massage/i.test(p.name);
+}
+
+// 같은 지시서 §3-④ — 휴양형 코스 전체에 해변이 하나도 없는 사례(세부 d3
+// 실측: 액티비티 0·해변 0)가 있었다. courseBrief.ts의
+// ensureResortBeachSpot이 이 판정으로 "이미 해변이 있는지"를 확인한다.
+export function isBeach(p: Place): boolean {
+  return p.category?.toLowerCase() === "beach" || /해변|비치|beach/i.test(p.name);
+}
+
 // 슬롯 카테고리별 최소 리뷰 수. 2차 실측(오사카 3박4일)에서 "성합지"
 // (4.2)/"구치나와자카"(4.1) 같은 항목이 평점 유무 게이트는 통과해
 // "리뷰 수 절대량" 기준으로 바꿨는데, 처음엔 실측 정상 스팟(오사카 성
@@ -764,7 +810,10 @@ export async function fetchSlotCandidates(
   // 않고 바로 반영되게 하기 위함(경계선 후보를 캐시에서 아예 지워버리면
   // 나중 튜닝으로도 못 살림). isValidPlace는 반대로 구조 자체가 틀린
   // 항목이라 캐시에 쓰기 전에 영구히 걸러낸다.
-  const qualityFilter = (places: Place[]) => applyQualityGate(places, scope, slot.category);
+  // isTravelAgency도 applyQualityGate와 같은 이유로 캐시에 굽지 않고 읽는
+  // 시점에 적용한다(작업지시서 2026-09-29 §3-①) — 판정 로직을 나중에
+  // 넓히거나 좁혀도 캐시 TTL(7일)을 기다리지 않고 바로 반영된다.
+  const qualityFilter = (places: Place[]) => applyQualityGate(places, scope, slot.category).filter((p) => !isTravelAgency(p));
 
   const cached = await readCandidateCache(cacheKey);
   // 캐시된 값도 isValidPlace로 걸러야 한다 — 이 검증이 추가되기 전에 이미
