@@ -8,6 +8,7 @@ import {
   fetchSlotCandidates,
   googleTop,
   isBeach,
+  isKoreanRestaurant,
   isLargeFacility,
   isSpa,
   sameShop,
@@ -263,7 +264,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 11; // 작업지시서 2026-09-29 "세부 7일이 열렸는데, 여행사 사무실과 스파로 채워졌습니다" §4 — §3의 휴양형 후보 구성 수정(여행사 제외·액티비티 검색어 교체·스파 상한·해변 보장)이 place_candidate_cache(원본 후보, 알고리즘 버전과 무관하게 7일 TTL)가 아니라 이 최종 브리프 캐시 버전에만 반영되는 필터·조립 로직이라, 버전을 올리지 않으면 세부 d3 같은 지역이 26시간 동안 옛 구성(세부시티 관광 그대로)을 그대로 반환한다. 이전(10)과 같은 이유로 한 번에 무효화 — 다음 워밍 크론이 새 로직으로 다시 채운다.
+export const COURSE_ALGO_VERSION = 12; // 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로 들어갑니다" §5 — 공항·교통 시설 제외, 스파 하루 상한을 재배치 이후로 옮긴 수정, 해외 한식당 상한이 전부 이 최종 브리프 조립 로직(courseBrief.ts)과 fetchSlotCandidates 읽기 시점 필터에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 세부 d3·d7 같은 지역이 26시간 동안 공항·스파 중복이 그대로인 옛 구성을 반환한다. 이전(11)과 같은 이유로 한 번에 무효화.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -2301,34 +2302,67 @@ function popularity(s: { rating?: number; reviewCount?: number }): number {
  * 작업지시서 2026-09-29 "세부 7일이 열렸는데, 여행사 사무실과 스파로
  * 채워졌습니다" §3-③ — 휴양형 relax 슬롯(THEME_SLOTS.resort)이 매일
  * "스파 마사지"를 검색하므로, 방치하면 days만큼(최대 7일) 스파로만
- * 채워진다(실측: 세부 7일 코스에 스파 5~6곳, 하루 2곳인 날도 있었음).
- * 하루 1곳·코스 전체 ⌈days/2⌉곳 이하로 캡한다. 초과분은 다른 곳으로
- * 채워 넣지 않고 그냥 뺀다 — courseRecommend.ts의 applyQualityGate와
- * 같은 원칙("필터를 통과 못 하면 그 슬롯은 빈 채로 둔다", 빈 슬롯이
- * 저품질 대체보다 낫다는 이 코드베이스의 기존 판단을 그대로 따름).
- * `days`는 실제로 채워진 날짜 수가 아니라 요청한 일수를 쓴다 — 지시서
- * 원문("코스 전체 ⌈days/2⌉ 곳 이하")이 사용자가 요청한 일정 기준이다.
+ * 채워진다(실측: 세부 7일 코스에 스파 5~6곳). 코스 전체 ⌈days/2⌉곳
+ * 이하로 캡한다. 초과분은 다른 곳으로 채워 넣지 않고 그냥 뺀다 —
+ * courseRecommend.ts의 applyQualityGate와 같은 원칙("필터를 통과 못
+ * 하면 그 슬롯은 빈 채로 둔다"). `days`는 실제로 채워진 날짜 수가
+ * 아니라 요청한 일수를 쓴다 — 지시서 원문("코스 전체 ⌈days/2⌉ 곳
+ * 이하")이 사용자가 요청한 일정 기준이다.
+ *
+ * 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로
+ * 들어갑니다" §3 — 처음엔 이 함수가 "하루 1곳" 상한도 여기서 같이
+ * 걸었는데, reallocateStopsByDay(지리적 재배치)가 이 함수보다 나중에
+ * 돌아 실측(세부 2박3일 1일차에 스파 2곳)에서 상한이 깨졌다 — 재배치가
+ * "어느 날"을 다시 정하므로, 재배치 *이전*에 건 하루 상한은 재배치
+ * *이후*엔 의미가 없다. 하루 상한은 아래 capResortSpaSpotsPerDay로
+ * 분리해 재배치 *이후*에 건다 — 이 함수는 코스 전체 총량만 이 시점에
+ * 줄인다(재배치가 후보로 삼을 스파 자체를 미리 줄여두는 효과는 여전히
+ * 있다).
  */
-export function capResortSpaSpots(dayStops: FinalStop[][], days: number): FinalStop[][] {
-  // 1) 하루 안에 스파가 2곳 이상이면 가장 인기 있는(평점*리뷰수) 하나만 남긴다.
-  const perDayCapped = dayStops.map((stops) => {
-    const spaIdxs = stops.reduce<number[]>((acc, s, idx) => (isSpa(s) ? [...acc, idx] : acc), []);
-    if (spaIdxs.length <= 1) return stops;
-    const bestIdx = spaIdxs.reduce((best, idx) => (popularity(stops[idx]) > popularity(stops[best]) ? idx : best));
-    return stops.filter((_, idx) => !spaIdxs.includes(idx) || idx === bestIdx);
-  });
-
-  // 2) 코스 전체 상한 — 초과분은 인기 낮은 순으로 뺀다.
+export function capResortSpaSpotsTotal(dayStops: FinalStop[][], days: number): FinalStop[][] {
   const cap = Math.max(0, Math.ceil(days / 2));
-  const allSpas = perDayCapped.flat().filter(isSpa);
-  if (allSpas.length <= cap) return perDayCapped;
+  const allSpas = dayStops.flat().filter(isSpa);
+  if (allSpas.length <= cap) return dayStops;
   const dropIds = new Set(
     [...allSpas]
       .sort((a, b) => popularity(a) - popularity(b))
       .slice(0, allSpas.length - cap)
       .map((s) => s.id),
   );
-  return perDayCapped.map((stops) => stops.filter((s) => !dropIds.has(s.id)));
+  return dayStops.map((stops) => stops.filter((s) => !dropIds.has(s.id)));
+}
+
+/**
+ * 위 capResortSpaSpotsTotal 주석 참고 — reallocateStopsByDay 직후(최종
+ * 날짜 배정이 확정된 시점)에 하루 1곳 상한을 다시 건다. 초과분은 그날
+ * 안에서 가장 인기 있는(평점*리뷰수) 하나만 남기고 뺀다(대체하지 않음 —
+ * 위와 같은 원칙).
+ */
+export function capResortSpaSpotsPerDay(dayGroups: FinalStop[][]): FinalStop[][] {
+  return dayGroups.map((stops) => {
+    const spaIdxs = stops.reduce<number[]>((acc, s, idx) => (isSpa(s) ? [...acc, idx] : acc), []);
+    if (spaIdxs.length <= 1) return stops;
+    const bestIdx = spaIdxs.reduce((best, idx) => (popularity(stops[idx]) > popularity(stops[best]) ? idx : best));
+    return stops.filter((_, idx) => !spaIdxs.includes(idx) || idx === bestIdx);
+  });
+}
+
+/**
+ * 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로
+ * 들어갑니다" §4 — 해외 코스는 현지 음식이 목적인데, 한국어 검색이
+ * 한국인 대상 업소를 상위에 올리는 경향이 실측(세부 7일 음식점 7곳 중
+ * 한식 3곳)에서 나왔다. 코스 전체 한식당을 1곳 이하로 캡한다 — 호출부가
+ * scope==="overseas"일 때만 부른다(국내 코스는 당연히 한식이 대부분이라
+ * 이 캡을 적용하면 안 된다). 초과분은 대체하지 않고 그냥 뺀다(위
+ * capResortSpaSpotsTotal과 같은 원칙) — 테마·스타일과 무관하게 해외
+ * 전체에 적용한다(지시서 §4가 "휴양형"이 아니라 "해외 코스"로 표현).
+ */
+export function capOverseasKoreanRestaurants(dayStops: FinalStop[][]): FinalStop[][] {
+  const all = dayStops.flat().filter(isKoreanRestaurant);
+  if (all.length <= 1) return dayStops;
+  const keepId = [...all].sort((a, b) => popularity(b) - popularity(a))[0].id;
+  const dropIds = new Set(all.filter((s) => s.id !== keepId).map((s) => s.id));
+  return dayStops.map((stops) => stops.filter((s) => !dropIds.has(s.id)));
 }
 
 /**
@@ -2397,16 +2431,24 @@ export async function buildBrief(
     dayStops.push(stops);
   }
 
-  // 작업지시서 2026-09-29 §3-③·§3-④ — 휴양형만 후보 "구성"을 후처리한다
-  // (스파 상한 + 해변 최소 1곳 보장). reallocateStopsByDay/routeDayStops
-  // 이전에 해야 한다 — 이후엔 순서·구간 이동시간이 이미 확정돼, 스팟을
-  // 넣거나 빼면 다시 어긋난다.
-  const composedDayStops = style === "resort" ? await ensureResortBeachSpot(scope, region, capResortSpaSpots(dayStops, days), onCandidateFetchFailure) : dayStops;
+  // 작업지시서 2026-09-29 §3-③·§3-④·§4 — 후보 "구성"을 후처리한다(스파
+  // 총량 상한 + 해변 최소 1곳 보장 + 해외 한식당 상한). 셋 다
+  // reallocateStopsByDay/routeDayStops 이전에 해야 한다 — 이후엔 순서·
+  // 구간 이동시간이 이미 확정돼, 스팟을 넣거나 빼면 다시 어긋난다.
+  let composedDayStops = scope === "overseas" ? capOverseasKoreanRestaurants(dayStops) : dayStops;
+  if (style === "resort") {
+    composedDayStops = await ensureResortBeachSpot(scope, region, capResortSpaSpotsTotal(composedDayStops, days), onCandidateFetchFailure);
+  }
 
   // 스팟 선정은 위까지 끝났다 — 이제 "어느 날·어느 순서로 방문할지"만
   // 좌표 기준으로 다시 정한다(작업지시서 2026-09-06 "일자 배분이
   // 지리적으로 나뉘지 않습니다" 참고, reallocateStopsByDay 주석).
   const geoOrderedDayGroups = reallocateStopsByDay(composedDayStops);
+  // 작업지시서 2026-09-29 "#276 검증" §3 — 스파 하루 1곳 상한은 반드시
+  // reallocateStopsByDay *이후*(최종 날짜 배정이 확정된 시점)에 걸어야
+  // 한다 — 위 capResortSpaSpotsTotal 주석 참고. 실측(세부 2박3일 1일차에
+  // 스파 2곳)이 이 순서 문제였다.
+  const spaCappedDayGroups = style === "resort" ? capResortSpaSpotsPerDay(geoOrderedDayGroups) : geoOrderedDayGroups;
   // 작업지시서 2026-09-23 §3-b — 각 날짜의 첫 스팟이 평점 신호 없이
   // 시작하지 않도록 순서를 조정한다. 반드시 라우팅(바로 아래
   // routeDayStops) 이전에 해야 한다 — 이후에 순서만 바꾸면 구간
@@ -2414,7 +2456,7 @@ export async function buildBrief(
   // (routeDayStops는 "순서상 이웃한 두 스톱" 사이만 조회하므로, 순서를
   // 정한 뒤에 조회해야 항상 맞는다). preferRatedFirstStop 주석 참고 —
   // 스팟을 빼지 않고 순서만 바꾼다(§3-a 제외는 여전히 보류).
-  const finalDayGroups = geoOrderedDayGroups.map((stops) => preferRatedFirstStop(scope, region, stops));
+  const finalDayGroups = spaCappedDayGroups.map((stops) => preferRatedFirstStop(scope, region, stops));
 
   // 하루 안의 구간(순서상 이웃한 두 스톱)마다 실제 경로를 조회한다 —
   // 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다" §3. 경로가

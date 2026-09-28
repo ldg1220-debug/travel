@@ -4,7 +4,9 @@ import {
   assembleDaySpots,
   buildStaticMapUrl,
   capAllDayFacilityDays,
-  capResortSpaSpots,
+  capOverseasKoreanRestaurants,
+  capResortSpaSpotsPerDay,
+  capResortSpaSpotsTotal,
   chunkByProximity,
   clusterByLocation,
   computeViewport,
@@ -1440,10 +1442,16 @@ describe("isCacheableBrief — 스팟이 너무 적은 실패 결과는 캐시�
 // 작업지시서 2026-09-29 "세부 7일이 열렸는데, 여행사 사무실과 스파로
 // 채워졌습니다" §3-③ — 휴양형 relax 슬롯("스파 마사지")이 매일 스파를
 // 검색해, 방치하면 코스 전체가 스파로만 채워진다(실측: 세부 7일에
-// 스파 5~6곳, 하루 2곳인 날도 있었음). 하루 1곳·코스 전체 ⌈days/2⌉곳
-// 이하로 캡한다.
-describe("capResortSpaSpots — 휴양형 스파 상한: 하루 1곳 · 코스 전체 ⌈days/2⌉곳 (작업지시서 2026-09-29 §3-③)", () => {
-  it("keeps only the most popular spa when a single day has more than one", () => {
+// 스파 5~6곳). 코스 전체 ⌈days/2⌉곳 이하로 캡한다.
+//
+// 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로
+// 들어갑니다" §3 — 원래 이 함수(당시 이름 capResortSpaSpots)가 하루 1곳
+// 상한까지 같이 걸었는데, reallocateStopsByDay(지리적 재배치)가 이보다
+// 나중에 돌아 실측(세부 2박3일 1일차에 스파 2곳)에서 상한이 깨졌다.
+// 코스 전체 총량 캡만 이 함수(capResortSpaSpotsTotal)에 남기고, 하루
+// 1곳 상한은 재배치 이후에 도는 capResortSpaSpotsPerDay로 분리했다.
+describe("capResortSpaSpotsTotal — 휴양형 스파 코스 전체 ⌈days/2⌉곳 이하 (작업지시서 2026-09-29 §3-③, 재배치 이전)", () => {
+  it("does NOT cap a single day with more than one spa — that's capResortSpaSpotsPerDay's job now", () => {
     const days = [
       [
         stop("d1-spa-weak", 10, 120, { name: "Cheeva Spa", category: "spa", rating: 4.0, reviewCount: 20 }),
@@ -1451,18 +1459,21 @@ describe("capResortSpaSpots — 휴양형 스파 상한: 하루 1곳 · 코스 �
         stop("d1-food", 10, 120, { name: "House of Lechon", category: "restaurant" }),
       ],
     ];
-    const result = capResortSpaSpots(days, 1);
+    // 코스 전체 상한(⌈1/2⌉=1)은 넘었으니 하나는 빠지지만, "하루 안"
+    // 제약이 아니라 "코스 전체" 제약이라 어느 스파가 남는지는 인기
+    // 순이다 — 이 경우 유일하게 남는 스파가 우연히 이 날에 있을 뿐이다.
+    const result = capResortSpaSpotsTotal(days, 1);
     expect(result[0].map((s) => s.id)).toEqual(["d1-spa-strong", "d1-food"]);
   });
 
-  it("does not touch a day with zero or one spa", () => {
+  it("does not touch a day with zero or one spa when already within the total cap", () => {
     const days = [[stop("d1-spa", 10, 120, { name: "Cheeva Spa", category: "spa", rating: 4.5, reviewCount: 100 }), stop("d1-food", 10, 120, { category: "restaurant" })]];
-    expect(capResortSpaSpots(days, 1)).toEqual(days);
+    expect(capResortSpaSpotsTotal(days, 1)).toEqual(days);
   });
 
   it("caps total spa count across the whole course at ⌈days/2⌉, dropping the least popular ones first", () => {
     const days = Array.from({ length: 7 }, (_, i) => [stop(`d${i}-spa`, 10, 120, { name: `Spa ${i}`, category: "spa", rating: 4.0, reviewCount: (i + 1) * 10 })]);
-    const result = capResortSpaSpots(days, 7);
+    const result = capResortSpaSpotsTotal(days, 7);
     const remainingIds = result.flat().map((s) => s.id);
     expect(remainingIds).toHaveLength(4); // ⌈7/2⌉ = 4
     // 리뷰수(=인기)가 가장 낮은 4곳(d0~d3)이 빠지고, 가장 인기 있는 4곳(d3~d6 중 상위)이 남는다.
@@ -1471,7 +1482,59 @@ describe("capResortSpaSpots — 휴양형 스파 상한: 하루 1곳 · 코스 �
 
   it("leaves a course with no spa entirely untouched", () => {
     const days = [[stop("d1-food", 10, 120, { category: "restaurant" })]];
-    expect(capResortSpaSpots(days, 1)).toEqual(days);
+    expect(capResortSpaSpotsTotal(days, 1)).toEqual(days);
+  });
+});
+
+describe("capResortSpaSpotsPerDay — 하루 1곳 상한, reallocateStopsByDay 이후에 적용 (작업지시서 2026-09-29 '#276 검증' §3)", () => {
+  it("keeps only the most popular spa when a single (already-final) day has more than one", () => {
+    const days = [
+      [
+        stop("d1-spa-weak", 10, 120, { name: "Cheeva Spa", category: "spa", rating: 4.0, reviewCount: 20 }),
+        stop("d1-spa-strong", 10, 120, { name: "Thai Royale Spa", category: "spa", rating: 4.8, reviewCount: 500 }),
+        stop("d1-food", 10, 120, { name: "House of Lechon", category: "restaurant" }),
+      ],
+    ];
+    const result = capResortSpaSpotsPerDay(days);
+    expect(result[0].map((s) => s.id)).toEqual(["d1-spa-strong", "d1-food"]);
+  });
+
+  it("does not touch a day with zero or one spa", () => {
+    const days = [[stop("d1-spa", 10, 120, { name: "Cheeva Spa", category: "spa", rating: 4.5, reviewCount: 100 }), stop("d1-food", 10, 120, { category: "restaurant" })]];
+    expect(capResortSpaSpotsPerDay(days)).toEqual(days);
+  });
+
+  it("caps each day independently — a different day can still have its own single spa", () => {
+    const days = [
+      [stop("d1-spa-a", 10, 120, { category: "spa", rating: 4.0, reviewCount: 50 }), stop("d1-spa-b", 10, 120, { category: "spa", rating: 4.9, reviewCount: 900 })],
+      [stop("d2-spa", 10, 120, { category: "spa", rating: 4.2, reviewCount: 60 })],
+    ];
+    const result = capResortSpaSpotsPerDay(days);
+    expect(result[0].map((s) => s.id)).toEqual(["d1-spa-b"]);
+    expect(result[1].map((s) => s.id)).toEqual(["d2-spa"]);
+  });
+});
+
+// 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로
+// 들어갑니다" §4 — 해외 코스는 현지 음식이 목적인데, 한국어 검색이
+// 한국인 대상 업소를 상위에 올리는 경향이 실측(세부 7일 음식점 7곳 중
+// 한식 3곳)에서 나왔다. 코스 전체 한식당을 1곳 이하로 캡한다.
+describe("capOverseasKoreanRestaurants — 해외 코스 한식당 코스 전체 1곳 이하 (작업지시서 2026-09-29 '#276 검증' §4)", () => {
+  it("keeps only the most popular Korean restaurant when there is more than one", () => {
+    const days = [
+      [
+        stop("d1-kr-weak", 10, 120, { name: "88식당 88 korean restaurant", category: "korean_restaurant", rating: 4.0, reviewCount: 30 }),
+        stop("d1-kr-strong", 10, 120, { name: "Da-In Korean Restaurant", category: "korean_restaurant", rating: 4.6, reviewCount: 300 }),
+        stop("d1-local", 10, 120, { name: "House of Lechon", category: "restaurant" }),
+      ],
+    ];
+    const result = capOverseasKoreanRestaurants(days);
+    expect(result[0].map((s) => s.id)).toEqual(["d1-kr-strong", "d1-local"]);
+  });
+
+  it("does not touch a course with zero or one Korean restaurant", () => {
+    const days = [[stop("d1-kr", 10, 120, { category: "korean_restaurant", rating: 4.5, reviewCount: 100 }), stop("d1-local", 10, 120, { category: "restaurant" })]];
+    expect(capOverseasKoreanRestaurants(days)).toEqual(days);
   });
 });
 
