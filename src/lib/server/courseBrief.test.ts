@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyDurationCap,
   assembleDaySpots,
+  balanceSightsAcrossDays,
   boatLegIfIslandCrossing,
   boatLegMeasurement,
   buildStaticMapUrl,
@@ -27,6 +28,7 @@ import {
   isCacheableBrief,
   isEstimatedLeg,
   isFreshBriefPayload,
+  isSightStop,
   isSupportedRegion,
   looksLikeMismatchedOverseasResult,
   mapPathParam,
@@ -49,6 +51,7 @@ import {
   reallocateStopsByDay,
   reassignByCentroid,
   redistributeThinResortDays,
+  removeOrphanJetties,
   rebalanceByDistance,
   recolorMapPathAsEstimated,
   recolorMapPathForDay,
@@ -2107,6 +2110,101 @@ describe("선착장·섬은 다른 단계가 떼어놓지 않는다 (작업지�
       { ...base, name: "other", rating: 4.5, reviewCount: 10, order: 3 },
     ];
     expect(findRatedFirstStopSwapIndex(spots)).toBeNull();
+  });
+});
+
+// 작업지시서 2026-09-29 "#284 검증: 선착장 → 배 → 섬 됐습니다. 섬 없는
+// 선착장이 하나 남았습니다" — 코타키나발루 d3 2일차가 "식당 → 제셀톤
+// 선착장"으로 끝났고, 3일차가 스파·식당뿐이었다.
+describe("removeOrphanJetties — 섬 없는 선착장은 뺀다 (작업지시서 2026-09-29 '#284 검증' §2)", () => {
+  const pier = (id: string) => stop(id, 5.98, 116.06, { name: "제셀톤 선착장", category: "ferry_terminal" });
+  const island = stop("sapi", 5.99, 116.03, { name: "사피 섬", category: "island" });
+
+  it("removes a pier that is not immediately followed by an island (식당 → 선착장으로 끝나는 날)", () => {
+    const days = [[stop("woori", 5.98, 116.07, { name: "WOORI BBQ", category: "korean_restaurant", meal: true }), pier("p")]];
+    expect(removeOrphanJetties(days)[0].map((s) => s.id)).toEqual(["woori"]);
+  });
+
+  it("keeps a pier that is immediately followed by an island", () => {
+    const days = [[stop("act", 5.98, 116.07), pier("p"), island]];
+    expect(removeOrphanJetties(days)[0].map((s) => s.id)).toEqual(["act", "p", "sapi"]);
+  });
+
+  it("keeps only the pier right before the island when there are two (섬 1곳당 1개)", () => {
+    const days = [[pier("p1"), pier("p2"), island]];
+    expect(removeOrphanJetties(days)[0].map((s) => s.id)).toEqual(["p2", "sapi"]);
+  });
+
+  it("does not remove a marina — it's not on the pier list (Star Marina)", () => {
+    const days = [[stop("star", 5.98, 116.07, { name: "Star Marina", category: "marina" }), stop("beach", 5.97, 116.05, { category: "beach" })]];
+    expect(removeOrphanJetties(days)[0].map((s) => s.id)).toEqual(["star", "beach"]);
+  });
+});
+
+describe("placeJettiesBeforeIslands — 섬에서 섬으로는 선착장을 또 끼우지 않는다", () => {
+  it("skips an island whose predecessor is another island", () => {
+    const first = stop("i1", 5.99, 116.03, { name: "사피 섬", category: "island" });
+    const second = stop("i2", 5.97, 116.01, { name: "마누칸 섬", category: "island" });
+    const jetty = place("j", { name: "제셀톤 선착장", category: "ferry_terminal", lat: 5.985, lng: 116.06 });
+    const result = placeJettiesBeforeIslands([[first, second]], [jetty]);
+    // 첫 섬 앞에만 선착장이 들어가고, 둘째 섬 앞(=첫 섬)에는 또 넣지 않는다.
+    expect(result[0].map((s) => s.name)).toEqual(["제셀톤 선착장", "사피 섬", "마누칸 섬"]);
+  });
+});
+
+describe("isSightStop / balanceSightsAcrossDays — 하루 볼거리 최소 1곳 (작업지시서 2026-09-29 '#284 검증' §3)", () => {
+  const sight = (id: string, rating = 4.5, reviewCount = 100) => stop(id, 0, 0, { category: "tourist_attraction", rating, reviewCount });
+  const spa = (id: string) => stop(id, 0, 0, { name: "Poin Reflexology Spa", category: "spa" });
+  const food = (id: string) => stop(id, 0, 0, { name: "KK Garden Seafood", category: "seafood_restaurant" });
+
+  it("counts an attraction/island/beach as a sight, but not a spa, restaurant, meal, or pier", () => {
+    expect(isSightStop(sight("a"))).toBe(true);
+    expect(isSightStop(stop("isl", 0, 0, { name: "사피 섬", category: "island" }))).toBe(true);
+    expect(isSightStop(spa("s"))).toBe(false);
+    expect(isSightStop(food("f"))).toBe(false);
+    expect(isSightStop(stop("m", 0, 0, { category: "tourist_attraction", meal: true }))).toBe(false);
+    expect(isSightStop(stop("p", 0, 0, { name: "제셀톤 선착장", category: "ferry_terminal" }))).toBe(false);
+  });
+
+  it("moves the least popular sight from a day with 2+ sights to a day with none", () => {
+    const days = [
+      [sight("s-best", 4.8, 9000), sight("s-weak", 4.0, 20), food("f1")],
+      [spa("sp"), food("f2"), food("f3")], // 볼거리 0
+    ];
+    const result = balanceSightsAcrossDays(days);
+    expect(result[1].map((s) => s.id)).toContain("s-weak");
+    expect(result[0].map((s) => s.id)).toContain("s-best");
+    expect(result.flat()).toHaveLength(6); // 보존
+  });
+
+  it("does not take a donor's only sight, and leaves the day alone when no sight is available", () => {
+    const days = [[sight("only"), food("f1")], [spa("sp"), food("f2")]];
+    expect(balanceSightsAcrossDays(days)).toEqual(days);
+  });
+});
+
+describe("redistributeThinResortDays — 그날의 유일한 볼거리는 옮기지 않는다 (작업지시서 2026-09-29 '#284 검증' §3)", () => {
+  it("keeps a donor's only sight even when it is the least popular non-meal spot", () => {
+    const food = (id: string) => stop(id, 0, 0, { name: "식당", category: "seafood_restaurant", rating: 4.5, reviewCount: 900 });
+    const days = [
+      [stop("only-sight", 0, 0, { category: "tourist_attraction", rating: 3.0, reviewCount: 5 }), food("f1"), food("f2")], // 인기 최저는 유일한 볼거리
+      [stop("thin", 0, 0)],
+    ];
+    const result = redistributeThinResortDays(days);
+    expect(result[0].map((s) => s.id)).toContain("only-sight");
+    expect(result[1].map((s) => s.id)).toContain("f1"); // 식당(비식사 플래그)이 대신 옮겨진다
+  });
+});
+
+describe("placeResortAnchors — 볼거리 없는 날을 먼저 채운다 (작업지시서 2026-09-29 '#284 검증' §3)", () => {
+  it("puts the first anchor on a day with no sight even if another day has fewer spots", () => {
+    const days = [
+      [stop("sight", 0, 0)], // 1곳(볼거리 있음)
+      [stop("sp", 0, 0, { name: "Spa", category: "spa" }), stop("f", 0, 0, { name: "식당", category: "seafood_restaurant" }), stop("f2", 0, 0, { name: "식당2", category: "restaurant" })], // 3곳, 볼거리 없음
+    ];
+    const result = placeResortAnchors(days, [place("anchor", { name: "시그널 힐 전망대", rating: 4.5, reviewCount: 9000 })]);
+    expect(result[1].map((s) => s.name)).toContain("시그널 힐 전망대"); // 스팟이 더 많아도 볼거리 없는 날이 먼저
+    expect(result[0]).toHaveLength(1);
   });
 });
 

@@ -753,6 +753,11 @@ export function isJetty(p: { category?: string; name: string }): boolean {
   return JETTY_NAME_PATTERN.test(p.name);
 }
 
+/** 선착장(jetty/선착장/ferry terminal/pier) — marina는 제외한다. 섬 없는 선착장을 코스에서 빼는 규칙(courseBrief.ts removeOrphanJetties)의 대상으로, 작업지시서 2026-09-29 "#284 검증" §2가 나열한 목록에 marina가 없다. */
+export function isPier(p: { category?: string; name: string }): boolean {
+  return isJetty(p) && p.category?.toLowerCase() !== "marina" && !/\bmarina\b/i.test(p.name);
+}
+
 export function isIsland(p: { category?: string; name: string }): boolean {
   if (p.category?.toLowerCase() === "island") return true;
   if (isNonAttractionVenue(p)) return false;
