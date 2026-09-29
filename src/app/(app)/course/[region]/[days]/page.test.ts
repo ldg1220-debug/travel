@@ -59,6 +59,7 @@ function thickBrief(overrides: Partial<CourseBrief> = {}): CourseBrief {
     ratingSource: "google",
     distanceSource: "route",
     dayTotals: [],
+    dayImageUrls: [],
     ...overrides,
   };
 }

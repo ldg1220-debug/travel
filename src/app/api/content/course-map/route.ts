@@ -37,6 +37,18 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   if (days > maxDays) {
     return NextResponse.json({ error: "days exceeds this region's style limit", style, maxDays }, { status: 400 });
   }
+  // 작업지시서 2026-09-29 "일자별 동선 지도" §1 — day=N이 있으면 그 하루
+  // 스팟·구간 경로만 그린 지도를 돌려준다(없으면 기존 전체 지도 그대로).
+  // 범위(1..days) 밖이면 조용히 깎지 않고 400 — days 검사와 같은 원칙.
+  const dayRaw = (request.nextUrl.searchParams.get("day") ?? "").trim();
+  let day: number | null = null;
+  if (dayRaw !== "") {
+    const n = Number(dayRaw);
+    if (!Number.isInteger(n) || n < 1 || n > days) {
+      return NextResponse.json({ error: "day must be an integer from 1 to days", days }, { status: 400 });
+    }
+    day = n;
+  }
 
   let brief;
   try {
@@ -52,6 +64,18 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
       return NextResponse.json({ error: "temporarily_unavailable", region: err.region, message: "일시적으로 지도를 만들 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
     }
     throw err;
+  }
+  if (day != null) {
+    // 일자별 지도는 course-brief 생성 때 함께 만들어져 brief.dayImageUrls에
+    // 들어 있다(courseBrief.ts generateDayMapImages) — 여기서 새로 그리지
+    // 않는다(전체 지도와 같은 캐시를 타 추가 비용이 거의 없다는 이 파일의
+    // 원칙 그대로). 그 날짜 지도를 못 만들었으면(키 미설정·생성 실패, 또는
+    // 실제로 채워진 날짜 수가 요청 days보다 적음) 정직하게 404.
+    const dayUrl = brief.dayImageUrls?.[day - 1];
+    if (!dayUrl) {
+      return NextResponse.json({ error: "day map not available for this region yet", day }, { status: 404 });
+    }
+    return NextResponse.redirect(dayUrl, 302);
   }
   if (!brief.imageUrl) {
     // 지도를 못 만든 이유는 다양하다(Google Static Maps API 미설정,
