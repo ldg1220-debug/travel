@@ -11,6 +11,7 @@ import {
   googleTop,
   isBeach,
   isIsland,
+  isJetty,
   isKoreanRestaurant,
   isLargeFacility,
   isLodging,
@@ -304,7 +305,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 18; // 작업지시서 2026-09-29 "#282 검증: 섬이 들어왔습니다. 그런데 섬까지 '차로' 갑니다" §3 — 섬 구간을 boat·분 없음·추정으로 표시(boatLegMeasurement)하고 합계에서 배 구간을 뺀 수정이 전부 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 코타키나발루·세부가 26시간 동안 섬 구간이 "차 19분"인 옛 캐시를 반환한다. 이전(17)과 같은 이유로 한 번에 무효화.
+export const COURSE_ALGO_VERSION = 19; // 작업지시서 2026-09-29 "#283 검증: 배 구간 됐습니다. 식당에서 배를 탑니다 · 세부 섬이 또 빠졌습니다" §5 — 섬 앞 선착장(ensureJettyBeforeIslands)·휴양형 앵커 1곳 섬 예약(pickResortAnchors)·선착장/섬 순서 고정이 전부 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 코타키나발루·세부가 26시간 동안 식당에서 배를 타고 섬이 빠진 옛 구성을 반환한다. 이전(18)과 같은 이유로 한 번에 무효화.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -984,6 +985,9 @@ export function preferRatedFirstStop(scope: CourseBriefScope, region: string, st
   if (stops.length < 2 || hasRatingHint(scope, region, stops[0])) return stops;
   const ratedIndex = stops.findIndex((s, i) => i > 0 && hasRatingHint(scope, region, s));
   if (ratedIndex === -1) return stops;
+  // 선착장·섬은 서로 붙어 있어야 하므로(배 구간) 1번 자리와 맞바꾸지 않는다
+  // — 작업지시서 2026-09-29 "#283 검증" §2.
+  if (isBoatTripStop(stops[0]) || isBoatTripStop(stops[ratedIndex])) return stops;
   const reordered = [...stops];
   [reordered[0], reordered[ratedIndex]] = [reordered[ratedIndex], reordered[0]];
   return reordered;
@@ -1956,7 +1960,12 @@ async function liveEnrichSpots(spots: CourseBriefSpot[], scope: CourseBriefScope
  */
 export function findRatedFirstStopSwapIndex(daySpots: readonly CourseBriefSpot[]): number | null {
   if (daySpots.length < 2 || daySpots[0].rating != null) return null;
-  const j = daySpots.findIndex((s, i) => i > 0 && s.rating != null);
+  // 배 구간(선착장 → 배 → 섬)의 양 끝은 맞바꾸지 않는다 — 맞바꾸면 그
+  // 구간이 다시 조회돼 자동차 구간으로 바뀌고, 식당에서 배를 타던 문제가
+  // 되살아난다(작업지시서 2026-09-29 "#283 검증" §2).
+  const touchesBoat = (i: number) => daySpots[i].toNextMode === "boat" || (i > 0 && daySpots[i - 1].toNextMode === "boat");
+  if (touchesBoat(0)) return null;
+  const j = daySpots.findIndex((s, i) => i > 0 && s.rating != null && !touchesBoat(i));
   return j === -1 ? null : j;
 }
 
@@ -2519,6 +2528,11 @@ export function meetsResortBeachRequirement(spots: { category: string; name: str
 // dedupeWithinList/dedupeCrossDay 근처)이 이미 쓰는 것과 같은 단순
 // 공식이다. courseRecommend.ts의 로그가중(score)을 새로 export해 쓰기보다
 // 이 파일의 기존 관례를 그대로 따른다.
+/** 배 여행 묶음(선착장 → 배 → 섬)에 속한 스팟 — 다른 날·다른 순서로 옮기면 인접이 깨진다. */
+function isBoatTripStop(s: FinalStop): boolean {
+  return s.slotKey === "jetty" || isIsland(s);
+}
+
 function popularity(s: { rating?: number; reviewCount?: number }): number {
   return (s.rating ?? 0) * (s.reviewCount ?? 0);
 }
@@ -2671,10 +2685,68 @@ async function ensureResortLandmarkAnchors(
   const flat = dayStops.flat();
   if (flat.length === 0) return dayStops;
   const candidates = await fetchLandmarkCandidates(scope, region, onCandidateFetchFailure, { includeIslands: true });
-  const anchors = pickLandmarkAnchors(candidates, flat, RESORT_ANCHOR_COUNT, CITY_ANCHOR_POOL_SIZE, RESORT_ANCHOR_MAX_DISTANCE_KM);
+  const anchors = pickResortAnchors(candidates, flat);
   console.log(`[courseBrief] ensureResortLandmarkAnchors ${scope}/${region}: candidates=${candidates.length} anchors=${anchors.map((a) => a.name).join(", ") || "none"}`);
   if (anchors.length === 0) return dayStops;
   return placeResortAnchors(dayStops, anchors);
+}
+
+// 섬 앞 선착장 검색어 — 한글 먼저, 해외는 영문도(작업지시서 2026-09-29
+// "#283 검증" §2 "{도시} jetty / 선착장 / ferry terminal"). 국내(Kakao)는 한글뿐.
+const JETTY_QUERY_KEYWORDS_OVERSEAS = ["선착장", "jetty"];
+const JETTY_QUERY_KEYWORDS_DOMESTIC = ["선착장"];
+// 선착장이 섬에서 이 거리 안이어야 "섬 바로 앞"으로 본다(코타키나발루
+// 제셀톤 선착장→사피 섬 약 3~5km).
+const JETTY_MAX_DISTANCE_KM = 30;
+
+/**
+ * 섬 앞에 선착장을 끼운다 — 작업지시서 2026-09-29 "#283 검증" §2: v18에서
+ * "KK Garden Seafood Restaurant →boat→ 사피 섬"처럼 식당에서 배를 탔다
+ * (배는 선착장에서 탄다). 각 날짜에서 섬 스팟의 바로 앞 스팟이 선착장이
+ * 아니면, 아직 코스에 없는(id·같은 브랜드) 선착장 후보 중 그 섬에서 가장
+ * 가까운 곳(30km 이내)을 섬 바로 앞에 끼운다. 후보가 없으면 섬은 그대로
+ * 둔다("못 찾으면 섬을 빼지 말고 boat 그대로").
+ */
+export function placeJettiesBeforeIslands(dayStops: FinalStop[][], candidates: Place[]): FinalStop[][] {
+  const jetties = candidates.filter((p) => isJetty(p));
+  const inCourse = dayStops.flat();
+  return dayStops.map((stops) => {
+    const result = [...stops];
+    for (let i = 0; i < result.length; i++) {
+      const island = result[i];
+      if (!isIsland(island)) continue;
+      if (i > 0 && (result[i - 1].slotKey === "jetty" || isJetty(result[i - 1]))) continue; // 이미 선착장이 바로 앞이다
+      const pick = jetties
+        .filter((j) => !isAlreadyInCourse(j, inCourse))
+        .map((j) => ({ j, km: haversineKm(island, j) }))
+        .filter((x) => x.km <= JETTY_MAX_DISTANCE_KM)
+        .sort((a, b) => a.km - b.km)[0]?.j;
+      if (!pick) continue;
+      const jettyStop: FinalStop = { ...pick, slotKey: "jetty", slotLabel: "선착장", hour: Math.max(0, island.hour - 1), meal: false };
+      result.splice(i, 0, jettyStop);
+      inCourse.push(jettyStop);
+      i++; // 방금 끼운 선착장 다음(=섬)으로 넘어간다
+    }
+    return result;
+  });
+}
+
+async function ensureJettyBeforeIslands(
+  scope: CourseBriefScope,
+  region: string,
+  dayStops: FinalStop[][],
+  onCandidateFetchFailure?: (status: number) => void,
+): Promise<FinalStop[][]> {
+  if (!dayStops.flat().some(isIsland)) return dayStops;
+  const keywords = scope === "overseas" ? JETTY_QUERY_KEYWORDS_OVERSEAS : JETTY_QUERY_KEYWORDS_DOMESTIC;
+  for (const keyword of keywords) {
+    const slot: RecommendSlot = { key: "jetty", label: "선착장", keyword, hour: 9 };
+    const candidates = await fetchSlotCandidates(scope, region, slot, false, onCandidateFetchFailure);
+    const placed = placeJettiesBeforeIslands(dayStops, candidates);
+    console.log(`[courseBrief] ensureJettyBeforeIslands ${scope}/${region} "${keyword}": candidates=${candidates.length} jetties=${candidates.filter(isJetty).length} placed=${placed.flat().length - dayStops.flat().length}`);
+    if (placed.flat().length > dayStops.flat().length) return placed;
+  }
+  return dayStops;
 }
 
 // 해변 전용 검색어 — 한글 먼저, 해외는 영문도 함께(작업지시서 2026-09-29
@@ -2759,7 +2831,10 @@ export function redistributeThinResortDays(dayGroups: FinalStop[][]): FinalStop[
     if (recipient.length >= 2) continue;
     const donor = result.filter((d) => d !== recipient && d.length > 2).sort((a, b) => b.length - a.length)[0];
     if (!donor) continue;
-    const movableIdx = donor.reduce<number[]>((acc, s, idx) => (!s.meal ? [...acc, idx] : acc), []);
+    // 식사는 옮기지 않고, 섬·선착장도 옮기지 않는다 — "선착장 → 배 → 섬"이
+    // 한 묶음이라 하나만 다른 날로 가면 식당에서 배를 타던 v18 문제가
+    // 되살아난다(작업지시서 2026-09-29 "#283 검증" §2).
+    const movableIdx = donor.reduce<number[]>((acc, s, idx) => (!s.meal && !isBoatTripStop(s) ? [...acc, idx] : acc), []);
     if (movableIdx.length === 0) continue;
     const pickIdx = movableIdx.reduce((best, idx) => (popularity(donor[idx]) < popularity(donor[best]) ? idx : best));
     const [moved] = donor.splice(pickIdx, 1);
@@ -2794,8 +2869,18 @@ export function pickLandmarkAnchors(
   poolSize: number = CITY_ANCHOR_POOL_SIZE,
   maxDistanceKm: number = CITY_ANCHOR_MAX_DISTANCE_KM,
 ): Place[] {
-  const existingIds = new Set(existingStops.map((s) => s.id));
-  const existingNames = existingStops.map((s) => s.name);
+  return rankAnchorCandidates(candidates, existingStops, maxDistanceKm)
+    .slice(0, poolSize)
+    .filter((p) => !isAlreadyInCourse(p, existingStops))
+    .slice(0, count);
+}
+
+function isAlreadyInCourse(p: Place, existingStops: { id: string; name: string }[]): boolean {
+  return existingStops.some((s) => s.id === p.id || sameShop(s.name, p.name));
+}
+
+/** 앵커 후보 자격(평점 있음 · 코스 스팟 중심 반경 안)을 통과한 후보를 리뷰 수 내림차순으로. 코스에 스팟이 없으면 반경 검사는 건너뛴다. */
+function rankAnchorCandidates(candidates: Place[], existingStops: FinalStop[], maxDistanceKm: number): Place[] {
   const center =
     existingStops.length > 0
       ? {
@@ -2805,10 +2890,33 @@ export function pickLandmarkAnchors(
       : null;
   return candidates
     .filter((p) => p.rating != null && (!center || haversineKm(center, p) <= maxDistanceKm))
-    .sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0))
+    .sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0));
+}
+
+/**
+ * 휴양형 앵커 선정 — 작업지시서 2026-09-29 "#283 검증" §3: 리뷰 상위 5 중
+ * 2곳을 그대로 뽑으면 세부 7일에서 명소 둘(마젤란의 십자가·레아신전)이
+ * 뽑히고 카오하간 섬이 밀려났다 — "세부 휴양의 핵심은 섬 투어입니다.
+ * 명소만 두 곳이면 도시 여행이 됩니다." 앵커 2곳 중 1곳은 섬으로
+ * 예약한다: 코스에 아직 섬이 없고 자격 있는 섬 후보가 있으면 "섬 1 +
+ * 명소 1"(섬은 리뷰 순위가 낮아도 전체 자격 후보 중 리뷰 수 최상위를
+ * 뽑는다 — 상위 5 안에 든다는 보장이 없다), 이미 섬이 있거나 섬 후보가
+ * 없으면 "명소 2"(기존과 같은 상위 5 규칙). 나머지 명소 자리에는 섬을
+ * 또 뽑지 않는다.
+ */
+export function pickResortAnchors(
+  candidates: Place[],
+  existingStops: FinalStop[],
+  count: number = RESORT_ANCHOR_COUNT,
+  poolSize: number = CITY_ANCHOR_POOL_SIZE,
+  maxDistanceKm: number = RESORT_ANCHOR_MAX_DISTANCE_KM,
+): Place[] {
+  const ranked = rankAnchorCandidates(candidates, existingStops, maxDistanceKm);
+  const island = existingStops.some(isIsland) ? undefined : ranked.find((p) => isIsland(p) && !isAlreadyInCourse(p, existingStops));
+  const others = ranked
     .slice(0, poolSize)
-    .filter((p) => !existingIds.has(p.id) && !existingNames.some((n) => sameShop(n, p.name)))
-    .slice(0, count);
+    .filter((p) => !isAlreadyInCourse(p, existingStops) && p !== island && !(island && isIsland(p)));
+  return island ? [island, ...others.slice(0, Math.max(0, count - 1))] : others.slice(0, count);
 }
 
 /**
@@ -2946,6 +3054,12 @@ export async function buildBrief(
   // 이후로는 이 배열을 건드리는 단계가 없으므로, 여기서 채운 해변이
   // 뒤에서 다시 밀려날 수 없다(ensureResortBeachSpot 주석 참고).
   const beachEnsuredDayGroups = style === "resort" ? await ensureResortBeachSpot(scope, region, redistributedDayGroups, onCandidateFetchFailure) : redistributedDayGroups;
+  // 작업지시서 2026-09-29 "#283 검증" §2 — 섬이 코스에 들어갔으면 섬 바로
+  // 앞에 선착장을 끼운다. 다른 스팟을 옮기는 단계(재배분·해변 보장)가
+  // 전부 끝난 뒤에 해야 선착장→섬 인접이 다시 깨지지 않는다(이후 단계는
+  // 선착장·섬을 옮기지 않는다 — redistributeThinResortDays·
+  // preferRatedFirstStop·findRatedFirstStopSwapIndex 참고).
+  const jettyEnsuredDayGroups = style === "resort" ? await ensureJettyBeforeIslands(scope, region, beachEnsuredDayGroups, onCandidateFetchFailure) : beachEnsuredDayGroups;
   // 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
   // 없습니다" §2 — 도시형 코스의 "대표 명소 앵커"도 같은 이유로 재배치
   // *이후*(모든 날짜 배정이 끝난 시점)에 끼워 넣는다 — 그래야 앵커가
@@ -2953,7 +3067,7 @@ export async function buildBrief(
   // 일이 없다(ensureResortBeachSpot이 해변에서 겪은 것과 같은 문제,
   // 작업지시서 2026-09-29 "#277 검증" §2 참고). 휴양형에는 적용하지
   // 않는다 — resort는 이미 위에서 별도 규칙(스파·해변)을 적용했다.
-  const anchoredDayGroups = style === "resort" ? beachEnsuredDayGroups : await ensureCityLandmarkAnchors(scope, region, beachEnsuredDayGroups, onCandidateFetchFailure);
+  const anchoredDayGroups = style === "resort" ? jettyEnsuredDayGroups : await ensureCityLandmarkAnchors(scope, region, beachEnsuredDayGroups, onCandidateFetchFailure);
   // 작업지시서 2026-09-23 §3-b — 각 날짜의 첫 스팟이 평점 신호 없이
   // 시작하지 않도록 순서를 조정한다. 반드시 라우팅(바로 아래
   // routeDayStops) 이전에 해야 한다 — 이후에 순서만 바꾸면 구간

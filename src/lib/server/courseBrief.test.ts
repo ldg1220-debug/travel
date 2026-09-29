@@ -40,6 +40,8 @@ import {
   pickBeachCandidate,
   pickBetterDayResult,
   pickLandmarkAnchors,
+  pickResortAnchors,
+  placeJettiesBeforeIslands,
   placeLandmarkAnchors,
   placeResortAnchors,
   planRouteForDay,
@@ -1998,6 +2000,113 @@ describe("isEstimatedLeg — 추정 구간 판정 (작업지시서 2026-09-29 '#
   it("is false for a domestic walking leg's intended straight line", () => {
     expect(isEstimatedLeg({ mode: "walk", points: null }, "domestic")).toBe(false);
     expect(isEstimatedLeg({ mode: "walk", points: null }, "overseas")).toBe(true);
+  });
+});
+
+// 작업지시서 2026-09-29 "#283 검증: 배 구간 됐습니다. 식당에서 배를 탑니다 ·
+// 세부 섬이 또 빠졌습니다" §3 — 휴양형 앵커 2곳 중 1곳은 섬으로 예약.
+describe("pickResortAnchors — 앵커 2곳 중 1곳은 섬 (작업지시서 2026-09-29 '#283 검증' §3)", () => {
+  const attractions = [
+    place("magellan", { name: "마젤란의 십자가", rating: 4.5, reviewCount: 50000 }),
+    place("leah", { name: "레아신전", rating: 4.6, reviewCount: 40000 }),
+    place("fort", { name: "산 페드로 요새", rating: 4.4, reviewCount: 30000 }),
+  ];
+  const caohagan = place("caohagan", { name: "Caohagan Island", category: "island", rating: 4.7, reviewCount: 800 }); // 리뷰 순위는 낮다
+
+  it("reserves one anchor for the island even when it ranks outside the top 5 (섬 1 + 명소 1)", () => {
+    const candidates = [...attractions, ...[1, 2, 3].map((n) => place(`x${n}`, { name: `명소${n}`, rating: 4.3, reviewCount: 20000 - n })), caohagan];
+    const anchors = pickResortAnchors(candidates, [stop("e", 10, 120)], 2, 5);
+    expect(anchors.map((a) => a.name)).toEqual(["Caohagan Island", "마젤란의 십자가"]);
+  });
+
+  it("falls back to two attractions when there is no island candidate", () => {
+    const anchors = pickResortAnchors(attractions, [stop("e", 10, 120)], 2, 5);
+    expect(anchors.map((a) => a.name)).toEqual(["마젤란의 십자가", "레아신전"]);
+  });
+
+  it("does not reserve another island when the course already has one", () => {
+    const existing = [stop("e", 10, 120), stop("isl", 10, 120, { name: "Manukan Island", category: "island" })];
+    const anchors = pickResortAnchors([...attractions, caohagan], existing, 2, 5);
+    expect(anchors.map((a) => a.name)).toEqual(["마젤란의 십자가", "레아신전"]);
+  });
+
+  it("never picks two islands", () => {
+    const second = place("gaya", { name: "Pulau Gaya", category: "island", rating: 4.6, reviewCount: 700 });
+    const anchors = pickResortAnchors([caohagan, second, ...attractions], [stop("e", 10, 120)], 2, 5);
+    expect(anchors.filter((a) => a.category === "island")).toHaveLength(1);
+  });
+});
+
+describe("placeJettiesBeforeIslands — 섬 바로 앞에 선착장 (작업지시서 2026-09-29 '#283 검증' §2)", () => {
+  const island = stop("sapi", 5.99, 116.03, { name: "사피 섬", category: "island" });
+  const jettyNear = place("jesselton", { name: "제셀톤 선착장", category: "ferry_terminal", lat: 5.985, lng: 116.06 });
+  const jettyFar = place("far", { name: "먼 선착장", category: "ferry_terminal", lat: 6.3, lng: 116.4 });
+
+  it("inserts the nearest jetty right before the island when a restaurant precedes it", () => {
+    const days = [[stop("act", 5.98, 116.07), stop("lunch", 5.98, 116.07, { name: "KK Garden Seafood", category: "seafood_restaurant", meal: true }), island]];
+    const result = placeJettiesBeforeIslands(days, [jettyFar, jettyNear]);
+    expect(result[0].map((s) => s.name)).toEqual(["act", "KK Garden Seafood", "제셀톤 선착장", "사피 섬"]);
+    expect(result[0][2].slotKey).toBe("jetty");
+  });
+
+  it("does nothing when a jetty already precedes the island", () => {
+    const existing = stop("j", 5.985, 116.06, { name: "제셀톤 선착장", category: "ferry_terminal" });
+    const days = [[existing, island]];
+    expect(placeJettiesBeforeIslands(days, [jettyNear])).toEqual(days);
+  });
+
+  it("leaves the island as is when no jetty candidate is within range (못 찾으면 boat 그대로)", () => {
+    const days = [[stop("act", 5.98, 116.07), island]];
+    expect(placeJettiesBeforeIslands(days, [jettyFar])).toEqual(days);
+  });
+
+  it("does not touch a course without islands", () => {
+    const days = [[stop("a", 0, 0), stop("b", 0, 0)]];
+    expect(placeJettiesBeforeIslands(days, [jettyNear])).toEqual(days);
+  });
+
+  it("does not use a jetty already in the course", () => {
+    const days = [[stop("used", 5.985, 116.06, { name: "제셀톤 선착장", category: "ferry_terminal" }), stop("act", 5.98, 116.07), island]];
+    expect(placeJettiesBeforeIslands(days, [jettyNear])).toEqual(days); // 유일한 후보가 이미 코스에 있다
+  });
+});
+
+describe("선착장·섬은 다른 단계가 떼어놓지 않는다 (작업지시서 2026-09-29 '#283 검증' §2)", () => {
+  it("redistributeThinResortDays never moves an island or a jetty to another day", () => {
+    const days = [
+      [
+        stop("jetty", 0, 0, { slotKey: "jetty", rating: 3, reviewCount: 1 }), // 가장 인기 낮아도 옮기지 않는다
+        stop("isl", 0, 0, { name: "Sapi Island", category: "island", rating: 3, reviewCount: 1 }),
+        stop("food", 0, 0, { meal: true }),
+        stop("movable", 0, 0, { rating: 4.5, reviewCount: 500 }),
+      ],
+      [stop("thin", 0, 0)],
+    ];
+    const result = redistributeThinResortDays(days);
+    expect(result[0].map((s) => s.id)).toContain("jetty");
+    expect(result[0].map((s) => s.id)).toContain("isl");
+    expect(result[1].map((s) => s.id)).toContain("movable"); // 옮겨진 건 일반 스팟뿐
+  });
+
+  it("findRatedFirstStopSwapIndex skips a spot that sits at either end of a boat leg", () => {
+    const base = { category: "관광지", lat: 0, lng: 0, day: 1 as const, toNextMinutes: 10, toNextMode: "car" as const };
+    const spots: CourseBriefSpot[] = [
+      { ...base, name: "a", rating: null, reviewCount: null, order: 1 },
+      { ...base, name: "pier", rating: 4.5, reviewCount: 10, order: 2, toNextMode: "boat", toNextMinutes: null }, // 배 구간의 출발
+      { ...base, name: "island", rating: 4.6, reviewCount: 10, order: 3 }, // 배 구간의 도착
+      { ...base, name: "market", rating: 4.4, reviewCount: 10, order: 4 },
+    ];
+    expect(findRatedFirstStopSwapIndex(spots)).toBe(3); // 평점 있는 1·2번(배 구간 양 끝)을 건너뛰고 market
+  });
+
+  it("findRatedFirstStopSwapIndex does nothing when the first spot itself starts a boat leg", () => {
+    const base = { category: "관광지", lat: 0, lng: 0, day: 1 as const, toNextMinutes: 10, toNextMode: "car" as const };
+    const spots: CourseBriefSpot[] = [
+      { ...base, name: "pier", rating: null, reviewCount: null, order: 1, toNextMode: "boat", toNextMinutes: null },
+      { ...base, name: "island", rating: null, reviewCount: null, order: 2 },
+      { ...base, name: "other", rating: 4.5, reviewCount: 10, order: 3 },
+    ];
+    expect(findRatedFirstStopSwapIndex(spots)).toBeNull();
   });
 });
 
