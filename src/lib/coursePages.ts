@@ -206,7 +206,9 @@ export function buildCourseIntro(brief: Pick<CourseBrief, "region" | "days" | "t
 /** 스팟 하나를 소개하는 짧은 문장 — 다음 스팟까지 이동시간이 있으면 그 정보도 붙인다. */
 export function buildSpotDescription(spot: CourseBriefSpot): string {
   const ratingPart = spot.rating != null ? `평점 ${spot.rating.toFixed(1)}${spot.reviewCount != null ? `(리뷰 ${spot.reviewCount.toLocaleString()}개)` : ""}` : "평점 정보 없음";
-  const nextPart = spot.toNextMinutes != null ? ` 다음 장소까지 ${spot.toNextMode === "walk" ? "도보" : spot.toNextMode === "transit" ? "대중교통" : "차량"}로 약 ${spot.toNextMinutes}분.` : "";
+  // 작업지시서 2026-09-29 "#282 검증" §2 — 섬이 낀 구간은 배다. 배편
+  // 시간은 모르므로 분을 지어내지 않고 이동수단만 정직하게 쓴다.
+  const nextPart = spot.toNextMode === "boat" ? " 다음 장소까지는 배로 이동합니다." : spot.toNextMinutes != null ? ` 다음 장소까지 ${spot.toNextMode === "walk" ? "도보" : spot.toNextMode === "transit" ? "대중교통" : "차량"}로 약 ${spot.toNextMinutes}분.` : "";
   return `${spot.category} · ${ratingPart}.${nextPart}`;
 }
 
