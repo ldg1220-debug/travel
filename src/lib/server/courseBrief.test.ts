@@ -29,6 +29,7 @@ import {
   isEstimatedLeg,
   isFreshBriefPayload,
   isSightStop,
+  islandsLackingJetty,
   isSupportedRegion,
   looksLikeMismatchedOverseasResult,
   mapPathParam,
@@ -52,6 +53,7 @@ import {
   reassignByCentroid,
   redistributeThinResortDays,
   removeOrphanJetties,
+  splitOrphanJetties,
   rebalanceByDistance,
   recolorMapPathAsEstimated,
   recolorMapPathForDay,
@@ -1050,6 +1052,15 @@ describe("assembleDaySpots — distanceSource용 hadStraightFallback 판정", ()
     expect(hadStraightFallback).toBe(false); // 배편은 의도된 추정 — "직선거리 기준" 표기를 유발하지 않는다
     expect(spots[1].toNextEstimated).toBeUndefined(); // 실제 경로가 있는 구간
     expect(spots[1].toNextMode).toBe("car");
+  });
+
+  // 작업지시서 2026-09-29 "#285 검증" §4 — 하루의 마지막 스팟은 다음 구간이 없다.
+  it("gives the last spot of a day toNextMode null and toNextMinutes null (no 'car' default)", () => {
+    const stops = [stop("a", 0, 0), stop("b", 0, 1)];
+    const { spots } = assembleDaySpots(stops, [routeSeg(5, 10, true)], 1, "overseas", "오사카", 1);
+    expect(spots[0].toNextMode).toBe("car");
+    expect(spots[1].toNextMode).toBeNull();
+    expect(spots[1].toNextMinutes).toBeNull();
   });
 
   it("flags a straight-line fallback leg as estimated too, but not a domestic walking leg", () => {
@@ -2140,6 +2151,50 @@ describe("removeOrphanJetties — 섬 없는 선착장은 뺀다 (작업지시�
     expect(removeOrphanJetties(days)[0].map((s) => s.id)).toEqual(["star", "beach"]);
   });
 });
+
+// 작업지시서 2026-09-29 "#285 검증" §3 — v20에서 removeOrphanJetties가 슬롯 풀에서
+// 온 선착장(마누칸)을 지웠는데, 선착장 전용 검색 결과에 없으면 삽입 단계가 쓸
+// 후보를 잃어 "식당 → boat → 사피 섬"으로 되돌아갔다. 빠진 선착장을 후보로 재사용한다.
+describe("splitOrphanJetties + placeJettiesBeforeIslands — 빠진 선착장을 섬 앞에 재사용 (작업지시서 2026-09-29 '#285 검증' §3)", () => {
+  const manukanPier = stop("manukan-pier", 5.99, 116.02, { name: "마누칸 선착장", category: "ferry_terminal" });
+  const island = stop("sapi", 5.99, 116.05, { name: "사피 섬", category: "island" });
+  const lunch = stop("lunch", 5.98, 116.07, { name: "KK Garden Seafood", category: "seafood_restaurant", meal: true });
+
+  it("reports which piers were removed", () => {
+    const { kept, removed } = splitOrphanJetties([[manukanPier, lunch, island]]); // 선착장 뒤가 식당 — 고아
+    expect(removed.map((s) => s.id)).toEqual(["manukan-pier"]);
+    expect(kept[0].map((s) => s.id)).toEqual(["lunch", "sapi"]);
+  });
+
+  it("the removed pier can be put back right before the island (선착장 → 배 → 섬 불변식)", () => {
+    const { kept, removed } = splitOrphanJetties([[manukanPier, lunch, island]]);
+    expect(islandsLackingJetty(kept)).toBe(1);
+    const placed = placeJettiesBeforeIslands(kept, removed);
+    expect(placed[0].map((s) => s.id)).toEqual(["lunch", "manukan-pier", "sapi"]);
+    expect(islandsLackingJetty(placed)).toBe(0);
+  });
+
+  it("every island in a course is preceded by a jetty or another island after placement (KK · 세부 fixture)", () => {
+    const cebuIsland = stop("caohagan", 10.4, 124.0, { name: "Caohagan Island", category: "island" });
+    const hilton = place("hilton", { name: "힐튼 선착장", category: "ferry_terminal", lat: 10.3, lng: 123.98 });
+    const days = [
+      [lunch, island], // 코타키나발루형
+      [stop("spa", 10.31, 123.97, { name: "Cheeva Spa", category: "spa" }), cebuIsland], // 세부형
+    ];
+    const placed = placeJettiesBeforeIslands(days, [manukanPier, hilton]);
+    for (const day of placed) {
+      day.forEach((s, i) => {
+        if (!isIslandName(s)) return;
+        const prev = day[i - 1];
+        expect(prev && (prev.slotKey === "jetty" || /선착장/.test(prev.name) || isIslandName(prev))).toBe(true);
+      });
+    }
+  });
+});
+
+function isIslandName(s: { name: string; category: string }): boolean {
+  return s.category === "island";
+}
 
 describe("placeJettiesBeforeIslands — 섬에서 섬으로는 선착장을 또 끼우지 않는다", () => {
   it("skips an island whose predecessor is another island", () => {

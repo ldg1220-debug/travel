@@ -6,6 +6,7 @@ import {
   OVERSEAS_LOCALITY_NAMES,
   parseSearchQuery,
   regionHierarchy,
+  regionSelfNames,
   resolveLeafCityCoords,
   resolveRegionAlias,
   RESORT_REGIONS,
@@ -327,5 +328,28 @@ describe("suggestOverseasRegions — 미지원 지역 응답에 실을 고정 �
   it("returns a non-empty, stable list", () => {
     expect(suggestOverseasRegions().length).toBeGreaterThan(0);
     expect(suggestOverseasRegions()).toEqual(suggestOverseasRegions());
+  });
+});
+
+// 작업지시서 2026-09-29 "#285 검증" §2 — 지역 자체를 가리키는 이름(후보에서 제외).
+describe("regionSelfNames — 지역 자체를 가리키는 이름들", () => {
+  it("includes the Korean name and the English spelling", () => {
+    expect(regionSelfNames("세부")).toEqual(expect.arrayContaining(["세부", "Cebu"]));
+  });
+
+  it("includes the larger area a region belongs to (서귀포 → 제주, 우붓 → Bali)", () => {
+    expect(regionSelfNames("서귀포")).toEqual(expect.arrayContaining(["제주", "Jeju"]));
+    expect(regionSelfNames("우붓")).toEqual(expect.arrayContaining(["Bali", "발리"]));
+  });
+
+  it("resolves an alias to its canonical name (발리 → 우붓) and keeps the alias itself", () => {
+    const names = regionSelfNames("발리");
+    expect(names).toEqual(expect.arrayContaining(["발리", "우붓", "Ubud"]));
+  });
+
+  it("has an English name for every resort region (so a new resort region can't silently skip the exclusion)", () => {
+    for (const region of RESORT_REGIONS) {
+      expect(regionSelfNames(region).length, region).toBeGreaterThanOrEqual(2);
+    }
   });
 });
