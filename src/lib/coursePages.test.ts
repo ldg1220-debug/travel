@@ -195,6 +195,14 @@ describe("buildSpotDescription", () => {
     expect(desc).toContain("8분");
   });
 
+  // 작업지시서 2026-09-29 "#282 검증" §2 — 섬 구간은 배. 분을 지어내지 않는다.
+  it("says the next leg is by boat, without inventing minutes", () => {
+    const desc = buildSpotDescription(spot({ toNextMode: "boat", toNextMinutes: null }));
+    expect(desc).toContain("배로 이동");
+    expect(desc).not.toContain("차량");
+    expect(desc).not.toMatch(/\d+분/);
+  });
+
   it("says rating is unavailable rather than showing a blank", () => {
     const desc = buildSpotDescription(spot({ rating: null, reviewCount: null }));
     expect(desc).toContain("평점 정보 없음");

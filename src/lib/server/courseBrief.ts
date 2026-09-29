@@ -64,8 +64,18 @@ export interface CourseBriefSpot {
   // 일차별 타임라인 표를 만들 수 없었다. 순수 추가 필드라 기존 계약을
   // 깨지 않는다.
   day: CourseDays;
+  /** 다음 스팟까지 이동시간(분) — 마지막 스팟이거나 배편("boat")이면 null(배편 시간은 모른다 — 지어내지 않는다). */
   toNextMinutes: number | null;
-  toNextMode: TravelMode;
+  /** 다음 스팟까지 이동수단. "boat"는 섬이 낀 구간(도로 경로가 없음이 확인된 경우)이다. */
+  toNextMode: LegMode;
+  /**
+   * 이 구간이 실제 경로가 아니라 추정이면 true(아니면 필드 자체가 없다) —
+   * 작업지시서 2026-09-29 "#282 검증: 섬이 들어왔습니다. 그런데 섬까지
+   * '차로' 갑니다" §2. 배편 구간은 항상 true, 그 밖의 구간은 직선 거리로
+   * 대체된 경우(distanceSource가 "straight"가 되는 것과 같은 판정 —
+   * 국내 도보의 의도된 직선은 제외). 순수 추가 필드.
+   */
+  toNextEstimated?: true;
   /**
    * 원래(Google 공식) 이름 — name이 표시용으로 정리됐을 때만 채워진다
    * (cleanDisplayName 참고, 예: "대한불교조계종 제11교구 본사 불국사"의
@@ -294,7 +304,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 17; // 작업지시서 2026-09-29 "#281 검증: 코타키나발루가 열렸습니다. 휴양지에도 대표 명소를" §3 — 휴양형 대표 명소·섬 앵커(ensureResortLandmarkAnchors), 섬 라우팅 예외(isWaterDestination), 라우팅 이후 하루 최소 2곳 재배분이 전부 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 코타키나발루·세부가 26시간 동안 섬 없는 옛 구성을 반환한다. 이전(16)과 같은 이유로 한 번에 무효화.
+export const COURSE_ALGO_VERSION = 18; // 작업지시서 2026-09-29 "#282 검증: 섬이 들어왔습니다. 그런데 섬까지 '차로' 갑니다" §3 — 섬 구간을 boat·분 없음·추정으로 표시(boatLegMeasurement)하고 합계에서 배 구간을 뺀 수정이 전부 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 코타키나발루·세부가 26시간 동안 섬 구간이 "차 19분"인 옛 캐시를 반환한다. 이전(17)과 같은 이유로 한 번에 무효화.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -431,8 +441,45 @@ export interface RouteMeasurement {
    */
   points: { lat: number; lng: number }[] | null;
 }
+/**
+ * 구간 이동수단 — TravelMode(도보·대중교통·자동차)에 "boat"를 더한다.
+ * TravelMode 자체는 반경 계산·플래너 UI가 널리 쓰므로 넓히지 않고, 코스
+ * 브리프 구간에만 배편을 표현한다(작업지시서 2026-09-29 "#282 검증" §2).
+ */
+export type LegMode = TravelMode | "boat";
+
 export interface RouteResult extends RouteMeasurement {
-  mode: TravelMode;
+  mode: LegMode;
+}
+
+/**
+ * 섬이 낀 구간 — 도로 경로가 없음이 확인됐을 때(routeDayStops) 자동차
+ * 직선 추정을 채우던 것을 "배"로 정직하게 표시한다. 시간은 모른다(0으로
+ * 채우고 assembleDaySpots가 toNextMinutes를 null로 낸다 — 배편 시간을
+ * 지어내지 않는다), 거리는 합계에서 빠지도록 0으로 둔다, points가 null이라
+ * 지도에는 추정(회색 직선)으로 그려진다.
+ */
+export function boatLegMeasurement(a: GeoPoint, b: GeoPoint): RouteResult {
+  return { distanceKm: 0, durationMinutes: 0, mapPath: mapPathParam([a, b]), points: null, mode: "boat" };
+}
+
+type NamedPoint = GeoPoint & { category?: string; name: string };
+
+/**
+ * 두 스팟 중 하나가 섬이고 서로 1km 이상 떨어져 있으면 배 구간(boatLegMeasurement),
+ * 아니면 null — routeDayStops의 섬 규칙을 순수 함수로 뽑은 것이다. 1km
+ * 미만은 같은 섬 안의 이동으로 보고 기존 도보 규칙에 맡긴다.
+ */
+export function boatLegIfIslandCrossing(a: NamedPoint, b: NamedPoint): RouteResult | null {
+  if (!isIsland(a) && !isIsland(b)) return null;
+  if (haversineKm(a, b) < WALK_MAX_KM) return null;
+  return boatLegMeasurement(a, b);
+}
+
+/** 이 구간이 실제 경로가 아닌 추정인가 — 배편은 항상, 그 밖엔 직선 폴백(국내 도보의 의도된 직선은 제외). hadStraightFallback과 같은 판정이다. */
+export function isEstimatedLeg(seg: Pick<RouteResult, "mode" | "points">, scope: CourseBriefScope): boolean {
+  if (seg.mode === "boat") return true;
+  return seg.points == null && !(seg.mode === "walk" && scope === "domestic");
 }
 
 // mapPathParam/mapPathParamEncoded가 세그먼트를 만드는 시점엔 아직 "몇
@@ -811,26 +858,29 @@ async function resolveRouteSegment(scope: CourseBriefScope, last: GeoPoint, cand
  * 하루치 스톱에 실제 경로 조회(routeSegment)를 적용한다 — planRouteForDay의
  * 실제 호출부.
  */
-// 해변·섬 — 도로 경로가 없어도(배로만 가는 곳) 코스에서 빼지 않는 방문지.
-function isWaterDestination(p: { category?: string; name: string }): boolean {
-  return isBeach(p) || isIsland(p);
-}
-
 async function routeDayStops(scope: CourseBriefScope, stops: FinalStop[], deadline: number): Promise<{ stops: FinalStop[]; segments: RouteResult[] }> {
   const routed = await planRouteForDay(stops, async (last, candidate) => {
+    // 작업지시서 2026-09-29 "#282 검증: 섬이 들어왔습니다. 그런데 섬까지
+    // '차로' 갑니다" §2 — 출발지나 도착지 중 하나가 섬이면 그 구간은 배다.
+    // 사피 섬·카오하간 섬은 배로만 가는데, #281·#282가 섬을 "경로 없음이어도
+    // 유지"하면서 그 구간을 자동차 직선 추정(car 19분·42분)으로 채워 블로그에
+    // "차로 이동하며 약 42분"이 그대로 나갔다. 배편 시간은 모르므로 지어내지
+    // 않는다(boatLegMeasurement). 도로 경로 조회는 건너뛴다(섬이 낀 구간엔
+    // 의미가 없고 호출도 아낀다). 1km 미만은 같은 섬 안의 이동으로 보고
+    // 기존 도보 규칙을 그대로 쓴다 — 섬 안에서 두 곳을 걷는 구간까지 배로
+    // 만들면 안 된다.
+    const boat = boatLegIfIslandCrossing(last, candidate);
+    if (boat) return boat;
+    const km = haversineKm(last, candidate);
     const outcome = await resolveRouteSegment(scope, last, candidate, deadline);
-    // 작업지시서 2026-09-29 "#280 검증" §2 — 해변(특히 배로만 가는 섬)은
-    // 도로 경로가 "없음"(ZERO_RESULTS)이거나 3시간을 넘겨도 휴양형 코스의
-    // 핵심 방문지다. "#281 검증" §2②로 섬(isIsland)도 같은 예외에 넣었다
-    // — 코타키나발루 d2에 제셀톤 선착장(섬 투어 출발지)만 남고 도착지 섬이
-    // 사라진 것(3/1/2 분포)이 이 라우팅 제거로 설명된다. 여기서 "no-route"로 빼면 "해변 최소 1곳"이 조립
-    // 마지막 단계(ensureResortBeachSpot)에서 채워진 뒤에도 라우팅에서
-    // 다시 사라진다(코타키나발루의 마누칸·사피 섬, 세부 카오하간 섬이
-    // 같은 종류). 해변이 낀 구간은 직선 추정으로 남긴다 — 이미 있는
-    // "조용한 저하" 표시(distanceSource "straight", 회색 경로선)가 그대로
-    // 적용된다.
-    if (outcome === "no-route" && (isWaterDestination(last) || isWaterDestination(candidate))) {
-      return straightRouteMeasurement(last, candidate, modeForDistance(haversineKm(last, candidate), scope));
+    // 작업지시서 2026-09-29 "#280 검증" §2 — 해변은 도로 경로가 "없음"
+    // (ZERO_RESULTS)이거나 3시간을 넘겨도 휴양형 코스의 핵심 방문지다. 여기서
+    // "no-route"로 빼면 "해변 최소 1곳"이 조립 마지막 단계(ensureResortBeachSpot)
+    // 에서 채워진 뒤에도 라우팅에서 다시 사라진다. 해변이 낀 구간은 직선
+    // 추정으로 남긴다 — 이미 있는 "조용한 저하" 표시(distanceSource
+    // "straight", 회색 경로선, toNextEstimated)가 그대로 적용된다.
+    if (outcome === "no-route" && (isBeach(last) || isBeach(candidate))) {
+      return straightRouteMeasurement(last, candidate, modeForDistance(km, scope));
     }
     return outcome;
   });
@@ -1945,12 +1995,14 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
   let hadStraightFallback = false;
   const spots: CourseBriefSpot[] = stops.map((stop, i) => {
     let toNextMinutes: number | null = null;
-    let toNextMode: TravelMode = "car";
+    let toNextMode: LegMode = "car";
+    let toNextEstimated = false;
     if (i < stops.length - 1) {
       const seg = segments[i];
-      distanceKm += seg.distanceKm;
+      distanceKm += seg.distanceKm; // 배편 구간은 0이라 합계에서 자연히 빠진다(boatLegMeasurement)
       toNextMode = seg.mode;
-      toNextMinutes = seg.durationMinutes;
+      toNextMinutes = seg.mode === "boat" ? null : seg.durationMinutes;
+      toNextEstimated = isEstimatedLeg(seg, scope);
       // 국내 도보는 애초에 실경로 조회 대상이 아니다(routeSegment 위
       // 설명 참고) — 의도된 직선 추정이라 "실패"로 세지 않는다. 해외
       // 도보는 작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다"
@@ -1958,7 +2010,9 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
       // 직선으로 떨어진 경우는 다른 모드와 마찬가지로 "조용한 저하"로
       // 센다 — distanceSource가 이걸 놓치면 §1의 재발("그걸 아무도
       // 모르게 만든 게 코드 문제")과 같은 사고가 된다.
-      if (!(seg.mode === "walk" && scope === "domestic") && seg.points == null) hadStraightFallback = true;
+      // 배편은 의도된 추정이라 "실패"로 세지 않는다 — distanceSource가
+      // "straight"가 되면 AutoPipeline이 직선거리 기준 표기를 붙인다.
+      if (seg.mode !== "boat" && !(seg.mode === "walk" && scope === "domestic") && seg.points == null) hadStraightFallback = true;
     }
 
     let { rating, reviewCount } = qualityGate(stop.rating ?? null, stop.reviewCount ?? null);
@@ -1983,6 +2037,7 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
       day,
       toNextMinutes,
       toNextMode,
+      ...(toNextEstimated ? { toNextEstimated: true as const } : {}),
     };
   });
   return { spots, distanceKm, hadStraightFallback };
@@ -2604,7 +2659,7 @@ export function placeResortAnchors(dayStops: FinalStop[][], anchors: Place[]): F
  * 도시형과 같은 전용 후보 검색(fetchLandmarkCandidates)에 "{도시} island"
  * 검색을 더해 리뷰 상위 5 중 코스에 없는 2곳을 서로 다른 날에 넣는다
  * (pickLandmarkAnchors 재사용, 반경은 30km). 섬이 라우팅에서 "경로
- * 없음"으로 빠지지 않는 것은 routeDayStops의 isWaterDestination 예외가
+ * 없음"으로 빠지지 않고 배 구간으로 표시되는 것은 routeDayStops의 섬 규칙이
  * 맡는다.
  */
 async function ensureResortLandmarkAnchors(
@@ -3059,18 +3114,23 @@ export async function buildBrief(
         const startSpot = daySlice[0];
         const jSpot = daySlice[j];
         const nextArr = [...finalSpots];
-        nextArr[start] = { ...jSpot, order: startSpot.order, day: startSpot.day, toNextMinutes: startSpot.toNextMinutes, toNextMode: startSpot.toNextMode };
-        nextArr[globalJ] = { ...startSpot, order: jSpot.order, day: jSpot.day, toNextMinutes: jSpot.toNextMinutes, toNextMode: jSpot.toNextMode };
+        nextArr[start] = { ...jSpot, order: startSpot.order, day: startSpot.day, toNextMinutes: startSpot.toNextMinutes, toNextMode: startSpot.toNextMode, toNextEstimated: startSpot.toNextEstimated };
+        nextArr[globalJ] = { ...startSpot, order: jSpot.order, day: jSpot.day, toNextMinutes: jSpot.toNextMinutes, toNextMode: jSpot.toNextMode, toNextEstimated: jSpot.toNextEstimated };
 
         let dayDeltaKm = 0;
         for (const [localEdge, seg] of newSegByLocalEdge) {
           const globalEdgeIdx = start + localEdge;
           const oldDistanceKm = routedDays[d].segments[localEdge].distanceKm;
-          nextArr[globalEdgeIdx] = { ...nextArr[globalEdgeIdx], toNextMinutes: seg.durationMinutes, toNextMode: seg.mode };
+          nextArr[globalEdgeIdx] = {
+            ...nextArr[globalEdgeIdx],
+            toNextMinutes: seg.mode === "boat" ? null : seg.durationMinutes,
+            toNextMode: seg.mode,
+            toNextEstimated: isEstimatedLeg(seg, scope) ? true : undefined,
+          };
           dayDeltaKm += seg.distanceKm - oldDistanceKm;
           const globalMapPathIdx = mapPathOffset + localEdge;
           finalMapPaths[globalMapPathIdx] = seg.points == null ? recolorMapPathAsEstimated(seg.mapPath) : recolorMapPathForDay(seg.mapPath, d);
-          if (seg.points == null && !(seg.mode === "walk" && scope === "domestic")) hadAnyStraightFallback = true;
+          if (seg.mode !== "boat" && seg.points == null && !(seg.mode === "walk" && scope === "domestic")) hadAnyStraightFallback = true;
         }
         finalSpots = nextArr;
         totalDistanceKm += dayDeltaKm;

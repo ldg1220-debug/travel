@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyDurationCap,
   assembleDaySpots,
+  boatLegIfIslandCrossing,
+  boatLegMeasurement,
   buildStaticMapUrl,
   capAllDayFacilityDays,
   capLodgingToOne,
@@ -23,6 +25,7 @@ import {
   findRatedFirstStopSwapIndex,
   insertBeforeDinner,
   isCacheableBrief,
+  isEstimatedLeg,
   isFreshBriefPayload,
   isSupportedRegion,
   looksLikeMismatchedOverseasResult,
@@ -1028,6 +1031,29 @@ describe("assembleDaySpots — distanceSource용 hadStraightFallback 판정", ()
     expect(spots[1].originalName).toBeUndefined();
   });
 
+  // 작업지시서 2026-09-29 "#282 검증: 섬이 들어왔습니다. 그런데 섬까지
+  // '차로' 갑니다" §2 — 섬 구간은 boat · 분 없음 · estimated, 합계에서 제외.
+  it("marks a boat leg: mode boat, no minutes, estimated, and excluded from distance and from the straight-fallback flag", () => {
+    const stops = [stop("pier", 6.0, 116.0), stop("sapi", 6.0, 116.05), stop("market", 6.0, 116.1)];
+    const boat = boatLegMeasurement(stops[0], stops[1]);
+    const segments = [boat, routeSeg(5, 10, true)];
+    const { spots, distanceKm, hadStraightFallback } = assembleDaySpots(stops, segments, 1, "overseas", "코타키나발루", 1);
+    expect(spots[0].toNextMode).toBe("boat");
+    expect(spots[0].toNextMinutes).toBeNull();
+    expect(spots[0].toNextEstimated).toBe(true);
+    expect(distanceKm).toBe(5); // 배 구간 0 + 차량 5km
+    expect(hadStraightFallback).toBe(false); // 배편은 의도된 추정 — "직선거리 기준" 표기를 유발하지 않는다
+    expect(spots[1].toNextEstimated).toBeUndefined(); // 실제 경로가 있는 구간
+    expect(spots[1].toNextMode).toBe("car");
+  });
+
+  it("flags a straight-line fallback leg as estimated too, but not a domestic walking leg", () => {
+    const stops = [stop("a", 0, 0), stop("b", 0, 1), stop("c", 0, 2)];
+    const { spots } = assembleDaySpots(stops, [routeSeg(5, 10, false), routeSeg(0.3, 5, false, "walk")], 1, "domestic", "경주", 1);
+    expect(spots[0].toNextEstimated).toBe(true); // 자동차 직선 폴백
+    expect(spots[1].toNextEstimated).toBeUndefined(); // 국내 도보의 의도된 직선
+  });
+
   it("does not count a domestic walk segment's straight-line estimate as a fallback (의도된 폴백 — §4 '국내 도보는 직선일 수밖에 없다')", () => {
     const stops = [stop("a", 0, 0), stop("b", 0, 1)];
     const segments = [routeSeg(0.3, 5, false, "walk")];
@@ -1928,6 +1954,50 @@ describe("placeResortAnchors — 휴양형은 교체가 아니라 추가, 얇은
   it("returns the input unchanged when there are no anchors", () => {
     const days = [[stop("d1", 0, 0)]];
     expect(placeResortAnchors(days, [])).toEqual(days);
+  });
+});
+
+describe("boatLegIfIslandCrossing — 섬이 낀 구간은 배 (작업지시서 2026-09-29 '#282 검증' §2)", () => {
+  const pier = { lat: 6.0, lng: 116.0, name: "제셀톤 선착장", category: "ferry_terminal" };
+  const market = { lat: 5.98, lng: 116.07, name: "필리피노 마켓", category: "market" };
+
+  it("makes a boat leg when the destination is an island", () => {
+    const island = { lat: 5.99, lng: 116.03, name: "사피 섬(툰쿠 압둘 라만 해양공원)", category: "tourist_attraction" }; // 선착장에서 약 3km
+    const leg = boatLegIfIslandCrossing(pier, island);
+    expect(leg?.mode).toBe("boat");
+    expect(leg?.points).toBeNull(); // 지도엔 추정(회색 직선)
+    expect(leg?.distanceKm).toBe(0); // 합계에서 제외
+  });
+
+  it("makes a boat leg when the origin is an island too (섬 → 시장)", () => {
+    const island = { lat: 5.99, lng: 116.03, name: "Sapi Island", category: "island" };
+    expect(boatLegIfIslandCrossing(island, market)?.mode).toBe("boat");
+  });
+
+  it("is not a boat leg when neither end is an island", () => {
+    expect(boatLegIfIslandCrossing(pier, market)).toBeNull();
+  });
+
+  it("is not a boat leg for a short hop (<1km) — that's movement within the same island", () => {
+    const island = { lat: 5.9905, lng: 116.0, name: "Sapi Island", category: "island" };
+    const beachOnIsland = { lat: 5.9910, lng: 116.0, name: "Sapi Island Beach", category: "beach" };
+    expect(boatLegIfIslandCrossing(island, beachOnIsland)).toBeNull();
+  });
+});
+
+describe("isEstimatedLeg — 추정 구간 판정 (작업지시서 2026-09-29 '#282 검증' §2)", () => {
+  it("is always true for a boat leg", () => {
+    expect(isEstimatedLeg({ mode: "boat", points: null }, "overseas")).toBe(true);
+  });
+
+  it("is true for a straight-line fallback, false for a real route", () => {
+    expect(isEstimatedLeg({ mode: "car", points: null }, "overseas")).toBe(true);
+    expect(isEstimatedLeg({ mode: "car", points: [{ lat: 0, lng: 0 }, { lat: 1, lng: 1 }] }, "overseas")).toBe(false);
+  });
+
+  it("is false for a domestic walking leg's intended straight line", () => {
+    expect(isEstimatedLeg({ mode: "walk", points: null }, "domestic")).toBe(false);
+    expect(isEstimatedLeg({ mode: "walk", points: null }, "overseas")).toBe(true);
   });
 });
 
