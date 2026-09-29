@@ -741,6 +741,18 @@ export function isNonAttractionVenue(p: { category?: string }): boolean {
 // 처리). "Pulau"는 말레이·인도네시아어로 섬이다. 시설 유형("Island
 // Grill" 식당, "Gaya Island Resort" 숙소)은 이름과 무관하게 뺀다.
 const ISLAND_NAME_PATTERN = /(^|[\s(])섬([\s()]|$)|\bisland\b|\bpulau\b|\bisla\b/i;
+// 작업지시서 2026-09-29 "#283 검증" §2 — 배는 선착장에서 탄다. 섬 앞에 끼울
+// 선착장 판정: Google ferry_terminal·marina 타입이거나 이름에 선착장/페리/
+// ferry/jetty/pier/marina/항구/부두. 식당·숙소 등 시설 유형("Jetty
+// Restaurant")은 이름과 무관하게 제외한다.
+const JETTY_NAME_PATTERN = /선착장|페리|여객선|항구|부두|\bferry\b|\bjetty\b|\bpier\b|\bmarina\b|\bharbou?r\b/i;
+export function isJetty(p: { category?: string; name: string }): boolean {
+  const c = p.category?.toLowerCase();
+  if (c === "ferry_terminal" || c === "marina") return true;
+  if (isNonAttractionVenue(p)) return false;
+  return JETTY_NAME_PATTERN.test(p.name);
+}
+
 export function isIsland(p: { category?: string; name: string }): boolean {
   if (p.category?.toLowerCase() === "island") return true;
   if (isNonAttractionVenue(p)) return false;
@@ -775,6 +787,12 @@ export function isLodging(p: Place): boolean {
 const TRANSIT_FACILITY_TYPES = new Set(["airport", "international_airport", "bus_station", "train_station", "transit_station"]);
 const TRANSIT_FACILITY_NAME_PATTERN = /공항|airport|terminal|터미널/i;
 export function isTransitFacility(p: Place): boolean {
+  // 작업지시서 2026-09-29 "#283 검증: 배 구간 됐습니다. 식당에서 배를 탑니다"
+  // §2 — "Jesselton Ferry Terminal"처럼 이름에 terminal이 든 페리
+  // 선착장은 "섬 앞 선착장"(courseBrief.ts ensureJettyBeforeIslands)의
+  // 후보라 이 필터에 걸리면 안 된다(#277에서 예외로 두기로 한 것을 이름
+  // 패턴에도 적용).
+  if (isJetty(p)) return false;
   return TRANSIT_FACILITY_TYPES.has(p.category?.toLowerCase() ?? "") || TRANSIT_FACILITY_NAME_PATTERN.test(p.name);
 }
 

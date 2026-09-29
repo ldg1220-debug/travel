@@ -13,6 +13,7 @@ import {
   isSpa,
   isBeach,
   isIsland,
+  isJetty,
   isNonAttractionVenue,
   isTransitFacility,
   isKoreanRestaurant,
@@ -514,6 +515,36 @@ describe("isTransitFacility — 공항·교통 시설 제외 (작업지시서 20
   // 마세요": ferry_terminal 타입이나 "선착장"/"페리" 이름은 걸리지 않아야 한다.
   it("does not flag a ferry pier by type or by name unless it says 터미널/airport/공항", () => {
     expect(isTransitFacility(place({ category: "ferry_terminal", name: "카오하간 선착장" }))).toBe(false);
+  });
+});
+
+// 작업지시서 2026-09-29 "#283 검증" §2 — 배는 선착장에서 탄다. 선착장이
+// 섬 앞에 끼워질 후보가 되려면 공항·버스터미널 제외 규칙에 걸리면 안 된다.
+describe("isJetty — 섬 앞 선착장 판정 (작업지시서 2026-09-29 '#283 검증' §2)", () => {
+  it("recognizes ferry terminals/marinas by type and jetties by name", () => {
+    expect(isJetty(place({ category: "ferry_terminal", name: "Jesselton Point" }))).toBe(true);
+    expect(isJetty(place({ category: "marina", name: "Star Marina" }))).toBe(true);
+    expect(isJetty(place({ category: "tourist_attraction", name: "제셀톤 선착장" }))).toBe(true);
+    expect(isJetty(place({ category: "tourist_attraction", name: "Jesselton Ferry Terminal" }))).toBe(true);
+    expect(isJetty(place({ category: "tourist_attraction", name: "Hilutungan Jetty" }))).toBe(true);
+  });
+
+  it("does not count a restaurant/hotel just because its name says jetty, nor unrelated words", () => {
+    expect(isJetty(place({ category: "restaurant", name: "Jetty Seafood Restaurant" }))).toBe(false);
+    expect(isJetty(place({ category: "tourist_attraction", name: "Pierre Museum" }))).toBe(false);
+    expect(isJetty(place({ category: "tourist_attraction", name: "사바 주립 모스크" }))).toBe(false);
+  });
+});
+
+describe("isTransitFacility — 페리 선착장은 제외하지 않는다 (작업지시서 2026-09-29 '#283 검증' §2)", () => {
+  it("keeps a ferry terminal whose name contains 'terminal' out of the transit filter", () => {
+    expect(isTransitFacility(place({ category: "tourist_attraction", name: "Jesselton Ferry Terminal" }))).toBe(false);
+    expect(isTransitFacility(place({ category: "ferry_terminal", name: "세부 여객 터미널" }))).toBe(false);
+  });
+
+  it("still filters real airports and bus terminals", () => {
+    expect(isTransitFacility(place({ category: "point_of_interest", name: "Kota Kinabalu International Airport" }))).toBe(true);
+    expect(isTransitFacility(place({ category: "point_of_interest", name: "Bus Terminal" }))).toBe(true);
   });
 });
 
