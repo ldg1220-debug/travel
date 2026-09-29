@@ -6,6 +6,7 @@ import { decodePolyline, encodePolyline, haversineKm } from "@/lib/server/course
 import {
   MODE_SPEED_KMH,
   cuisineKeyword,
+  fetchLandmarkCandidates,
   fetchSlotCandidates,
   googleTop,
   isBeach,
@@ -103,6 +104,16 @@ export interface CourseBrief {
    * 이름이라 자동 판정하면 틀린다.
    */
   dayTotals: { day: CourseDays; distanceKm: number; spotCount: number }[];
+  /**
+   * 일자별 동선 지도 — 작업지시서 2026-09-29 "일자별 동선 지도 · #279가
+   * 경주에서 효과 없음 · 오사카 2일" §1: 블로그 7일 글에 7일 전체 지도
+   * 한 장(imageUrl)이 일자마다 반복됐다. i번째 원소가 (i+1)일차 스팟·
+   * 구간 경로만 그린 지도의 URL이다 — 번호 마커는 그날 순서대로 1부터,
+   * 줌은 그날 스팟에 맞춘다. 그 날짜 지도를 못 만들었으면(키 미설정·
+   * 생성 실패) 그 자리는 null이다. 구조 캐시 단계(지도 생성 이전)에는
+   * 빈 배열이다 — imageUrl이 null인 것과 같은 의미.
+   */
+  dayImageUrls: (string | null)[];
 }
 
 const DEFAULT_THEME: CourseTheme = "balanced";
@@ -266,7 +277,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 14; // 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가 없습니다" §2 — 도시형 코스에 "대표 명소 앵커"(리뷰 수 상위 N곳, 평점 있는 곳만, 서로 다른 날로 분산)를 끼워 넣는 ensureCityLandmarkAnchors가 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 경주 같은 지역이 26시간 동안 대표 명소 없는 옛 구성을 그대로 반환한다. 이전(13)과 같은 이유로 한 번에 무효화.
+export const COURSE_ALGO_VERSION = 15; // 작업지시서 2026-09-29 "일자별 동선 지도 · #279가 경주에서 효과 없음 · 오사카 2일" §3 — 앵커 전용 후보 검색(fetchLandmarkCandidates)과 일자별 지도(dayImageUrls)가 전부 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 경주 같은 지역이 26시간 동안 앵커 없는(옛 구성) dayImageUrls 없는 캐시를 그대로 반환한다. 이전(14)과 같은 이유로 한 번에 무효화.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -284,6 +295,7 @@ export function isFreshBriefPayload(payload: CourseBrief): boolean {
   if (typeof payload.distanceSource !== "string") return false;
   if (!Array.isArray(payload.spots)) return false;
   if (!Array.isArray(payload.dayTotals)) return false; // 작업지시서 2026-09-15 §4 — 이 필드가 생기기 전 캐시는 미스로 취급한다.
+  if (!Array.isArray(payload.dayImageUrls)) return false; // 작업지시서 2026-09-29 §1 — 같은 이유.
   // 작업지시서 2026-09-23 "ASCII 라우트가 증명했습니다 + 기존 실패 캐시를
   // 비워주세요" §3 — isCacheableBrief(쓰기 경로, #268)는 앞으로 스팟 부족
   // brief가 캐시에 새로 들어가는 것만 막는다. 이미 들어간 빈약한 brief는
@@ -2051,6 +2063,7 @@ export function buildStaticMapUrl(
   spots: { order: number; lat: number; lng: number }[],
   mapPaths: string[],
   viewport?: MapViewport,
+  options: { numbered?: boolean } = {},
 ): URL {
   const url = new URL("https://maps.googleapis.com/maps/api/staticmap");
   url.searchParams.set("size", `${MAP_WIDTH}x${MAP_HEIGHT}`);
@@ -2075,8 +2088,18 @@ export function buildStaticMapUrl(
   // 작업지시서 2026-09-15 "OG 지도 잔여 2건" §4: 나머지 마커는 기본
   // 크기 그대로면 스팟이 몰린 도심에서 서로 겹쳐 안 보인다 — size:small로
   // 줄이고, 시작점만 기본 크기로 남겨 대비를 준다.
+  // 작업지시서 2026-09-29 "일자별 동선 지도" §1 — 하루치 지도는 스팟이
+  // 많아야 예닐곱이라 번호 라벨이 읽힌다("번호 마커는 그날 순서대로
+  // 1부터"). numbered일 때는 1~9번에 그 숫자 라벨을 단다(Static Maps
+  // label은 단일 문자 — 10번부터는 라벨 없이 small 마커, 위 A-Z 문제와
+  // 같은 한계). 전체 코스·OG 지도는 기존 그대로(numbered 없음).
   for (const spot of spots) {
-    const marker = spot.order === 1 ? `color:blue|label:S|${spot.lat},${spot.lng}` : `size:small|color:red|${spot.lat},${spot.lng}`;
+    let marker: string;
+    if (options.numbered && spot.order >= 1 && spot.order <= 9) {
+      marker = `color:${spot.order === 1 ? "blue" : "red"}|label:${spot.order}|${spot.lat},${spot.lng}`;
+    } else {
+      marker = spot.order === 1 ? `color:blue|label:S|${spot.lat},${spot.lng}` : `size:small|color:red|${spot.lat},${spot.lng}`;
+    }
     url.searchParams.append("markers", marker);
   }
   // 동선을 잇는 경로선 — path=는 반복 가능한 파라미터라(Static Maps
@@ -2098,7 +2121,73 @@ export function buildStaticMapUrl(
   return url;
 }
 
+function courseMapPathname(cacheKey: string): string {
+  return `course-maps/${cacheKey.replace(/^content-brief:/, "").replace(/:/g, "/")}.png`;
+}
+
+/**
+ * 일자별 지도가 저장될 자리 — 전체 지도 경로(…/7/v14.png)의 버전 세그먼트
+ * 바로 앞에 일자(d3)를 끼운다(…/7/d3/v14.png). 작업지시서 2026-09-29
+ * "일자별 동선 지도" §1 "캐시 키에 day 포함" 그대로다. 버전(vN)이 여전히
+ * 마지막 세그먼트라 COURSE_ALGO_VERSION이 오르면 자동으로 새 경로가 된다.
+ */
+export function dayMapPathname(cacheKey: string, day: number): string {
+  return courseMapPathname(cacheKey).replace(/\/(v\d+)\.png$/, `/d${day}/$1.png`);
+}
+
+/**
+ * 전체 코스의 스팟·경로 조각 배열을 일자별로 자른다 — 하루치 지도 입력용.
+ * dayLengths는 날짜별 스팟 수(routedDays[d].stops.length)이고, 스팟은
+ * 날짜 순서대로 이어붙은 배열, 경로 조각은 하루 안의 구간(스팟 수 - 1)만
+ * 날짜 순서대로 이어붙은 배열이다(buildBrief의 mapPathOffset과 같은
+ * 규칙 — 날짜 경계엔 경로가 없다). 번호(order)는 그날 순서대로 1부터
+ * 다시 매긴다("번호 마커는 그날 순서대로 1부터").
+ */
+export function sliceDayMapInputs(
+  spots: { lat: number; lng: number }[],
+  mapPaths: string[],
+  dayLengths: number[],
+): { spots: { order: number; lat: number; lng: number }[]; mapPaths: string[] }[] {
+  let spotOffset = 0;
+  let pathOffset = 0;
+  return dayLengths.map((len) => {
+    const daySpots = spots.slice(spotOffset, spotOffset + len).map((s, i) => ({ order: i + 1, lat: s.lat, lng: s.lng }));
+    const dayPaths = mapPaths.slice(pathOffset, pathOffset + Math.max(0, len - 1));
+    spotOffset += len;
+    pathOffset += Math.max(0, len - 1);
+    return { spots: daySpots, mapPaths: dayPaths };
+  });
+}
+
 async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[], mapPaths: string[]): Promise<string | null> {
+  return renderMapToBlob(courseMapPathname(cacheKey), spots, mapPaths);
+}
+
+/**
+ * 작업지시서 2026-09-29 §1 — 날짜마다 그날 스팟·구간 경로만 그린 지도를
+ * 만든다. 전체 지도와 병렬로 돌릴 수 있게 각각 독립 호출이다(한 날짜
+ * 실패가 다른 날짜·전체 지도에 영향을 주지 않는다). 줌은 그날 스팟의
+ * 핵심 군집(excludeOutlierSpots)에 맞춘다 — "하루 동선이 한 동네면
+ * 크게".
+ */
+async function generateDayMapImages(cacheKey: string, spots: CourseBriefSpot[], mapPaths: string[], dayLengths: number[]): Promise<(string | null)[]> {
+  const inputs = sliceDayMapInputs(spots, mapPaths, dayLengths);
+  return Promise.all(
+    inputs.map((input, i) => {
+      if (input.spots.length === 0) return Promise.resolve(null);
+      const viewport = computeViewport(excludeOutlierSpots(input.spots));
+      return renderMapToBlob(dayMapPathname(cacheKey, i + 1), input.spots, input.mapPaths, viewport, { numbered: true });
+    }),
+  );
+}
+
+async function renderMapToBlob(
+  pathname: string,
+  spots: { order: number; lat: number; lng: number }[],
+  mapPaths: string[],
+  viewport?: MapViewport,
+  options: { numbered?: boolean } = {},
+): Promise<string | null> {
   if (spots.length === 0) return null;
   // 기존 GOOGLE_PLACES_API_KEY/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY는 브라우저에도
   // 노출되는 키라 HTTP 리퍼러 제한이 걸려 있다(작업지시서 2026-09-06 "PR
@@ -2114,7 +2203,7 @@ async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]
   if (!apiKey) return null;
   if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return null;
 
-  const url = buildStaticMapUrl(apiKey, spots, mapPaths);
+  const url = buildStaticMapUrl(apiKey, spots, mapPaths, viewport, options);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MAP_CALL_TIMEOUT_MS);
@@ -2126,10 +2215,9 @@ async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[]
     }
     const bytes = Buffer.from(await res.arrayBuffer());
     // 캐시 키(course_cache와 겹치지 않는 place_candidate_cache 네임스페이스와
-    // 같은 관례) 기준 고정 경로 — addRandomSuffix:false로 재생성될 때마다
-    // 같은 자리에 덮어써서, 지역이 다시 워밍/조회될 때마다 blob이 쌓이지
-    // 않게 한다.
-    const pathname = `course-maps/${cacheKey.replace(/^content-brief:/, "").replace(/:/g, "/")}.png`;
+    // 같은 관례) 기준 고정 경로(pathname은 호출부가 정한다) —
+    // addRandomSuffix:false로 재생성될 때마다 같은 자리에 덮어써서, 지역이
+    // 다시 워밍/조회될 때마다 blob이 쌓이지 않게 한다.
     const blob = await put(pathname, bytes, { access: "private", contentType: "image/png", addRandomSuffix: false });
     void blob; // put()의 반환 url은 private blob이라 브라우저에서 401 — 우리 프록시 경로를 대신 반환한다.
     // AutoPipeline 등 외부 소비자가 그대로 fetch/임베드해야 하므로
@@ -2476,51 +2564,46 @@ export function redistributeThinResortDays(dayGroups: FinalStop[][]): FinalStop[
   return result;
 }
 
-// 도시형 앵커 검색에 쓰는 슬롯 — THEME_SLOTS.balanced.am-sight와 정확히
-// 같은 키워드·카테고리다(courseBrief.ts의 buildBrief가 도시형에 항상
-// 쓰는 DEFAULT_THEME="balanced" 참고) — 같은 candidateCacheKey를 써서
-// 새 API 호출을 만들지 않고 그 날짜의 생성이 이미 채운(또는 채울)
-// 캐시를 그대로 재사용한다.
-const CITY_ANCHOR_SLOT: RecommendSlot = { key: "am-sight", label: "오전 명소", keyword: "관광지", hour: 10, category: "attraction" };
-
-/**
- * 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
- * 없습니다" §2·§3 — 도시형 코스는 "그 도시에서 가장 많이 가는 곳"이
- * 먼저 확정돼야 하는데, 실측(경주 2박3일)에서 전부 빠져 있었다. 테마
- * 슬롯의 정상 선정 로직(courseRecommendV2.ts)은 거리 기반 감점
- * (proximityScore, courseRecommend.ts)을 쓰는데, 이 지시서가 요구하는
- * "압도적으로 유명한 곳"(석굴암처럼 시내에서 먼 경우도 있음)은 그
- * 감점 때문에 밀려날 수 있다 — 그래서 정상 슬롯 채우기와는 별개로,
- * 리뷰 수만으로 상위 N곳을 뽑아 코스에 없으면 끼워 넣는다.
- *
- * 리뷰 수 기준(§2 "리뷰 수 상위 N곳")으로 정렬하고, 평점이 없는 후보는
- * 앵커가 될 수 없다(§3 "평점 없는 곳이 앵커 자리를 차지하지 않게") —
- * 이미 코스에 있는 곳(id·같은 브랜드)은 건너뛴다. 각 앵커는 서로 다른
- * 날에 배정한다(§2 "서로 다른 날로 분산") — 아직 앵커를 못 받은 날 중,
- * 식사가 아닌 스팟 중 가장 인기(평점×리뷰수) 낮은 것과 교체한다(추가가
- * 아니라 교체 — 하루 스팟 수를 그대로 유지하면서 가장 안 유명한
- * 필러를 대표 명소로 바꾼다는 지시서의 취지를 그대로 따른다). 교체할
- * 자리가 없으면(모든 날이 이미 앵커를 받았거나 식사 스팟뿐이면) 남은
- * 앵커는 넣지 않는다 — 억지로 만들어내지 않는다는 이 코드베이스의
- * 기존 원칙 그대로.
- *
- * 리조트(휴양형)에는 적용하지 않는다 — 호출부(buildBrief)가
- * style==="city"일 때만 부른다.
- */
 const CITY_ANCHOR_COUNT = 3;
+// 작업지시서 2026-09-29 "일자별 동선 지도 · #279가 경주에서 효과 없음"
+// §2 — "리뷰 수 정렬 상위 5 → 여기서 앵커 3곳 선정".
+const CITY_ANCHOR_POOL_SIZE = 5;
+// 같은 지시서 §2 "반경을 일반 슬롯보다 넓게 (예: 15~20km)" — 코스 스팟
+// 중심에서 이 거리 안의 후보만 앵커가 될 수 있다(경주: 시내→석굴암 약
+// 16km). Text Search 자체엔 좌표 제한을 걸지 못하므로(fetchLandmarkCandidates
+// 주석 참고) 여기서 거른다 — 같은 이름 검색어가 엉뚱한 먼 곳의 명소를
+// 돌려줘도 앵커가 되지 않게 하는 안전장치이기도 하다.
+const CITY_ANCHOR_MAX_DISTANCE_KM = 20;
 
 /**
  * 위 ensureCityLandmarkAnchors의 "누구를 앵커로 뽑을지" 부분만 뽑은
- * 순수 함수 — §2 "리뷰 수 상위 N곳", §3 "평점 없는 곳이 앵커 자리를
- * 차지하지 않게"를 그대로 구현한다. 이미 코스에 있는 곳(id·같은
- * 브랜드)은 후보에서 제외한다.
+ * 순수 함수 — 평점 없는 후보 제외(§3 "평점 없는 곳이 앵커 자리를
+ * 차지하지 않게"), 코스 스팟 중심 반경(기본 20km) 밖 제외, 리뷰 수
+ * 내림차순 상위 poolSize(기본 5)곳 중에서, 이미 코스에 있는 곳(id·같은
+ * 브랜드)을 뺀 앞의 count(기본 3)곳을 앵커로 뽑는다. 코스에 스팟이
+ * 없으면(중심을 못 구함) 반경 검사는 건너뛴다.
  */
-export function pickLandmarkAnchors(candidates: Place[], existingStops: FinalStop[], count: number = CITY_ANCHOR_COUNT): Place[] {
+export function pickLandmarkAnchors(
+  candidates: Place[],
+  existingStops: FinalStop[],
+  count: number = CITY_ANCHOR_COUNT,
+  poolSize: number = CITY_ANCHOR_POOL_SIZE,
+  maxDistanceKm: number = CITY_ANCHOR_MAX_DISTANCE_KM,
+): Place[] {
   const existingIds = new Set(existingStops.map((s) => s.id));
   const existingNames = existingStops.map((s) => s.name);
+  const center =
+    existingStops.length > 0
+      ? {
+          lat: existingStops.reduce((sum, s) => sum + s.lat, 0) / existingStops.length,
+          lng: existingStops.reduce((sum, s) => sum + s.lng, 0) / existingStops.length,
+        }
+      : null;
   return candidates
-    .filter((p) => p.rating != null && !existingIds.has(p.id) && !existingNames.some((n) => sameShop(n, p.name)))
+    .filter((p) => p.rating != null && (!center || haversineKm(center, p) <= maxDistanceKm))
     .sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0))
+    .slice(0, poolSize)
+    .filter((p) => !existingIds.has(p.id) && !existingNames.some((n) => sameShop(n, p.name)))
     .slice(0, count);
 }
 
@@ -2570,6 +2653,12 @@ export function placeLandmarkAnchors(dayStops: FinalStop[][], anchors: Place[]):
  * 리뷰 수만으로 상위 N곳을 뽑아(pickLandmarkAnchors) 코스에 없으면
  * 끼워 넣는다(placeLandmarkAnchors). 리조트(휴양형)에는 적용하지 않는다
  * — 호출부(buildBrief)가 style==="city"일 때만 부른다.
+ *
+ * 작업지시서 2026-09-29 "일자별 동선 지도 · #279가 경주에서 효과 없음"
+ * §2 — 후보는 슬롯 후보 풀이 아니라 앵커 전용 검색(fetchLandmarkCandidates,
+ * courseRecommend.ts)으로 가져온다. 슬롯 풀은 국내에서 Kakao 결과라
+ * 평점·리뷰 수가 없어 앵커가 한 곳도 안 뽑혔다(#279가 경주에서 효과가
+ * 없던 실제 원인 — 코드로 확인).
  */
 async function ensureCityLandmarkAnchors(
   scope: CourseBriefScope,
@@ -2579,7 +2668,7 @@ async function ensureCityLandmarkAnchors(
 ): Promise<FinalStop[][]> {
   const flat = dayStops.flat();
   if (flat.length === 0) return dayStops;
-  const candidates = await fetchSlotCandidates(scope, region, CITY_ANCHOR_SLOT, false, onCandidateFetchFailure);
+  const candidates = await fetchLandmarkCandidates(scope, region, onCandidateFetchFailure);
   const anchors = pickLandmarkAnchors(candidates, flat);
   if (anchors.length === 0) return dayStops;
   return placeLandmarkAnchors(dayStops, anchors);
@@ -2728,6 +2817,7 @@ export async function buildBrief(
     ratingSource: "google",
     distanceSource: hadAnyStraightFallback ? "straight" : "route",
     dayTotals,
+    dayImageUrls: [],
   };
 
   // 여기까지가 "구조" 단계 — 순서·실제 경로 거리/소요시간·카탈로그
@@ -2825,11 +2915,23 @@ export async function buildBrief(
     mapPathOffset += Math.max(0, dayLen - 1);
   }
 
-  const imageUrl = await generateCourseMapImage(cacheKey, finalSpots, finalMapPaths);
+  // 전체 지도와 일자별 지도를 병렬로 만든다(작업지시서 2026-09-29 §1) —
+  // 각 호출이 독립이고 개별 타임아웃(MAP_CALL_TIMEOUT_MS)이 있어, 직렬로
+  // 돌리면 일수만큼 늘어날 지연을 한 번(최대 5초)으로 묶는다.
+  const [imageUrl, dayImageUrls] = await Promise.all([
+    generateCourseMapImage(cacheKey, finalSpots, finalMapPaths),
+    generateDayMapImages(
+      cacheKey,
+      finalSpots,
+      finalMapPaths,
+      routedDays.map((d) => d.stops.length),
+    ),
+  ]);
   brief = {
     ...brief,
     spots: finalSpots,
     imageUrl,
+    dayImageUrls,
     totalDistanceKm: round1(totalDistanceKm),
     distanceSource: hadAnyStraightFallback ? "straight" : "route",
     dayTotals: [...dayTotals],

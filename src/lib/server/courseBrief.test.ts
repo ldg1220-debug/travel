@@ -11,6 +11,7 @@ import {
   chunkByProximity,
   clusterByLocation,
   computeViewport,
+  dayMapPathname,
   dedupeByBrand,
   dedupeByProximity,
   dedupeInFlight,
@@ -44,6 +45,7 @@ import {
   recolorMapPathForDay,
   resolveScope,
   simplifyPath,
+  sliceDayMapInputs,
   straightRouteMeasurement,
   type CourseBrief,
   type CourseBriefSpot,
@@ -1040,9 +1042,18 @@ describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미�
       ratingSource: "google",
       distanceSource: "route",
       dayTotals: [{ day: 1, distanceKm: 10, spotCount: 3 }],
+      dayImageUrls: [],
       ...overrides,
     };
   }
+
+  // 작업지시서 2026-09-29 "일자별 동선 지도" §1 — dayImageUrls가 생기기 전
+  // 캐시는 미스로 취급해야 새로 만든다.
+  it("rejects a cached payload without dayImageUrls", () => {
+    const stale = payload();
+    delete (stale as { dayImageUrls?: unknown }).dayImageUrls;
+    expect(isFreshBriefPayload(stale)).toBe(false);
+  });
 
   it("accepts a payload that already has distanceSource", () => {
     expect(isFreshBriefPayload(payload())).toBe(true);
@@ -1089,6 +1100,42 @@ describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미�
   });
 });
 
+// 작업지시서 2026-09-29 "일자별 동선 지도 · #279가 경주에서 효과 없음 ·
+// 오사카 2일" §1 — 블로그 7일 글에 전체 지도 한 장이 일자마다 반복됐다.
+describe("dayMapPathname — 일자별 지도 Blob 경로에 day 포함 (§1 '…/7/d3/v14.png')", () => {
+  it("inserts the day segment right before the version segment", () => {
+    expect(dayMapPathname("content-brief:overseas:세부:7:v15", 3)).toBe("course-maps/overseas/세부/7/d3/v15.png");
+  });
+
+  it("differs per day and from the whole-course path", () => {
+    const key = "content-brief:domestic:경주:3:v15";
+    expect(dayMapPathname(key, 1)).not.toBe(dayMapPathname(key, 2));
+    expect(dayMapPathname(key, 1)).not.toBe("course-maps/domestic/경주/3/v15.png");
+  });
+});
+
+describe("sliceDayMapInputs — 전체 스팟·경로 조각을 일자별로 자른다 (§1)", () => {
+  it("renumbers each day's spots from 1 and gives each day only its own within-day path segments", () => {
+    const spots = [
+      { lat: 1, lng: 1 }, { lat: 2, lng: 2 }, { lat: 3, lng: 3 }, // day1 (3곳 → 구간 2개)
+      { lat: 4, lng: 4 }, { lat: 5, lng: 5 }, // day2 (2곳 → 구간 1개)
+    ];
+    const paths = ["d1-a", "d1-b", "d2-a"];
+    const result = sliceDayMapInputs(spots, paths, [3, 2]);
+    expect(result[0].spots.map((s) => s.order)).toEqual([1, 2, 3]);
+    expect(result[0].mapPaths).toEqual(["d1-a", "d1-b"]);
+    expect(result[1].spots.map((s) => s.order)).toEqual([1, 2]);
+    expect(result[1].spots[0]).toEqual({ order: 1, lat: 4, lng: 4 });
+    expect(result[1].mapPaths).toEqual(["d2-a"]);
+  });
+
+  it("a single-spot day has no path segments", () => {
+    const result = sliceDayMapInputs([{ lat: 1, lng: 1 }, { lat: 2, lng: 2 }, { lat: 3, lng: 3 }], ["x", "y"], [1, 2]);
+    expect(result[0].mapPaths).toEqual([]);
+    expect(result[1].mapPaths).toEqual(["x"]);
+  });
+});
+
 describe("buildStaticMapUrl — URL 길이 방어 (§2 ★)", () => {
   const spots = [
     { order: 1, lat: 34.6, lng: 135.5 },
@@ -1107,6 +1154,19 @@ describe("buildStaticMapUrl — URL 길이 방어 (§2 ★)", () => {
     expect(markers[0]).toBe("color:blue|label:S|34.6,135.5");
     expect(markers[1]).toBe("size:small|color:red|34.61,135.51");
     expect(markers[1]).not.toContain("label:");
+  });
+
+  // 작업지시서 2026-09-29 "일자별 동선 지도" §1 — 하루치 지도는 번호 마커(그날 순서대로 1부터).
+  it("numbered mode labels markers 1..9 with their order, start point stays blue (일자별 지도)", () => {
+    const url = buildStaticMapUrl("test-key", spots, [], undefined, { numbered: true });
+    const markers = url.searchParams.getAll("markers");
+    expect(markers[0]).toBe("color:blue|label:1|34.6,135.5");
+    expect(markers[1]).toBe("color:red|label:2|34.61,135.51");
+  });
+
+  it("numbered mode falls back to an unlabeled small marker from order 10 (Static Maps labels are a single character)", () => {
+    const url = buildStaticMapUrl("test-key", [{ order: 10, lat: 34.6, lng: 135.5 }], [], undefined, { numbered: true });
+    expect(url.searchParams.getAll("markers")[0]).toBe("size:small|color:red|34.6,135.5");
   });
 
   it("requests a 1200x630 (1.91:1 OG ratio) image (작업지시서 2026-09-15 'OG 이미지 구도 3건' §3-③)", () => {
@@ -1702,6 +1762,22 @@ describe("pickLandmarkAnchors — 리뷰 수 상위 N곳 · 평점 있는 곳만
     const candidates = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 })];
     const existing = [stop("already-there", 10, 120, { name: "불국사" })];
     expect(pickLandmarkAnchors(candidates, existing, 3)).toEqual([]);
+  });
+
+  // 작업지시서 2026-09-29 "#279가 경주에서 효과 없음" §2 — "리뷰 수 정렬
+  // 상위 5 → 여기서 앵커 3곳 선정", "반경 15~20km".
+  it("only considers the top-5 by review count, then takes up to N not already in the course", () => {
+    const candidates = [1, 2, 3, 4, 5, 6].map((n) => place(`p${n}`, { name: `명소${n}`, rating: 4.5, reviewCount: 1000 * (7 - n) }));
+    // 상위 5(명소1~5) 중 명소1·2가 이미 코스에 있으면 남은 3곳(3·4·5)만 앵커 — 6위는 풀 밖이라 안 뽑힌다.
+    const existing = [stop("e1", 10, 120, { name: "명소1" }), stop("e2", 10, 120, { name: "명소2" })];
+    expect(pickLandmarkAnchors(candidates, existing, 3, 5).map((a) => a.name)).toEqual(["명소3", "명소4", "명소5"]);
+  });
+
+  it("excludes candidates farther than the radius from the course's spots (default 20km)", () => {
+    const near = place("near", { name: "가까운 명소", rating: 4.5, reviewCount: 100, lat: 10.1, lng: 120 }); // 약 11km
+    const far = place("far", { name: "먼 명소", rating: 4.9, reviewCount: 999999, lat: 10.5, lng: 120 }); // 약 55km
+    const existing = [stop("e1", 10, 120)];
+    expect(pickLandmarkAnchors([far, near], existing, 3).map((a) => a.name)).toEqual(["가까운 명소"]);
   });
 
   it("returns fewer than N when there aren't enough qualifying candidates", () => {

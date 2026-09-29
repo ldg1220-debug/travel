@@ -891,6 +891,52 @@ export async function fetchSlotCandidates(
   return gated;
 }
 
+// 앵커 전용 후보 검색이 남기는 Google 결과 수 — 리뷰 수 정렬 후 상위만
+// 쓰므로 Text Search 한 번의 최대치(20)를 그대로 받는다.
+const LANDMARK_CANDIDATE_LIMIT = 20;
+
+/**
+ * 작업지시서 2026-09-29 "일자별 동선 지도 · #279가 경주에서 효과 없음 ·
+ * 오사카 2일" §2 — 도시형 코스의 "대표 명소 앵커"(courseBrief.ts의
+ * ensureCityLandmarkAnchors)가 쓰는 전용 후보 검색이다. 이전 라운드
+ * (#279)는 슬롯 후보 풀(fetchSlotCandidates, 국내는 Kakao Local)을 다시
+ * 읽어 "평점 있는 곳"만 앵커로 뽑았는데, Kakao는 평점·리뷰 수를 아예
+ * 주지 않아(kakaoToPlace) 국내(경주·서울·부산)에선 후보가 전부 걸러져
+ * 앵커가 하나도 안 만들어졌다 — 그래서 경주 결과가 그대로였다. 앵커는
+ * "리뷰 수로 뽑는" 것이라 국내·해외 모두 Google Places(리뷰 수를 주는
+ * 유일한 출처)로 검색한다.
+ *
+ * 검색어는 "{도시} 관광명소" + includedType tourist_attraction —
+ * 슬롯 검색(theme 키워드+거리 감점 기반 선정)과 달리 이 결과는 거리
+ * 감점 없이 리뷰 수만으로 쓰이므로, 시내에서 먼 대표 명소(불국사·
+ * 석굴암)가 밀리지 않는다. 좌표 반경 제한은 여기서 걸지 않는다(도시
+ * 중심 좌표를 이 모듈이 알지 못한다) — 대신 호출부의 pickLandmarkAnchors가
+ * 코스 스팟 중심 기준 반경(기본 20km)으로 걸러낸다.
+ *
+ * 품질 하한(applyQualityGate "attraction")은 국내에도 똑같이 적용한다 —
+ * 이 결과는 항상 Google 출처라 평점·리뷰 수가 있다. 여행사·교통 시설은
+ * 슬롯 후보와 같은 기준으로 제외한다. 결과는 place_candidate_cache에
+ * (슬롯 캐시와 겹치지 않는 "landmark:" 키로, 같은 7일 TTL) 저장해
+ * Places 호출 비용을 지역당 7일에 한 번으로 묶는다.
+ */
+export async function fetchLandmarkCandidates(scope: "overseas" | "domestic", city: string, onFailure?: (status: number) => void): Promise<Place[]> {
+  const cacheKey = `landmark:${scope}:${city.trim().toLowerCase()}`;
+  const filter = (places: Place[]) =>
+    applyQualityGate(places.filter(isValidPlace), "overseas", "attraction").filter((p) => !isTravelAgency(p) && !isTransitFacility(p));
+
+  const cached = await readCandidateCache(cacheKey);
+  if (cached) return filter(cached);
+
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return [];
+  const results = await googleTop(`${city} ${CATEGORY_LABEL.attraction}`, apiKey, CATEGORY_TYPE.attraction, undefined, onFailure);
+  const places = results.map((p) => googleToPlace(p, CATEGORY_LABEL.attraction)).slice(0, LANDMARK_CANDIDATE_LIMIT);
+  if (places.length > 0) await writeCandidateCache(cacheKey, places);
+  const gated = filter(places);
+  console.log(`[courseRecommend] fetchLandmarkCandidates ${scope}/${city}: raw=${places.length} gated=${gated.length}`);
+  return gated;
+}
+
 async function fetchSlotCandidatesLive(
   scope: "overseas" | "domestic",
   city: string,
