@@ -32,6 +32,8 @@ import {
   orderByNearestNeighbor,
   parseDays,
   pickBetterDayResult,
+  pickLandmarkAnchors,
+  placeLandmarkAnchors,
   planRouteForDay,
   preferRatedFirstStop,
   reallocateStopsByDay,
@@ -49,6 +51,7 @@ import {
 } from "./courseBrief";
 import { decodePolyline, haversineKm } from "./courseRoute";
 import type { FinalStop } from "./courseRecommendV2";
+import type { Place } from "@/lib/types";
 
 // 오사카 실측(작업지시서 2026-09-06 "일자 배분이 지리적으로 나뉘지
 // 않습니다")에서 확인된 문제(같은 구역이 여러 날에 흩어짐, 하루 안에서
@@ -463,6 +466,21 @@ function stop(id: string, lat: number, lng: number, extra: Partial<FinalStop> = 
     slotLabel: "슬롯",
     hour: 10,
     meal: false,
+    ...extra,
+  };
+}
+
+/** pickLandmarkAnchors/placeLandmarkAnchors 테스트용 Place(원본 후보) 픽스처. */
+function place(id: string, extra: Partial<Place> = {}): Place {
+  return {
+    id,
+    placeId: id,
+    name: extra.name ?? id,
+    category: extra.category ?? "tourist_attraction",
+    color: "#000",
+    icon: "pin",
+    lat: 10,
+    lng: 120,
     ...extra,
   };
 }
@@ -1656,6 +1674,75 @@ describe("redistributeThinResortDays — 휴양형도 하루 최소 2곳 (작업
     const days = [[stop("d1-a", 10, 120), stop("d1-b", 10, 120)], [stop("d2-solo", 10, 120)]];
     const result = redistributeThinResortDays(days);
     expect(result[1].length).toBe(1); // 채울 수 없으면 그대로 둔다 — 새로 만들어내지 않음
+  });
+});
+
+// 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
+// 없습니다" §2·§3 — 실측: 경주 2박3일에 대표 명소가 하나도 없었다.
+// 리뷰 수 상위 N곳을, 평점 있는 것만, 이미 코스에 없는 것만 뽑는다.
+describe("pickLandmarkAnchors — 리뷰 수 상위 N곳 · 평점 있는 곳만 (작업지시서 2026-09-29 '경주 대표 명소' §2·§3)", () => {
+  it("picks the top-N candidates by review count", () => {
+    const candidates = [
+      place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 }),
+      place("seokguram", { name: "석굴암", rating: 4.6, reviewCount: 15000 }),
+      place("cafe-x", { name: "동네 카페", rating: 4.2, reviewCount: 50 }),
+      place("daereungwon", { name: "대릉원", rating: 4.4, reviewCount: 20000 }),
+    ];
+    const anchors = pickLandmarkAnchors(candidates, [], 3);
+    expect(anchors.map((a) => a.name)).toEqual(["불국사", "대릉원", "석굴암"]);
+  });
+
+  it("excludes candidates with no rating (§3 — unrated spots can't be anchors)", () => {
+    const candidates = [place("no-rating", { name: "평점 없는 곳", rating: undefined, reviewCount: 99999 }), place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 })];
+    const anchors = pickLandmarkAnchors(candidates, [], 3);
+    expect(anchors.map((a) => a.name)).toEqual(["불국사"]);
+  });
+
+  it("excludes a candidate already in the course (by id or by brand/sameShop)", () => {
+    const candidates = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 })];
+    const existing = [stop("already-there", 10, 120, { name: "불국사" })];
+    expect(pickLandmarkAnchors(candidates, existing, 3)).toEqual([]);
+  });
+
+  it("returns fewer than N when there aren't enough qualifying candidates", () => {
+    const candidates = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 })];
+    expect(pickLandmarkAnchors(candidates, [], 3)).toHaveLength(1);
+  });
+});
+
+describe("placeLandmarkAnchors — 앵커를 서로 다른 날에 분산 배치 (작업지시서 2026-09-29 '경주 대표 명소' §2)", () => {
+  it("places each anchor on a different day, replacing that day's least popular non-meal spot", () => {
+    const days = [
+      [stop("d1-weak", 10, 120, { rating: 3.5, reviewCount: 10 }), stop("d1-lunch", 10, 120, { meal: true, rating: 4.5, reviewCount: 5000 })],
+      [stop("d2-weak", 10, 120, { rating: 3.8, reviewCount: 20 }), stop("d2-strong", 10, 120, { rating: 4.5, reviewCount: 3000 })],
+    ];
+    const anchors = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 }), place("seokguram", { name: "석굴암", rating: 4.6, reviewCount: 15000 })];
+    const result = placeLandmarkAnchors(days, anchors);
+    // 각 날의 가장 인기 낮은(식사 아닌) 스팟이 앵커로 교체되고, 하루 스팟 수는 그대로다.
+    expect(result[0].map((s) => s.name)).toEqual(["불국사", "d1-lunch"]);
+    expect(result[1].map((s) => s.name)).toEqual(["석굴암", "d2-strong"]);
+  });
+
+  it("never places two anchors on the same day", () => {
+    const days = [[stop("d1-a", 10, 120, { rating: 3.0, reviewCount: 5 }), stop("d1-b", 10, 120, { rating: 3.2, reviewCount: 8 })]];
+    const anchors = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 }), place("seokguram", { name: "석굴암", rating: 4.6, reviewCount: 15000 })];
+    const result = placeLandmarkAnchors(days, anchors);
+    // 하루뿐이라 두 번째 앵커는 넣을 자리가 없다 — 억지로 만들어내지 않는다.
+    expect(result[0].map((s) => s.name)).toContain("불국사");
+    expect(result[0].map((s) => s.name)).not.toContain("석굴암");
+    expect(result[0]).toHaveLength(2);
+  });
+
+  it("does not replace a meal slot even if it's the day's least popular spot", () => {
+    const days = [[stop("d1-lunch", 10, 120, { meal: true, rating: 3.0, reviewCount: 5 }), stop("d1-sight", 10, 120, { rating: 4.0, reviewCount: 500 })]];
+    const anchors = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 })];
+    const result = placeLandmarkAnchors(days, anchors);
+    expect(result[0].map((s) => s.name)).toEqual(["d1-lunch", "불국사"]);
+  });
+
+  it("returns the input unchanged when there are no anchors to place", () => {
+    const days = [[stop("d1-a", 10, 120)]];
+    expect(placeLandmarkAnchors(days, [])).toEqual(days);
   });
 });
 

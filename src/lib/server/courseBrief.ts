@@ -1,4 +1,5 @@
 import { put } from "@vercel/blob";
+import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
 import { decodePolyline, encodePolyline, haversineKm } from "@/lib/server/courseRoute";
@@ -265,7 +266,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 13; // 작업지시서 2026-09-29 "#277 검증: 세 가지는 됐고, 7일 코스에서 해변이 사라졌습니다" §4 — 해변 보장을 재배치·상한·재배분 이후의 "마지막 단계"로 옮긴 수정, 하루 최소 2곳 재배분(redistributeThinResortDays), 숙소 1곳 캡(capLodgingToOne)이 전부 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 세부 d7 같은 지역이 26시간 동안 해변 없는 옛 구성을 그대로 반환한다. 이전(12)과 같은 이유로 한 번에 무효화.
+export const COURSE_ALGO_VERSION = 14; // 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가 없습니다" §2 — 도시형 코스에 "대표 명소 앵커"(리뷰 수 상위 N곳, 평점 있는 곳만, 서로 다른 날로 분산)를 끼워 넣는 ensureCityLandmarkAnchors가 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 경주 같은 지역이 26시간 동안 대표 명소 없는 옛 구성을 그대로 반환한다. 이전(13)과 같은 이유로 한 번에 무효화.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -2475,6 +2476,115 @@ export function redistributeThinResortDays(dayGroups: FinalStop[][]): FinalStop[
   return result;
 }
 
+// 도시형 앵커 검색에 쓰는 슬롯 — THEME_SLOTS.balanced.am-sight와 정확히
+// 같은 키워드·카테고리다(courseBrief.ts의 buildBrief가 도시형에 항상
+// 쓰는 DEFAULT_THEME="balanced" 참고) — 같은 candidateCacheKey를 써서
+// 새 API 호출을 만들지 않고 그 날짜의 생성이 이미 채운(또는 채울)
+// 캐시를 그대로 재사용한다.
+const CITY_ANCHOR_SLOT: RecommendSlot = { key: "am-sight", label: "오전 명소", keyword: "관광지", hour: 10, category: "attraction" };
+
+/**
+ * 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
+ * 없습니다" §2·§3 — 도시형 코스는 "그 도시에서 가장 많이 가는 곳"이
+ * 먼저 확정돼야 하는데, 실측(경주 2박3일)에서 전부 빠져 있었다. 테마
+ * 슬롯의 정상 선정 로직(courseRecommendV2.ts)은 거리 기반 감점
+ * (proximityScore, courseRecommend.ts)을 쓰는데, 이 지시서가 요구하는
+ * "압도적으로 유명한 곳"(석굴암처럼 시내에서 먼 경우도 있음)은 그
+ * 감점 때문에 밀려날 수 있다 — 그래서 정상 슬롯 채우기와는 별개로,
+ * 리뷰 수만으로 상위 N곳을 뽑아 코스에 없으면 끼워 넣는다.
+ *
+ * 리뷰 수 기준(§2 "리뷰 수 상위 N곳")으로 정렬하고, 평점이 없는 후보는
+ * 앵커가 될 수 없다(§3 "평점 없는 곳이 앵커 자리를 차지하지 않게") —
+ * 이미 코스에 있는 곳(id·같은 브랜드)은 건너뛴다. 각 앵커는 서로 다른
+ * 날에 배정한다(§2 "서로 다른 날로 분산") — 아직 앵커를 못 받은 날 중,
+ * 식사가 아닌 스팟 중 가장 인기(평점×리뷰수) 낮은 것과 교체한다(추가가
+ * 아니라 교체 — 하루 스팟 수를 그대로 유지하면서 가장 안 유명한
+ * 필러를 대표 명소로 바꾼다는 지시서의 취지를 그대로 따른다). 교체할
+ * 자리가 없으면(모든 날이 이미 앵커를 받았거나 식사 스팟뿐이면) 남은
+ * 앵커는 넣지 않는다 — 억지로 만들어내지 않는다는 이 코드베이스의
+ * 기존 원칙 그대로.
+ *
+ * 리조트(휴양형)에는 적용하지 않는다 — 호출부(buildBrief)가
+ * style==="city"일 때만 부른다.
+ */
+const CITY_ANCHOR_COUNT = 3;
+
+/**
+ * 위 ensureCityLandmarkAnchors의 "누구를 앵커로 뽑을지" 부분만 뽑은
+ * 순수 함수 — §2 "리뷰 수 상위 N곳", §3 "평점 없는 곳이 앵커 자리를
+ * 차지하지 않게"를 그대로 구현한다. 이미 코스에 있는 곳(id·같은
+ * 브랜드)은 후보에서 제외한다.
+ */
+export function pickLandmarkAnchors(candidates: Place[], existingStops: FinalStop[], count: number = CITY_ANCHOR_COUNT): Place[] {
+  const existingIds = new Set(existingStops.map((s) => s.id));
+  const existingNames = existingStops.map((s) => s.name);
+  return candidates
+    .filter((p) => p.rating != null && !existingIds.has(p.id) && !existingNames.some((n) => sameShop(n, p.name)))
+    .sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0))
+    .slice(0, count);
+}
+
+/**
+ * 위 ensureCityLandmarkAnchors의 "어느 날 어디에 넣을지" 부분만 뽑은
+ * 순수 함수 — §2 "서로 다른 날로 분산"을 구현한다. 아직 앵커를 못 받은
+ * 날 중, 식사가 아닌 스팟 중 가장 인기(평점×리뷰수) 낮은 것과 교체한다
+ * (추가가 아니라 교체 — 하루 스팟 수를 그대로 유지). 교체할 자리가
+ * 없으면(모든 날이 이미 앵커를 받았거나 식사 스팟뿐이면) 남은 앵커는
+ * 넣지 않는다 — 억지로 만들어내지 않는다는 이 코드베이스의 기존 원칙.
+ */
+export function placeLandmarkAnchors(dayStops: FinalStop[][], anchors: Place[]): FinalStop[][] {
+  const result = dayStops.map((stops) => [...stops]);
+  const usedDayIdx = new Set<number>();
+  for (const anchor of anchors) {
+    let targetDayIdx = -1;
+    let targetSpotIdx = -1;
+    let lowestPopularity = Infinity;
+    result.forEach((stops, dayIdx) => {
+      if (usedDayIdx.has(dayIdx)) return;
+      stops.forEach((s, spotIdx) => {
+        if (s.meal) return;
+        const p = popularity(s);
+        if (p < lowestPopularity) {
+          lowestPopularity = p;
+          targetDayIdx = dayIdx;
+          targetSpotIdx = spotIdx;
+        }
+      });
+    });
+    if (targetDayIdx === -1) break;
+    usedDayIdx.add(targetDayIdx);
+    const replaced = result[targetDayIdx][targetSpotIdx];
+    result[targetDayIdx][targetSpotIdx] = { ...anchor, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: replaced.hour, meal: false };
+  }
+  return result;
+}
+
+/**
+ * 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
+ * 없습니다" §2·§3 — 도시형 코스는 "그 도시에서 가장 많이 가는 곳"이
+ * 먼저 확정돼야 하는데, 실측(경주 2박3일)에서 전부 빠져 있었다. 테마
+ * 슬롯의 정상 선정 로직(courseRecommendV2.ts)은 거리 기반 감점
+ * (proximityScore, courseRecommend.ts)을 쓰는데, 이 지시서가 요구하는
+ * "압도적으로 유명한 곳"(석굴암처럼 시내에서 먼 경우도 있음)은 그
+ * 감점 때문에 밀려날 수 있다 — 그래서 정상 슬롯 채우기와는 별개로,
+ * 리뷰 수만으로 상위 N곳을 뽑아(pickLandmarkAnchors) 코스에 없으면
+ * 끼워 넣는다(placeLandmarkAnchors). 리조트(휴양형)에는 적용하지 않는다
+ * — 호출부(buildBrief)가 style==="city"일 때만 부른다.
+ */
+async function ensureCityLandmarkAnchors(
+  scope: CourseBriefScope,
+  region: string,
+  dayStops: FinalStop[][],
+  onCandidateFetchFailure?: (status: number) => void,
+): Promise<FinalStop[][]> {
+  const flat = dayStops.flat();
+  if (flat.length === 0) return dayStops;
+  const candidates = await fetchSlotCandidates(scope, region, CITY_ANCHOR_SLOT, false, onCandidateFetchFailure);
+  const anchors = pickLandmarkAnchors(candidates, flat);
+  if (anchors.length === 0) return dayStops;
+  return placeLandmarkAnchors(dayStops, anchors);
+}
+
 export async function buildBrief(
   scope: CourseBriefScope,
   region: string,
@@ -2539,6 +2649,14 @@ export async function buildBrief(
   // 이후로는 이 배열을 건드리는 단계가 없으므로, 여기서 채운 해변이
   // 뒤에서 다시 밀려날 수 없다(ensureResortBeachSpot 주석 참고).
   const beachEnsuredDayGroups = style === "resort" ? await ensureResortBeachSpot(scope, region, redistributedDayGroups, onCandidateFetchFailure) : redistributedDayGroups;
+  // 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
+  // 없습니다" §2 — 도시형 코스의 "대표 명소 앵커"도 같은 이유로 재배치
+  // *이후*(모든 날짜 배정이 끝난 시점)에 끼워 넣는다 — 그래야 앵커가
+  // "서로 다른 날"에 배정된 뒤 reallocateStopsByDay가 다시 흐트러뜨리는
+  // 일이 없다(ensureResortBeachSpot이 해변에서 겪은 것과 같은 문제,
+  // 작업지시서 2026-09-29 "#277 검증" §2 참고). 휴양형에는 적용하지
+  // 않는다 — resort는 이미 위에서 별도 규칙(스파·해변)을 적용했다.
+  const anchoredDayGroups = style === "resort" ? beachEnsuredDayGroups : await ensureCityLandmarkAnchors(scope, region, beachEnsuredDayGroups, onCandidateFetchFailure);
   // 작업지시서 2026-09-23 §3-b — 각 날짜의 첫 스팟이 평점 신호 없이
   // 시작하지 않도록 순서를 조정한다. 반드시 라우팅(바로 아래
   // routeDayStops) 이전에 해야 한다 — 이후에 순서만 바꾸면 구간
@@ -2546,7 +2664,7 @@ export async function buildBrief(
   // (routeDayStops는 "순서상 이웃한 두 스톱" 사이만 조회하므로, 순서를
   // 정한 뒤에 조회해야 항상 맞는다). preferRatedFirstStop 주석 참고 —
   // 스팟을 빼지 않고 순서만 바꾼다(§3-a 제외는 여전히 보류).
-  const finalDayGroups = beachEnsuredDayGroups.map((stops) => preferRatedFirstStop(scope, region, stops));
+  const finalDayGroups = anchoredDayGroups.map((stops) => preferRatedFirstStop(scope, region, stops));
 
   // 하루 안의 구간(순서상 이웃한 두 스톱)마다 실제 경로를 조회한다 —
   // 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다" §3. 경로가
