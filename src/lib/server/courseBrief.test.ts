@@ -14,6 +14,7 @@ import {
   chunkByProximity,
   cleanDisplayName,
   clusterByLocation,
+  composeResortDays,
   computeViewport,
   dayMapPathname,
   dedupeByBrand,
@@ -2327,5 +2328,88 @@ describe("pickBetterDayResult — 1일차 LLM 큐레이션이 너무 적으면 s
     const original = [stop("a", 35.8, 129.2), stop("b", 35.81, 129.21)];
     const retry = [stop("c", 35.8, 129.2), stop("d", 35.81, 129.21)];
     expect(pickBetterDayResult(original, retry)).toBe(original);
+  });
+});
+
+describe("얇은 날 보충 — 첫 기증일에 옮길 게 없어도 다음 기증일을 본다 (작업지시서 2026-09-29 '#286 검증' §2)", () => {
+  const kkDays = () => [
+    [
+      stop("beach", 0, 0, { name: "탄중 리팟 해변", category: "beach", rating: 4.6, reviewCount: 3000 }),
+      stop("woori", 0, 0, { name: "WOORI BBQ", category: "korean_restaurant", meal: true, reviewCount: 500 }),
+      stop("guan", 0, 0, { name: "Guan's Kopitiam", category: "restaurant", meal: true, reviewCount: 4000 }),
+    ],
+    [
+      stop("spa", 0, 0, { name: "Poin Reflexology Spa", category: "spa", reviewCount: 800 }),
+      stop("seafood", 0, 0, { name: "KK Garden Seafood", category: "seafood_restaurant", meal: true, reviewCount: 2000 }),
+      stop("safi", 0, 0, { name: "사피 섬", category: "island", reviewCount: 6000 }),
+    ],
+    [stop("aru", 0, 0, { name: "탄중 아루", category: "beach", rating: 4.5, reviewCount: 9000 })],
+  ];
+
+  it("redistributeThinResortDays: 가장 큰 날(식사+해변만)이 못 주면 그 다음 날에서 가져온다", () => {
+    const result = redistributeThinResortDays(kkDays());
+    expect(result[2].length).toBeGreaterThanOrEqual(2);
+    expect(result[1].map((s) => s.name)).toContain("사피 섬"); // 섬은 안 옮긴다
+  });
+
+  it("balanceSightsAcrossDays: 볼거리 2곳 이상인 다른 날이 있으면 첫 후보가 막혀도 옮긴다", () => {
+    const sight = (id: string, rc: number) => stop(id, 0, 0, { category: "tourist_attraction", rating: 4.5, reviewCount: rc });
+    const days = [
+      [stop("isl", 0, 0, { name: "사피 섬", category: "island" }), stop("j", 0, 0, { name: "제셀톤 선착장", category: "ferry_terminal", slotKey: "jetty" })],
+      [sight("a", 9000), sight("b", 10)],
+      [stop("f", 0, 0, { name: "식당", category: "restaurant", meal: true }), stop("sp", 0, 0, { name: "스파", category: "spa" })],
+    ];
+    const result = balanceSightsAcrossDays(days);
+    expect(result[2].map((s) => s.id)).toContain("b");
+  });
+});
+
+describe("composeResortDays — 코타키나발루 회귀 (작업지시서 2026-09-29 '#286 검증' §2, 모델링한 후보 fixture)", () => {
+  const P = (id: string, name: string, lat: number, lng: number, extra: Partial<Place> = {}): Place =>
+    place(id, { name, lat, lng, rating: 4.4, reviewCount: 1000, ...extra });
+  const fs = (id: string, name: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name, ...extra });
+  const kk = () => [
+    [
+      fs("beach", "탄중 리팟 해변", 5.9, 116.05, { category: "beach", rating: 4.6, reviewCount: 3000 }),
+      fs("woori", "WOORI BBQ", 5.98, 116.07, { category: "korean_restaurant", meal: true }),
+      fs("guan", "Guan's Kopitiam Gaya Street", 5.98, 116.07, { category: "restaurant", meal: true }),
+    ],
+    [
+      fs("spa", "Poin Reflexology Spa", 5.97, 116.07, { category: "spa" }),
+      fs("seafood", "KK Garden Seafood Restaurant • Sedco", 5.98, 116.07, { category: "seafood_restaurant", meal: true }),
+      fs("safi", "사피 섬", 5.97, 116.0, { category: "island", reviewCount: 6000 }),
+    ],
+    [fs("aru", "탄중 아루", 5.95, 116.04, { category: "beach", rating: 4.5, reviewCount: 9000 })],
+  ];
+  const landmarks = [
+    P("sig", "Signal Hill Observatory Tower", 5.99, 116.08, { reviewCount: 8000 }),
+    P("mosque", "Kota Kinabalu City Mosque", 5.99, 116.05, { reviewCount: 9000 }),
+    P("waterfront", "Kota Kinabalu Waterfront", 5.98, 116.07, { reviewCount: 7000 }),
+    P("atkinson", "Atkinson Clock Tower", 5.99, 116.08, { reviewCount: 3000 }),
+  ];
+  const jettySlot = (keyword: string) => (keyword === "jetty" ? [P("jp", "Jesselton Point Ferry Terminal", 5.98, 116.06, { category: "ferry_terminal" })] : []);
+
+  it("사피 섬 앞 = 선착장 · 하루 ≥ 2곳 · 총 ≥ 8곳", async () => {
+    const result = await composeResortDays(kk(), {
+      label: "overseas/코타키나발루",
+      overseas: true,
+      fetchLandmarks: async () => landmarks,
+      fetchSlot: async (slot) => (slot.key === "jetty" ? jettySlot(slot.keyword) : []),
+    });
+    for (const day of result) expect(day.length).toBeGreaterThanOrEqual(2);
+    expect(result.flat().length).toBeGreaterThanOrEqual(8);
+    const day = result.find((d) => d.some((s) => s.name === "사피 섬"))!;
+    const idx = day.findIndex((s) => s.name === "사피 섬");
+    expect(day[idx - 1]?.name).toBe("Jesselton Point Ferry Terminal");
+  });
+
+  it("앵커 후보와 선착장 검색이 전부 비어도 기존 스팟 재배분으로 하루 ≥ 2곳을 맞춘다", async () => {
+    const result = await composeResortDays(kk(), {
+      label: "overseas/코타키나발루",
+      overseas: true,
+      fetchLandmarks: async () => [],
+      fetchSlot: async () => [],
+    });
+    for (const day of result) expect(day.length).toBeGreaterThanOrEqual(2);
   });
 });
