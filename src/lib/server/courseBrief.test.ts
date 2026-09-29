@@ -9,6 +9,7 @@ import {
   capResortSpaSpotsPerDay,
   capResortSpaSpotsTotal,
   chunkByProximity,
+  cleanDisplayName,
   clusterByLocation,
   computeViewport,
   dayMapPathname,
@@ -32,6 +33,7 @@ import {
   minViableSpots,
   orderByNearestNeighbor,
   parseDays,
+  pickBeachCandidate,
   pickBetterDayResult,
   pickLandmarkAnchors,
   placeLandmarkAnchors,
@@ -1003,6 +1005,27 @@ describe("assembleDaySpots — distanceSource용 hadStraightFallback 판정", ()
     expect(hadStraightFallback).toBe(true);
   });
 
+  // 작업지시서 2026-09-29 "#280 검증" §2 — 최종 스팟 category는 한글 버킷이라
+  // Google primaryType("beach")이 사라진다. 이름에 해변 단어가 없는 진짜
+  // 해변(섬 이름 등)도 beach 플래그로 남아야 요건 판정이 놓치지 않는다.
+  it("flags a beach-typed stop with beach:true even though its name has no beach word", () => {
+    const stops = [stop("a", 0, 0, { name: "Sapi Island", category: "beach" }), stop("b", 0, 1)];
+    const { spots } = assembleDaySpots(stops, [routeSeg(5, 10, true)], 1, "overseas", "코타키나발루", 1);
+    expect(spots[0].beach).toBe(true);
+    expect(spots[1].beach).toBeUndefined();
+    expect(meetsResortBeachRequirement(spots, "resort")).toBe(true);
+  });
+
+  // 작업지시서 2026-09-29 "#280 검증" §3 — 표시명 정리 + 원래 이름 보존.
+  it("cleans the display name and keeps the original in originalName only when it changed", () => {
+    const stops = [stop("a", 0, 0, { name: "대한불교조계종 제11교구 본사 불국사" }), stop("b", 0, 1, { name: "첨성대" })];
+    const { spots } = assembleDaySpots(stops, [routeSeg(5, 10, true)], 1, "domestic", "경주", 1);
+    expect(spots[0].name).toBe("불국사");
+    expect(spots[0].originalName).toBe("대한불교조계종 제11교구 본사 불국사");
+    expect(spots[1].name).toBe("첨성대");
+    expect(spots[1].originalName).toBeUndefined();
+  });
+
   it("does not count a domestic walk segment's straight-line estimate as a fallback (의도된 폴백 — §4 '국내 도보는 직선일 수밖에 없다')", () => {
     const stops = [stop("a", 0, 0), stop("b", 0, 1)];
     const segments = [routeSeg(0.3, 5, false, "walk")];
@@ -1819,6 +1842,42 @@ describe("placeLandmarkAnchors — 앵커를 서로 다른 날에 분산 배치 
   it("returns the input unchanged when there are no anchors to place", () => {
     const days = [[stop("d1-a", 10, 120)]];
     expect(placeLandmarkAnchors(days, [])).toEqual(days);
+  });
+});
+
+describe("cleanDisplayName — 사찰 공식명 접두 제거 (작업지시서 2026-09-29 '#280 검증' §3)", () => {
+  it("strips '대한불교조계종 제N교구 (본사|말사)' from the front", () => {
+    expect(cleanDisplayName("대한불교조계종 제11교구 본사 불국사")).toBe("불국사");
+    expect(cleanDisplayName("대한불교조계종 제 9 교구 말사 어느절")).toBe("어느절");
+  });
+
+  it("leaves ordinary names untouched", () => {
+    expect(cleanDisplayName("경주 황리단길")).toBe("경주 황리단길");
+    expect(cleanDisplayName("불국사")).toBe("불국사");
+  });
+
+  it("keeps the original when stripping would leave nothing", () => {
+    expect(cleanDisplayName("대한불교조계종 제11교구 본사")).toBe("대한불교조계종 제11교구 본사");
+  });
+});
+
+describe("pickBeachCandidate — 해변 검색 결과에서 넣을 후보 고르기 (작업지시서 2026-09-29 '#280 검증' §2)", () => {
+  it("picks the first beach not already in the course", () => {
+    const candidates = [
+      place("resort", { name: "Beach Resort", category: "resort_hotel" }), // 해변 아님
+      place("pantai", { name: "Pantai Tanjung Aru", category: "tourist_attraction" }),
+      place("other", { name: "다른 해변", category: "beach" }),
+    ];
+    expect(pickBeachCandidate(candidates, [])?.id).toBe("pantai");
+  });
+
+  it("skips a beach already in the course (id or same brand)", () => {
+    const candidates = [place("pantai", { name: "Pantai Tanjung Aru" }), place("other", { name: "다른 해변", category: "beach" })];
+    expect(pickBeachCandidate(candidates, [{ id: "pantai", name: "Pantai Tanjung Aru" }])?.id).toBe("other");
+  });
+
+  it("returns undefined when no candidate is a beach", () => {
+    expect(pickBeachCandidate([place("x", { name: "시장", category: "market" })], [])).toBeUndefined();
   });
 });
 

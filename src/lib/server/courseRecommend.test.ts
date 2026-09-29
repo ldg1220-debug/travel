@@ -426,6 +426,28 @@ describe("isBeach — 휴양형 해변 보장 판정용 (작업지시서 2026-09
   it("does not flag an unrelated place", () => {
     expect(isBeach(place({ category: "restaurant", name: "Cabana Restaurant" }))).toBe(false);
   });
+
+  // 작업지시서 2026-09-29 "#280 검증" §2 — 코타키나발루(말레이)·발리(인도네시아)의
+  // "Pantai", 제주의 "해수욕장" 등 이름 판정이 놓치던 어휘.
+  it("recognizes other-language words for beach (Pantai, 해수욕장, ビーチ, Bãi biển)", () => {
+    expect(isBeach(place({ category: "tourist_attraction", name: "Pantai Tanjung Aru" }))).toBe(true);
+    expect(isBeach(place({ category: "tourist_attraction", name: "협재해수욕장" }))).toBe(true);
+    expect(isBeach(place({ category: "tourist_attraction", name: "宮古ビーチ" }))).toBe(true);
+    expect(isBeach(place({ category: "tourist_attraction", name: "Bãi biển Mỹ Khê" }))).toBe(true);
+  });
+
+  it("does not count a hotel/restaurant/café/spa just because its name says beach", () => {
+    expect(isBeach(place({ category: "resort_hotel", name: "Beach Resort & Hotel" }))).toBe(false);
+    expect(isBeach(place({ category: "seafood_restaurant", name: "Pantai Seafood Restaurant" }))).toBe(false);
+    expect(isBeach(place({ category: "cafe", name: "Beach Cafe" }))).toBe(false);
+    // 최종 스팟의 한글 버킷(liveCategoryBucket)도 같은 기준
+    expect(isBeach({ category: "음식점", name: "비치 레스토랑" })).toBe(false);
+    expect(isBeach({ category: "숙소", name: "비치 호텔" })).toBe(false);
+  });
+
+  it("trusts Google's beach type even when the name has no beach word (섬 이름 등)", () => {
+    expect(isBeach(place({ category: "beach", name: "Caohagan Island" }))).toBe(true);
+  });
 });
 
 // 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로
