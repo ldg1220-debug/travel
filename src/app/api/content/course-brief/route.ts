@@ -94,8 +94,15 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // 판정이다. isCacheableBrief(쓰기)·isFreshBriefPayload(읽기)와 같은
   // 기준(meetsResortBeachRequirement)을 여기서도 써야 어긋나지 않는다
   // (작업지시서 2026-09-28 §2② 원칙 — 페이지·API가 같은 기준을 쓸 것).
-  if (brief.spots.length < threshold || !meetsResortBeachRequirement(brief.spots, style)) {
+  if (brief.spots.length < threshold) {
     return NextResponse.json({ error: "insufficient_spots", count: brief.spots.length, threshold }, { status: 422 });
+  }
+  // 작업지시서 2026-09-29 "#280 검증" §2 — 스팟 수는 충분한데("count 6,
+  // threshold 6") 해변 요건에서 거절되면 같은 "insufficient_spots"로
+  // 응답해 AutoPipeline 로그가 원인을 오해하게 만들었다. 사유를 구분해
+  // 알린다(count·threshold는 그대로 실어 "스팟은 충분하다"가 보이게).
+  if (!meetsResortBeachRequirement(brief.spots, style)) {
+    return NextResponse.json({ error: "no_beach", count: brief.spots.length, threshold, message: "휴양형 코스인데 해변 후보를 찾지 못했습니다." }, { status: 422 });
   }
   return NextResponse.json(brief);
 });

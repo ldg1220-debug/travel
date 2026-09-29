@@ -65,6 +65,22 @@ export interface CourseBriefSpot {
   day: CourseDays;
   toNextMinutes: number | null;
   toNextMode: TravelMode;
+  /**
+   * 원래(Google 공식) 이름 — name이 표시용으로 정리됐을 때만 채워진다
+   * (cleanDisplayName 참고, 예: "대한불교조계종 제11교구 본사 불국사"의
+   * name은 "불국사"). 작업지시서 2026-09-29 "#280 검증" §3 "원래 이름은
+   * 별도 필드로 보존". 순수 추가 필드라 기존 계약을 깨지 않는다.
+   */
+  originalName?: string;
+  /**
+   * 이 스팟이 해변이면 true(아니면 필드 자체가 없다). category는
+   * liveCategoryBucket으로 한글 버킷("관광지"·"기타" 등)이 돼 Google의
+   * primaryType("beach")이 사라지므로, 휴양형 "해변 최소 1곳" 요건
+   * (meetsResortBeachRequirement)이 이름만으로 판정하면 이름에 해변
+   * 관련 단어가 없는 진짜 해변(섬 이름 등)을 놓친다 — 작업지시서
+   * 2026-09-29 "#280 검증" §2. 순수 추가 필드.
+   */
+  beach?: true;
 }
 
 export interface CourseBrief {
@@ -277,7 +293,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 15; // 작업지시서 2026-09-29 "일자별 동선 지도 · #279가 경주에서 효과 없음 · 오사카 2일" §3 — 앵커 전용 후보 검색(fetchLandmarkCandidates)과 일자별 지도(dayImageUrls)가 전부 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 경주 같은 지역이 26시간 동안 앵커 없는(옛 구성) dayImageUrls 없는 캐시를 그대로 반환한다. 이전(14)과 같은 이유로 한 번에 무효화.
+export const COURSE_ALGO_VERSION = 16; // 작업지시서 2026-09-29 "#280 검증: 일자 지도·경주 명소 됐습니다. 코타키나발루 3일이 막힙니다" — 해변 판정(CourseBriefSpot.beach·isBeach 어휘)·해변 구간 라우팅 유지·영문 해변 검색, 표시명 정리(cleanDisplayName)가 전부 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 경주 d3가 26시간 동안 "대한불교조계종 제11교구 본사 불국사" 그대로인 옛 캐시를 반환한다. 이전(15)과 같은 이유로 한 번에 무효화.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -795,7 +811,27 @@ async function resolveRouteSegment(scope: CourseBriefScope, last: GeoPoint, cand
  * 실제 호출부.
  */
 async function routeDayStops(scope: CourseBriefScope, stops: FinalStop[], deadline: number): Promise<{ stops: FinalStop[]; segments: RouteResult[] }> {
-  return planRouteForDay(stops, (last, candidate) => resolveRouteSegment(scope, last, candidate, deadline));
+  const routed = await planRouteForDay(stops, async (last, candidate) => {
+    const outcome = await resolveRouteSegment(scope, last, candidate, deadline);
+    // 작업지시서 2026-09-29 "#280 검증" §2 — 해변(특히 배로만 가는 섬)은
+    // 도로 경로가 "없음"(ZERO_RESULTS)이거나 3시간을 넘겨도 휴양형 코스의
+    // 핵심 방문지다. 여기서 "no-route"로 빼면 "해변 최소 1곳"이 조립
+    // 마지막 단계(ensureResortBeachSpot)에서 채워진 뒤에도 라우팅에서
+    // 다시 사라진다(코타키나발루의 마누칸·사피 섬, 세부 카오하간 섬이
+    // 같은 종류). 해변이 낀 구간은 직선 추정으로 남긴다 — 이미 있는
+    // "조용한 저하" 표시(distanceSource "straight", 회색 경로선)가 그대로
+    // 적용된다.
+    if (outcome === "no-route" && (isBeach(last) || isBeach(candidate))) {
+      return straightRouteMeasurement(last, candidate, modeForDistance(haversineKm(last, candidate), scope));
+    }
+    return outcome;
+  });
+  if (routed.stops.length < stops.length) {
+    const keptIds = new Set(routed.stops.map((s) => s.id));
+    const dropped = stops.filter((s) => !keptIds.has(s.id)).map((s) => s.name);
+    console.warn(`[courseBrief] ${scope} 경로 없음으로 코스에서 빠진 스팟: ${dropped.join(", ")}`);
+  }
+  return routed;
 }
 
 function normalizeForMatch(s: string): string {
@@ -1867,6 +1903,18 @@ export function findRatedFirstStopSwapIndex(daySpots: readonly CourseBriefSpot[]
 }
 
 /**
+ * 표시용 장소명 정리 — 작업지시서 2026-09-29 "#280 검증" §3: Google
+ * 공식명 그대로("대한불교조계종 제11교구 본사 불국사")라 블로그·페이지
+ * 표에 길게 찍힌다. "대한불교조계종 제N교구 (본사|말사) " 접두를 떼면
+ * "불국사"가 된다. 뗀 나머지가 비면 원래 이름을 그대로 둔다. 원래
+ * 이름은 assembleDaySpots가 originalName으로 보존한다.
+ */
+export function cleanDisplayName(name: string): string {
+  const stripped = name.replace(/^\s*대한불교조계종\s*제\s*\d+\s*교구\s*(?:본사|말사)\s*/, "").trim();
+  return stripped || name;
+}
+
+/**
  * 하루치 스톱 배열을 API 응답의 spots 조각(순서·구간 이동시간·이동수단
  * 포함)으로 변환한다. order는 baseOrder부터 이어서 매긴다(2일치를
  * 이어붙일 때 order가 1..N으로 연속되도록) — 스펙엔 날짜 구분 필드가
@@ -1913,9 +1961,12 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
       }
     }
 
+    const displayName = cleanDisplayName(stop.name);
     return {
-      name: stop.name,
+      name: displayName,
+      ...(displayName !== stop.name ? { originalName: stop.name } : {}),
       category: liveCategoryBucket(stop.category),
+      ...(isBeach(stop) ? { beach: true as const } : {}),
       rating,
       reviewCount,
       lat: stop.lat,
@@ -2394,8 +2445,11 @@ export function isCacheableBrief(spots: CourseBriefSpot[], style: RegionStyle, d
  * isFreshBriefPayload(읽기)·route.ts(422 응답) 셋 다 같은 기준을 써야
  * 한다는 원칙(작업지시서 2026-09-28 §2②)을 그대로 따른다.
  */
-export function meetsResortBeachRequirement(spots: { category: string; name: string }[], style: RegionStyle): boolean {
-  return style !== "resort" || spots.some(isBeach);
+export function meetsResortBeachRequirement(spots: { category: string; name: string; beach?: boolean }[], style: RegionStyle): boolean {
+  // beach 플래그는 assembleDaySpots가 raw primaryType으로 정한 값이다 —
+  // 최종 스팟의 category는 한글 버킷이라 그것만으론 이름에 해변 단어가
+  // 없는 진짜 해변을 못 알아본다(CourseBriefSpot.beach 주석 참고).
+  return style !== "resort" || spots.some((s) => s.beach === true || isBeach(s));
 }
 
 // 평점*리뷰수 — 이 파일의 다른 두 곳(중복 스팟 중 더 나은 쪽 고르기,
@@ -2495,6 +2549,22 @@ export function capOverseasKoreanRestaurants(dayStops: FinalStop[][]): FinalStop
  * 불러(buildBrief 참고), 그 이후엔 이 결과를 건드리는 단계가 없으므로
  * 재배치가 다시 해변을 밀어낼 수 없다.
  */
+// 해변 전용 검색어 — 한글 먼저, 해외는 영문도 함께(작업지시서 2026-09-29
+// "#280 검증" §2 "영문 질의('beach')도 함께"). 국내(Kakao)는 한글뿐이라
+// 영문 질의를 쓰지 않는다.
+const BEACH_QUERY_KEYWORDS_OVERSEAS = ["해변", "beach"];
+const BEACH_QUERY_KEYWORDS_DOMESTIC = ["해변"];
+
+/**
+ * ensureResortBeachSpot의 "누구를 해변으로 넣을지" 부분만 뽑은 순수 함수 —
+ * 해변으로 판정되고(isBeach), 이미 코스에 없는(id·같은 브랜드) 첫 후보.
+ */
+export function pickBeachCandidate(candidates: Place[], existingStops: { id: string; name: string }[]): Place | undefined {
+  const existingIds = new Set(existingStops.map((s) => s.id));
+  const existingNames = existingStops.map((s) => s.name);
+  return candidates.find((p) => isBeach(p) && !existingIds.has(p.id) && !existingNames.some((n) => sameShop(n, p.name)));
+}
+
 async function ensureResortBeachSpot(
   scope: CourseBriefScope,
   region: string,
@@ -2504,19 +2574,25 @@ async function ensureResortBeachSpot(
   const flat = dayStops.flat();
   if (flat.length === 0 || flat.some(isBeach)) return dayStops;
 
-  const beachSlot: RecommendSlot = { key: "beach", label: "해변", keyword: "해변", hour: 11 };
-  const candidates = await fetchSlotCandidates(scope, region, beachSlot, false, onCandidateFetchFailure);
-  const existingIds = new Set(flat.map((s) => s.id));
-  const existingNames = flat.map((s) => s.name);
-  const pick = candidates.find((p) => isBeach(p) && !existingIds.has(p.id) && !existingNames.some((n) => sameShop(n, p.name)));
-  if (!pick) return dayStops;
+  const keywords = scope === "overseas" ? BEACH_QUERY_KEYWORDS_OVERSEAS : BEACH_QUERY_KEYWORDS_DOMESTIC;
+  for (const keyword of keywords) {
+    const beachSlot: RecommendSlot = { key: "beach", label: "해변", keyword, hour: 11 };
+    const candidates = await fetchSlotCandidates(scope, region, beachSlot, false, onCandidateFetchFailure);
+    const pick = pickBeachCandidate(candidates, flat);
+    // 검색어별 후보 수와 선택 결과를 남긴다 — "해변 0곳"이 검색 자체의
+    // 문제인지 판정의 문제인지 Vercel 로그만으로 갈리게 한다(작업지시서
+    // 2026-09-29 "#280 검증" §2).
+    console.log(`[courseBrief] ensureResortBeachSpot ${scope}/${region} "${keyword}": candidates=${candidates.length} pick=${pick?.name ?? "none"}`);
+    if (!pick) continue;
 
-  // 스팟이 가장 적은 날에 넣는다 — 리조트 하루 템플릿(3슬롯)은 애초에
-  // 여유가 있고, 이미 꽉 찬 날보다 빈 날에 넣는 게 하루 스팟 수 편차도
-  // 줄인다.
-  const targetIdx = dayStops.reduce((minIdx, stops, idx, arr) => (stops.length < arr[minIdx].length ? idx : minIdx), 0);
-  const beachStop: FinalStop = { ...pick, slotKey: "beach", slotLabel: "해변", hour: 11, meal: false };
-  return dayStops.map((stops, idx) => (idx === targetIdx ? [...stops, beachStop] : stops));
+    // 스팟이 가장 적은 날에 넣는다 — 리조트 하루 템플릿(3슬롯)은 애초에
+    // 여유가 있고, 이미 꽉 찬 날보다 빈 날에 넣는 게 하루 스팟 수 편차도
+    // 줄인다.
+    const targetIdx = dayStops.reduce((minIdx, stops, idx, arr) => (stops.length < arr[minIdx].length ? idx : minIdx), 0);
+    const beachStop: FinalStop = { ...pick, slotKey: "beach", slotLabel: "해변", hour: 11, meal: false };
+    return dayStops.map((stops, idx) => (idx === targetIdx ? [...stops, beachStop] : stops));
+  }
+  return dayStops;
 }
 
 /**

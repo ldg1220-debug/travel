@@ -712,8 +712,23 @@ export function isSpa(p: Place): boolean {
 // 없다)에서도 재사용해야 해서, 실제로 쓰는 두 필드(category/name)만
 // 요구하도록 파라미터 타입을 Place에서 좁혔다 — Place는 이 타입의
 // 구조적 부분집합이라 기존 호출부(FinalStop 등)는 전혀 바뀌지 않는다.
+//
+// 작업지시서 2026-09-29 "#280 검증: 일자 지도·경주 명소 됐습니다. 코타키나발루
+// 3일이 막힙니다" §2 — 코타키나발루 3일이 "스팟 6 ≥ 기준 6"인데도 해변
+// 요건에서 거절됐다. 이름 판정이 두 방향으로 어긋나 있었다:
+// (1) 해변을 가리키는 다른 말(말레이·인도네시아어 "Pantai", 한국어
+//     "해수욕장", 베트남어 "Bãi biển", 일본어 "ビーチ/海岸" 등)을 몰랐다.
+// (2) 반대로 "Beach Hotel"·"Beach Restaurant"처럼 이름에 beach가 들어간
+//     숙소·식당이 해변으로 셌다 — 이 함수로 "이미 해변이 있다"고 판정하면
+//     진짜 해변 검색(ensureResortBeachSpot)이 아예 생략된다. 식당·숙소·
+//     카페·스파 등 명백한 시설 유형(Google primaryType 또는 최종 스팟의
+//     한글 버킷)은 이름과 무관하게 해변에서 뺀다.
+const BEACH_NAME_PATTERN = /해변|해수욕장|비치|beach|pantai|bãi biển|bai bien|ビーチ|海岸|海滩|海灘/i;
+const NON_BEACH_VENUE_CATEGORY = /restaurant|hotel|lodging|resort|cafe|coffee|bakery|\bbar\b|\bpub\b|spa|store|shop|음식점|숙소|카페|술집/i;
 export function isBeach(p: { category?: string; name: string }): boolean {
-  return p.category?.toLowerCase() === "beach" || /해변|비치|beach/i.test(p.name);
+  if (p.category?.toLowerCase() === "beach") return true;
+  if (p.category && NON_BEACH_VENUE_CATEGORY.test(p.category)) return false;
+  return BEACH_NAME_PATTERN.test(p.name);
 }
 
 // 같은 지시서(#277 검증) §3-② — 휴양형 activity/relax 슬롯이
