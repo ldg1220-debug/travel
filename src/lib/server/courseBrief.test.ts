@@ -21,6 +21,7 @@ import {
   fetchKakaoDrivingRoute,
   fetchLegRoute,
   findRatedFirstStopSwapIndex,
+  insertBeforeDinner,
   isCacheableBrief,
   isFreshBriefPayload,
   isSupportedRegion,
@@ -37,6 +38,7 @@ import {
   pickBetterDayResult,
   pickLandmarkAnchors,
   placeLandmarkAnchors,
+  placeResortAnchors,
   planRouteForDay,
   preferRatedFirstStop,
   reallocateStopsByDay,
@@ -1878,6 +1880,54 @@ describe("pickBeachCandidate — 해변 검색 결과에서 넣을 후보 고르
 
   it("returns undefined when no candidate is a beach", () => {
     expect(pickBeachCandidate([place("x", { name: "시장", category: "market" })], [])).toBeUndefined();
+  });
+});
+
+// 작업지시서 2026-09-29 "#281 검증: 코타키나발루가 열렸습니다. 휴양지에도
+// 대표 명소를" §2 — 코타키나발루 3일이 3/1/2로 얇고 대표 명소·섬이 없었다.
+describe("insertBeforeDinner — 새 스팟을 저녁 식사 앞에 (작업지시서 2026-09-29 '#281 검증' §2)", () => {
+  it("inserts before the evening meal stop", () => {
+    const stops = [stop("act", 0, 0, { hour: 10 }), stop("dinner", 0, 0, { hour: 19, meal: true })];
+    const result = insertBeforeDinner(stops, stop("new", 0, 0));
+    expect(result.map((s) => s.id)).toEqual(["act", "new", "dinner"]);
+  });
+
+  it("appends when the day has no evening meal (a lunch does not count)", () => {
+    const stops = [stop("lunch", 0, 0, { hour: 12, meal: true }), stop("act", 0, 0, { hour: 14 })];
+    expect(insertBeforeDinner(stops, stop("new", 0, 0)).map((s) => s.id)).toEqual(["lunch", "act", "new"]);
+  });
+});
+
+describe("placeResortAnchors — 휴양형은 교체가 아니라 추가, 얇은 날부터 (작업지시서 2026-09-29 '#281 검증' §2②)", () => {
+  const anchors = [place("island", { name: "마누칸 섬", rating: 4.6, reviewCount: 9000 }), place("mosque", { name: "사바 주립 모스크", rating: 4.5, reviewCount: 8000 })];
+
+  it("adds each anchor to a different day, thinnest day first, without removing any spot", () => {
+    const days = [
+      [stop("d1-a", 0, 0), stop("d1-b", 0, 0)],
+      [stop("d2-a", 0, 0)], // 가장 얇은 날
+      [stop("d3-a", 0, 0), stop("d3-b", 0, 0)],
+    ];
+    const result = placeResortAnchors(days, anchors);
+    expect(result[1].map((s) => s.name)).toContain("마누칸 섬"); // 첫 앵커 → 가장 얇은 날
+    expect(result[1]).toHaveLength(2); // 1곳짜리 날이 2곳이 된다
+    expect(result[0].map((s) => s.name)).toContain("사바 주립 모스크"); // 두 번째 앵커 → 남은 날 중 가장 적은(동점이면 앞) 날
+    expect(result.flat()).toHaveLength(days.flat().length + 2); // 아무것도 안 빠진다
+  });
+
+  it("puts the anchor before that day's dinner", () => {
+    const days = [[stop("act", 0, 0, { hour: 10 }), stop("dinner", 0, 0, { hour: 19, meal: true })]];
+    const result = placeResortAnchors(days, [anchors[0]]);
+    expect(result[0].map((s) => s.name)).toEqual(["act", "마누칸 섬", "dinner"]);
+  });
+
+  it("places no more anchors than there are days (one per day)", () => {
+    const result = placeResortAnchors([[stop("d1", 0, 0)]], anchors);
+    expect(result[0]).toHaveLength(2); // 하루뿐이라 앵커 1곳만
+  });
+
+  it("returns the input unchanged when there are no anchors", () => {
+    const days = [[stop("d1", 0, 0)]];
+    expect(placeResortAnchors(days, [])).toEqual(days);
   });
 });
 

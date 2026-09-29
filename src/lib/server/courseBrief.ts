@@ -10,6 +10,7 @@ import {
   fetchSlotCandidates,
   googleTop,
   isBeach,
+  isIsland,
   isKoreanRestaurant,
   isLargeFacility,
   isLodging,
@@ -293,7 +294,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 16; // 작업지시서 2026-09-29 "#280 검증: 일자 지도·경주 명소 됐습니다. 코타키나발루 3일이 막힙니다" — 해변 판정(CourseBriefSpot.beach·isBeach 어휘)·해변 구간 라우팅 유지·영문 해변 검색, 표시명 정리(cleanDisplayName)가 전부 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 경주 d3가 26시간 동안 "대한불교조계종 제11교구 본사 불국사" 그대로인 옛 캐시를 반환한다. 이전(15)과 같은 이유로 한 번에 무효화.
+export const COURSE_ALGO_VERSION = 17; // 작업지시서 2026-09-29 "#281 검증: 코타키나발루가 열렸습니다. 휴양지에도 대표 명소를" §3 — 휴양형 대표 명소·섬 앵커(ensureResortLandmarkAnchors), 섬 라우팅 예외(isWaterDestination), 라우팅 이후 하루 최소 2곳 재배분이 전부 이 최종 브리프 조립 로직에만 있어, place_candidate_cache(원본 후보, 알고리즘 버전과 무관)가 아니라 이 버전에만 반영된다. 버전을 올리지 않으면 코타키나발루·세부가 26시간 동안 섬 없는 옛 구성을 반환한다. 이전(16)과 같은 이유로 한 번에 무효화.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -810,18 +811,25 @@ async function resolveRouteSegment(scope: CourseBriefScope, last: GeoPoint, cand
  * 하루치 스톱에 실제 경로 조회(routeSegment)를 적용한다 — planRouteForDay의
  * 실제 호출부.
  */
+// 해변·섬 — 도로 경로가 없어도(배로만 가는 곳) 코스에서 빼지 않는 방문지.
+function isWaterDestination(p: { category?: string; name: string }): boolean {
+  return isBeach(p) || isIsland(p);
+}
+
 async function routeDayStops(scope: CourseBriefScope, stops: FinalStop[], deadline: number): Promise<{ stops: FinalStop[]; segments: RouteResult[] }> {
   const routed = await planRouteForDay(stops, async (last, candidate) => {
     const outcome = await resolveRouteSegment(scope, last, candidate, deadline);
     // 작업지시서 2026-09-29 "#280 검증" §2 — 해변(특히 배로만 가는 섬)은
     // 도로 경로가 "없음"(ZERO_RESULTS)이거나 3시간을 넘겨도 휴양형 코스의
-    // 핵심 방문지다. 여기서 "no-route"로 빼면 "해변 최소 1곳"이 조립
+    // 핵심 방문지다. "#281 검증" §2②로 섬(isIsland)도 같은 예외에 넣었다
+    // — 코타키나발루 d2에 제셀톤 선착장(섬 투어 출발지)만 남고 도착지 섬이
+    // 사라진 것(3/1/2 분포)이 이 라우팅 제거로 설명된다. 여기서 "no-route"로 빼면 "해변 최소 1곳"이 조립
     // 마지막 단계(ensureResortBeachSpot)에서 채워진 뒤에도 라우팅에서
     // 다시 사라진다(코타키나발루의 마누칸·사피 섬, 세부 카오하간 섬이
     // 같은 종류). 해변이 낀 구간은 직선 추정으로 남긴다 — 이미 있는
     // "조용한 저하" 표시(distanceSource "straight", 회색 경로선)가 그대로
     // 적용된다.
-    if (outcome === "no-route" && (isBeach(last) || isBeach(candidate))) {
+    if (outcome === "no-route" && (isWaterDestination(last) || isWaterDestination(candidate))) {
       return straightRouteMeasurement(last, candidate, modeForDistance(haversineKm(last, candidate), scope));
     }
     return outcome;
@@ -2549,6 +2557,71 @@ export function capOverseasKoreanRestaurants(dayStops: FinalStop[][]): FinalStop
  * 불러(buildBrief 참고), 그 이후엔 이 결과를 건드리는 단계가 없으므로
  * 재배치가 다시 해변을 밀어낼 수 없다.
  */
+/**
+ * 새 스팟(해변·대표 명소 앵커)을 그날 저녁 식사 앞에 끼운다 — 저녁이
+ * 없으면 맨 뒤. 뒤에 그냥 붙이면 "저녁 먹고 나서 해변"이 되기 쉽다.
+ */
+export function insertBeforeDinner(stops: FinalStop[], newStop: FinalStop): FinalStop[] {
+  const dinnerIdx = stops.findIndex((s) => s.meal && s.hour >= 17);
+  if (dinnerIdx === -1) return [...stops, newStop];
+  return [...stops.slice(0, dinnerIdx), newStop, ...stops.slice(dinnerIdx)];
+}
+
+// 작업지시서 2026-09-29 "#281 검증: 코타키나발루가 열렸습니다. 휴양지에도
+// 대표 명소를" §2② — "앵커 2곳(서로 다른 날)". 섬은 해안에서 떨어져 있어
+// 도시형(20km)보다 넓게 본다(코타키나발루 마누칸·사피 섬 약 5~10km,
+// 세부 카오하간 섬은 더 멀다).
+const RESORT_ANCHOR_COUNT = 2;
+const RESORT_ANCHOR_MAX_DISTANCE_KM = 30;
+
+/**
+ * 휴양형 앵커 배치 — 도시형(placeLandmarkAnchors)은 하루 스팟 수를 그대로
+ * 유지하려고 가장 인기 낮은 스팟과 "교체"하지만, 휴양형은 하루가 원래
+ * 얇아(3슬롯, 스팟 1곳뿐인 날도 나온다) 교체하면 얇은 날이 더 얇아진다.
+ * 그래서 "추가"하되, 아직 앵커를 못 받은 날 중 스팟이 가장 적은 날(동점이면
+ * 앞 날짜)에 넣는다 — 서로 다른 날 분산(§2)과 하루 최소 2곳(§2①)을 함께
+ * 돕는다.
+ */
+export function placeResortAnchors(dayStops: FinalStop[][], anchors: Place[]): FinalStop[][] {
+  const result = dayStops.map((stops) => [...stops]);
+  const usedDayIdx = new Set<number>();
+  for (const anchor of anchors) {
+    let target = -1;
+    result.forEach((stops, idx) => {
+      if (usedDayIdx.has(idx)) return;
+      if (target === -1 || stops.length < result[target].length) target = idx;
+    });
+    if (target === -1) break;
+    usedDayIdx.add(target);
+    const anchorStop: FinalStop = { ...anchor, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: 11, meal: false };
+    result[target] = insertBeforeDinner(result[target], anchorStop);
+  }
+  return result;
+}
+
+/**
+ * 작업지시서 2026-09-29 "#281 검증" §2② — 휴양형에도 대표 명소·섬 앵커.
+ * 도시형과 같은 전용 후보 검색(fetchLandmarkCandidates)에 "{도시} island"
+ * 검색을 더해 리뷰 상위 5 중 코스에 없는 2곳을 서로 다른 날에 넣는다
+ * (pickLandmarkAnchors 재사용, 반경은 30km). 섬이 라우팅에서 "경로
+ * 없음"으로 빠지지 않는 것은 routeDayStops의 isWaterDestination 예외가
+ * 맡는다.
+ */
+async function ensureResortLandmarkAnchors(
+  scope: CourseBriefScope,
+  region: string,
+  dayStops: FinalStop[][],
+  onCandidateFetchFailure?: (status: number) => void,
+): Promise<FinalStop[][]> {
+  const flat = dayStops.flat();
+  if (flat.length === 0) return dayStops;
+  const candidates = await fetchLandmarkCandidates(scope, region, onCandidateFetchFailure, { includeIslands: true });
+  const anchors = pickLandmarkAnchors(candidates, flat, RESORT_ANCHOR_COUNT, CITY_ANCHOR_POOL_SIZE, RESORT_ANCHOR_MAX_DISTANCE_KM);
+  console.log(`[courseBrief] ensureResortLandmarkAnchors ${scope}/${region}: candidates=${candidates.length} anchors=${anchors.map((a) => a.name).join(", ") || "none"}`);
+  if (anchors.length === 0) return dayStops;
+  return placeResortAnchors(dayStops, anchors);
+}
+
 // 해변 전용 검색어 — 한글 먼저, 해외는 영문도 함께(작업지시서 2026-09-29
 // "#280 검증" §2 "영문 질의('beach')도 함께"). 국내(Kakao)는 한글뿐이라
 // 영문 질의를 쓰지 않는다.
@@ -2590,7 +2663,7 @@ async function ensureResortBeachSpot(
     // 줄인다.
     const targetIdx = dayStops.reduce((minIdx, stops, idx, arr) => (stops.length < arr[minIdx].length ? idx : minIdx), 0);
     const beachStop: FinalStop = { ...pick, slotKey: "beach", slotLabel: "해변", hour: 11, meal: false };
-    return dayStops.map((stops, idx) => (idx === targetIdx ? [...stops, beachStop] : stops));
+    return dayStops.map((stops, idx) => (idx === targetIdx ? insertBeforeDinner(stops, beachStop) : stops));
   }
   return dayStops;
 }
@@ -2807,7 +2880,11 @@ export async function buildBrief(
   // 스팟이 1곳까지 줄어든 날을, 여유 있는 날에서 옮겨와 최소 2곳으로
   // 맞춘다. spaCappedDayGroups 이후에 해야 한다(스파 상한이 만든 1곳짜리
   // 날을 대상으로 하므로) — redistributeThinResortDays 주석 참고.
-  const redistributedDayGroups = style === "resort" ? redistributeThinResortDays(spaCappedDayGroups) : spaCappedDayGroups;
+  // 작업지시서 2026-09-29 "#281 검증" §2② — 휴양형 대표 명소·섬 앵커(추가,
+  // 얇은 날 우선). 하루 최소 2곳 재배분 이전에 넣어야 재배분이 앵커까지
+  // 보고 남는 분포를 맞춘다.
+  const resortAnchoredDayGroups = style === "resort" ? await ensureResortLandmarkAnchors(scope, region, spaCappedDayGroups, onCandidateFetchFailure) : spaCappedDayGroups;
+  const redistributedDayGroups = style === "resort" ? redistributeThinResortDays(resortAnchoredDayGroups) : resortAnchoredDayGroups;
   // 작업지시서 2026-09-29 "#277 검증" §2 — 해변 보장은 "모든 필터·상한·
   // 일자 배분이 끝난 마지막 단계"에서 해야 한다(지시서 원문). 재배치·
   // 스파 상한·1곳짜리 날 재배분이 전부 끝난 지금이 그 시점이다 — 이
@@ -2842,7 +2919,20 @@ export async function buildBrief(
   const estimatedSegments = finalDayGroups.reduce((sum, stops) => sum + Math.max(0, stops.length - 1), 0);
   const routingBudgetMs = Math.max(ROUTING_BUDGET_MS, estimatedSegments * ROUTING_BUDGET_MS_PER_SEGMENT);
   const routingDeadline = Date.now() + routingBudgetMs;
-  const routedDays = await Promise.all(finalDayGroups.map((stops) => routeDayStops(scope, stops, routingDeadline)));
+  let routedDays = await Promise.all(finalDayGroups.map((stops) => routeDayStops(scope, stops, routingDeadline)));
+  // 작업지시서 2026-09-29 "#281 검증" §2① — 라우팅이 스팟을 "경로 없음"으로
+  // 빼면(위 routeDayStops) 위에서 맞춘 하루 최소 2곳이 다시 깨진다(코타키나
+  // 발루 d2에 1곳만 남은 실측 — 재배분은 라우팅 이전에 돌아 이 제거를 못
+  // 본다). 휴양형은 라우팅 *이후*의 분포로 한 번 더 재배분하고, 스팟이
+  // 바뀐 날만 다시 라우팅한다(구간 이동시간·경로가 새 스팟 순서와 맞도록).
+  if (style === "resort") {
+    const before = routedDays.map((d) => d.stops);
+    const after = redistributeThinResortDays(before);
+    const changed = after.map((stops, i) => stops.map((s) => s.id).join("|") !== before[i].map((s) => s.id).join("|"));
+    if (changed.some(Boolean)) {
+      routedDays = await Promise.all(after.map((stops, i) => (changed[i] ? routeDayStops(scope, stops, routingDeadline) : Promise.resolve(routedDays[i]))));
+    }
+  }
 
   let baseOrder = 1;
   let totalDistanceKm = 0;

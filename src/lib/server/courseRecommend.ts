@@ -731,6 +731,22 @@ export function isBeach(p: { category?: string; name: string }): boolean {
   return BEACH_NAME_PATTERN.test(p.name);
 }
 
+/** 식당·숙소·카페·스파·상점 등 "방문할 명소"가 아닌 시설 유형인가(Google primaryType 또는 최종 스팟의 한글 버킷). */
+export function isNonAttractionVenue(p: { category?: string }): boolean {
+  return Boolean(p.category) && NON_BEACH_VENUE_CATEGORY.test(p.category as string);
+}
+
+// 작업지시서 2026-09-29 "#281 검증" §2② — 섬은 배로만 가서 도로 경로가
+// "없음"으로 나온다(courseBrief.ts routeDayStops가 해변과 같은 이유로 예외
+// 처리). "Pulau"는 말레이·인도네시아어로 섬이다. 시설 유형("Island
+// Grill" 식당, "Gaya Island Resort" 숙소)은 이름과 무관하게 뺀다.
+const ISLAND_NAME_PATTERN = /(^|[\s(])섬([\s()]|$)|\bisland\b|\bpulau\b|\bisla\b/i;
+export function isIsland(p: { category?: string; name: string }): boolean {
+  if (p.category?.toLowerCase() === "island") return true;
+  if (isNonAttractionVenue(p)) return false;
+  return ISLAND_NAME_PATTERN.test(p.name);
+}
+
 // 같은 지시서(#277 검증) §3-② — 휴양형 activity/relax 슬롯이
 // category를 비워(작업지시서 2026-09-28 §3) Google 타입 제한이 없어진
 // 대신, 스파 검색("스파 마사지")이 스파를 갖춘 호텔 자체를 후보로
@@ -934,22 +950,42 @@ const LANDMARK_CANDIDATE_LIMIT = 20;
  * (슬롯 캐시와 겹치지 않는 "landmark:" 키로, 같은 7일 TTL) 저장해
  * Places 호출 비용을 지역당 7일에 한 번으로 묶는다.
  */
-export async function fetchLandmarkCandidates(scope: "overseas" | "domestic", city: string, onFailure?: (status: number) => void): Promise<Place[]> {
-  const cacheKey = `landmark:${scope}:${city.trim().toLowerCase()}`;
-  const filter = (places: Place[]) =>
-    applyQualityGate(places.filter(isValidPlace), "overseas", "attraction").filter((p) => !isTravelAgency(p) && !isTransitFacility(p));
+export async function fetchLandmarkCandidates(
+  scope: "overseas" | "domestic",
+  city: string,
+  onFailure?: (status: number) => void,
+  options: { includeIslands?: boolean } = {},
+): Promise<Place[]> {
+  const cityKey = city.trim().toLowerCase();
+  const base = await fetchLandmarkPool(`landmark:${scope}:${cityKey}`, `${city} ${CATEGORY_LABEL.attraction}`, CATEGORY_TYPE.attraction, onFailure);
+  // 작업지시서 2026-09-29 "#281 검증: 코타키나발루가 열렸습니다. 휴양지에도
+  // 대표 명소를" §2② — 휴양지의 대표 명소는 섬이 많다(마누칸·사피 섬,
+  // 세부 카오하간 섬). tourist_attraction 타입 제한이 섬(primaryType
+  // island 등)을 걸러낼 수 있어 타입 제한 없는 "{도시} island" 검색을
+  // 따로 더한다. 캐시 키가 달라(landmark-island:) 도시형의 기존 캐시
+  // 행에 영향이 없고, 이 호출은 휴양형 지역에서만 일어난다.
+  const islands = options.includeIslands
+    ? await fetchLandmarkPool(`landmark-island:${scope}:${cityKey}`, `${city} island`, undefined, onFailure)
+    : [];
+  const seen = new Set<string>();
+  const merged = [...base, ...islands].filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
+  const gated = applyQualityGate(merged.filter(isValidPlace), "overseas", "attraction").filter(
+    (p) => !isTravelAgency(p) && !isTransitFacility(p) && !isNonAttractionVenue(p),
+  );
+  console.log(`[courseRecommend] fetchLandmarkCandidates ${scope}/${city}${options.includeIslands ? "(+island)" : ""}: raw=${merged.length} gated=${gated.length}`);
+  return gated;
+}
 
+/** 앵커 후보 검색 한 건(캐시 확인 → 없으면 Google 호출 → 결과가 있으면 캐시). 필터는 호출부가 한다 — 캐시에는 원본을 남긴다. */
+async function fetchLandmarkPool(cacheKey: string, query: string, includedType: string | undefined, onFailure?: (status: number) => void): Promise<Place[]> {
   const cached = await readCandidateCache(cacheKey);
-  if (cached) return filter(cached);
-
+  if (cached) return cached;
   const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (!apiKey) return [];
-  const results = await googleTop(`${city} ${CATEGORY_LABEL.attraction}`, apiKey, CATEGORY_TYPE.attraction, undefined, onFailure);
+  const results = await googleTop(query, apiKey, includedType, undefined, onFailure);
   const places = results.map((p) => googleToPlace(p, CATEGORY_LABEL.attraction)).slice(0, LANDMARK_CANDIDATE_LIMIT);
   if (places.length > 0) await writeCandidateCache(cacheKey, places);
-  const gated = filter(places);
-  console.log(`[courseRecommend] fetchLandmarkCandidates ${scope}/${city}: raw=${places.length} gated=${gated.length}`);
-  return gated;
+  return places;
 }
 
 async function fetchSlotCandidatesLive(

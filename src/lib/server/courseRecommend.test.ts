@@ -12,6 +12,8 @@ import {
   isTravelAgency,
   isSpa,
   isBeach,
+  isIsland,
+  isNonAttractionVenue,
   isTransitFacility,
   isKoreanRestaurant,
   isLodging,
@@ -447,6 +449,43 @@ describe("isBeach — 휴양형 해변 보장 판정용 (작업지시서 2026-09
 
   it("trusts Google's beach type even when the name has no beach word (섬 이름 등)", () => {
     expect(isBeach(place({ category: "beach", name: "Caohagan Island" }))).toBe(true);
+  });
+});
+
+// 작업지시서 2026-09-29 "#281 검증: 코타키나발루가 열렸습니다. 휴양지에도
+// 대표 명소를" §2② — 섬은 배로만 가 도로 경로가 없어 라우팅에서 빠졌다.
+describe("isIsland — 섬 판정 (작업지시서 2026-09-29 '#281 검증' §2②)", () => {
+  it("trusts Google's island type", () => {
+    expect(isIsland(place({ category: "island", name: "Manukan" }))).toBe(true);
+  });
+
+  it("recognizes island words in the name (섬, Island, Pulau)", () => {
+    expect(isIsland(place({ category: "tourist_attraction", name: "마누칸 섬" }))).toBe(true);
+    expect(isIsland(place({ category: "tourist_attraction", name: "사피 섬(툰쿠 압둘 라만 해양공원)" }))).toBe(true);
+    expect(isIsland(place({ category: "tourist_attraction", name: "Caohagan Island" }))).toBe(true);
+    expect(isIsland(place({ category: "tourist_attraction", name: "Pulau Gaya" }))).toBe(true);
+  });
+
+  it("does not count a restaurant/hotel just because its name says island, nor unrelated words", () => {
+    expect(isIsland(place({ category: "seafood_restaurant", name: "Island Grill" }))).toBe(false);
+    expect(isIsland(place({ category: "resort_hotel", name: "Gaya Island Resort" }))).toBe(false);
+    expect(isIsland(place({ category: "tourist_attraction", name: "섬유박물관" }))).toBe(false);
+    expect(isIsland(place({ category: "tourist_attraction", name: "사바 주립 모스크" }))).toBe(false);
+  });
+});
+
+describe("isNonAttractionVenue — 식당·숙소·카페·스파 등 명소가 아닌 시설", () => {
+  it("flags venue types and Korean buckets", () => {
+    expect(isNonAttractionVenue({ category: "restaurant" })).toBe(true);
+    expect(isNonAttractionVenue({ category: "resort_hotel" })).toBe(true);
+    expect(isNonAttractionVenue({ category: "spa" })).toBe(true);
+    expect(isNonAttractionVenue({ category: "음식점" })).toBe(true);
+  });
+
+  it("does not flag attractions or a missing category", () => {
+    expect(isNonAttractionVenue({ category: "tourist_attraction" })).toBe(false);
+    expect(isNonAttractionVenue({ category: "island" })).toBe(false);
+    expect(isNonAttractionVenue({})).toBe(false);
   });
 });
 
