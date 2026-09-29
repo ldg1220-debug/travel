@@ -1014,15 +1014,27 @@ export async function fetchLandmarkCandidates(
   // island 등)을 걸러낼 수 있어 타입 제한 없는 "{도시} island" 검색을
   // 따로 더한다. 캐시 키가 달라(landmark-island:) 도시형의 기존 캐시
   // 행에 영향이 없고, 이 호출은 휴양형 지역에서만 일어난다.
-  const islands = options.includeIslands
-    ? await fetchLandmarkPool(`landmark-island:${scope}:${cityKey}`, `${city} island`, undefined, onFailure)
-    : [];
+  // 작업지시서 2026-09-29 "#286 검증" §3 — 세부 7일에서 "{도시} island"
+  // 결과가 "세부 섬"(지역 자체)과 본섬 안 장소로 채워져 부속 섬(카오하간·
+  // 날루수안·힐루뚱안·판다논)이 후보에 못 들었다. 섬 투어를 뜻하는
+  // "island hopping" 검색을 따로 더한다(캐시 키 별도 — 기존 캐시 행 무영향).
+  const [islandsBasic, islandsHopping] = options.includeIslands
+    ? await Promise.all([
+        fetchLandmarkPool(`landmark-island:${scope}:${cityKey}`, `${city} island`, undefined, onFailure),
+        fetchLandmarkPool(`landmark-island-hopping:${scope}:${cityKey}`, `${city} island hopping`, undefined, onFailure),
+      ])
+    : [[], []];
+  const islands = [...islandsBasic, ...islandsHopping];
   const seen = new Set<string>();
   const merged = [...base, ...islands].filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
   const gated = applyQualityGate(merged.filter(isValidPlace), "overseas", "attraction").filter(
     (p) => !isTravelAgency(p) && !isTransitFacility(p) && !isNonAttractionVenue(p) && !isRegionItself(p, city),
   );
-  console.log(`[courseRecommend] fetchLandmarkCandidates ${scope}/${city}${options.includeIslands ? "(+island)" : ""}: raw=${merged.length} gated=${gated.length}`);
+  const gatedIslands = gated.filter(isIsland);
+  console.log(
+    `[courseRecommend] fetchLandmarkCandidates ${scope}/${city}${options.includeIslands ? "(+island)" : ""}: raw=${merged.length} gated=${gated.length}` +
+      (options.includeIslands ? ` islandRaw=${islands.length} islandGated=${gatedIslands.length} islands=[${gatedIslands.slice(0, 8).map((p) => p.name).join(" | ")}]` : ""),
+  );
   return gated;
 }
 
