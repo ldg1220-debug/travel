@@ -1433,6 +1433,40 @@ const ALIASES_BY_CANONICAL: ReadonlyMap<string, string[]> = (() => {
   return map;
 })();
 
+// 작업지시서 2026-09-29 "#285 검증: 세부에서 '세부 섬'으로 배를 탑니다" §2 —
+// "지역 자체"를 가리키는 이름들. 구글이 지역 전체(세부 섬·Cebu Island)를
+// 하나의 장소로 돌려주면 코스 스팟 후보에서 빼야 한다(여행자는 이미 그
+// 지역에 있다). 한글 지역명·별칭은 이미 있으므로 여기엔 영문 표기와, 지역이
+// 속한 더 큰 지역(제주도·발리)만 둔다. 휴양형 지역(RESORT_REGIONS) 기준이다.
+const REGION_SELF_NAMES: Readonly<Record<string, readonly string[]>> = {
+  세부: ["Cebu"],
+  보라카이: ["Boracay"],
+  보홀: ["Bohol"],
+  팔라완: ["Palawan"],
+  코타키나발루: ["Kota Kinabalu"],
+  페낭: ["Penang", "Pulau Pinang", "George Town"],
+  우붓: ["Ubud", "Bali", "발리"],
+  스미냑: ["Seminyak", "Bali", "발리"],
+  쿠타: ["Kuta", "Bali", "발리"],
+  괌: ["Guam"],
+  사이판: ["Saipan"],
+  푸꾸옥: ["Phu Quoc"],
+  냐짱: ["Nha Trang"],
+  코사무이: ["Koh Samui", "Ko Samui", "Samui"],
+  끄라비: ["Krabi"],
+  후아힌: ["Hua Hin"],
+  오키나와: ["Okinawa"],
+  서귀포: ["Seogwipo", "제주", "Jeju"],
+  중문: ["Jungmun", "제주", "Jeju"],
+  애월: ["Aewol", "제주", "Jeju"],
+};
+
+/** 이 지역 자체를 가리키는 이름들(한글 지역명·별칭·영문·더 큰 지역) — courseRecommend.ts의 isRegionItself가 후보 이름과 대조한다. */
+export function regionSelfNames(region: string): string[] {
+  const canonical = resolveRegionAlias(region);
+  return [...new Set([region, canonical, ...(ALIASES_BY_CANONICAL.get(canonical) ?? []), ...(REGION_SELF_NAMES[canonical] ?? [])])];
+}
+
 /** 입력이 별칭이면 정본 이름으로, 아니면 그대로 돌려준다 — getCourseBrief 등 region을 받는 모든 진입점이 가장 먼저 불러야 한다. */
 export function resolveRegionAlias(region: string): string {
   return REGION_ALIASES[region] ?? region;

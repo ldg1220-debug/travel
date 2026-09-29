@@ -1,3 +1,4 @@
+import { regionSelfNames } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
 import { pool } from "@/lib/server/db";
 import type { Place } from "@/lib/types";
@@ -731,6 +732,31 @@ export function isBeach(p: { category?: string; name: string }): boolean {
   return BEACH_NAME_PATTERN.test(p.name);
 }
 
+// 작업지시서 2026-09-29 "#285 검증: 세부에서 '세부 섬'으로 배를 탑니다" §2 —
+// 구글이 섬 전체("세부 섬" ★4.5·리뷰 1,746)를 하나의 장소로 돌려주면 그것이
+// #282~#284의 "섬 = 앵커·배 구간·선착장 삽입" 규칙을 전부 탔다. 지역
+// 자체(그 지역을 가리키는 이름, 또는 시·행정구역·도시 타입)는 방문할
+// 스팟이 아니다 — 섬 앵커는 "지역이 아닌 부속 섬"(카오하간·사피·마누칸)만.
+const AREA_TYPES = new Set(["locality", "sublocality", "political", "colloquial_area", "country", "administrative_area_level_1", "administrative_area_level_2", "administrative_area_level_3"]);
+const REGION_SELF_SUFFIXES = new Set(["섬", "도", "시", "군", "시티", "island", "islands", "city", "province", "state"]);
+
+function normalizeAreaName(s: string): string {
+  return s.toLowerCase().replace(/[\s·・,，.\-–—'"|｜/()（）[\]【】「」]/g, "");
+}
+
+/** 이름에서 괄호 안 표기를 함께 대조할 수 있게 후보 이름 변형을 만든다("세부 섬 (Cebu Island)" → 전체·괄호 뺀 것·괄호 안). */
+function areaNameVariants(name: string): string[] {
+  const inner = [...name.matchAll(/[(（]([^)）]*)[)）]/g)].map((m) => m[1]);
+  return [name, name.replace(/[(（][^)）]*[)）]/g, ""), ...inner].map(normalizeAreaName).filter(Boolean);
+}
+
+export function isRegionItself(p: { category?: string; name: string; nativeName?: string }, region: string): boolean {
+  if (p.category && AREA_TYPES.has(p.category.toLowerCase())) return true;
+  const bases = regionSelfNames(region).map(normalizeAreaName).filter(Boolean);
+  const variants = [...areaNameVariants(p.name), ...(p.nativeName ? areaNameVariants(p.nativeName) : [])];
+  return variants.some((v) => bases.some((b) => v === b || (v.startsWith(b) && REGION_SELF_SUFFIXES.has(v.slice(b.length)))));
+}
+
 /** 식당·숙소·카페·스파·상점 등 "방문할 명소"가 아닌 시설 유형인가(Google primaryType 또는 최종 스팟의 한글 버킷). */
 export function isNonAttractionVenue(p: { category?: string }): boolean {
   return Boolean(p.category) && NON_BEACH_VENUE_CATEGORY.test(p.category as string);
@@ -914,7 +940,8 @@ export async function fetchSlotCandidates(
   // 캐시에 굽지 않고 읽는 시점에 적용한다(작업지시서 2026-09-29 §3-①,
   // "#276 검증" §2) — 판정 로직을 나중에 넓히거나 좁혀도 캐시 TTL(7일)을
   // 기다리지 않고 바로 반영된다.
-  const qualityFilter = (places: Place[]) => applyQualityGate(places, scope, slot.category).filter((p) => !isTravelAgency(p) && !isTransitFacility(p));
+  const qualityFilter = (places: Place[]) =>
+    applyQualityGate(places, scope, slot.category).filter((p) => !isTravelAgency(p) && !isTransitFacility(p) && !isRegionItself(p, city));
 
   const cached = await readCandidateCache(cacheKey);
   // 캐시된 값도 isValidPlace로 걸러야 한다 — 이 검증이 추가되기 전에 이미
@@ -993,7 +1020,7 @@ export async function fetchLandmarkCandidates(
   const seen = new Set<string>();
   const merged = [...base, ...islands].filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
   const gated = applyQualityGate(merged.filter(isValidPlace), "overseas", "attraction").filter(
-    (p) => !isTravelAgency(p) && !isTransitFacility(p) && !isNonAttractionVenue(p),
+    (p) => !isTravelAgency(p) && !isTransitFacility(p) && !isNonAttractionVenue(p) && !isRegionItself(p, city),
   );
   console.log(`[courseRecommend] fetchLandmarkCandidates ${scope}/${city}${options.includeIslands ? "(+island)" : ""}: raw=${merged.length} gated=${gated.length}`);
   return gated;

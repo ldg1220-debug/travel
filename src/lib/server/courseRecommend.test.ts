@@ -16,6 +16,7 @@ import {
   isJetty,
   isNonAttractionVenue,
   isPier,
+  isRegionItself,
   isTransitFacility,
   isKoreanRestaurant,
   isLodging,
@@ -546,6 +547,41 @@ describe("isPier — marina를 뺀 선착장 (작업지시서 2026-09-29 '#284 �
   it("excludes marinas (지시서 목록 jetty/선착장/ferry terminal/pier에 없다)", () => {
     expect(isPier(place({ category: "marina", name: "Star Marina" }))).toBe(false);
     expect(isPier(place({ category: "tourist_attraction", name: "Sutera Harbour Marina" }))).toBe(false);
+  });
+});
+
+// 작업지시서 2026-09-29 "#285 검증: 세부에서 '세부 섬'으로 배를 탑니다" §2 —
+// 구글이 섬 전체(세부 섬 ★4.5·리뷰 1,746)를 하나의 장소로 돌려줘 섬 앵커·배 구간·
+// 선착장 삽입 규칙을 전부 탔다.
+describe("isRegionItself — 지역 자체는 스팟이 아니다 (작업지시서 2026-09-29 '#285 검증' §2)", () => {
+  it("excludes the region itself in Korean and English (세부 섬 · Cebu · Cebu Island · Cebu City)", () => {
+    for (const name of ["세부", "세부 섬", "세부섬", "Cebu", "Cebu Island", "Cebu City", "세부 시티", "CEBU ISLAND"]) {
+      expect(isRegionItself(place({ category: "tourist_attraction", name }), "세부")).toBe(true);
+    }
+  });
+
+  it("matches a name with the other-language spelling in parentheses, and a nativeName", () => {
+    expect(isRegionItself(place({ name: "세부 섬 (Cebu Island)" }), "세부")).toBe(true);
+    expect(isRegionItself(place({ name: "Some Localized Name", nativeName: "Cebu Island" }), "세부")).toBe(true);
+  });
+
+  it("excludes the larger area the region belongs to (제주도 · Jeju Island for 서귀포, 발리 · Bali for 우붓)", () => {
+    expect(isRegionItself(place({ name: "제주도" }), "서귀포")).toBe(true);
+    expect(isRegionItself(place({ name: "Jeju Island" }), "서귀포")).toBe(true);
+    expect(isRegionItself(place({ name: "Bali" }), "우붓")).toBe(true);
+    expect(isRegionItself(place({ name: "발리 섬" }), "발리")).toBe(true); // 별칭으로 들어와도
+  });
+
+  it("excludes area-type places (locality/administrative area) regardless of name", () => {
+    expect(isRegionItself(place({ category: "locality", name: "Lapu-Lapu City" }), "세부")).toBe(true);
+    expect(isRegionItself(place({ category: "administrative_area_level_1", name: "Central Visayas" }), "세부")).toBe(true);
+  });
+
+  it("keeps a real attached island and ordinary spots (Caohagan · Sapi · Cebu Taoist Temple)", () => {
+    expect(isRegionItself(place({ category: "island", name: "Caohagan Island" }), "세부")).toBe(false);
+    expect(isRegionItself(place({ category: "island", name: "사피 섬" }), "코타키나발루")).toBe(false);
+    expect(isRegionItself(place({ category: "place_of_worship", name: "Cebu Taoist Temple" }), "세부")).toBe(false);
+    expect(isRegionItself(place({ category: "tourist_attraction", name: "세부 시티 갤러리" }), "세부")).toBe(false);
   });
 });
 
