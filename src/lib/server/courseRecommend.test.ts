@@ -15,6 +15,7 @@ import {
   isIsland,
   isJetty,
   isNonAttractionVenue,
+  isPier,
   isTransitFacility,
   isKoreanRestaurant,
   isLodging,
@@ -533,6 +534,18 @@ describe("isJetty — 섬 앞 선착장 판정 (작업지시서 2026-09-29 '#283
     expect(isJetty(place({ category: "restaurant", name: "Jetty Seafood Restaurant" }))).toBe(false);
     expect(isJetty(place({ category: "tourist_attraction", name: "Pierre Museum" }))).toBe(false);
     expect(isJetty(place({ category: "tourist_attraction", name: "사바 주립 모스크" }))).toBe(false);
+  });
+});
+
+describe("isPier — marina를 뺀 선착장 (작업지시서 2026-09-29 '#284 검증' §2)", () => {
+  it("is a jetty that is not a marina", () => {
+    expect(isPier(place({ category: "ferry_terminal", name: "제셀톤 선착장" }))).toBe(true);
+    expect(isPier(place({ category: "tourist_attraction", name: "Jesselton Ferry Terminal" }))).toBe(true);
+  });
+
+  it("excludes marinas (지시서 목록 jetty/선착장/ferry terminal/pier에 없다)", () => {
+    expect(isPier(place({ category: "marina", name: "Star Marina" }))).toBe(false);
+    expect(isPier(place({ category: "tourist_attraction", name: "Sutera Harbour Marina" }))).toBe(false);
   });
 });
 
