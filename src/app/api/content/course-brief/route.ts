@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, maxDaysForStyle, meetsResortBeachRequirement, minViableSpots, parseDays, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { getCourseBrief, isRefreshTokenValid, maxDaysForStyle, meetsResortBeachRequirement, minViableSpots, parseDays, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
 import { styleForRegion, suggestOverseasRegions } from "@/lib/discoverData";
 
 /**
@@ -46,10 +46,17 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "days exceeds this region's style limit", style, maxDays }, { status: 400 });
   }
 
-  console.log(`[courseBrief] route=course-brief region=${region} days=${days}`);
+  // 작업지시서 2026-09-30 "#288" §2② — ?refresh=<CRON_SECRET>이면 저장된
+  // 브리프를 건너뛰고 새로 만든다(원인 조사용). 토큰이 없거나 다르면 조용히
+  // 무시한다 — 공개 파라미터로 재생성이 폭주하지 않게. 생성 트리거는 이
+  // 라우트만 쓴다(course-open은 사용자 플랜을 덮어쓴 전례가 있다).
+  const refreshParam = request.nextUrl.searchParams.get("refresh");
+  const refresh = isRefreshTokenValid(refreshParam, process.env.CRON_SECRET);
+  if (refreshParam && !refresh) console.log("[courseBrief] refresh 토큰이 유효하지 않아 무시했습니다");
+  console.log(`[courseBrief] route=course-brief region=${region} days=${days} refresh=${refresh}`);
   let brief;
   try {
-    brief = await getCourseBrief(region, days);
+    brief = await getCourseBrief(region, days, undefined, { refresh });
   } catch (err) {
     // 작업지시서 2026-09-14 "미지원 지역이 엉뚱한 동명 지역으로
     // 바뀝니다" §3 — 모르는 지역을 조용히 아무거나로 채워 돌려주지

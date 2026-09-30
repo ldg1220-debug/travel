@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { put } from "@vercel/blob";
 import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
@@ -311,7 +312,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 22; // 작업지시서 2026-09-29 "#286 검증: 세부 섬은 빠졌습니다. 코타키나발루는 한 글자도 안 바뀌었습니다" §2·§3 — 얇은 날 보충의 기증일 순회(redistributeThinResortDays·balanceSightsAcrossDays)와 부속 섬 후보 검색(island hopping)은 최종 브리프 조립 로직과 후보 읽기 시점에만 있어, 버전을 올리지 않으면 코타키나발루가 26시간 동안 v21 결과(3일차 1곳)를 그대로 반환한다.
+export const COURSE_ALGO_VERSION = 23; // 작업지시서 2026-09-30 "#288: 이대로면 로그에 cache-hit 한 줄만 찍힙니다" §2① — 동작 변경 없음. #288의 진입/분기 로그(path=…)가 캐시 히트에 가려지지 않도록 v22 최종 브리프 캐시(KK·세부 등)를 한 번 비운다. 원인 조사가 끝나면 이 버전은 수정 PR에서 다시 올라간다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -3502,7 +3503,12 @@ const inFlightBriefBuilds = new Map<string, Promise<CourseBrief>>();
  * 키, buildBrief)이 정본 이름만 보게 되므로, 호출부 각각이 별칭을
  * 알 필요가 없다.
  */
-export async function getCourseBrief(rawRegion: string, days: CourseDays, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
+export async function getCourseBrief(
+  rawRegion: string,
+  days: CourseDays,
+  enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS,
+  options: { refresh?: boolean } = {},
+): Promise<CourseBrief> {
   const region = resolveRegionAlias(rawRegion);
   // 작업지시서 2026-09-30 "#287 검증" §2 — 요청이 어느 경로로 가는지 조건 없이
   // 로그로 남긴다(진입 → path=… 분기). 필터 문자열: "[courseBrief] enter" ·
@@ -3518,10 +3524,16 @@ export async function getCourseBrief(rawRegion: string, days: CourseDays, enrich
   const scope = resolveScope(region);
   const style = styleForRegion(region);
   const cacheKey = briefCacheKey(scope, region, days);
-  const cached = await readBriefCache(cacheKey).catch((err) => {
-    console.error("[courseBrief] cache read failed:", err);
-    return null;
-  });
+  // 작업지시서 2026-09-30 "#288" §2② — refresh면 저장된 최종 브리프를 읽지
+  // 않고 새로 만든다(만든 결과가 캐시 가능하면 기존 쓰기 경로가 덮어쓴다).
+  // 호출부(course-brief 라우트)가 토큰을 검증한 뒤에만 true로 넘긴다.
+  const cached = options.refresh
+    ? null
+    : await readBriefCache(cacheKey).catch((err) => {
+        console.error("[courseBrief] cache read failed:", err);
+        return null;
+      });
+  if (options.refresh) console.log(`[courseBrief] path=refresh key=${cacheKey} (저장된 브리프 무시)`);
   if (cached) {
     console.log(`[courseBrief] path=cache-hit key=${cacheKey} spots=${cached.spots.length} dayCounts=[${(cached.dayTotals ?? []).map((d) => d.spotCount).join(",")}]`);
     return cached;
@@ -3584,4 +3596,17 @@ export async function pickStaleTasks(tasks: WarmTask[], limit: number): Promise<
     .sort((a, b) => a.age - b.age)
     .slice(0, limit)
     .map((x) => x.task);
+}
+
+/**
+ * course-brief의 ?refresh= 토큰 검증 — 작업지시서 2026-09-30 "#288" §2②.
+ * 서버 비밀(CRON_SECRET)이 설정돼 있고 토큰이 정확히 같을 때만 true.
+ * 공개 파라미터로 재생성(=Places 호출 비용)이 폭주하지 않도록, 비밀이 없거나
+ * 토큰이 없거나 다르면 조용히 false(무시)다. 상수 시간 비교.
+ */
+export function isRefreshTokenValid(token: string | null | undefined, secret: string | undefined): boolean {
+  if (!token || !secret) return false;
+  const a = Buffer.from(token);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
