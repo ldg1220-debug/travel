@@ -52,6 +52,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
 
   let brief;
   try {
+    console.log(`[courseBrief] route=course-map region=${region} days=${days}`);
     brief = await getCourseBrief(region, days);
   } catch (err) {
     // course-brief/route.ts와 같은 이유(작업지시서 2026-09-14 §3) — 미지원

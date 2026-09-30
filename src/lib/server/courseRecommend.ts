@@ -1031,6 +1031,30 @@ export async function fetchLandmarkCandidates(
     (p) => !isTravelAgency(p) && !isTransitFacility(p) && !isNonAttractionVenue(p) && !isRegionItself(p, city),
   );
   const gatedIslands = gated.filter(isIsland);
+  if (options.includeIslands) {
+    // 작업지시서 2026-09-30 "#287 검증" §3 — 섬 후보가 "검색에서 0건"인지
+    // "있는데 필터에서 빠지는지"를 로그만으로 가른다. 두 검색어별 원본 이름과,
+    // 필터를 통과하지 못한 후보의 탈락 사유를 남긴다.
+    const dropReason = (p: Place): string | null => {
+      if (!isValidPlace(p)) return "invalid";
+      if (applyQualityGate([p], "overseas", "attraction").length === 0) return "quality";
+      if (isTravelAgency(p)) return "agency";
+      if (isTransitFacility(p)) return "transit";
+      if (isNonAttractionVenue(p)) return "venue";
+      if (isRegionItself(p, city)) return "region-itself";
+      return null;
+    };
+    const names = (ps: Place[]) => ps.slice(0, 12).map((p) => `${p.name}${isIsland(p) ? "*" : ""}`).join(" | ");
+    const dropped = islands
+      .map((p) => ({ p, r: dropReason(p) }))
+      .filter((x) => x.r)
+      .slice(0, 12)
+      .map((x) => `${x.p.name}(${x.r})`)
+      .join(" | ");
+    console.log(
+      `[courseRecommend] fetchLandmarkCandidates ${scope}/${city} islandSearch: basic=${islandsBasic.length} names=[${names(islandsBasic)}] hopping=${islandsHopping.length} names=[${names(islandsHopping)}] dropped=[${dropped}]`,
+    );
+  }
   console.log(
     `[courseRecommend] fetchLandmarkCandidates ${scope}/${city}${options.includeIslands ? "(+island)" : ""}: raw=${merged.length} gated=${gated.length}` +
       (options.includeIslands ? ` islandRaw=${islands.length} islandGated=${gatedIslands.length} islands=[${gatedIslands.slice(0, 8).map((p) => p.name).join(" | ")}]` : ""),

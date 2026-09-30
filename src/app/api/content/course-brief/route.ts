@@ -46,6 +46,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "days exceeds this region's style limit", style, maxDays }, { status: 400 });
   }
 
+  console.log(`[courseBrief] route=course-brief region=${region} days=${days}`);
   let brief;
   try {
     brief = await getCourseBrief(region, days);
