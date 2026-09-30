@@ -312,7 +312,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 24; // 작업지시서 2026-09-30 "도시형 코스가 앞 이틀에 몰립니다 (시드니 6·6·1·1·1)" §2 — 도시형 조립 후 재배분(rebalanceCityDays: 하루 최소 2·최대 5, 종일시설 날 3)은 최종 브리프 조립 로직에만 있어, 버전을 올리지 않으면 시드니 등 도시형 3일 이상이 26시간 동안 옛 6·6·1 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 25; // 작업지시서 2026-09-30 "#290 검증" §3·§4 — 도시형 하루 최대 5곳(외딴 스팟 제외)과 지역 자체 판정(isRegionItself) 축소는 최종 브리프 조립·후보 읽기 시점 로직에만 있어, 버전을 올리지 않으면 서울·부산의 6·6 결과와 오사카의 무너진 결과가 26시간 동안 캐시에서 그대로 나간다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -3041,6 +3041,61 @@ const CITY_REBALANCE_MAX_KM = 15; // 받는 날 중심에서 이 이상 먼 스�
  * 줄이므로 반드시 끝난다. 바뀐 날만 최근접 이웃 순으로 다시 정렬한다.
  */
 export function rebalanceCityDays(dayGroups: FinalStop[][]): FinalStop[][] {
+  const moved = moveCityStops(dayGroups);
+  // 작업지시서 2026-09-30 "#290 검증" §2 — 재배분은 스팟을 "옮기기만" 해야
+  // 한다. 총합이나 구성이 달라지면 결과를 버리고 입력을 그대로 돌려준다
+  // (스팟을 조용히 잃는 것보다 재배분을 포기하는 쪽이 안전하다).
+  const ids = (groups: FinalStop[][]) => groups.flat().map((s) => s.id).sort().join("|");
+  if (moved.flat().length !== dayGroups.flat().length || ids(moved) !== ids(dayGroups)) {
+    console.error(`[courseBrief] rebalanceCityDays 총합 불변 위반 — 입력 ${dayGroups.flat().length}곳 → ${moved.flat().length}곳, 재배분을 취소합니다`);
+    return dayGroups;
+  }
+  return moved;
+}
+
+/**
+ * 하루 최대치(CITY_DAY_MAX, 시설 날 CITY_FACILITY_DAY_MAX)를 넘는 날에서 "가장 외딴"
+ * 스팟을 뺀다 — 작업지시서 2026-09-30 "#290 검증" §4. rebalanceCityDays는 차이 ≥2일
+ * 때만 옮기므로 6·6처럼 이미 고른 분포엔 걸리지 않는다. 뺄 때도 도시형 최소 총량
+ * (minTotal = minViableSpots)을 지킨다 — 그 아래로는 내려가지 않는다. 뺄 후보는
+ * 식사·종일시설이 아닌 스팟 중 "같은 날 다른 스팟까지의 최근접 거리"가 가장 큰 것
+ * (동선에서 떨어진 것, 동률이면 덜 인기 있는 쪽). 뺀 스팟 이름은 반환값과 로그로 남는다.
+ */
+export function capCityDaySizes(dayGroups: FinalStop[][], minTotal: number): { days: FinalStop[][]; trimmed: FinalStop[] } {
+  const result = dayGroups.map((d) => [...d]);
+  const trimmed: FinalStop[] = [];
+  const capOf = (day: FinalStop[]) => (day.some(isLargeFacility) ? CITY_FACILITY_DAY_MAX : CITY_DAY_MAX);
+  for (;;) {
+    if (result.flat().length <= minTotal) break;
+    let target = -1;
+    let overBy = 0;
+    result.forEach((day, i) => {
+      const over = day.length - capOf(day);
+      if (over > overBy) {
+        overBy = over;
+        target = i;
+      }
+    });
+    if (target < 0) break;
+    const day = result[target];
+    let bestIdx = -1;
+    let bestIsolation = -1;
+    day.forEach((stop, idx) => {
+      if (stop.meal || isLargeFacility(stop)) return;
+      const nearest = day.reduce((m, o) => (o === stop ? m : Math.min(m, haversineKm(stop, o))), Infinity);
+      const isolation = Number.isFinite(nearest) ? nearest : 0;
+      if (isolation > bestIsolation || (isolation === bestIsolation && bestIdx >= 0 && popularity(stop) < popularity(day[bestIdx]))) {
+        bestIsolation = isolation;
+        bestIdx = idx;
+      }
+    });
+    if (bestIdx < 0) break;
+    trimmed.push(...day.splice(bestIdx, 1));
+  }
+  return { days: result, trimmed };
+}
+
+function moveCityStops(dayGroups: FinalStop[][]): FinalStop[][] {
   if (dayGroups.length < 2) return dayGroups;
   const result = dayGroups.map((d) => [...d]);
   const changed = new Set<number>();
@@ -3082,6 +3137,14 @@ export function rebalanceCityDays(dayGroups: FinalStop[][]): FinalStop[][] {
     if (!applied) break;
   }
   return result.map((d, i) => (changed.has(i) ? orderByNearestNeighbor(d) : d));
+}
+
+/** 재배분(옮기기만) → 하루 최대 초과 정리(외딴 스팟 제외, 최소 총량 유지). buildBrief의 도시형 두 지점(라우팅 전·후)이 같은 순서로 쓴다. */
+function balanceCityDayGroups(dayGroups: FinalStop[][], minTotal: number, region: string): FinalStop[][] {
+  const moved = rebalanceCityDays(dayGroups);
+  const { days, trimmed } = capCityDaySizes(moved, minTotal);
+  if (trimmed.length > 0) console.log(`[courseBrief] path=city-cap ${region} 하루 최대 초과로 뺀 외딴 스팟: ${trimmed.map((s) => s.name).join(", ")}`);
+  return days;
 }
 
 const CITY_ANCHOR_COUNT = 3;
@@ -3297,7 +3360,7 @@ export async function buildBrief(
           fetchLandmarks: () => fetchLandmarkCandidates(scope, region, onCandidateFetchFailure, { includeIslands: true }),
           fetchSlot: (slot) => fetchSlotCandidates(scope, region, slot, false, onCandidateFetchFailure),
         })
-      : await ensureCityLandmarkAnchors(scope, region, rebalanceCityDays(geoOrderedDayGroups), onCandidateFetchFailure);
+      : await ensureCityLandmarkAnchors(scope, region, balanceCityDayGroups(geoOrderedDayGroups, minViableSpots(style, days), region), onCandidateFetchFailure);
   // 작업지시서 2026-09-23 §3-b — 각 날짜의 첫 스팟이 평점 신호 없이
   // 시작하지 않도록 순서를 조정한다. 반드시 라우팅(바로 아래
   // routeDayStops) 이전에 해야 한다 — 이후에 순서만 바꾸면 구간
@@ -3325,9 +3388,10 @@ export async function buildBrief(
   // 발루 d2에 1곳만 남은 실측 — 재배분은 라우팅 이전에 돌아 이 제거를 못
   // 본다). 휴양형은 라우팅 *이후*의 분포로 한 번 더 재배분하고, 스팟이
   // 바뀐 날만 다시 라우팅한다(구간 이동시간·경로가 새 스팟 순서와 맞도록).
+  const routedDaysBeforeRebalance = routedDays.reduce((sum, d) => sum + d.stops.length, 0);
   {
     const before = routedDays.map((d) => d.stops);
-    const after = style === "resort" ? rebalanceResortDays(before) : rebalanceCityDays(before);
+    const after = style === "resort" ? rebalanceResortDays(before) : balanceCityDayGroups(before, minViableSpots(style, days), region);
     const changed = after.map((stops, i) => stops.map((s) => s.id).join("|") !== before[i].map((s) => s.id).join("|"));
     console.log(`[courseBrief] path=post-route-rebalance ${scope}/${region} routed=${counts(before)} after=${counts(after)} changed=[${changed.join(",")}]`);
     if (changed.some(Boolean)) {
@@ -3406,6 +3470,7 @@ export async function buildBrief(
   // 장애"로 굳는다. 이 밑으로는 캐시하지 않는다 — 다음 요청이 처음부터
   // 다시 시도할 기회를 갖는다(dedupeInFlight가 여전히 동시 요청은
   // 하나로 합친다).
+  console.log(`[courseBrief] path=totals ${scope}/${region} generated=${dayStops.flat().length} reallocated=${geoOrderedDayGroups.flat().length} composed=${finalDayGroups.flat().length} routed=${routedDaysBeforeRebalance} final=${allSpots.length}`);
   console.log(`[courseBrief] path=assembled ${scope}/${region} dayCounts=[${dayTotals.map((d) => d.spotCount).join(",")}] spots=${allSpots.length} km=${round1(totalDistanceKm)} cacheable=${isCacheableBrief(allSpots, style, days)}`);
   if (isCacheableBrief(allSpots, style, days)) {
     await writeBriefCache(cacheKey, brief).catch((err) => {

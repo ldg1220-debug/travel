@@ -585,6 +585,31 @@ describe("isRegionItself — 지역 자체는 스팟이 아니다 (작업지시�
   });
 });
 
+describe("isRegionItself — 오사카성 류·구역 타입 방문지는 남긴다 (작업지시서 2026-09-30 '#290 검증' §3)", () => {
+  it("keeps places whose name merely starts with the region name (오사카성 · 오사카 수족관 가이유칸 · 오사카역)", () => {
+    for (const name of ["오사카성", "오사카 수족관 가이유칸", "오사카역", "Osaka Castle", "Osaka Aquarium Kaiyukan"]) {
+      expect(isRegionItself(place({ category: "tourist_attraction", name }), "오사카")).toBe(false);
+    }
+  });
+
+  it("keeps a famous landmark of another city (시드니 오페라 하우스 · Sydney Opera House)", () => {
+    expect(isRegionItself(place({ category: "tourist_attraction", name: "시드니 오페라 하우스" }), "시드니")).toBe(false);
+    expect(isRegionItself(place({ category: "performing_arts_theater", name: "Sydney Opera House" }), "시드니")).toBe(false);
+  });
+
+  it("still excludes the region itself and city-level admin types (세부 섬 · 오사카시 · Osaka locality)", () => {
+    expect(isRegionItself(place({ name: "세부 섬" }), "세부")).toBe(true);
+    expect(isRegionItself(place({ name: "오사카시" }), "오사카")).toBe(true);
+    expect(isRegionItself(place({ category: "locality", name: "Osaka" }), "오사카")).toBe(true);
+  });
+
+  it("keeps a neighborhood-typed spot (난바·우메다 as sublocality/colloquial_area) but drops one named after the region", () => {
+    expect(isRegionItself(place({ category: "sublocality", name: "우메다" }), "오사카")).toBe(false);
+    expect(isRegionItself(place({ category: "colloquial_area", name: "난바" }), "오사카")).toBe(false);
+    expect(isRegionItself(place({ category: "colloquial_area", name: "오사카 시내" }), "오사카")).toBe(true);
+  });
+});
+
 describe("isTransitFacility — 페리 선착장은 제외하지 않는다 (작업지시서 2026-09-29 '#283 검증' §2)", () => {
   it("keeps a ferry terminal whose name contains 'terminal' out of the transit filter", () => {
     expect(isTransitFacility(place({ category: "tourist_attraction", name: "Jesselton Ferry Terminal" }))).toBe(false);
