@@ -312,7 +312,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 23; // 작업지시서 2026-09-30 "#288: 이대로면 로그에 cache-hit 한 줄만 찍힙니다" §2① — 동작 변경 없음. #288의 진입/분기 로그(path=…)가 캐시 히트에 가려지지 않도록 v22 최종 브리프 캐시(KK·세부 등)를 한 번 비운다. 원인 조사가 끝나면 이 버전은 수정 PR에서 다시 올라간다.
+export const COURSE_ALGO_VERSION = 24; // 작업지시서 2026-09-30 "도시형 코스가 앞 이틀에 몰립니다 (시드니 6·6·1·1·1)" §2 — 도시형 조립 후 재배분(rebalanceCityDays: 하루 최소 2·최대 5, 종일시설 날 3)은 최종 브리프 조립 로직에만 있어, 버전을 올리지 않으면 시드니 등 도시형 3일 이상이 26시간 동안 옛 6·6·1 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -3013,6 +3013,77 @@ function rebalanceResortDays(dayGroups: FinalStop[][]): FinalStop[][] {
   return balanceSightsAcrossDays(redistributeThinResortDays(dayGroups));
 }
 
+// 작업지시서 2026-09-30 "도시형 코스가 앞 이틀에 몰립니다 (시드니 6·6·1·1·1)"
+// §2 — 도시형 하루 상한과 하루 최소. 종일시설(동물원·아쿠아리움·테마파크)
+// 날은 "시설 하나만"(FACILITY_DAY_SIZE)이던 규칙이 시드니 5일에서 시설 3곳 =
+// 하루 1곳짜리 날 3개를 만들었다 — 시설 날에도 가까운 동반 스팟을 최대
+// 2곳까지 허용한다(시설 + 동반 2 = 3곳). 시설 자체는 절대 옮기지 않는다.
+const CITY_DAY_MIN = 2;
+const CITY_DAY_MAX = 5;
+const CITY_FACILITY_DAY_MAX = 3;
+const CITY_REBALANCE_MAX_KM = 15; // 받는 날 중심에서 이 이상 먼 스팟은 옮기지 않는다(지리 클러스터 유지)
+
+/**
+ * 도시형 하루 스팟 수 재배분 — 작업지시서 2026-09-30 "도시형 코스가 앞
+ * 이틀에 몰립니다" §2. reallocateStopsByDay는 지리 클러스터로 날을 나누기
+ * 때문에 종일시설이 있으면 그 날들이 1곳으로 남고 나머지가 앞 날들에
+ * 6·6으로 몰렸다(시드니 5일 6·6·1·1·1 → AutoPipeline이 "부족"으로 보고
+ * 5일을 2일로 강등). 휴양형 redistributeThinResortDays와 같은 방식(큰 날부터
+ * 기증일을 전부 순회 — #287)으로, 스팟이 가장 적은 날 ↔ 가장 많은 날 사이
+ * 차이가 2 이상이면 한 곳씩 옮긴다. 하루 최대 5곳(시설 날 3곳), 하루 최소
+ * 2곳(후보가 있으면).
+ *
+ * 무엇을 옮길지: 식사가 아니고 종일시설이 아닌 스팟 중, 받는 날 중심까지의
+ * 거리 − 기증일 안에서 가장 가까운 이웃까지의 거리 가 가장 작은 것 — 즉 "받는 날에
+ * 가깝고 기증일에서는 이미 외따로 있는" 스팟을 우선해 도보권 묶음을 깨지
+ * 않는다. 받는 날 중심에서 CITY_REBALANCE_MAX_KM 넘게 먼 스팟은 옮기지
+ * 않는다. 기증일은 항상 CITY_DAY_MIN(2)곳을 남긴다. 각 이동은 표 제곱합을
+ * 줄이므로 반드시 끝난다. 바뀐 날만 최근접 이웃 순으로 다시 정렬한다.
+ */
+export function rebalanceCityDays(dayGroups: FinalStop[][]): FinalStop[][] {
+  if (dayGroups.length < 2) return dayGroups;
+  const result = dayGroups.map((d) => [...d]);
+  const changed = new Set<number>();
+  const capOf = (day: FinalStop[]) => (day.some(isLargeFacility) ? CITY_FACILITY_DAY_MAX : CITY_DAY_MAX);
+  const maxMoves = result.flat().length * 2;
+  for (let move = 0; move < maxMoves; move++) {
+    // 받을 수 있는 날(자리 있음)을 적은 순으로, 기증할 수 있는 날을 많은 순으로 짝지어 첫 유효 이동을 적용한다.
+    const recipients = result.map((d, i) => i).filter((i) => result[i].length < capOf(result[i])).sort((a, b) => result[a].length - result[b].length);
+    let applied = false;
+    for (const r of recipients) {
+      const recipient = result[r];
+      const center = centroidOf(recipient.length > 0 ? recipient : result.flat());
+      const donors = result.map((d, i) => i).filter((i) => i !== r && result[i].length > CITY_DAY_MIN && result[i].length - recipient.length >= 2).sort((a, b) => result[b].length - result[a].length);
+      for (const d of donors) {
+        const donor = result[d];
+        let bestIdx = -1;
+        let bestScore = Infinity;
+        donor.forEach((stop, idx) => {
+          if (stop.meal || isLargeFacility(stop)) return;
+          const toRecipient = haversineKm(stop, center);
+          if (toRecipient > CITY_REBALANCE_MAX_KM) return;
+          const nearestInDonor = donor.reduce((m, o) => (o === stop ? m : Math.min(m, haversineKm(stop, o))), Infinity);
+          const score = toRecipient - (Number.isFinite(nearestInDonor) ? nearestInDonor : 0);
+          if (score < bestScore) {
+            bestScore = score;
+            bestIdx = idx;
+          }
+        });
+        if (bestIdx < 0) continue;
+        const [moved] = donor.splice(bestIdx, 1);
+        recipient.push(moved);
+        changed.add(d);
+        changed.add(r);
+        applied = true;
+        break;
+      }
+      if (applied) break;
+    }
+    if (!applied) break;
+  }
+  return result.map((d, i) => (changed.has(i) ? orderByNearestNeighbor(d) : d));
+}
+
 const CITY_ANCHOR_COUNT = 3;
 // 작업지시서 2026-09-29 "일자별 동선 지도 · #279가 경주에서 효과 없음"
 // §2 — "리뷰 수 정렬 상위 5 → 여기서 앵커 3곳 선정".
@@ -3226,7 +3297,7 @@ export async function buildBrief(
           fetchLandmarks: () => fetchLandmarkCandidates(scope, region, onCandidateFetchFailure, { includeIslands: true }),
           fetchSlot: (slot) => fetchSlotCandidates(scope, region, slot, false, onCandidateFetchFailure),
         })
-      : await ensureCityLandmarkAnchors(scope, region, geoOrderedDayGroups, onCandidateFetchFailure);
+      : await ensureCityLandmarkAnchors(scope, region, rebalanceCityDays(geoOrderedDayGroups), onCandidateFetchFailure);
   // 작업지시서 2026-09-23 §3-b — 각 날짜의 첫 스팟이 평점 신호 없이
   // 시작하지 않도록 순서를 조정한다. 반드시 라우팅(바로 아래
   // routeDayStops) 이전에 해야 한다 — 이후에 순서만 바꾸면 구간
@@ -3254,9 +3325,9 @@ export async function buildBrief(
   // 발루 d2에 1곳만 남은 실측 — 재배분은 라우팅 이전에 돌아 이 제거를 못
   // 본다). 휴양형은 라우팅 *이후*의 분포로 한 번 더 재배분하고, 스팟이
   // 바뀐 날만 다시 라우팅한다(구간 이동시간·경로가 새 스팟 순서와 맞도록).
-  if (style === "resort") {
+  {
     const before = routedDays.map((d) => d.stops);
-    const after = rebalanceResortDays(before);
+    const after = style === "resort" ? rebalanceResortDays(before) : rebalanceCityDays(before);
     const changed = after.map((stops, i) => stops.map((s) => s.id).join("|") !== before[i].map((s) => s.id).join("|"));
     console.log(`[courseBrief] path=post-route-rebalance ${scope}/${region} routed=${counts(before)} after=${counts(after)} changed=[${changed.join(",")}]`);
     if (changed.some(Boolean)) {

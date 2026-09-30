@@ -52,6 +52,7 @@ import {
   preferRatedFirstStop,
   reallocateStopsByDay,
   reassignByCentroid,
+  rebalanceCityDays,
   redistributeThinResortDays,
   removeOrphanJetties,
   splitOrphanJetties,
@@ -2411,5 +2412,64 @@ describe("composeResortDays — 코타키나발루 회귀 (작업지시서 2026-
       fetchSlot: async () => [],
     });
     for (const day of result) expect(day.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("rebalanceCityDays — 도시형 하루 스팟 수 재배분 (작업지시서 2026-09-30 '도시형 코스가 앞 이틀에 몰립니다')", () => {
+  // 시드니 모양: 시내(0,0 근처)에 일반 스팟이 몰려 있고, 종일시설(동물원·아쿠아리움·테마파크)이
+  // 시내 가까이 각자 한 곳씩 있다.
+  const spotAt = (id: string, dx: number, dy: number, extra: Partial<FinalStop> = {}) => stop(id, -33.86 + dy * 0.001, 151.2 + dx * 0.001, { name: id, ...extra });
+  const facility = (id: string, category: string, dx: number, dy: number) => spotAt(id, dx, dy, { category });
+  const normals = (prefix: string, n: number, dx0: number) => Array.from({ length: n }, (_, i) => spotAt(`${prefix}${i}`, dx0 + i * 0.3, i * 0.2, { reviewCount: 100 + i }));
+  const sizes = (days: FinalStop[][]) => days.map((d) => d.length);
+
+  it("시드니 5일 6·6·1·1·1 → 하루 2곳 이상·최대 5곳(시설 날 3곳), 총합·시설 유지", () => {
+    const days = [
+      normals("a", 6, 0),
+      normals("b", 6, 3),
+      [facility("zoo", "zoo", 1, 1)],
+      [facility("aq", "aquarium", 2, 1)],
+      [facility("luna", "amusement_park", 4, 2)],
+    ];
+    const result = rebalanceCityDays(days);
+    expect(result.flat()).toHaveLength(15);
+    for (const day of result) expect(day.length).toBeGreaterThanOrEqual(2);
+    for (const day of result) expect(day.length).toBeLessThanOrEqual(day.some((s) => ["zoo", "aquarium", "amusement_park"].includes(s.category)) ? 3 : 5);
+    for (const id of ["zoo", "aq", "luna"]) {
+      // 시설은 자기 날에 그대로, 다른 시설과 한 날에 섞이지 않는다.
+      const day = result.find((d) => d.some((s) => s.id === id))!;
+      expect(day.filter((s) => ["zoo", "aquarium", "amusement_park"].includes(s.category))).toHaveLength(1);
+    }
+    expect(new Set(result.flat().map((s) => s.id)).size).toBe(15);
+  });
+
+  it("시드니 3일 6·6·1 → 최대 5곳, 하루 2곳 이상", () => {
+    const result = rebalanceCityDays([normals("a", 6, 0), normals("b", 6, 3), [facility("zoo", "zoo", 1, 1)]]);
+    expect(result.flat()).toHaveLength(13);
+    expect(sizes(result).every((n) => n >= 2 && n <= 5)).toBe(true);
+    expect(result.find((d) => d.some((s) => s.id === "zoo"))!.length).toBeLessThanOrEqual(3);
+  });
+
+  it("이미 고른 분포(서울 2일 4·3)는 그대로 둔다", () => {
+    const days = [normals("a", 4, 0), normals("b", 3, 3)];
+    expect(rebalanceCityDays(days)).toEqual(days);
+  });
+
+  it("기증일이 여럿이어도 옮길 수 있는 날에서 가져온다(첫 기증일이 식사·시설뿐이어도)", () => {
+    const meal = (id: string) => spotAt(id, 0, 0, { meal: true, category: "restaurant" });
+    const days = [
+      [facility("zoo", "zoo", 0, 0), meal("m1"), meal("m2")], // 가장 큰 날이지만 옮길 게 없다
+      normals("b", 3, 1),
+      [spotAt("thin", 5, 5)],
+    ];
+    const result = rebalanceCityDays(days);
+    expect(result[2].length).toBeGreaterThanOrEqual(2);
+    expect(result.flat()).toHaveLength(7);
+  });
+
+  it("받는 날에서 너무 먼 스팟은 옮기지 않는다(지리 클러스터 유지)", () => {
+    const far = (id: string) => stop(id, 40, 150, { name: id }); // 15km보다 훨씬 먼 곳
+    const days = [[far("f1"), far("f2"), far("f3")], [spotAt("near", 0, 0)]];
+    expect(sizes(rebalanceCityDays(days))).toEqual([3, 1]);
   });
 });
