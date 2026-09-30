@@ -138,6 +138,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
 
   let brief;
   try {
+    console.log(`[courseBrief] route=course-open region=${region} days=${days}`);
     brief = await getCourseBrief(region, days);
   } catch (err) {
     // 작업지시서 2026-09-14 §3 — 이 라우트는 blog CTA가 그대로 리다이렉트로

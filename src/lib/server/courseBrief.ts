@@ -3170,6 +3170,8 @@ export async function buildBrief(
   // 생성한다. 최소 스팟 기준도 이 style을 따른다(minViableSpots).
   const style = styleForRegion(region);
   const theme: CourseTheme = style === "resort" ? "resort" : DEFAULT_THEME;
+  const counts = (groups: { length: number }[]) => `[${groups.map((g) => g.length).join(",")}]`;
+  console.log(`[courseBrief] path=buildBrief scope=${scope} region=${region} days=${days} style=${style} theme=${theme} version=${COURSE_ALGO_VERSION}`);
 
   // 실패해도 절대 던지지 않는다(스펙 §1 "에러를 던지지 말 것") — 빈
   // spots로 조용히 폴백해 AutoPipeline이 그 지역을 건너뛰게 한다. 어느
@@ -3188,6 +3190,7 @@ export async function buildBrief(
     dayStops.push(stops);
   }
 
+  console.log(`[courseBrief] path=days-generated ${scope}/${region} counts=${counts(dayStops)}`);
   // 작업지시서 2026-09-29 §3-③·§4, "#277 검증" §3-② — 후보 "구성"을
   // 후처리한다(스파 총량 상한 + 해외 한식당 상한 + 숙소 1곳). 셋 다
   // "코스 전체 총량" 캡이라 날짜 배정과 무관해, reallocateStopsByDay
@@ -3213,6 +3216,7 @@ export async function buildBrief(
   // 앵커가 "서로 다른 날"에 배정된 뒤 reallocateStopsByDay가 흐트러뜨리는 일이
   // 없다(작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
   // 없습니다" §2, "#277 검증" §2).
+  console.log(`[courseBrief] path=${style === "resort" ? "resort-compose" : "city-anchors"} ${scope}/${region} before=${counts(geoOrderedDayGroups)}`);
   const anchoredDayGroups =
     style === "resort"
       ? await composeResortDays(geoOrderedDayGroups, {
@@ -3230,6 +3234,7 @@ export async function buildBrief(
   // 정한 뒤에 조회해야 항상 맞는다). preferRatedFirstStop 주석 참고 —
   // 스팟을 빼지 않고 순서만 바꾼다(§3-a 제외는 여전히 보류).
   const finalDayGroups = anchoredDayGroups.map((stops) => preferRatedFirstStop(scope, region, stops));
+  console.log(`[courseBrief] path=composed ${scope}/${region} counts=${counts(finalDayGroups)}`);
 
   // 하루 안의 구간(순서상 이웃한 두 스톱)마다 실제 경로를 조회한다 —
   // 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다" §3. 경로가
@@ -3252,6 +3257,7 @@ export async function buildBrief(
     const before = routedDays.map((d) => d.stops);
     const after = rebalanceResortDays(before);
     const changed = after.map((stops, i) => stops.map((s) => s.id).join("|") !== before[i].map((s) => s.id).join("|"));
+    console.log(`[courseBrief] path=post-route-rebalance ${scope}/${region} routed=${counts(before)} after=${counts(after)} changed=[${changed.join(",")}]`);
     if (changed.some(Boolean)) {
       routedDays = await Promise.all(after.map((stops, i) => (changed[i] ? routeDayStops(scope, stops, routingDeadline) : Promise.resolve(routedDays[i]))));
     }
@@ -3328,6 +3334,7 @@ export async function buildBrief(
   // 장애"로 굳는다. 이 밑으로는 캐시하지 않는다 — 다음 요청이 처음부터
   // 다시 시도할 기회를 갖는다(dedupeInFlight가 여전히 동시 요청은
   // 하나로 합친다).
+  console.log(`[courseBrief] path=assembled ${scope}/${region} dayCounts=[${dayTotals.map((d) => d.spotCount).join(",")}] spots=${allSpots.length} km=${round1(totalDistanceKm)} cacheable=${isCacheableBrief(allSpots, style, days)}`);
   if (isCacheableBrief(allSpots, style, days)) {
     await writeBriefCache(cacheKey, brief).catch((err) => {
       console.error("[courseBrief] structure cache write failed:", err);
@@ -3497,10 +3504,17 @@ const inFlightBriefBuilds = new Map<string, Promise<CourseBrief>>();
  */
 export async function getCourseBrief(rawRegion: string, days: CourseDays, enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS): Promise<CourseBrief> {
   const region = resolveRegionAlias(rawRegion);
+  // 작업지시서 2026-09-30 "#287 검증" §2 — 요청이 어느 경로로 가는지 조건 없이
+  // 로그로 남긴다(진입 → path=… 분기). 필터 문자열: "[courseBrief] enter" ·
+  // "[courseBrief] path=".
+  console.log(`[courseBrief] enter raw=${rawRegion} region=${region} days=${days} style=${styleForRegion(region)} version=${COURSE_ALGO_VERSION}`);
   // 캐시를 들여다보기도 전에 거른다 — 이 검사가 생기기 전에 "발리" 같은
   // 미지원 지역이 이미 잘못된 응답으로 캐시돼 있었을 수 있는데, 캐시부터
   // 확인하면 그 오염된 응답을 이 수정 이후에도 계속 돌려주게 된다.
-  if (!isSupportedRegion(region)) throw new UnsupportedRegionError(region);
+  if (!isSupportedRegion(region)) {
+    console.log(`[courseBrief] path=unsupported region=${region}`);
+    throw new UnsupportedRegionError(region);
+  }
   const scope = resolveScope(region);
   const style = styleForRegion(region);
   const cacheKey = briefCacheKey(scope, region, days);
@@ -3508,7 +3522,11 @@ export async function getCourseBrief(rawRegion: string, days: CourseDays, enrich
     console.error("[courseBrief] cache read failed:", err);
     return null;
   });
-  if (cached) return cached;
+  if (cached) {
+    console.log(`[courseBrief] path=cache-hit key=${cacheKey} spots=${cached.spots.length} dayCounts=[${(cached.dayTotals ?? []).map((d) => d.spotCount).join(",")}]`);
+    return cached;
+  }
+  console.log(`[courseBrief] path=cache-miss key=${cacheKey} scope=${scope}`);
   // 작업지시서 2026-09-27 "Places API 비용 절감" A-6 — 실패 추적(tracker)과
   // 판단을 dedupeInFlight의 run() 클로저 안에서 전부 끝낸다. run()은
   // 같은 cacheKey로 동시에 들어온 요청 중 "처음 한 번"만 실행되고,
@@ -3518,10 +3536,12 @@ export async function getCourseBrief(rawRegion: string, days: CourseDays, enrich
   // 이 Promise 하나로 모든 동시 대기자에게 동일하게 전달된다.
   return dedupeInFlight(inFlightBriefBuilds, cacheKey, async () => {
     let hadCandidateFetchFailure = false;
+    console.log(`[courseBrief] path=build-start key=${cacheKey}`);
     const brief = await buildBrief(scope, region, days, cacheKey, enrichBudgetMs, () => {
       hadCandidateFetchFailure = true;
     });
     if (hadCandidateFetchFailure && !isCacheableBrief(brief.spots, style, days)) {
+      console.log(`[courseBrief] path=transient-failure key=${cacheKey} spots=${brief.spots.length}`);
       throw new TransientApiFailureError(region, brief.spots.length);
     }
     return brief;
