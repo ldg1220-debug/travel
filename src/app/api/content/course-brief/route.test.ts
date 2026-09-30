@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { CourseBrief, CourseBriefSpot } from "@/lib/server/courseBrief";
 
@@ -7,13 +7,13 @@ import type { CourseBrief, CourseBriefSpot } from "@/lib/server/courseBrief";
 // 부족과 해변 없음을 다른 error 코드로 구분한다. courseBrief.ts는 Postgres
 // pool을 끌고 오므로 page.test.ts와 같은 이유로 getCourseBrief만 모킹한다.
 
-const getCourseBriefMock = vi.fn<(region: string, days: number) => Promise<CourseBrief>>();
+const getCourseBriefMock = vi.fn<(region: string, days: number, budget?: number, options?: { refresh?: boolean }) => Promise<CourseBrief>>();
 
 vi.mock("@/lib/server/courseBrief", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/server/courseBrief")>();
   return {
     ...actual,
-    getCourseBrief: (region: string, days: number) => getCourseBriefMock(region, days),
+    getCourseBrief: (region: string, days: number, budget?: number, options?: { refresh?: boolean }) => getCourseBriefMock(region, days, budget, options),
   };
 });
 
@@ -69,5 +69,31 @@ describe("GET /api/content/course-brief — 422 사유 구분 (작업지시서 2
     getCourseBriefMock.mockResolvedValue(briefWith(spots));
     const res = await GET(request("region=코타키나발루&days=3"));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("GET /api/content/course-brief — ?refresh= 토큰 (작업지시서 2026-09-30 '#288' §2②)", () => {
+  const ok = () => briefWith(Array.from({ length: 6 }, (_, i) => spot(i + 1, { category: "beach" })));
+  beforeEach(() => {
+    getCourseBriefMock.mockReset();
+    getCourseBriefMock.mockResolvedValue(ok());
+    vi.stubEnv("CRON_SECRET", "s3cret");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("passes refresh=true only when the token equals CRON_SECRET", async () => {
+    await GET(request("region=코타키나발루&days=3&refresh=s3cret"));
+    expect(getCourseBriefMock.mock.calls[0][3]).toEqual({ refresh: true });
+  });
+
+  it("ignores a wrong token, a missing token, and an unset secret", async () => {
+    await GET(request("region=코타키나발루&days=3&refresh=nope"));
+    await GET(request("region=코타키나발루&days=3"));
+    vi.stubEnv("CRON_SECRET", "");
+    await GET(request("region=코타키나발루&days=3&refresh="));
+    await GET(request("region=코타키나발루&days=3&refresh=s3cret"));
+    for (const call of getCourseBriefMock.mock.calls) expect(call[3]).toEqual({ refresh: false });
   });
 });
