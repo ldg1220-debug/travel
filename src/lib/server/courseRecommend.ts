@@ -738,6 +738,7 @@ export function isBeach(p: { category?: string; name: string }): boolean {
 // 자체(그 지역을 가리키는 이름, 또는 시·행정구역·도시 타입)는 방문할
 // 스팟이 아니다 — 섬 앵커는 "지역이 아닌 부속 섬"(카오하간·사피·마누칸)만.
 const AREA_TYPES = new Set(["locality", "sublocality", "political", "colloquial_area", "country", "administrative_area_level_1", "administrative_area_level_2", "administrative_area_level_3"]);
+const NEIGHBORHOOD_TYPES = new Set(["sublocality", "colloquial_area"]);
 const REGION_SELF_SUFFIXES = new Set(["섬", "도", "시", "군", "시티", "island", "islands", "city", "province", "state"]);
 
 function normalizeAreaName(s: string): string {
@@ -751,9 +752,19 @@ function areaNameVariants(name: string): string[] {
 }
 
 export function isRegionItself(p: { category?: string; name: string; nativeName?: string }, region: string): boolean {
-  if (p.category && AREA_TYPES.has(p.category.toLowerCase())) return true;
   const bases = regionSelfNames(region).map(normalizeAreaName).filter(Boolean);
   const variants = [...areaNameVariants(p.name), ...(p.nativeName ? areaNameVariants(p.nativeName) : [])];
+  // 작업지시서 2026-09-30 "#290 검증" §3 — 행정구역 타입만으로 지역 자체라고
+  // 단정하면 오사카의 우메다·난바·신사이바시처럼 "시의 한 구역"(sublocality·
+  // colloquial_area)으로 분류된 방문지까지 전 지역(도시형 포함)에서 통째로
+  // 빠진다. 시/도/국가 단위 타입(locality·administrative_area·country·political)은
+  // 이름과 무관하게 지역 자체로 보되, 구역 단위 타입은 이름이 그 지역명으로
+  // 시작할 때만("오사카 시내")로 본다.
+  const category = p.category?.toLowerCase();
+  if (category && AREA_TYPES.has(category)) {
+    if (!NEIGHBORHOOD_TYPES.has(category)) return true;
+    return variants.some((v) => bases.some((b) => v === b || v.startsWith(b)));
+  }
   return variants.some((v) => bases.some((b) => v === b || (v.startsWith(b) && REGION_SELF_SUFFIXES.has(v.slice(b.length)))));
 }
 
@@ -966,8 +977,18 @@ export async function fetchSlotCandidates(
   // 평점·리뷰수 하한(passesQualityGate/MIN_REVIEWS_BY_CATEGORY)이 원인,
   // raw 자체가 이미 적으면 Google 검색 결과 자체(질의·타입 제한)가
   // 원인이라는 걸 이 로그만으로 구분할 수 있다.
+  // 작업지시서 2026-09-30 "#290 검증" §3 — 오사카 d2 count 2처럼 후보가
+  // 무너졌을 때 "어느 필터가 몇 개, 무엇을 뺐는지"를 이름까지 남긴다
+  // (특히 region-itself 오판 여부).
+  const dropped = { quality: 0, agency: 0, transit: 0, regionItself: [] as string[] };
+  for (const p of fresh) {
+    if (applyQualityGate([p], scope, slot.category).length === 0) dropped.quality++;
+    else if (isTravelAgency(p)) dropped.agency++;
+    else if (isTransitFacility(p)) dropped.transit++;
+    else if (isRegionItself(p, city)) dropped.regionItself.push(p.name);
+  }
   console.log(
-    `[courseRecommend] fetchSlotCandidates ${scope}/${city}/"${slot.keyword}"(${slot.category ?? "no-category"}${extraQuery ? ":x2" : ""}): raw=${liveResults.length} valid=${fresh.length} gated=${gated.length}`,
+    `[courseRecommend] fetchSlotCandidates ${scope}/${city}/"${slot.keyword}"(${slot.category ?? "no-category"}${extraQuery ? ":x2" : ""}): raw=${liveResults.length} valid=${fresh.length} gated=${gated.length} dropped: quality=${dropped.quality} agency=${dropped.agency} transit=${dropped.transit} region-itself=[${dropped.regionItself.slice(0, 8).join(" | ")}]`,
   );
   return gated;
 }

@@ -7,6 +7,7 @@ import {
   boatLegMeasurement,
   buildStaticMapUrl,
   capAllDayFacilityDays,
+  capCityDaySizes,
   capLodgingToOne,
   capOverseasKoreanRestaurants,
   capResortSpaSpotsPerDay,
@@ -2471,5 +2472,54 @@ describe("rebalanceCityDays — 도시형 하루 스팟 수 재배분 (작업지
     const far = (id: string) => stop(id, 40, 150, { name: id }); // 15km보다 훨씬 먼 곳
     const days = [[far("f1"), far("f2"), far("f3")], [spotAt("near", 0, 0)]];
     expect(sizes(rebalanceCityDays(days))).toEqual([3, 1]);
+  });
+});
+
+describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 2026-09-30 '#290 검증' §2·§4)", () => {
+  const spotAt = (id: string, dx: number, dy: number, extra: Partial<FinalStop> = {}) => stop(id, -33.86 + dy * 0.001, 151.2 + dx * 0.001, { name: id, ...extra });
+  const normals = (prefix: string, n: number, dx0: number) => Array.from({ length: n }, (_, i) => spotAt(`${prefix}${i}`, dx0 + i * 0.3, i * 0.2, { reviewCount: 100 + i }));
+  const fac = (id: string, category: string, dx: number) => spotAt(id, dx, 1, { category });
+  const total = (d: FinalStop[][]) => d.flat().length;
+
+  it("시드니 3일 [6,6,1]·4일 [6,6,1,1]: 재배분은 총합·구성을 바꾸지 않는다", () => {
+    for (const days of [
+      [normals("a", 6, 0), normals("b", 6, 3), [fac("zoo", "zoo", 1)]],
+      [normals("a", 6, 0), normals("b", 6, 3), [fac("zoo", "zoo", 1)], [fac("aq", "aquarium", 2)]],
+    ]) {
+      const result = rebalanceCityDays(days);
+      expect(total(result)).toBe(total(days));
+      expect(result.flat().map((s) => s.id).sort()).toEqual(days.flat().map((s) => s.id).sort());
+    }
+  });
+
+  it("시드니 3일: 재배분 + 하루 최대 정리 후에도 도시형 최소 총량(days×3=9)을 지킨다", () => {
+    const moved = rebalanceCityDays([normals("a", 6, 0), normals("b", 6, 3), [fac("zoo", "zoo", 1)]]);
+    const { days, trimmed } = capCityDaySizes(moved, 9);
+    expect(total(days) + trimmed.length).toBe(13);
+    expect(total(days)).toBeGreaterThanOrEqual(9);
+    for (const d of days) expect(d.length).toBeLessThanOrEqual(d.some((s) => s.category === "zoo") ? 3 : 5);
+  });
+
+  it("서울형 [6,6] → 하루 최대 5곳: 가장 외딴 스팟부터 뺀다", () => {
+    const a = normals("a", 5, 0);
+    const outlier = spotAt("far-mountain", 60, 40, { reviewCount: 10 }); // 다른 스팟에서 크게 떨어진 곳
+    const days = [[...a, outlier], normals("b", 6, 3)];
+    const { days: capped, trimmed } = capCityDaySizes(days, 6);
+    expect(capped.every((d) => d.length <= 5)).toBe(true);
+    expect(trimmed.map((s) => s.id)).toContain("far-mountain");
+    expect(trimmed).toHaveLength(2);
+  });
+
+  it("최소 총량 이하로는 내려가지 않는다(6·6이어도 총량이 최소면 그대로)", () => {
+    const days = [normals("a", 6, 0), normals("b", 6, 3)];
+    const { days: capped, trimmed } = capCityDaySizes(days, 12);
+    expect(trimmed).toHaveLength(0);
+    expect(total(capped)).toBe(12);
+  });
+
+  it("식사·종일시설은 뺄 후보가 아니다", () => {
+    const meals = Array.from({ length: 6 }, (_, i) => spotAt(`m${i}`, i * 0.3, 0, { meal: true, category: "restaurant" }));
+    const { trimmed } = capCityDaySizes([meals, normals("b", 2, 5)], 3);
+    expect(trimmed).toHaveLength(0);
   });
 });
