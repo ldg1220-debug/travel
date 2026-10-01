@@ -2500,14 +2500,31 @@ describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 202
     for (const d of days) expect(d.length).toBeLessThanOrEqual(d.some((s) => s.category === "zoo") ? 3 : 5);
   });
 
-  it("서울형 [6,6] → 하루 최대 5곳: 가장 외딴 스팟부터 뺀다", () => {
-    const a = normals("a", 5, 0);
-    const outlier = spotAt("far-mountain", 60, 40, { reviewCount: 10 }); // 다른 스팟에서 크게 떨어진 곳
-    const days = [[...a, outlier], normals("b", 6, 3)];
-    const { days: capped, trimmed } = capCityDaySizes(days, 6);
-    expect(capped.every((d) => d.length <= 5)).toBe(true);
-    expect(trimmed.map((s) => s.id)).toContain("far-mountain");
-    expect(trimmed).toHaveLength(2);
+  it("서울형 [6,6] → 하루 최대 5곳: 외딴 랜드마크가 아니라 식사부터 뺀다 (경복궁 보호)", () => {
+    const meal = (id: string, rc: number) => spotAt(id, 0.2, 0.1, { meal: true, category: "restaurant", rating: 4.2, reviewCount: rc });
+    const palace = spotAt("gyeongbokgung", 60, 40, { category: "tourist_attraction", rating: 4.6, reviewCount: 90000 }); // 식당 묶음에서 한참 떨어진 대표 명소
+    const day1 = [palace, meal("m-low", 50), meal("m-high", 5000), ...normals("a", 3, 0)];
+    const { days, trimmed } = capCityDaySizes([day1, normals("b", 6, 3).map((s) => ({ ...s, rating: 4.4, reviewCount: 800 }))], 6);
+    expect(days[0].map((s) => s.id)).toContain("gyeongbokgung");
+    expect(trimmed.map((s) => s.id)).toContain("m-low"); // 식사 2곳 이상이면 리뷰 적은 쪽
+    expect(days.every((d) => d.length <= 5)).toBe(true);
+  });
+
+  it("식사가 1곳뿐이면 카페를 먼저, 그다음 일반 스팟은 그날 인기 상위 2곳을 지키고 가장 낮은 것을 뺀다", () => {
+    const sight = (id: string, rc: number) => spotAt(id, 0, 0, { category: "tourist_attraction", rating: 4.5, reviewCount: rc });
+    const cafe = spotAt("cafe", 0, 0, { category: "cafe", rating: 4.5, reviewCount: 10000 });
+    const withCafe = capCityDaySizes([[sight("s1", 9000), sight("s2", 8000), sight("s3", 100), sight("s4", 200), sight("s5", 300), cafe], normals("b", 2, 5)], 3);
+    expect(withCafe.trimmed.map((s) => s.id)).toEqual(["cafe"]);
+    const noCafe = capCityDaySizes([[sight("s1", 9000), sight("s2", 8000), sight("s3", 100), sight("s4", 200), sight("s5", 300), sight("s6", 400)], normals("b", 2, 5)], 3);
+    expect(noCafe.trimmed.map((s) => s.id)).toEqual(["s3"]); // 인기 최저(상위 2곳 s1·s2는 보호)
+  });
+
+  it("대표 명소 앵커·선착장·섬·종일시설은 절대 빼지 않는다 — 뺄 게 없으면 상한을 넘긴 채 둔다", () => {
+    const anchor = (id: string) => spotAt(id, 0, 0, { slotKey: "landmark-anchor", category: "tourist_attraction", rating: 4.5, reviewCount: 100 });
+    const protectedDay = [anchor("a1"), anchor("a2"), anchor("a3"), spotAt("jetty", 0, 0, { slotKey: "jetty", name: "제셀톤 선착장", category: "ferry_terminal" }), spotAt("isl", 0, 0, { name: "사피 섬", category: "island" }), spotAt("zoo", 0, 0, { category: "zoo" })];
+    const { days, trimmed } = capCityDaySizes([protectedDay, normals("b", 2, 5)], 3);
+    expect(trimmed).toHaveLength(0);
+    expect(days[0]).toHaveLength(6);
   });
 
   it("최소 총량 이하로는 내려가지 않는다(6·6이어도 총량이 최소면 그대로)", () => {
@@ -2517,9 +2534,9 @@ describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 202
     expect(total(capped)).toBe(12);
   });
 
-  it("식사·종일시설은 뺄 후보가 아니다", () => {
-    const meals = Array.from({ length: 6 }, (_, i) => spotAt(`m${i}`, i * 0.3, 0, { meal: true, category: "restaurant" }));
-    const { trimmed } = capCityDaySizes([meals, normals("b", 2, 5)], 3);
+  it("식사가 1곳뿐인 날은 그 식사를 빼지 않는다(같은 날 식사 2곳 이상일 때만)", () => {
+    const day = [spotAt("m0", 0, 0, { meal: true, category: "restaurant" }), ...Array.from({ length: 5 }, (_, i) => spotAt(`a${i}`, i * 0.3, 0, { slotKey: "landmark-anchor" }))];
+    const { trimmed } = capCityDaySizes([day, normals("b", 2, 5)], 3);
     expect(trimmed).toHaveLength(0);
   });
 });

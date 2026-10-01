@@ -312,7 +312,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 25; // 작업지시서 2026-09-30 "#290 검증" §3·§4 — 도시형 하루 최대 5곳(외딴 스팟 제외)과 지역 자체 판정(isRegionItself) 축소는 최종 브리프 조립·후보 읽기 시점 로직에만 있어, 버전을 올리지 않으면 서울·부산의 6·6 결과와 오사카의 무너진 결과가 26시간 동안 캐시에서 그대로 나간다.
+export const COURSE_ALGO_VERSION = 26; // 작업지시서 2026-10-01 "#291 검증: 하루 5곳 상한이 대표 명소를 잘라냅니다" §2 — 상한 초과 시 제외 우선순위(식사→카페→일반, 앵커·선착장·섬·종일시설 보호)는 최종 브리프 조립 로직에만 있어, 버전을 올리지 않으면 서울·시드니가 26시간 동안 경복궁·오페라 하우스가 빠진 v25 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -3053,44 +3053,56 @@ export function rebalanceCityDays(dayGroups: FinalStop[][]): FinalStop[][] {
   return moved;
 }
 
+const CAFE_PATTERN = /cafe|coffee|bakery|dessert|카페|커피|베이커리|디저트/i;
+function isCafeStop(s: FinalStop): boolean {
+  return CAFE_PATTERN.test(s.category ?? "") || CAFE_PATTERN.test(s.slotKey ?? "");
+}
+
 /**
- * 하루 최대치(CITY_DAY_MAX, 시설 날 CITY_FACILITY_DAY_MAX)를 넘는 날에서 "가장 외딴"
- * 스팟을 뺀다 — 작업지시서 2026-09-30 "#290 검증" §4. rebalanceCityDays는 차이 ≥2일
- * 때만 옮기므로 6·6처럼 이미 고른 분포엔 걸리지 않는다. 뺄 때도 도시형 최소 총량
- * (minTotal = minViableSpots)을 지킨다 — 그 아래로는 내려가지 않는다. 뺄 후보는
- * 식사·종일시설이 아닌 스팟 중 "같은 날 다른 스팟까지의 최근접 거리"가 가장 큰 것
- * (동선에서 떨어진 것, 동률이면 덜 인기 있는 쪽). 뺀 스팟 이름은 반환값과 로그로 남는다.
+ * 하루 최대치(CITY_DAY_MAX, 시설 날 CITY_FACILITY_DAY_MAX)를 넘는 날에서 스팟을 뺀다 —
+ * 작업지시서 2026-09-30 "#290 검증" §4, 2026-10-01 "#291 검증" §2. rebalanceCityDays는
+ * 차이 ≥2일 때만 옮기므로(= "버리기 전에 옆 날로 옮기기"는 이미 그 함수가 먼저 한다)
+ * 6·6처럼 받을 자리가 없는 분포만 여기까지 온다.
+ *
+ * 처음엔 "같은 날 가장 외딴 스팟"을 뺐는데, 대표 명소는 대개 식당 묶음에서 떨어져 있어
+ * 경복궁·오페라 하우스·하버 브리지가 먼저 잘렸다(#291 실측). 제외 우선순위:
+ *   1) 같은 날 식사가 2곳 이상이면 리뷰가 가장 적은 식사
+ *   2) 카페
+ *   3) 일반 스팟 — 그날 인기(평점×리뷰) 상위 2곳은 지킨다. 그중 인기가 가장 낮은 것
+ * 절대 빼지 않는다: 대표 명소 앵커(slotKey landmark-anchor)·선착장/섬·종일시설.
+ * 뺄 수 있는 게 없으면 상한을 넘긴 채 둔다(명소를 자르느니 6곳이 낫다). 도시형 최소
+ * 총량(minTotal = minViableSpots) 아래로는 내려가지 않는다. 뺀 스팟은 반환값과 로그로 남는다.
  */
 export function capCityDaySizes(dayGroups: FinalStop[][], minTotal: number): { days: FinalStop[][]; trimmed: FinalStop[] } {
   const result = dayGroups.map((d) => [...d]);
   const trimmed: FinalStop[] = [];
   const capOf = (day: FinalStop[]) => (day.some(isLargeFacility) ? CITY_FACILITY_DAY_MAX : CITY_DAY_MAX);
+  const isProtected = (s: FinalStop) => s.slotKey === "landmark-anchor" || isBoatTripStop(s) || isLargeFacility(s);
+  const reviews = (s: FinalStop) => s.reviewCount ?? 0;
+  const pickRemovable = (day: FinalStop[]): number => {
+    const lowest = (idxs: number[], key: (s: FinalStop) => number) => idxs.reduce((best, i) => (best < 0 || key(day[i]) < key(day[best]) ? i : best), -1);
+    const all = day.map((_, i) => i).filter((i) => !isProtected(day[i]));
+    const meals = all.filter((i) => day[i].meal);
+    if (meals.length >= 2) return lowest(meals, reviews);
+    const cafes = all.filter((i) => !day[i].meal && isCafeStop(day[i]));
+    if (cafes.length > 0) return lowest(cafes, reviews);
+    const regular = all.filter((i) => !day[i].meal);
+    const keep = new Set([...regular].sort((a, b) => popularity(day[b]) - popularity(day[a])).slice(0, 2));
+    return lowest(regular.filter((i) => !keep.has(i)), popularity);
+  };
   for (;;) {
     if (result.flat().length <= minTotal) break;
-    let target = -1;
-    let overBy = 0;
-    result.forEach((day, i) => {
-      const over = day.length - capOf(day);
-      if (over > overBy) {
-        overBy = over;
-        target = i;
-      }
-    });
-    if (target < 0) break;
-    const day = result[target];
-    let bestIdx = -1;
-    let bestIsolation = -1;
-    day.forEach((stop, idx) => {
-      if (stop.meal || isLargeFacility(stop)) return;
-      const nearest = day.reduce((m, o) => (o === stop ? m : Math.min(m, haversineKm(stop, o))), Infinity);
-      const isolation = Number.isFinite(nearest) ? nearest : 0;
-      if (isolation > bestIsolation || (isolation === bestIsolation && bestIdx >= 0 && popularity(stop) < popularity(day[bestIdx]))) {
-        bestIsolation = isolation;
-        bestIdx = idx;
-      }
-    });
-    if (bestIdx < 0) break;
-    trimmed.push(...day.splice(bestIdx, 1));
+    let removed = false;
+    // 가장 많이 넘친 날부터, 뺄 수 있는 스팟이 있는 날을 찾는다(없는 날은 상한을 넘긴 채 둔다).
+    const overDays = result.map((day, i) => ({ i, over: day.length - capOf(day) })).filter((d) => d.over > 0).sort((a, b) => b.over - a.over);
+    for (const { i } of overDays) {
+      const idx = pickRemovable(result[i]);
+      if (idx < 0) continue;
+      trimmed.push(...result[i].splice(idx, 1));
+      removed = true;
+      break;
+    }
+    if (!removed) break;
   }
   return { days: result, trimmed };
 }
