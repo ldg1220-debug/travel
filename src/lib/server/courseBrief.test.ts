@@ -47,11 +47,15 @@ import {
   pickLandmarkAnchors,
   pickResortAnchors,
   placeJettiesBeforeIslands,
+  placeCityAnchors,
   placeLandmarkAnchors,
   placeResortAnchors,
   planRouteForDay,
   preferRatedFirstStop,
   reallocateStopsByDay,
+  routeDayStops,
+  maxFacilityDays,
+  isDayFacility,
   reassignByCentroid,
   rebalanceCityDays,
   redistributeThinResortDays,
@@ -600,11 +604,12 @@ describe("reallocateStopsByDay — 전체 파이프라인 통합 (작업지시�
 
     const result = reallocateStopsByDay([day1, day2, day3]);
 
-    // 시설 날(1곳, 작업지시서 2026-09-08 "PR #239 프로덕션 검증" §2 —
-    // 시설 날은 시설만) + 나머지 2일(각 최대 6곳) = 13곳 그릇보다 입력이
-    // 많다(18곳). 그릇을 넘는 5곳은 평점×리뷰수(여기선 전부 미설정=0으로
-    // 동률)가 낮은 순으로 빠진다.
-    expect(result.flat()).toHaveLength(13);
+    // 이 단계의 시설 날은 시설 1곳(작업지시서 2026-09-08 "PR #239 프로덕션
+    // 검증" §2). 그릇은 나머지 2일(각 최대 6곳) + 시설 날 동반 자리 2곳(작업지시서
+    // 2026-10-01 "Vercel 로그 판독 결과" 원인 A — 이후 rebalanceCityDays가 시설
+    // 날로 옮긴다) = 시설 포함 15곳. 입력은 18곳이라 넘는 3곳은 평점×리뷰수
+    // (여기선 전부 미설정=0으로 동률)가 낮은 순으로 빠진다.
+    expect(result.flat()).toHaveLength(15);
     const facilityDay = result.find((g) => g.some((s) => s.id === "usj"));
     expect(facilityDay).toBeDefined();
     expect(facilityDay).toHaveLength(1); // 시설 단독 — 동반 스팟 없음
@@ -2538,5 +2543,112 @@ describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 202
     const day = [spotAt("m0", 0, 0, { meal: true, category: "restaurant" }), ...Array.from({ length: 5 }, (_, i) => spotAt(`a${i}`, i * 0.3, 0, { slotKey: "landmark-anchor" }))];
     const { trimmed } = capCityDaySizes([day, normals("b", 2, 5)], 3);
     expect(trimmed).toHaveLength(0);
+  });
+});
+
+describe("재배치가 스팟을 버리지 않는다 — 시드니 d3 · 오사카 d2 (작업지시서 2026-10-01 'Vercel 로그 판독 결과' 원인 A)", () => {
+  const sights = (prefix: string, n: number, base: P) =>
+    cluster(prefix, base, n).map((s, i) => ({ ...s, category: "tourist_attraction", rating: 4.4, reviewCount: 500 + i }));
+  const fac = (id: string, category: string, at: P, reviewCount: number) => stop(id, at.lat, at.lng, { category, name: id, rating: 4.5, reviewCount });
+
+  it("maxFacilityDays: 코스 일수의 절반 이하 (2→1, 3→1, 4→2, 5→2)", () => {
+    expect([2, 3, 4, 5].map(maxFacilityDays)).toEqual([1, 1, 2, 2]);
+  });
+
+  it("시드니 3일: 일별 7곳 21곳 + 시설 2곳 → 총 스팟이 8곳으로 무너지지 않고, 시설 날은 1일 이하", () => {
+    const zoo = fac("zoo", "zoo", p(-33.84, 151.24), 20000);
+    const aquarium = fac("aq", "aquarium", p(-33.87, 151.2), 15000);
+    const days = [
+      [zoo, ...sights("a", 6, p(-33.86, 151.21))],
+      [aquarium, ...sights("b", 6, p(-33.87, 151.22))],
+      sights("c", 7, p(-33.88, 151.18)),
+    ];
+    const result = reallocateStopsByDay(days);
+    expect(result.flat().length).toBeGreaterThanOrEqual(13); // v26: 8곳으로 무너졌다
+    const facilityDays = result.filter((g) => g.some(isDayFacility));
+    expect(facilityDays.length).toBeLessThanOrEqual(maxFacilityDays(3));
+  });
+
+  it("오사카 2일: 시설 2곳이어도 이틀 모두 시설 날이 되지 않고([1,1] 아님) 최소 총량 6곳 이상", () => {
+    const usj = fac("usj", "amusement_park", p(34.665, 135.433), 90000);
+    const kaiyukan = fac("kaiyukan", "aquarium", p(34.654, 135.429), 40000);
+    const days = [[usj, ...sights("a", 6, p(34.7, 135.49))], [kaiyukan, ...sights("b", 6, p(34.665, 135.5))]];
+    const result = reallocateStopsByDay(days);
+    expect(result.flat().length).toBeGreaterThanOrEqual(6);
+    expect(result.filter((g) => g.some(isDayFacility)).length).toBeLessThanOrEqual(1);
+    // 인기 낮은 시설(가이유칸)은 일반 스팟으로 취급 — 시설 날 규칙에서 빠진다.
+    const kaiyukanStop = result.flat().find((s) => s.id === "kaiyukan");
+    expect(kaiyukanStop).toBeDefined();
+  });
+});
+
+describe("도시형 전체 흐름 — 오사카 2일 · 앵커 보충 (작업지시서 2026-10-01 'Vercel 로그 판독 결과' ③)", () => {
+  const sights = (prefix: string, n: number, base: P) => cluster(prefix, base, n).map((s, i) => ({ ...s, category: "tourist_attraction", rating: 4.4, reviewCount: 500 + i }));
+  const fac = (id: string, category: string, at: P, reviewCount: number) => stop(id, at.lat, at.lng, { category, name: id, rating: 4.5, reviewCount });
+
+  it("오사카 2일(시설 2곳): 재배치 → 재배분 → 정리까지 거치고도 도시형 최소 6곳 이상, 하루 2곳 이상", () => {
+    const usj = fac("usj", "amusement_park", p(34.665, 135.433), 90000);
+    const kaiyukan = fac("kaiyukan", "aquarium", p(34.654, 135.429), 40000);
+    const days = [[usj, ...sights("a", 6, p(34.7, 135.49))], [kaiyukan, ...sights("b", 6, p(34.665, 135.5))]];
+    const realloc = reallocateStopsByDay(days);
+    const { days: final } = capCityDaySizes(rebalanceCityDays(realloc), 6);
+    expect(final.flat().length).toBeGreaterThanOrEqual(6);
+    for (const d of final) expect(d.length).toBeGreaterThanOrEqual(2);
+    expect(final.flat().filter((s) => s.id === "usj")).toHaveLength(1);
+  });
+
+  it("placeCityAnchors: 총량이 모자라면(deficit) 앵커를 '추가'하고, 0이면 기존대로 '교체'한다", () => {
+    const base = [[stop("a", 10, 120), stop("b", 10, 120)], [stop("c", 10, 120)]];
+    const anchors = [place("n1", { name: "오사카성", rating: 4.6, reviewCount: 90000 }), place("n2", { name: "도톤보리", rating: 4.5, reviewCount: 80000 })];
+    const added = placeCityAnchors(base, anchors, 2);
+    expect(added.flat()).toHaveLength(5); // 3 + 2 추가
+    expect(added.flat().filter((s) => s.slotKey === "landmark-anchor")).toHaveLength(2);
+    const replaced = placeCityAnchors(base, anchors, 0);
+    expect(replaced.flat()).toHaveLength(3); // 교체 — 개수 유지
+  });
+});
+
+describe("routeDayStops — 선착장·섬·앵커는 '경로 없음'이어도 삭제하지 않는다 (작업지시서 2026-10-01 'Vercel 로그 판독 결과' ⑤⑥)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+  const zeroResults = () => vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "ZERO_RESULTS" }) }));
+
+  it("코타키나발루: 선착장·마리나·필리피노 마켓이 전부 ZERO_RESULTS여도 3곳 모두 남고 직선 추정(estimated)이다", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    zeroResults();
+    const stops = [
+      stop("market", 5.981, 116.07, { name: "필리피노 마켓", category: "market" }),
+      stop("woori", 5.975, 116.07, { name: "WOORI BBQ", category: "korean_restaurant", meal: true }),
+      stop("jetty", 5.982, 116.067, { name: "제셀톤 선착장", category: "ferry_terminal", slotKey: "jetty" }),
+      stop("marina", 5.97, 116.04, { name: "Star Marina", category: "marina" }),
+    ];
+    const routed = await routeDayStops("overseas", stops, Date.now() + 5000);
+    expect(routed.stops.map((s) => s.id)).toEqual(["market", "woori", "jetty", "marina"]);
+    expect(routed.segments).toHaveLength(3);
+    expect(routed.segments.every((seg) => seg.points === null)).toBe(true); // 직선 추정
+  });
+
+  it("해외 비보호 스팟도 50km 이내면 직선 추정으로 남는다 · 국내 비보호 스팟은 기존 규칙대로 뺀다", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    zeroResults();
+    const a = stop("a", 35.17, 129.07, { name: "A" });
+    const b = stop("b", 35.2, 129.1, { name: "B" });
+    const overseas = await routeDayStops("overseas", [a, b], Date.now() + 5000);
+    expect(overseas.stops).toHaveLength(2);
+  });
+});
+
+describe("balanceSightsAcrossDays — 종일시설·앵커는 옮기지 않는다 (작업지시서 2026-10-01 '#292 검증' §2, 도시형 하루 볼거리 1곳)", () => {
+  it("볼거리 없는 날에는 시설·앵커가 아닌 가장 덜 인기 있는 볼거리를 옮긴다", () => {
+    const sight = (id: string, rc: number, extra: Partial<FinalStop> = {}) => stop(id, 0, 0, { category: "tourist_attraction", rating: 4.5, reviewCount: rc, ...extra });
+    const days = [
+      [stop("zoo", 0, 0, { category: "zoo", rating: 4.8, reviewCount: 1 }), sight("anchor", 5, { slotKey: "landmark-anchor" }), sight("plain", 700), sight("big", 9000)],
+      [stop("m", 0, 0, { meal: true, category: "restaurant" }), stop("cafe", 0, 0, { category: "cafe" })],
+    ];
+    const result = balanceSightsAcrossDays(days);
+    expect(result[1].map((s) => s.id)).toContain("plain");
+    expect(result[0].map((s) => s.id)).toEqual(expect.arrayContaining(["zoo", "anchor", "big"]));
   });
 });

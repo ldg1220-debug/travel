@@ -312,7 +312,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 26; // 작업지시서 2026-10-01 "#291 검증: 하루 5곳 상한이 대표 명소를 잘라냅니다" §2 — 상한 초과 시 제외 우선순위(식사→카페→일반, 앵커·선착장·섬·종일시설 보호)는 최종 브리프 조립 로직에만 있어, 버전을 올리지 않으면 서울·시드니가 26시간 동안 경복궁·오페라 하우스가 빠진 v25 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 27; // 작업지시서 2026-10-01 "Vercel 로그 판독 결과: 원인 둘 확정" — 도시형 재배치의 그릇 공식·종일시설 날 상한(시드니 d3 21→8, 오사카 d2 14→2)과 라우팅의 선착장·섬·앵커 삭제 금지(KK 선착장 증발)는 최종 브리프 조립 로직에만 있어, 버전을 올리지 않으면 시드니·오사카·KK가 26시간 동안 옛 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -866,7 +866,14 @@ async function resolveRouteSegment(scope: CourseBriefScope, last: GeoPoint, cand
  * 하루치 스톱에 실제 경로 조회(routeSegment)를 적용한다 — planRouteForDay의
  * 실제 호출부.
  */
-async function routeDayStops(scope: CourseBriefScope, stops: FinalStop[], deadline: number): Promise<{ stops: FinalStop[]; segments: RouteResult[] }> {
+const ROUTE_FALLBACK_MAX_KM = 50;
+/** 라우팅이 "경로 없음"이어도 절대 삭제하지 않는 스팟 — 선착장·섬·대표 명소 앵커·종일시설·해변. */
+function isRouteProtected(s: FinalStop | GeoPoint): boolean {
+  const f = s as Partial<FinalStop>;
+  return f.slotKey === "jetty" || f.slotKey === "landmark-anchor" || (f.name != null && (isBoatTripStop(f as FinalStop) || isBeach(f as FinalStop) || isDayFacility(f as FinalStop)));
+}
+
+export async function routeDayStops(scope: CourseBriefScope, stops: FinalStop[], deadline: number): Promise<{ stops: FinalStop[]; segments: RouteResult[] }> {
   const routed = await planRouteForDay(stops, async (last, candidate) => {
     // 작업지시서 2026-09-29 "#282 검증: 섬이 들어왔습니다. 그런데 섬까지
     // '차로' 갑니다" §2 — 출발지나 도착지 중 하나가 섬이면 그 구간은 배다.
@@ -881,6 +888,18 @@ async function routeDayStops(scope: CourseBriefScope, stops: FinalStop[], deadli
     if (boat) return boat;
     const km = haversineKm(last, candidate);
     const outcome = await resolveRouteSegment(scope, last, candidate, deadline);
+    // 작업지시서 2026-10-01 "Vercel 로그 판독 결과" ⑤⑥ — 코타키나발루에서 제셀톤
+    // 선착장·Star Marina(항구 부지라 도로 경로 API가 실패)·필리피노 마켓이 "경로
+    // 없음"으로 코스에서 삭제돼, 선착장이 빠진 "식당 →BOAT→ 섬"과 1곳짜리 날이
+    // 나왔다(조립은 10곳으로 정상이었다). 선착장·섬·대표 명소 앵커·종일시설·해변은
+    // 어떤 경우에도 삭제하지 않고 직선 추정 구간으로 둔다(이미 있는 "조용한 저하"
+    // 표시 — distanceSource "straight", 회색 경로선, toNextEstimated — 가 그대로
+    // 적용된다). 해외는 Google "경로 없음"이 확정적이지 않아(항구·도심 보행 불가 구역
+    // 등) 50km 이내면 같은 방식으로 직선 추정으로 둔다 — 국내 비보호 스팟은 Kakao의
+    // 확정 응답이라 기존 규칙(사량도처럼 삭제)을 유지한다.
+    if (outcome === "no-route" && (isRouteProtected(last) || isRouteProtected(candidate) || (scope === "overseas" && km <= ROUTE_FALLBACK_MAX_KM))) {
+      return straightRouteMeasurement(last, candidate, modeForDistance(km, scope));
+    }
     // 작업지시서 2026-09-29 "#280 검증" §2 — 해변은 도로 경로가 "없음"
     // (ZERO_RESULTS)이거나 3시간을 넘겨도 휴양형 코스의 핵심 방문지다. 여기서
     // "no-route"로 빼면 "해변 최소 1곳"이 조립 마지막 단계(ensureResortBeachSpot)
@@ -1268,6 +1287,10 @@ function toChunkPoint<T extends GeoPoint>(chunk: T[]): ChunkPoint<T> {
  * 쪼개는 것보다는 상한을 살짝 넘기는 쪽이 낫다.
  */
 function enforceChunkCap<T extends GeoPoint>(chunkGroups: ChunkPoint<T>[][], maxWeight: number): ChunkPoint<T>[][] {
+  // 그룹이 하나뿐이면(시설 날을 뺀 일반 날이 1일 — 예: 시설 1곳인 2일 코스) 옮길 곳이
+  // 없다. 이 가드가 없으면 ranked[0]이 undefined가 된다. 초과분은 이후 단계
+  // (rebalanceCityDays — 시설 날 동반 자리)가 처리한다.
+  if (chunkGroups.length <= 1) return chunkGroups;
   const groups = chunkGroups.map((g) => [...g]);
   const weightOf = (g: ChunkPoint<T>[]): number => g.reduce((sum, c) => sum + c.members.length, 0);
   const groupMedoid = (g: ChunkPoint<T>[]): T => medoidOf(g.flatMap((c) => c.members));
@@ -1658,7 +1681,39 @@ const MEMBERSHIP_RECHECK_MAX_ITERATIONS = 5;
 function maxNonFacilityCapacity(dayCount: number, facilityCount: number): number {
   const facilityDayCount = Math.min(facilityCount, dayCount);
   const normalDayCount = dayCount - facilityDayCount;
-  return normalDayCount * DAY_SIZE_MAX;
+  // 작업지시서 2026-10-01 "Vercel 로그 판독 결과" 원인 A — 시설 날에도 동반 스팟을
+  // 최대 2곳(CITY_FACILITY_DAY_MAX 3 = 시설 + 동반 2) 둘 수 있으므로 그 자리도 그릇에
+  // 포함한다. 이전 공식은 시설 날의 몫을 0으로 봐서 3일 코스에 시설이 2곳이면
+  // 일반 날 1일(6곳)만 남기고 나머지 13곳을 trimToCapacity가 통째로 버렸고(시드니
+  // d3 21→8), 오사카 d2는 시설 2곳 = 일반 날 0일 = 용량 0이라 [1,1]이 됐다.
+  return normalDayCount * DAY_SIZE_MAX + facilityDayCount * CITY_FACILITY_COMPANIONS;
+}
+
+/**
+ * 종일시설 날 상한 — 코스 일수의 절반 이하(2일→1, 3일→1, 4일→2, 5일→2). 작업지시서
+ * 2026-10-01 "Vercel 로그 판독 결과" 원인 A②. 초과분은 리뷰(인기)가 낮은 시설부터
+ * 일반 스팟으로 취급(facilityDemoted)해, 오사카 2일 코스가 USJ와 가이유칸으로 이틀 모두
+ * 시설 날이 되는 일이 없게 한다.
+ */
+export function maxFacilityDays(dayCount: number): number {
+  return Math.floor(dayCount / 2);
+}
+
+type DemotableStop = FinalStop & { facilityDemoted?: true };
+/** 종일시설 날을 만드는 시설인가 — 종일시설 category이면서 상한 초과로 일반 스팟이 되지 않은 것. */
+export function isDayFacility(s: FinalStop): boolean {
+  return isLargeFacility(s) && !(s as DemotableStop).facilityDemoted;
+}
+
+function demoteExcessFacilities(allStops: FinalStop[], dayCount: number): { stops: FinalStop[]; demoted: FinalStop[] } {
+  const maxDays = maxFacilityDays(dayCount);
+  const facilities = allStops.filter(isDayFacility);
+  if (facilities.length <= maxDays) return { stops: allStops, demoted: [] };
+  const ranked = [...facilities].sort((a, b) => popularity(b) - popularity(a));
+  const demotedSet = new Set(ranked.slice(maxDays));
+  const demoted = [...demotedSet].map((f) => ({ ...f, facilityDemoted: true as const }));
+  const byOriginal = new Map([...demotedSet].map((f, i) => [f, demoted[i]]));
+  return { stops: allStops.map((s) => byOriginal.get(s) ?? s), demoted };
 }
 
 /** 넘치는 스팟을 평점×리뷰수 오름차순(낮은 것부터)으로 제거해 capacity 이내로 줄인다. 평점/리뷰수가 없으면 0으로 취급해 가장 먼저 빠진다. */
@@ -1749,19 +1804,29 @@ export function reassignByCentroid<T extends GeoPoint>(groups: T[][], isFacility
  */
 export function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   if (dayStops.length === 0) return [];
-  const allStops = dedupeByProximity(dedupeByBrand(dayStops.flat()));
-  if (dayStops.length === 1 || allStops.length < dayStops.length) {
+  const generated = dayStops.flat();
+  const deduped = dedupeByProximity(dedupeByBrand(generated));
+  if (dayStops.length === 1 || deduped.length < dayStops.length) {
     // 재배분엔 그룹당 최소 1개가 필요하다 — 중복 제거로 스팟이 날짜
     // 수보다 적어지면(드묾) 그냥 하루로 합친다. 빈 날짜가 있는 것보다 낫다.
-    return [allStops];
+    return [deduped];
   }
 
   const dayCount = dayStops.length;
-  const facilities = allStops.filter(isLargeFacility);
-  const nonFacility = trimToCapacity(
-    allStops.filter((s) => !isLargeFacility(s)),
-    maxNonFacilityCapacity(dayCount, facilities.length),
+  const { stops: allStops, demoted } = demoteExcessFacilities(deduped, dayCount);
+  const facilities = allStops.filter(isDayFacility);
+  const nonFacilityAll = allStops.filter((s) => !isDayFacility(s));
+  const nonFacility = trimToCapacity(nonFacilityAll, maxNonFacilityCapacity(dayCount, facilities.length));
+  // 작업지시서 2026-10-01 "Vercel 로그 판독 결과" ④ — 재배치 단계가 스팟을 얼마나 어떤
+  // 이유로(중복 제거 / 용량 초과) 잃었는지 이름까지 남긴다. 용량 초과로 잃는 것은
+  // 위 그릇 공식이 맞다면 일어나지 않아야 한다(일어나면 오류로 로그).
+  const keptIds = new Set(nonFacility.map((s) => s.id));
+  const dedupeDropped = generated.filter((g) => !deduped.some((d) => d.id === g.id));
+  const trimmedNames = nonFacilityAll.filter((s) => !keptIds.has(s.id)).map((s) => s.name);
+  console.log(
+    `[courseBrief] path=city-realloc in=[${dayStops.map((d) => d.length).join(",")}] generated=${generated.length} deduped=${deduped.length} facilities=[${facilities.map((f) => f.name).join(", ")}] demoted=[${demoted.map((f) => f.name).join(", ")}] dedupeDropped=[${dedupeDropped.map((d) => d.name).join(", ")}] trimmed=[${trimmedNames.join(", ")}]`,
   );
+  if (trimmedNames.length > 0) console.error(`[courseBrief] city-realloc 용량 초과로 스팟 ${trimmedNames.length}곳을 버렸습니다(그릇 공식 점검 필요): ${trimmedNames.join(", ")}`);
 
   let groups: FinalStop[][];
   if (nonFacility.length === 0) {
@@ -1801,9 +1866,9 @@ export function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   // 안전망 — 위 구성상 시설이 있는 날엔 이미 시설만 있어야 한다(둘
   // 이상의 시설이 한 날에 묶인 경우는 예외로 남지만, 그것도 동반
   // 일반 스팟은 없으므로 여기서 손댈 게 없다).
-  const capped = capAllDayFacilityDays(groups, isLargeFacility);
-  const balanced = rebalanceByDistance(capped, isLargeFacility);
-  const reassigned = reassignByCentroid(balanced, isLargeFacility);
+  const capped = capAllDayFacilityDays(groups, isDayFacility);
+  const balanced = rebalanceByDistance(capped, isDayFacility);
+  const reassigned = reassignByCentroid(balanced, isDayFacility);
   return reassigned.map((group) => orderByNearestNeighbor(group));
 }
 
@@ -2348,7 +2413,7 @@ async function renderMapToBlob(
     // 같은 관례) 기준 고정 경로(pathname은 호출부가 정한다) —
     // addRandomSuffix:false로 재생성될 때마다 같은 자리에 덮어써서, 지역이
     // 다시 워밍/조회될 때마다 blob이 쌓이지 않게 한다.
-    const blob = await put(pathname, bytes, { access: "private", contentType: "image/png", addRandomSuffix: false });
+    const blob = await put(pathname, bytes, { access: "private", contentType: "image/png", addRandomSuffix: false, allowOverwrite: true });
     void blob; // put()의 반환 url은 private blob이라 브라우저에서 401 — 우리 프록시 경로를 대신 반환한다.
     // AutoPipeline 등 외부 소비자가 그대로 fetch/임베드해야 하므로
     // appUrlFor()와 마찬가지로 절대 URL로 반환한다(상대 경로는 이
@@ -2997,7 +3062,7 @@ export function balanceSightsAcrossDays(dayGroups: FinalStop[][]): FinalStop[][]
       .filter((d) => d !== recipient && d.filter(isSightStop).length >= 2)
       .sort((a, b) => b.filter(isSightStop).length - a.filter(isSightStop).length);
     for (const donor of donors) {
-      const movableIdx = donor.reduce<number[]>((acc, s, idx) => (isSightStop(s) && !isBoatTripStop(s) ? [...acc, idx] : acc), []);
+      const movableIdx = donor.reduce<number[]>((acc, s, idx) => (isSightStop(s) && !isBoatTripStop(s) && !isDayFacility(s) && s.slotKey !== "landmark-anchor" ? [...acc, idx] : acc), []);
       if (movableIdx.length === 0) continue;
       const pickIdx = movableIdx.reduce((best, idx) => (popularity(donor[idx]) < popularity(donor[best]) ? idx : best));
       const [moved] = donor.splice(pickIdx, 1);
@@ -3021,6 +3086,7 @@ function rebalanceResortDays(dayGroups: FinalStop[][]): FinalStop[][] {
 const CITY_DAY_MIN = 2;
 const CITY_DAY_MAX = 5;
 const CITY_FACILITY_DAY_MAX = 3;
+const CITY_FACILITY_COMPANIONS = CITY_FACILITY_DAY_MAX - 1;
 const CITY_REBALANCE_MAX_KM = 15; // 받는 날 중심에서 이 이상 먼 스팟은 옮기지 않는다(지리 클러스터 유지)
 
 /**
@@ -3076,8 +3142,8 @@ function isCafeStop(s: FinalStop): boolean {
 export function capCityDaySizes(dayGroups: FinalStop[][], minTotal: number): { days: FinalStop[][]; trimmed: FinalStop[] } {
   const result = dayGroups.map((d) => [...d]);
   const trimmed: FinalStop[] = [];
-  const capOf = (day: FinalStop[]) => (day.some(isLargeFacility) ? CITY_FACILITY_DAY_MAX : CITY_DAY_MAX);
-  const isProtected = (s: FinalStop) => s.slotKey === "landmark-anchor" || isBoatTripStop(s) || isLargeFacility(s);
+  const capOf = (day: FinalStop[]) => (day.some(isDayFacility) ? CITY_FACILITY_DAY_MAX : CITY_DAY_MAX);
+  const isProtected = (s: FinalStop) => s.slotKey === "landmark-anchor" || isBoatTripStop(s) || isDayFacility(s);
   const reviews = (s: FinalStop) => s.reviewCount ?? 0;
   const pickRemovable = (day: FinalStop[]): number => {
     const lowest = (idxs: number[], key: (s: FinalStop) => number) => idxs.reduce((best, i) => (best < 0 || key(day[i]) < key(day[best]) ? i : best), -1);
@@ -3111,7 +3177,7 @@ function moveCityStops(dayGroups: FinalStop[][]): FinalStop[][] {
   if (dayGroups.length < 2) return dayGroups;
   const result = dayGroups.map((d) => [...d]);
   const changed = new Set<number>();
-  const capOf = (day: FinalStop[]) => (day.some(isLargeFacility) ? CITY_FACILITY_DAY_MAX : CITY_DAY_MAX);
+  const capOf = (day: FinalStop[]) => (day.some(isDayFacility) ? CITY_FACILITY_DAY_MAX : CITY_DAY_MAX);
   const maxMoves = result.flat().length * 2;
   for (let move = 0; move < maxMoves; move++) {
     // 받을 수 있는 날(자리 있음)을 적은 순으로, 기증할 수 있는 날을 많은 순으로 짝지어 첫 유효 이동을 적용한다.
@@ -3126,7 +3192,7 @@ function moveCityStops(dayGroups: FinalStop[][]): FinalStop[][] {
         let bestIdx = -1;
         let bestScore = Infinity;
         donor.forEach((stop, idx) => {
-          if (stop.meal || isLargeFacility(stop)) return;
+          if (stop.meal || isDayFacility(stop)) return;
           const toRecipient = haversineKm(stop, center);
           if (toRecipient > CITY_REBALANCE_MAX_KM) return;
           const nearestInDonor = donor.reduce((m, o) => (o === stop ? m : Math.min(m, haversineKm(stop, o))), Infinity);
@@ -3154,7 +3220,10 @@ function moveCityStops(dayGroups: FinalStop[][]): FinalStop[][] {
 /** 재배분(옮기기만) → 하루 최대 초과 정리(외딴 스팟 제외, 최소 총량 유지). buildBrief의 도시형 두 지점(라우팅 전·후)이 같은 순서로 쓴다. */
 function balanceCityDayGroups(dayGroups: FinalStop[][], minTotal: number, region: string): FinalStop[][] {
   const moved = rebalanceCityDays(dayGroups);
-  const { days, trimmed } = capCityDaySizes(moved, minTotal);
+  // 작업지시서 2026-10-01 "#292 검증" §2 — 도시형도 하루 볼거리(식사·카페·스파·숙소 아님)
+  // 1곳 이상. 볼거리 2곳 이상인 날에서 가장 덜 인기 있는 것을 옮긴다(balanceSightsAcrossDays
+  // 재사용 — 선착장·섬·종일시설은 옮기지 않는다).
+  const { days, trimmed } = capCityDaySizes(balanceSightsAcrossDays(moved), minTotal);
   if (trimmed.length > 0) console.log(`[courseBrief] path=city-cap ${region} 하루 최대 초과로 뺀 외딴 스팟: ${trimmed.map((s) => s.name).join(", ")}`);
   return days;
 }
@@ -3271,6 +3340,29 @@ export function placeLandmarkAnchors(dayStops: FinalStop[][], anchors: Place[]):
 }
 
 /**
+ * 도시형 앵커 배치 — deficit이 0이면 기존대로 "교체"(placeLandmarkAnchors). 총량이 최소에
+ * 못 미치면(deficit>0) 앞의 deficit곳은 가장 스팟이 적고 상한에 여유 있는 날에 "추가"하고
+ * (시설 날은 시설 + 동반 최대 2), 남는 앵커만 교체에 쓴다. 작업지시서 2026-10-01
+ * "Vercel 로그 판독 결과" ③.
+ */
+export function placeCityAnchors(dayStops: FinalStop[][], anchors: Place[], deficit: number): FinalStop[][] {
+  if (deficit <= 0) return placeLandmarkAnchors(dayStops, anchors);
+  const toAdd = anchors.slice(0, deficit);
+  const toReplace = anchors.slice(deficit);
+  const added = dayStops.map((stops) => [...stops]);
+  for (const anchor of toAdd) {
+    const target = added
+      .map((stops, i) => ({ i, size: stops.length, cap: stops.some(isDayFacility) ? CITY_FACILITY_DAY_MAX : CITY_DAY_MAX }))
+      .filter((d) => d.size < d.cap)
+      .sort((a, b) => a.size - b.size)[0];
+    if (!target) break;
+    const anchorStop: FinalStop = { ...anchor, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: 14, meal: false };
+    added[target.i] = insertBeforeDinner(added[target.i], anchorStop);
+  }
+  return toReplace.length > 0 ? placeLandmarkAnchors(added, toReplace) : added;
+}
+
+/**
  * 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
  * 없습니다" §2·§3 — 도시형 코스는 "그 도시에서 가장 많이 가는 곳"이
  * 먼저 확정돼야 하는데, 실측(경주 2박3일)에서 전부 빠져 있었다. 테마
@@ -3293,13 +3385,19 @@ async function ensureCityLandmarkAnchors(
   region: string,
   dayStops: FinalStop[][],
   onCandidateFetchFailure?: (status: number) => void,
+  minTotal: number = 0,
 ): Promise<FinalStop[][]> {
   const flat = dayStops.flat();
   if (flat.length === 0) return dayStops;
   const candidates = await fetchLandmarkCandidates(scope, region, onCandidateFetchFailure);
-  const anchors = pickLandmarkAnchors(candidates, flat);
-  if (anchors.length === 0) return dayStops;
-  return placeLandmarkAnchors(dayStops, anchors);
+  // 작업지시서 2026-10-01 "Vercel 로그 판독 결과" ③ — 재배치 뒤 총량이 도시형 최소
+  // (minTotal)에 못 미치면 앵커 후보(오사카는 19곳이 있었다)로 모자란 만큼 채운다.
+  // 평소 앵커(CITY_ANCHOR_COUNT곳)는 기존대로 "교체", 모자란 만큼의 추가분은 "추가".
+  const deficit = Math.max(0, minTotal - flat.length);
+  const picked = pickLandmarkAnchors(candidates, flat, CITY_ANCHOR_COUNT + deficit, Math.max(CITY_ANCHOR_POOL_SIZE, CITY_ANCHOR_COUNT + deficit + 3));
+  console.log(`[courseBrief] path=city-anchors ${region} before=${flat.length} minTotal=${minTotal} deficit=${deficit} candidates=${candidates.length} anchors=${picked.map((a) => a.name).join(", ") || "none"}`);
+  if (picked.length === 0) return dayStops;
+  return placeCityAnchors(dayStops, picked, deficit);
 }
 
 export async function buildBrief(
@@ -3372,7 +3470,7 @@ export async function buildBrief(
           fetchLandmarks: () => fetchLandmarkCandidates(scope, region, onCandidateFetchFailure, { includeIslands: true }),
           fetchSlot: (slot) => fetchSlotCandidates(scope, region, slot, false, onCandidateFetchFailure),
         })
-      : await ensureCityLandmarkAnchors(scope, region, balanceCityDayGroups(geoOrderedDayGroups, minViableSpots(style, days), region), onCandidateFetchFailure);
+      : await ensureCityLandmarkAnchors(scope, region, balanceCityDayGroups(geoOrderedDayGroups, minViableSpots(style, days), region), onCandidateFetchFailure, minViableSpots(style, days));
   // 작업지시서 2026-09-23 §3-b — 각 날짜의 첫 스팟이 평점 신호 없이
   // 시작하지 않도록 순서를 조정한다. 반드시 라우팅(바로 아래
   // routeDayStops) 이전에 해야 한다 — 이후에 순서만 바꾸면 구간
@@ -3568,15 +3666,22 @@ export async function buildBrief(
   // 전체 지도와 일자별 지도를 병렬로 만든다(작업지시서 2026-09-29 §1) —
   // 각 호출이 독립이고 개별 타임아웃(MAP_CALL_TIMEOUT_MS)이 있어, 직렬로
   // 돌리면 일수만큼 늘어날 지연을 한 번(최대 5초)으로 묶는다.
-  const [imageUrl, dayImageUrls] = await Promise.all([
-    generateCourseMapImage(cacheKey, finalSpots, finalMapPaths),
-    generateDayMapImages(
-      cacheKey,
-      finalSpots,
-      finalMapPaths,
-      routedDays.map((d) => d.stops.length),
-    ),
-  ]);
+  // 작업지시서 2026-10-01 "Vercel 로그 판독 결과" §3 — 캐시하지 않는(= 422로 갈) 결과는
+  // 지도를 만들 이유가 없다. 같은 경로에 다시 쓰다 "blob already exists" 오류 소음도 낸다.
+  const mapsNeeded = isCacheableBrief(finalSpots, style, days);
+  let imageUrl: string | null = null;
+  let dayImageUrls: (string | null)[] = routedDays.map(() => null);
+  if (mapsNeeded) {
+    [imageUrl, dayImageUrls] = await Promise.all([
+      generateCourseMapImage(cacheKey, finalSpots, finalMapPaths),
+      generateDayMapImages(
+        cacheKey,
+        finalSpots,
+        finalMapPaths,
+        routedDays.map((d) => d.stops.length),
+      ),
+    ]);
+  }
   brief = {
     ...brief,
     spots: finalSpots,
