@@ -100,6 +100,15 @@ export interface CourseBriefSpot {
    * 2026-09-29 "#280 검증" §2. 순수 추가 필드.
    */
   beach?: true;
+  /**
+   * 이 스팟이 그날을 통째로 쓰는 종일시설(USJ·디즈니·동물원 등)이면 true(아니면 필드 자체가
+   * 없다). 시설 날은 동반이 없으면 하루 1곳일 수 있어, AutoPipeline이 "하루 1곳 이하 = 일자 분배
+   * 실패"로 오판해 코스를 건너뛰지 않도록 구분한다 — 작업지시서 2026-10-06 "#294 검증" §2.
+   * 순수 추가 필드.
+   */
+  facilityDay?: true;
+  /** 이 스팟이 숙소이면 true(아니면 필드 자체가 없다). 숙소는 그날 마지막 순서로 고정한다 — 작업지시서 2026-10-06 "#294 검증" §4. 순수 추가 필드. */
+  lodging?: true;
 }
 
 export interface CourseBrief {
@@ -138,7 +147,8 @@ export interface CourseBrief {
    * 권역명(예: "도심", "항만")은 넣지 않는다 — 지시서 §4: 사람이 붙이는
    * 이름이라 자동 판정하면 틀린다.
    */
-  dayTotals: { day: CourseDays; distanceKm: number; spotCount: number }[];
+  /** facilityDay: 그날이 종일시설 날이면 true(아니면 필드 없음) — spots[].facilityDay와 같은 신호(작업지시서 2026-10-06 "#294 검증" §2). */
+  dayTotals: { day: CourseDays; distanceKm: number; spotCount: number; facilityDay?: true }[];
   /**
    * 일자별 동선 지도 — 작업지시서 2026-09-29 "일자별 동선 지도 · #279가
    * 경주에서 효과 없음 · 오사카 2일" §1: 블로그 7일 글에 7일 전체 지도
@@ -312,7 +322,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 28; // 작업지시서 2026-10-06 "#293 검증: 전 지역 200. 남은 건 작은 세 가지" — 한글 투어 업체 판정·휴양형 하루 최대 5곳·숙소 우선 제외·원거리 스팟 제외·종일시설 날 동반 조건은 최종 브리프 조립 로직과 후보 읽기 시점 필터에만 있어, 버전을 올리지 않으면 세부·오사카가 26시간 동안 옛 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 29; // 작업지시서 2026-10-06 "#294 검증: USJ 단독 날 됐습니다" — 종일시설 판정 축소(리뷰 3만 이상 또는 이름 사전)·한글 이름 일반 음식점의 한식 상한·숙소 마지막 순서는 최종 브리프 조립 로직과 후보 읽기 시점에만 있고, spots[].facilityDay/lodging·dayTotals[].facilityDay는 새 응답 필드라, 버전을 올리지 않으면 삿포로·오사카·세부가 26시간 동안 필드 없는 옛 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -987,6 +997,21 @@ function catalogRatingFor(scope: CourseBriefScope, region: string, stop: FinalSt
 function hasRatingHint(scope: CourseBriefScope, region: string, stop: FinalStop): boolean {
   if (stop.rating != null) return true;
   return catalogRatingFor(scope, region, stop) != null;
+}
+
+/**
+ * 숙소는 그날 마지막 순서로 — 작업지시서 2026-10-06 "#294 검증" §4(세부 d6의 "웰컴 호텔"이
+ * 식당 앞에 끼어 있었다). 나머지 스팟의 상대 순서는 그대로 두는 안정 정렬이다. 반드시 라우팅
+ * *이전*(구간 이동시간이 이웃한 두 스팟 쌍을 가리키므로)에 하고, 라우팅 뒤 재배분이 날을 바꿨을
+ * 때도 재라우팅 전에 다시 한다. 라우팅 이후 평점 보강 단계의 1번 자리 맞바꿈은
+ * findRatedFirstStopSwapIndex가 숙소를 건드리지 않는다.
+ */
+export function moveLodgingLast(stops: FinalStop[]): FinalStop[] {
+  const lodging = stops.filter(isLodging);
+  if (lodging.length === 0 || stops.length < 2) return stops;
+  const rest = stops.filter((s) => !isLodging(s));
+  const reordered = [...rest, ...lodging];
+  return reordered.every((s, i) => s === stops[i]) ? stops : reordered;
 }
 
 /**
@@ -2036,8 +2061,10 @@ export function findRatedFirstStopSwapIndex(daySpots: readonly CourseBriefSpot[]
   // 구간이 다시 조회돼 자동차 구간으로 바뀌고, 식당에서 배를 타던 문제가
   // 되살아난다(작업지시서 2026-09-29 "#283 검증" §2).
   const touchesBoat = (i: number) => daySpots[i].toNextMode === "boat" || (i > 0 && daySpots[i - 1].toNextMode === "boat");
-  if (touchesBoat(0)) return null;
-  const j = daySpots.findIndex((s, i) => i > 0 && s.rating != null && !touchesBoat(i));
+  if (touchesBoat(0) || daySpots[0].lodging) return null;
+  // 숙소는 그날 마지막 순서로 고정한다 — 평점 있는 스팟이라고 1번 자리로 끌어오지 않는다
+  // (작업지시서 2026-10-06 "#294 검증" §4).
+  const j = daySpots.findIndex((s, i) => i > 0 && s.rating != null && !s.lodging && !touchesBoat(i));
   return j === -1 ? null : j;
 }
 
@@ -2110,6 +2137,8 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
       ...(displayName !== stop.name ? { originalName: stop.name } : {}),
       category: liveCategoryBucket(stop.category),
       ...(isBeach(stop) ? { beach: true as const } : {}),
+      ...(isDayFacility(stop) ? { facilityDay: true as const } : {}),
+      ...(isLodging(stop) ? { lodging: true as const } : {}),
       rating,
       reviewCount,
       lat: stop.lat,
@@ -3596,7 +3625,7 @@ export async function buildBrief(
   // (routeDayStops는 "순서상 이웃한 두 스톱" 사이만 조회하므로, 순서를
   // 정한 뒤에 조회해야 항상 맞는다). preferRatedFirstStop 주석 참고 —
   // 스팟을 빼지 않고 순서만 바꾼다(§3-a 제외는 여전히 보류).
-  const finalDayGroups = anchoredDayGroups.map((stops) => preferRatedFirstStop(scope, region, stops));
+  const finalDayGroups = anchoredDayGroups.map((stops) => moveLodgingLast(preferRatedFirstStop(scope, region, stops)));
   console.log(`[courseBrief] path=composed ${scope}/${region} counts=${counts(finalDayGroups)}`);
 
   // 하루 안의 구간(순서상 이웃한 두 스톱)마다 실제 경로를 조회한다 —
@@ -3619,7 +3648,7 @@ export async function buildBrief(
   const routedDaysBeforeRebalance = routedDays.reduce((sum, d) => sum + d.stops.length, 0);
   {
     const before = routedDays.map((d) => d.stops);
-    const after = style === "resort" ? rebalanceResortDays(before) : balanceCityDayGroups(before, minViableSpots(style, days), region);
+    const after = (style === "resort" ? rebalanceResortDays(before) : balanceCityDayGroups(before, minViableSpots(style, days), region)).map(moveLodgingLast);
     const changed = after.map((stops, i) => stops.map((s) => s.id).join("|") !== before[i].map((s) => s.id).join("|"));
     console.log(`[courseBrief] path=post-route-rebalance ${scope}/${region} routed=${counts(before)} after=${counts(after)} changed=[${changed.join(",")}]`);
     if (changed.some(Boolean)) {
@@ -3644,7 +3673,7 @@ export async function buildBrief(
     // 없는(points === null) 구간은 요일 색 대신 회색(추정 표시)이 우선한다.
     mapPaths.push(...segments.map((s) => (s.points == null ? recolorMapPathAsEstimated(s.mapPath) : recolorMapPathForDay(s.mapPath, i))));
     if (hadStraightFallback) hadAnyStraightFallback = true;
-    dayTotals.push({ day: (i + 1) as CourseDays, distanceKm: round1(distanceKm), spotCount: spots.length });
+    dayTotals.push({ day: (i + 1) as CourseDays, distanceKm: round1(distanceKm), spotCount: spots.length, ...(stops.some(isDayFacility) ? { facilityDay: true as const } : {}) });
   });
   // 실패해도 조용히 직선으로 폴백해왔다 — 작업지시서 2026-09-11 "해외
   // 경로가 조용히 직선으로 떨어지고 있습니다" §3: "그걸 아무도 모르게

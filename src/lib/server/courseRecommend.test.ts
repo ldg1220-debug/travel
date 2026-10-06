@@ -216,15 +216,34 @@ describe("applyQualityGate", () => {
 // 오사카 3박4일 다일정 실측(5차)에서 발견 — 유니버설 스튜디오 재팬이
 // 공항 출발일 "오전 명소" 슬롯에 1시간짜리로 배정됨 (GitHub issue #156).
 describe("isLargeFacility", () => {
-  it("flags Google Places primaryType values for day-consuming venues", () => {
-    expect(isLargeFacility(place({ category: "amusement_park" }))).toBe(true); // 유니버설 스튜디오 재팬류
-    expect(isLargeFacility(place({ category: "aquarium" }))).toBe(true); // 오사카 해유관류
-    expect(isLargeFacility(place({ category: "zoo" }))).toBe(true);
-    expect(isLargeFacility(place({ category: "water_park" }))).toBe(true);
+  // 작업지시서 2026-10-06 "#294 검증" §2 — 종일시설 = 타입(amusement_park·zoo·aquarium 등)이면서
+  // 리뷰 3만 이상 또는 이름 사전(USJ·디즈니·롯데월드·에버랜드·타롱가 류).
+  it("flags Google Places primaryType values for day-consuming venues when they are big (30k+ reviews)", () => {
+    expect(isLargeFacility(place({ category: "amusement_park", reviewCount: 90000 }))).toBe(true); // 유니버설 스튜디오 재팬류
+    expect(isLargeFacility(place({ category: "aquarium", reviewCount: 40000 }))).toBe(true); // 오사카 해유관류
+    expect(isLargeFacility(place({ category: "zoo", reviewCount: 30000 }))).toBe(true);
+    expect(isLargeFacility(place({ category: "water_park", reviewCount: 50000 }))).toBe(true);
+  });
+
+  it("flags a known all-day venue by name even with few reviews (USJ · 에버랜드 · Taronga Zoo)", () => {
+    expect(isLargeFacility(place({ category: "amusement_park", name: "유니버설 스튜디오 재팬" }))).toBe(true);
+    expect(isLargeFacility(place({ category: "amusement_park", name: "Everland" }))).toBe(true);
+    expect(isLargeFacility(place({ category: "zoo", name: "Taronga Zoo Sydney", reviewCount: 500 }))).toBe(true);
+  });
+
+  it("does not flag a small attraction with a facility type (시로이코이비토 파크 — 1~2시간 견학)", () => {
+    expect(isLargeFacility(place({ category: "amusement_park", name: "시로이코이비토 파크", reviewCount: 16000 }))).toBe(false);
+    expect(isLargeFacility(place({ category: "zoo", name: "Small Petting Zoo", reviewCount: 29999 }))).toBe(false);
+    expect(isLargeFacility(place({ category: "amusement_park" }))).toBe(false); // 리뷰 수도 이름 사전도 없다
+  });
+
+  it("does not use the name dictionary without the facility type (디즈니 스토어 · 롯데월드몰)", () => {
+    expect(isLargeFacility(place({ category: "store", name: "디즈니 스토어" }))).toBe(false);
+    expect(isLargeFacility(place({ category: "shopping_mall", name: "롯데월드몰" }))).toBe(false);
   });
 
   it("is case-insensitive (Google may return the type in either case depending on the call site)", () => {
-    expect(isLargeFacility(place({ category: "AMUSEMENT_PARK" }))).toBe(true);
+    expect(isLargeFacility(place({ category: "AMUSEMENT_PARK", reviewCount: 90000 }))).toBe(true);
   });
 
   it("does not flag ordinary attractions or a bare public park", () => {
@@ -648,6 +667,17 @@ describe("isKoreanRestaurant — 해외 코스 한식당 상한 판정용 (작�
 
   it("does not flag a local (non-Korean) restaurant", () => {
     expect(isKoreanRestaurant(place({ category: "restaurant", name: "House of Lechon" }))).toBe(false);
+  });
+
+  // 작업지시서 2026-10-06 "#294 검증" §3
+  it("flags a generic restaurant whose name has Hangul (Unclejack 엉클잭하우스 — 세부의 한인 식당)", () => {
+    expect(isKoreanRestaurant(place({ category: "restaurant", name: "Unclejack 엉클잭하우스" }))).toBe(true);
+    expect(isKoreanRestaurant(place({ category: "restaurant", name: "풍류정" }))).toBe(true);
+  });
+
+  it("does not flag a cuisine-specific restaurant or a non-restaurant just because the name has Hangul (ko-localized names)", () => {
+    expect(isKoreanRestaurant(place({ category: "seafood_restaurant", name: "란타우 플로팅 네이티브 레스토랑" }))).toBe(false);
+    expect(isKoreanRestaurant(place({ category: "tourist_attraction", name: "산 페드로 요새" }))).toBe(false);
   });
 });
 
