@@ -689,9 +689,19 @@ export function isValidPlace(p: Place): boolean {
 // 마찬가지로 단어 경계 없는 부분 문자열 검사다 — "OO여행사진관"처럼
 // "여행사"를 부분 문자열로 포함하는 드문 실제 상호명은 오탐 가능성이
 // 있으나, 실제 여행사 사무실을 놓치는 것보다 낫다고 판단했다.
-const TRAVEL_AGENCY_NAME_PATTERN = /\b(tours?|travels?|travel agency)\b|여행사/i;
+//
+// 작업지시서 2026-10-06 "#293 검증" §2 — 세부 d7에 "한바다호핑투어"(호핑투어
+// 업체)가 다시 들어왔다. 위 패턴은 영어 "tour(s)"와 "여행사"만 봐서 한글 "투어"가
+// 붙은 업체를 못 걸렀다(모든 후보 삽입 경로가 이미 이 함수를 거치므로 — 슬롯·
+// 앵커·섬·선착장·해변 전부 fetchSlotCandidates/fetchLandmarkCandidates의 같은
+// 필터 — 경로 누락이 아니라 이 패턴의 빈틈이었다). 한글 "투어"·"트래블"을 더한다.
+// 페리 선착장·마리나("호핑 투어 선착장" 류)는 배를 타는 곳이라 이름과 무관하게 제외하지 않는다.
+const TRAVEL_AGENCY_NAME_PATTERN = /\b(tours?|travels?|travel agency)\b|여행사|투어|트래블/i;
 export function isTravelAgency(p: Place): boolean {
-  return p.category?.toLowerCase() === "travel_agency" || TRAVEL_AGENCY_NAME_PATTERN.test(p.name);
+  const category = p.category?.toLowerCase();
+  if (category === "travel_agency") return true;
+  if (category === "ferry_terminal" || category === "marina") return false;
+  return TRAVEL_AGENCY_NAME_PATTERN.test(p.name);
 }
 
 // 같은 지시서 §3-③ — 휴양형 relax 슬롯(THEME_SLOTS.resort, "스파 마사지")이
@@ -811,8 +821,15 @@ export function isIsland(p: { category?: string; name: string }): boolean {
 // 코드베이스의 다른 이름 매칭보다 크다고 판단, isLargeFacility처럼
 // primaryType만으로 판정한다.
 const LODGING_TYPES = new Set(["lodging", "hotel", "resort_hotel", "motel", "guest_house", "hostel", "bed_and_breakfast"]);
+// 작업지시서 2026-10-06 "#293 검증" §3 — primaryType이 숙소로 안 잡히는 게스트하우스·
+// 호스텔·호텔(세부 d6 "웰컴 호텔")이 숙소 1곳 캡을 빠져나갔다. 이름에 숙소 표지가
+// 있고 음식점·카페·스파가 아닌 경우만 숙소로 본다(호텔 안 식당·스파 오탐 방지).
+const LODGING_NAME_PATTERN = /게스트\s?하우스|guest\s?house|hostel|호스텔|민박|호텔|\bhotel\b/i;
+const FOOD_OR_SPA_CATEGORY = /restaurant|cafe|coffee|bakery|\bbar\b|\bpub\b|spa|food|음식점|카페|술집/i;
 export function isLodging(p: Place): boolean {
-  return LODGING_TYPES.has(p.category?.toLowerCase() ?? "");
+  if (LODGING_TYPES.has(p.category?.toLowerCase() ?? "")) return true;
+  if (p.category && FOOD_OR_SPA_CATEGORY.test(p.category)) return false;
+  return LODGING_NAME_PATTERN.test(p.name);
 }
 
 // 작업지시서 2026-09-29 "#276 검증: 여행사는 빠졌고, 공항이 방문지로

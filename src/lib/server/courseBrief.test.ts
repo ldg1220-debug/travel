@@ -8,6 +8,10 @@ import {
   buildStaticMapUrl,
   capAllDayFacilityDays,
   capCityDaySizes,
+  capResortDaySizes,
+  dropRemoteResortStops,
+  enforceFacilityDayCompanions,
+  isValidFacilityCompanion,
   capLodgingToOne,
   capOverseasKoreanRestaurants,
   capResortSpaSpotsPerDay,
@@ -2593,7 +2597,8 @@ describe("도시형 전체 흐름 — 오사카 2일 · 앵커 보충 (작업지
     const realloc = reallocateStopsByDay(days);
     const { days: final } = capCityDaySizes(rebalanceCityDays(realloc), 6);
     expect(final.flat().length).toBeGreaterThanOrEqual(6);
-    for (const d of final) expect(d.length).toBeGreaterThanOrEqual(2);
+    // 시설 날은 가까운 동반이 없으면 시설 단독(1곳)도 허용 — 작업지시서 2026-10-06 "#293 검증" §4.
+    for (const d of final) expect(d.length).toBeGreaterThanOrEqual(d.some(isDayFacility) ? 1 : 2);
     expect(final.flat().filter((s) => s.id === "usj")).toHaveLength(1);
   });
 
@@ -2650,5 +2655,106 @@ describe("balanceSightsAcrossDays — 종일시설·앵커는 옮기지 않는�
     const result = balanceSightsAcrossDays(days);
     expect(result[1].map((s) => s.id)).toContain("plain");
     expect(result[0].map((s) => s.id)).toEqual(expect.arrayContaining(["zoo", "anchor", "big"]));
+  });
+});
+
+describe("휴양형 하루 최대 5곳·숙소 우선 제외·원거리 스팟 (작업지시서 2026-10-06 '#293 검증' §3)", () => {
+  const at = (id: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name: id, ...extra });
+
+  it("세부 d6 모양: 6곳(숙소 포함) → 숙소가 먼저 빠져 5곳, 나머지는 유지", () => {
+    const day6 = [
+      at("Cheeva Spa", 10.31, 123.9, { category: "spa", rating: 4.8, reviewCount: 900 }),
+      at("트리쉐이드", 10.31, 123.9, { category: "tourist_attraction", rating: 4.5, reviewCount: 800 }),
+      at("레아신전", 10.34, 123.89, { category: "tourist_attraction", rating: 4.6, reviewCount: 5000 }),
+      at("La Parisienne Cebu", 10.31, 123.9, { category: "cafe", rating: 4.4, reviewCount: 300 }),
+      at("웰컴 호텔", 10.31, 123.9, { category: "hotel", rating: 4.0, reviewCount: 1200 }),
+      at("House of Lechon", 10.31, 123.9, { category: "restaurant", meal: true, rating: 4.4, reviewCount: 2500 }),
+    ];
+    const { days, trimmed } = capResortDaySizes([day6, [at("x", 10, 123, { category: "tourist_attraction" }), at("y", 10, 123, { category: "tourist_attraction" })]], 4);
+    expect(trimmed.map((s) => s.id)).toEqual(["웰컴 호텔"]);
+    expect(days[0]).toHaveLength(5);
+  });
+
+  it("선착장·섬·대표 명소 앵커·코스 유일의 해변은 상한을 넘겨도 빼지 않는다", () => {
+    const day = [
+      at("jetty", 10, 123, { slotKey: "jetty", name: "힐튼 선착장", category: "ferry_terminal" }),
+      at("isl", 10, 123, { name: "Caohagan Island", category: "island" }),
+      at("anchor", 10, 123, { slotKey: "landmark-anchor", category: "tourist_attraction" }),
+      at("beach", 10, 123, { category: "beach", name: "수바-배즈바스 해변" }),
+      at("meal", 10, 123, { category: "restaurant", meal: true }),
+      at("spa", 10, 123, { category: "spa", name: "Spa" }),
+    ];
+    const { days, trimmed } = capResortDaySizes([day, [at("p", 10, 123), at("q", 10, 123)]], 4);
+    expect(trimmed.map((s) => s.id)).not.toContain("beach");
+    expect(days[0].map((s) => s.id)).toEqual(expect.arrayContaining(["jetty", "isl", "anchor", "beach"]));
+  });
+
+  it("dropRemoteResortStops: 중심에서 80km 넘고 그날 다른 스팟과 50km 이상 떨어진 카와산 폭포를 뺀다", () => {
+    const days = [
+      [at("a", 10.31, 123.9), at("b", 10.32, 123.91), at("c", 10.33, 123.9)],
+      [at("카와산 폭포", 9.75, 123.35, { category: "tourist_attraction" }), at("수바-배즈바스 비치", 10.29, 123.99, { category: "beach" })],
+      [at("d", 10.3, 123.95), at("e", 10.31, 123.93), at("f", 10.34, 123.92)],
+    ];
+    const { days: kept, dropped } = dropRemoteResortStops(days, 6);
+    expect(dropped.map((s) => s.id)).toEqual(["카와산 폭포"]);
+    expect(kept.flat()).toHaveLength(7);
+    expect(kept[1].map((s) => s.id)).toEqual(["수바-배즈바스 비치"]);
+  });
+
+  it("dropRemoteResortStops: 단독 날·같은 날 가까운 이웃이 있는 원거리 스팟·배 여행 묶음·총량 최소 이하는 건드리지 않는다", () => {
+    const near = [[at("a", 10.31, 123.9), at("b", 10.32, 123.91), at("c", 10.33, 123.9)], [at("far1", 9.75, 123.35), at("far2", 9.76, 123.36)]]; // 같은 날 이웃이 가깝다
+    expect(dropRemoteResortStops(near, 3).dropped).toHaveLength(0);
+    const alone = [[at("a", 10.31, 123.9), at("b", 10.32, 123.91), at("c", 10.33, 123.9)], [at("far", 9.75, 123.35)]];
+    expect(dropRemoteResortStops(alone, 3).dropped).toHaveLength(0);
+    const boat = [[at("a", 10.31, 123.9), at("b", 10.32, 123.91), at("c", 10.33, 123.9)], [at("isl", 9.75, 123.35, { category: "island", name: "먼 섬" }), at("d", 10.3, 123.95)]];
+    expect(dropRemoteResortStops(boat, 3).dropped).toHaveLength(0);
+    const tight = [[at("a", 10.31, 123.9), at("b", 10.32, 123.91)], [at("far", 9.75, 123.35), at("c", 10.3, 123.95)]];
+    expect(dropRemoteResortStops(tight, 4).dropped).toHaveLength(0);
+  });
+});
+
+describe("종일시설 날 동반 조건 — 시설 5km 이내 · 시설/대형 명소 아님 (작업지시서 2026-10-06 '#293 검증' §4)", () => {
+  const at = (id: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name: id, ...extra });
+  const usj = () => at("usj", 34.665, 135.433, { category: "amusement_park", name: "유니버설 스튜디오 재팬", reviewCount: 90000, rating: 4.6 });
+
+  it("isValidFacilityCompanion: 5km 이내 식사·가벼운 스팟은 가능, 다른 시설·앵커·먼 곳은 불가", () => {
+    const f = usj();
+    expect(isValidFacilityCompanion(at("food", 34.67, 135.44, { category: "restaurant", meal: true }), f)).toBe(true);
+    expect(isValidFacilityCompanion(at("kaiyukan", 34.654, 135.429, { category: "aquarium" }), f)).toBe(false); // 또 하나의 시설
+    expect(isValidFacilityCompanion(at("castle", 34.687, 135.526, { slotKey: "landmark-anchor" }), f)).toBe(false); // 앵커
+    expect(isValidFacilityCompanion(at("dotonbori", 34.668, 135.503), f)).toBe(false); // 6km 넘음
+  });
+
+  it("USJ 날의 해유관·오사카 성·도톤보리는 시설 없는 날로 옮기고, 가까운 식사는 남긴다", () => {
+    const days = [
+      [usj(), at("kaiyukan", 34.654, 135.429, { category: "aquarium", facilityDemoted: true } as Partial<FinalStop>), at("castle", 34.687, 135.526, { slotKey: "landmark-anchor" }), at("dotonbori", 34.668, 135.503), at("citywalk", 34.667, 135.435, { meal: true, category: "restaurant" })],
+      [at("a", 34.7, 135.5), at("b", 34.69, 135.51)],
+    ];
+    const { days: result, moved, dropped } = enforceFacilityDayCompanions(days, 6);
+    const usjDay = result.find((d) => d.some((s) => s.id === "usj"))!;
+    expect(usjDay.map((s) => s.id).sort()).toEqual(["citywalk", "usj"]);
+    expect(moved.map((s) => s.id).sort()).toEqual(["castle", "dotonbori", "kaiyukan"]);
+    expect(dropped).toHaveLength(0);
+    expect(result.flat()).toHaveLength(7);
+  });
+
+  it("옮길 날에 자리가 없으면 총량이 허용하는 만큼만 빼고, 총량이 모자라면 그대로 둔다", () => {
+    const full = Array.from({ length: 5 }, (_, i) => at(`f${i}`, 34.7, 135.5));
+    const days = [[usj(), at("dotonbori", 34.668, 135.503)], full];
+    expect(enforceFacilityDayCompanions(days, 6).dropped.map((s) => s.id)).toEqual(["dotonbori"]);
+    const keep = enforceFacilityDayCompanions(days, 8);
+    expect(keep.dropped).toHaveLength(0);
+    expect(keep.days.flat()).toHaveLength(7);
+  });
+
+  it("앵커는 시설 날에 들어가지 않고(placeLandmarkAnchors·placeCityAnchors), rebalanceCityDays도 먼 스팟을 시설 날로 옮기지 않는다", () => {
+    const base = [[usj()], [stop("n1", 34.7, 135.5), stop("n2", 34.69, 135.51)]];
+    const replaced = placeLandmarkAnchors(base, [place("castle", { name: "오사카 성", rating: 4.6, reviewCount: 90000 })]);
+    expect(replaced[0].map((s) => s.id)).toEqual(["usj"]);
+    const added = placeCityAnchors(base, [place("castle", { name: "오사카 성", rating: 4.6, reviewCount: 90000 })], 1);
+    expect(added[0].map((s) => s.id)).toEqual(["usj"]);
+    expect(added[1]).toHaveLength(3);
+    const moved = rebalanceCityDays([[usj()], [stop("n1", 34.7, 135.5), stop("n2", 34.69, 135.51), stop("n3", 34.68, 135.52), stop("n4", 34.7, 135.49)]]);
+    expect(moved[0].map((s) => s.id)).toEqual(["usj"]); // 가까운 동반 후보가 없다 → 시설 단독
   });
 });
