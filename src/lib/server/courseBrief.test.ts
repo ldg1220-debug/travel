@@ -32,6 +32,7 @@ import {
   findRatedFirstStopSwapIndex,
   insertBeforeDinner,
   isCacheableBrief,
+  moveLodgingLast,
   isEstimatedLeg,
   isFreshBriefPayload,
   isSightStop,
@@ -2429,7 +2430,7 @@ describe("rebalanceCityDays — 도시형 하루 스팟 수 재배분 (작업지
   // 시드니 모양: 시내(0,0 근처)에 일반 스팟이 몰려 있고, 종일시설(동물원·아쿠아리움·테마파크)이
   // 시내 가까이 각자 한 곳씩 있다.
   const spotAt = (id: string, dx: number, dy: number, extra: Partial<FinalStop> = {}) => stop(id, -33.86 + dy * 0.001, 151.2 + dx * 0.001, { name: id, ...extra });
-  const facility = (id: string, category: string, dx: number, dy: number) => spotAt(id, dx, dy, { category });
+  const facility = (id: string, category: string, dx: number, dy: number) => spotAt(id, dx, dy, { category, reviewCount: 50000 }); // 종일시설 = 리뷰 3만 이상(isLargeFacility)
   const normals = (prefix: string, n: number, dx0: number) => Array.from({ length: n }, (_, i) => spotAt(`${prefix}${i}`, dx0 + i * 0.3, i * 0.2, { reviewCount: 100 + i }));
   const sizes = (days: FinalStop[][]) => days.map((d) => d.length);
 
@@ -2487,7 +2488,7 @@ describe("rebalanceCityDays — 도시형 하루 스팟 수 재배분 (작업지
 describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 2026-09-30 '#290 검증' §2·§4)", () => {
   const spotAt = (id: string, dx: number, dy: number, extra: Partial<FinalStop> = {}) => stop(id, -33.86 + dy * 0.001, 151.2 + dx * 0.001, { name: id, ...extra });
   const normals = (prefix: string, n: number, dx0: number) => Array.from({ length: n }, (_, i) => spotAt(`${prefix}${i}`, dx0 + i * 0.3, i * 0.2, { reviewCount: 100 + i }));
-  const fac = (id: string, category: string, dx: number) => spotAt(id, dx, 1, { category });
+  const fac = (id: string, category: string, dx: number) => spotAt(id, dx, 1, { category, reviewCount: 50000 });
   const total = (d: FinalStop[][]) => d.flat().length;
 
   it("시드니 3일 [6,6,1]·4일 [6,6,1,1]: 재배분은 총합·구성을 바꾸지 않는다", () => {
@@ -2560,8 +2561,8 @@ describe("재배치가 스팟을 버리지 않는다 — 시드니 d3 · 오사�
   });
 
   it("시드니 3일: 일별 7곳 21곳 + 시설 2곳 → 총 스팟이 8곳으로 무너지지 않고, 시설 날은 1일 이하", () => {
-    const zoo = fac("zoo", "zoo", p(-33.84, 151.24), 20000);
-    const aquarium = fac("aq", "aquarium", p(-33.87, 151.2), 15000);
+    const zoo = fac("zoo", "zoo", p(-33.84, 151.24), 50000);
+    const aquarium = fac("aq", "aquarium", p(-33.87, 151.2), 40000);
     const days = [
       [zoo, ...sights("a", 6, p(-33.86, 151.21))],
       [aquarium, ...sights("b", 6, p(-33.87, 151.22))],
@@ -2649,7 +2650,7 @@ describe("balanceSightsAcrossDays — 종일시설·앵커는 옮기지 않는�
   it("볼거리 없는 날에는 시설·앵커가 아닌 가장 덜 인기 있는 볼거리를 옮긴다", () => {
     const sight = (id: string, rc: number, extra: Partial<FinalStop> = {}) => stop(id, 0, 0, { category: "tourist_attraction", rating: 4.5, reviewCount: rc, ...extra });
     const days = [
-      [stop("zoo", 0, 0, { category: "zoo", rating: 4.8, reviewCount: 1 }), sight("anchor", 5, { slotKey: "landmark-anchor" }), sight("plain", 700), sight("big", 9000)],
+      [stop("zoo", 0, 0, { category: "zoo", rating: 4.8, reviewCount: 50000 }), sight("anchor", 5, { slotKey: "landmark-anchor" }), sight("plain", 700), sight("big", 9000)],
       [stop("m", 0, 0, { meal: true, category: "restaurant" }), stop("cafe", 0, 0, { category: "cafe" })],
     ];
     const result = balanceSightsAcrossDays(days);
@@ -2756,5 +2757,56 @@ describe("종일시설 날 동반 조건 — 시설 5km 이내 · 시설/대형 
     expect(added[1]).toHaveLength(3);
     const moved = rebalanceCityDays([[usj()], [stop("n1", 34.7, 135.5), stop("n2", 34.69, 135.51), stop("n3", 34.68, 135.52), stop("n4", 34.7, 135.49)]]);
     expect(moved[0].map((s) => s.id)).toEqual(["usj"]); // 가까운 동반 후보가 없다 → 시설 단독
+  });
+});
+
+describe("숙소는 그날 마지막 · facilityDay/lodging 표시 (작업지시서 2026-10-06 '#294 검증' §2·§4)", () => {
+  const at = (id: string, extra: Partial<FinalStop> = {}) => stop(id, 10, 120, { name: id, ...extra });
+
+  it("moveLodgingLast: 숙소를 그날 마지막으로 보내고 나머지 순서는 유지한다(이미 마지막이면 같은 배열)", () => {
+    const stops = [at("fort"), at("웰컴 호텔", { category: "hotel" }), at("lechon", { category: "restaurant", meal: true }), at("lantaw", { category: "restaurant", meal: true })];
+    expect(moveLodgingLast(stops).map((s) => s.id)).toEqual(["fort", "lechon", "lantaw", "웰컴 호텔"]);
+    const already = [at("a"), at("호텔", { category: "hotel" })];
+    expect(moveLodgingLast(already)).toBe(already);
+    expect(moveLodgingLast([at("only")])).toEqual([at("only")]);
+  });
+
+  it("assembleDaySpots: 종일시설 스팟에 facilityDay, 숙소에 lodging을 붙인다(아니면 필드 없음)", () => {
+    const stops = [
+      at("usj", { category: "amusement_park", name: "유니버설 스튜디오 재팬" }),
+      at("hotel", { category: "hotel", name: "웰컴 호텔" }),
+    ];
+    const segs = [fakeRoute(1, 5)];
+    const { spots } = assembleDaySpots(stops, segs, 1, "overseas", "오사카", 1);
+    expect(spots[0].facilityDay).toBe(true);
+    expect(spots[0].lodging).toBeUndefined();
+    expect(spots[1].lodging).toBe(true);
+    expect(spots[1].facilityDay).toBeUndefined();
+  });
+
+  it("assembleDaySpots: 시로이코이비토 파크처럼 작은 amusement_park는 facilityDay가 아니다", () => {
+    const { spots } = assembleDaySpots([at("shiroi", { category: "amusement_park", name: "시로이코이비토 파크", reviewCount: 16000 })], [], 1, "overseas", "삿포로", 1);
+    expect(spots[0].facilityDay).toBeUndefined();
+  });
+
+  it("findRatedFirstStopSwapIndex: 평점 있는 숙소라도 1번 자리로 끌어오지 않는다", () => {
+    const sp = (extra: Partial<CourseBriefSpot>): CourseBriefSpot => ({ name: "x", category: "관광지", rating: null, reviewCount: null, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: 5, toNextMode: "car", ...extra });
+    const day = [sp({ name: "a" }), sp({ name: "hotel", rating: 4.5, lodging: true })];
+    expect(findRatedFirstStopSwapIndex(day)).toBeNull();
+    const withOther = [sp({ name: "a" }), sp({ name: "hotel", rating: 4.5, lodging: true }), sp({ name: "b", rating: 4.0 })];
+    expect(findRatedFirstStopSwapIndex(withOther)).toBe(2);
+  });
+});
+
+describe("capOverseasKoreanRestaurants — 한글 이름 일반 음식점도 한식 (작업지시서 2026-10-06 '#294 검증' §3)", () => {
+  it("세부 1일차: 풍류정(korean_restaurant) + Unclejack 엉클잭하우스(restaurant) 중 인기 있는 1곳만 남기고 Cabana(seafood)는 유지", () => {
+    const at = (id: string, extra: Partial<FinalStop>) => stop(id, 10, 120, { name: id, meal: true, ...extra });
+    const day = [
+      at("Unclejack 엉클잭하우스", { category: "restaurant", rating: 4.3, reviewCount: 800 }),
+      at("풍류정", { category: "korean_restaurant", rating: 4.5, reviewCount: 2500 }),
+      at("Cabana Restaurant", { category: "seafood_restaurant", rating: 4.2, reviewCount: 600 }),
+    ];
+    const result = capOverseasKoreanRestaurants([day])[0].map((s) => s.id);
+    expect(result).toEqual(["풍류정", "Cabana Restaurant"]);
   });
 });

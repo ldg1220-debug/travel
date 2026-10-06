@@ -860,8 +860,16 @@ export function isTransitFacility(p: Place): boolean {
 // 한식 3곳)에서 확인됐다. courseBrief.ts가 이 판정으로 해외 코스 전체
 // 한식당을 1곳 이하로 캡한다(국내 코스는 당연히 전부 한식이라 이 캡을
 // 적용하지 않는다 — scope==="overseas"일 때만 courseBrief.ts에서 호출).
+// 작업지시서 2026-10-06 "#294 검증" §3 — 세부 1일차 "Unclejack 엉클잭하우스"는 category가 그냥
+// restaurant인 한인 식당이라 위 이름 패턴(korean|한식|한국)을 빠져나가 한식 2곳이 남았다.
+// 해외에서 이름에 한글이 있고 category가 일반 음식점(restaurant/food)이면 한식으로 본다.
+// seafood_restaurant 같은 구체 요리 category는 제외한다 — Google이 ko 언어로 현지 식당 이름을
+// 한글 음역으로 돌려주는 경우("란타우 플로팅 네이티브 레스토랑")를 한식으로 오판하지 않으려는 것.
+const HANGUL_PATTERN = /[가-힣]/;
 export function isKoreanRestaurant(p: Place): boolean {
-  return p.category?.toLowerCase() === "korean_restaurant" || /korean|한식|한국/i.test(p.name);
+  const category = p.category?.toLowerCase();
+  if (category === "korean_restaurant" || /korean|한식|한국/i.test(p.name)) return true;
+  return HANGUL_PATTERN.test(p.name) && (category === "restaurant" || category === "food");
 }
 
 // 슬롯 카테고리별 최소 리뷰 수. 2차 실측(오사카 3박4일)에서 "성합지"
@@ -924,8 +932,18 @@ export function applyQualityGate(places: Place[], scope: "overseas" | "domestic"
 // 담는다) — Kakao Local엔 이 정도로 세분화된 타입이 없어 국내는 이
 // 목록으로 걸러지는 게 사실상 없다(과잉 배제 위험이 없다는 뜻이기도 함).
 const LARGE_FACILITY_TYPES = new Set(["amusement_park", "theme_park", "water_park", "aquarium", "zoo", "amusement_center"]);
-export function isLargeFacility(p: Place): boolean {
-  return LARGE_FACILITY_TYPES.has(p.category?.toLowerCase() ?? "");
+// 작업지시서 2026-10-06 "#294 검증" §2 — 삿포로 "시로이코이비토 파크"(초콜릿 공장 견학,
+// 1~2시간)가 Google primaryType amusement_park라는 이유만으로 종일시설이 돼 [5,1]의 단독
+// 날을 만들었다. 종일시설은 위 타입이면서 리뷰 3만 이상이거나, 이름 사전(USJ·디즈니·롯데월드·
+// 에버랜드·타롱가 류 — 리뷰 수가 덜 쌓였어도 하루가 차는 곳)에 있을 때만이다. 이름 사전은
+// 타입 조건과 함께만 쓴다("디즈니 스토어"·"롯데월드몰" 같은 상점 오탐 방지, 국내 Kakao 후보는
+// 이 타입이 없어 이전과 같이 영향 없음).
+const LARGE_FACILITY_MIN_REVIEWS = 30000;
+const LARGE_FACILITY_NAME_PATTERN =
+  /유니버설|universal|\busj\b|디즈니|disney|롯데월드|lotte\s?world|에버랜드|everland|타롱가|taronga|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|해유관|가이유칸|kaiyukan|sea\s?life|시라이프|씨라이프|sea\s?world|씨월드|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
+export function isLargeFacility(p: { category?: string; name?: string; reviewCount?: number | null }): boolean {
+  if (!LARGE_FACILITY_TYPES.has(p.category?.toLowerCase() ?? "")) return false;
+  return (p.reviewCount ?? 0) >= LARGE_FACILITY_MIN_REVIEWS || LARGE_FACILITY_NAME_PATTERN.test(p.name ?? "");
 }
 
 // 다일정(멀티데이) 실측(오사카 3박4일)에서 관찰: 규카츠가 Day1(모토무라)·
