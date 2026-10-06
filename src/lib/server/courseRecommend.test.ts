@@ -384,6 +384,20 @@ describe("THEME_SLOTS.resort — activity 슬롯 검색어에 '투어'가 없다
   });
 });
 
+describe("isTravelAgency — 한글 투어 업체 (작업지시서 2026-10-06 '#293 검증' §2)", () => {
+  it("catches Korean tour operators (한바다호핑투어 · 세부 시티투어 · 트래블)", () => {
+    for (const name of ["한바다호핑투어", "세부 시티투어", "현지 트래블", "Cebu 호핑 투어"]) {
+      expect(isTravelAgency(place({ category: "point_of_interest", name }))).toBe(true);
+    }
+  });
+
+  it("does not drop a ferry terminal or marina just because its name says 투어, nor ordinary spots", () => {
+    expect(isTravelAgency(place({ category: "ferry_terminal", name: "호핑 투어 선착장" }))).toBe(false);
+    expect(isTravelAgency(place({ category: "marina", name: "Star Marina" }))).toBe(false);
+    expect(isTravelAgency(place({ category: "tourist_attraction", name: "카와산 폭포" }))).toBe(false);
+  });
+});
+
 describe("isTravelAgency — 여행사 사무실 제외 (작업지시서 2026-09-29 §3-①)", () => {
   it("flags a place whose Google primaryType is travel_agency", () => {
     expect(isTravelAgency(place({ category: "travel_agency", name: "GEM Travels" }))).toBe(true);
@@ -641,6 +655,20 @@ describe("isKoreanRestaurant — 해외 코스 한식당 상한 판정용 (작�
 // 사라졌습니다" §3-② — 스파를 갖춘 호텔("웰컴 호텔")이 "스파 마사지"
 // 검색에 걸려 두 번째 숙소로 들어간 실측이 있었다. 이름 패턴은 쓰지
 // 않는다 — 호텔 이름이 너무 다양해 오탐 위험이 크다고 판단.
+describe("isLodging — 이름 패턴 (작업지시서 2026-10-06 '#293 검증' §3)", () => {
+  it("catches guest houses / hostels / hotels whose primaryType is not a lodging type", () => {
+    for (const name of ["세부 게스트하우스", "Cebu Guest House", "Mactan Hostel", "웰컴 호텔", "Grand Hotel"]) {
+      expect(isLodging(place({ category: "point_of_interest", name }))).toBe(true);
+    }
+  });
+
+  it("does not catch a restaurant or spa inside a hotel, nor ordinary attractions", () => {
+    expect(isLodging(place({ category: "restaurant", name: "Grand Hotel Buffet" }))).toBe(false);
+    expect(isLodging(place({ category: "spa", name: "Shangri-La Hotel Spa" }))).toBe(false);
+    expect(isLodging(place({ category: "tourist_attraction", name: "레아신전" }))).toBe(false);
+  });
+});
+
 describe("isLodging — 휴양형 숙소 1곳 캡 판정용 (작업지시서 2026-09-29 '#277 검증' §3-②)", () => {
   it("flags a place by Google primaryType (hotel/lodging/resort_hotel/motel/etc.)", () => {
     expect(isLodging(place({ category: "hotel", name: "웰컴 호텔" }))).toBe(true);
