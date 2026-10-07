@@ -322,7 +322,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 29; // 작업지시서 2026-10-06 "#294 검증: USJ 단독 날 됐습니다" — 종일시설 판정 축소(리뷰 3만 이상 또는 이름 사전)·한글 이름 일반 음식점의 한식 상한·숙소 마지막 순서는 최종 브리프 조립 로직과 후보 읽기 시점에만 있고, spots[].facilityDay/lodging·dayTotals[].facilityDay는 새 응답 필드라, 버전을 올리지 않으면 삿포로·오사카·세부가 26시간 동안 필드 없는 옛 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 30; // 작업지시서 2026-10-06 "#295 검증: 표시·판정·한식·숙소 모두 됐습니다. 강등된 시설 하나만" — 시설 날 상한을 넘는 종일시설(도쿄 디즈니씨)을 일반 스팟으로 강등하지 않고 코스에서 제외하는 규칙은 최종 브리프 조립 로직에만 있어, 버전을 올리지 않으면 도쿄가 26시간 동안 디즈니씨가 일반 날에 들어간 v29 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -1716,29 +1716,28 @@ function maxNonFacilityCapacity(dayCount: number, facilityCount: number): number
 
 /**
  * 종일시설 날 상한 — 코스 일수의 절반 이하(2일→1, 3일→1, 4일→2, 5일→2). 작업지시서
- * 2026-10-01 "Vercel 로그 판독 결과" 원인 A②. 초과분은 리뷰(인기)가 낮은 시설부터
- * 일반 스팟으로 취급(facilityDemoted)해, 오사카 2일 코스가 USJ와 가이유칸으로 이틀 모두
- * 시설 날이 되는 일이 없게 한다.
+ * 2026-10-01 "Vercel 로그 판독 결과" 원인 A②. 초과분은 리뷰(인기)가 낮은 시설부터 **코스에서
+ * 제외**한다 — 처음엔 일반 스팟으로 강등해 다른 날에 넣었는데(오사카 가이유칸), 도쿄 d2에
+ * 디즈니씨가 5번째 스팟으로 들어갔다(반나절로 못 보는 곳 — 작업지시서 2026-10-06 "#295 검증"
+ * §2). 종일시설은 시설 날이 아니면 어느 날에도 넣지 않는다.
  */
 export function maxFacilityDays(dayCount: number): number {
   return Math.floor(dayCount / 2);
 }
 
-type DemotableStop = FinalStop & { facilityDemoted?: true };
-/** 종일시설 날을 만드는 시설인가 — 종일시설 category이면서 상한 초과로 일반 스팟이 되지 않은 것. */
+/** 종일시설 날을 만드는 시설인가(isLargeFacility와 같다 — 상한 초과 시설은 코스에서 빠지므로 남은 시설은 전부 시설 날의 시설이다). */
 export function isDayFacility(s: FinalStop): boolean {
-  return isLargeFacility(s) && !(s as DemotableStop).facilityDemoted;
+  return isLargeFacility(s);
 }
 
-function demoteExcessFacilities(allStops: FinalStop[], dayCount: number): { stops: FinalStop[]; demoted: FinalStop[] } {
+/** 종일시설이 상한(maxFacilityDays)을 넘으면 인기 낮은 시설을 코스에서 뺀다. 뺀 시설을 함께 돌려준다(로그용). */
+export function dropExcessFacilities(allStops: FinalStop[], dayCount: number): { stops: FinalStop[]; dropped: FinalStop[] } {
   const maxDays = maxFacilityDays(dayCount);
   const facilities = allStops.filter(isDayFacility);
-  if (facilities.length <= maxDays) return { stops: allStops, demoted: [] };
+  if (facilities.length <= maxDays) return { stops: allStops, dropped: [] };
   const ranked = [...facilities].sort((a, b) => popularity(b) - popularity(a));
-  const demotedSet = new Set(ranked.slice(maxDays));
-  const demoted = [...demotedSet].map((f) => ({ ...f, facilityDemoted: true as const }));
-  const byOriginal = new Map([...demotedSet].map((f, i) => [f, demoted[i]]));
-  return { stops: allStops.map((s) => byOriginal.get(s) ?? s), demoted };
+  const droppedSet = new Set(ranked.slice(maxDays));
+  return { stops: allStops.filter((s) => !droppedSet.has(s)), dropped: [...droppedSet] };
 }
 
 /** 넘치는 스팟을 평점×리뷰수 오름차순(낮은 것부터)으로 제거해 capacity 이내로 줄인다. 평점/리뷰수가 없으면 0으로 취급해 가장 먼저 빠진다. */
@@ -1838,7 +1837,7 @@ export function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   }
 
   const dayCount = dayStops.length;
-  const { stops: allStops, demoted } = demoteExcessFacilities(deduped, dayCount);
+  const { stops: allStops, dropped: facilityDropped } = dropExcessFacilities(deduped, dayCount);
   const facilities = allStops.filter(isDayFacility);
   const nonFacilityAll = allStops.filter((s) => !isDayFacility(s));
   const nonFacility = trimToCapacity(nonFacilityAll, maxNonFacilityCapacity(dayCount, facilities.length));
@@ -1849,7 +1848,7 @@ export function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   const dedupeDropped = generated.filter((g) => !deduped.some((d) => d.id === g.id));
   const trimmedNames = nonFacilityAll.filter((s) => !keptIds.has(s.id)).map((s) => s.name);
   console.log(
-    `[courseBrief] path=city-realloc in=[${dayStops.map((d) => d.length).join(",")}] generated=${generated.length} deduped=${deduped.length} facilities=[${facilities.map((f) => f.name).join(", ")}] demoted=[${demoted.map((f) => f.name).join(", ")}] dedupeDropped=[${dedupeDropped.map((d) => d.name).join(", ")}] trimmed=[${trimmedNames.join(", ")}]`,
+    `[courseBrief] path=city-realloc in=[${dayStops.map((d) => d.length).join(",")}] generated=${generated.length} deduped=${deduped.length} facilities=[${facilities.map((f) => f.name).join(", ")}] facilityDropped=[${facilityDropped.map((f) => f.name).join(", ")}] dedupeDropped=[${dedupeDropped.map((d) => d.name).join(", ")}] trimmed=[${trimmedNames.join(", ")}]`,
   );
   if (trimmedNames.length > 0) console.error(`[courseBrief] city-realloc 용량 초과로 스팟 ${trimmedNames.length}곳을 버렸습니다(그릇 공식 점검 필요): ${trimmedNames.join(", ")}`);
 
@@ -3290,6 +3289,13 @@ export function enforceFacilityDayCompanions(dayGroups: FinalStop[][], minTotal:
     if (!facility) return;
     const invalid = day.filter((s) => s !== facility && !isValidFacilityCompanion(s, facility));
     for (const stop of invalid) {
+      // 다른 종일시설이 시설 날의 동반으로 남았다면(정상 흐름에선 dropExcessFacilities가 이미 뺀다) 일반
+      // 날로 옮기지 않고 뺀다 — 종일시설은 일반 날에 넣지 않는다(작업지시서 2026-10-06 "#295 검증" §2).
+      if (isLargeFacility(stop)) {
+        day.splice(day.indexOf(stop), 1);
+        dropped.push(stop);
+        continue;
+      }
       const targets = result
         .map((d, i) => ({ i, d }))
         .filter(({ i, d }) => i !== dayIdx && !d.some(isDayFacility) && d.length < CITY_DAY_MAX)
