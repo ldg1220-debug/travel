@@ -322,7 +322,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 30; // 작업지시서 2026-10-06 "#295 검증: 표시·판정·한식·숙소 모두 됐습니다. 강등된 시설 하나만" — 시설 날 상한을 넘는 종일시설(도쿄 디즈니씨)을 일반 스팟으로 강등하지 않고 코스에서 제외하는 규칙은 최종 브리프 조립 로직에만 있어, 버전을 올리지 않으면 도쿄가 26시간 동안 디즈니씨가 일반 날에 들어간 v29 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 31; // 작업지시서 2026-10-07 "#296 검증: 디즈니씨 빠졌습니다. 해유관이 종일시설이라 오사카 규칙이 깨집니다" — 종일시설을 테마파크로 좁히고(수족관·동물원은 일반 명소)·앵커에서 시설을 제외하는 규칙은 최종 브리프 조립 로직과 후보 읽기 시점에만 있어, 버전을 올리지 않으면 오사카·시드니가 26시간 동안 해유관이 시설 날이 된 v30 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -1728,6 +1728,19 @@ export function maxFacilityDays(dayCount: number): number {
 /** 종일시설 날을 만드는 시설인가(isLargeFacility와 같다 — 상한 초과 시설은 코스에서 빠지므로 남은 시설은 전부 시설 날의 시설이다). */
 export function isDayFacility(s: FinalStop): boolean {
   return isLargeFacility(s);
+}
+
+/**
+ * 날 단위 구조를 유지한 채 시설 날 상한(maxFacilityDays)을 지킨다 — 앵커 배치 등 reallocateStopsByDay *이후*
+ * 단계가 시설을 들여오더라도 "시설 날 ≤ 코스 일수의 절반"이 항상 성립하게 하는 마지막 안전망이다
+ * (작업지시서 2026-10-07 "#296 검증" §2: facilityDay 표시·시설 날 상한·동반 규칙이 같은 판정을 쓰는지의
+ * 단언). 뺀 시설을 함께 돌려준다(로그용).
+ */
+export function enforceFacilityDayLimit(dayGroups: FinalStop[][]): { days: FinalStop[][]; dropped: FinalStop[] } {
+  const { dropped } = dropExcessFacilities(dayGroups.flat(), dayGroups.length);
+  if (dropped.length === 0) return { days: dayGroups, dropped };
+  const droppedSet = new Set(dropped);
+  return { days: dayGroups.map((d) => d.filter((s) => !droppedSet.has(s))), dropped };
 }
 
 /** 종일시설이 상한(maxFacilityDays)을 넘으면 인기 낮은 시설을 코스에서 뺀다. 뺀 시설을 함께 돌려준다(로그용). */
@@ -3379,6 +3392,13 @@ function balanceCityDayGroups(dayGroups: FinalStop[][], minTotal: number, region
   return days;
 }
 
+/** 도시형 앵커 배치 뒤 시설 날 상한을 다시 확인한다(enforceFacilityDayLimit) — 뺀 시설은 로그 `path=city-facility-limit`로 남긴다. */
+function enforceCityFacilityLimit(dayGroups: FinalStop[][], region: string): FinalStop[][] {
+  const { days, dropped } = enforceFacilityDayLimit(dayGroups);
+  if (dropped.length > 0) console.log(`[courseBrief] path=city-facility-limit ${region} 시설 날 상한 초과로 뺀 시설: ${dropped.map((s) => s.name).join(", ")}`);
+  return days;
+}
+
 const CITY_ANCHOR_COUNT = 3;
 // 작업지시서 2026-09-29 "일자별 동선 지도 · #279가 경주에서 효과 없음"
 // §2 — "리뷰 수 정렬 상위 5 → 여기서 앵커 3곳 선정".
@@ -3424,8 +3444,11 @@ function rankAnchorCandidates(candidates: Place[], existingStops: FinalStop[], m
           lng: existingStops.reduce((sum, s) => sum + s.lng, 0) / existingStops.length,
         }
       : null;
+  // 작업지시서 2026-10-07 "#296 검증" §2 — 종일시설(테마파크)은 앵커가 될 수 없다. 앵커는 "대표 명소"를
+  // 기존 날에 끼워 넣는 것이라, 테마파크가 앵커로 들어오면 시설 날 상한(코스 일수의 절반)·동반 규칙을
+  // 거치지 않고 일반 날을 시설 날로 만든다(오사카 d2·d3에서 시설 날이 2일이 된 경로로 의심).
   return candidates
-    .filter((p) => p.rating != null && (!center || haversineKm(center, p) <= maxDistanceKm))
+    .filter((p) => p.rating != null && !isLargeFacility(p) && (!center || haversineKm(center, p) <= maxDistanceKm))
     .sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0));
 }
 
@@ -3623,7 +3646,10 @@ export async function buildBrief(
           fetchLandmarks: () => fetchLandmarkCandidates(scope, region, onCandidateFetchFailure, { includeIslands: true }),
           fetchSlot: (slot) => fetchSlotCandidates(scope, region, slot, false, onCandidateFetchFailure),
         })
-      : await ensureCityLandmarkAnchors(scope, region, balanceCityDayGroups(geoOrderedDayGroups, minViableSpots(style, days), region), onCandidateFetchFailure, minViableSpots(style, days));
+      : enforceCityFacilityLimit(
+          await ensureCityLandmarkAnchors(scope, region, balanceCityDayGroups(geoOrderedDayGroups, minViableSpots(style, days), region), onCandidateFetchFailure, minViableSpots(style, days)),
+          region,
+        );
   // 작업지시서 2026-09-23 §3-b — 각 날짜의 첫 스팟이 평점 신호 없이
   // 시작하지 않도록 순서를 조정한다. 반드시 라우팅(바로 아래
   // routeDayStops) 이전에 해야 한다 — 이후에 순서만 바꾸면 구간

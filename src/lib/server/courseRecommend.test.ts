@@ -218,17 +218,24 @@ describe("applyQualityGate", () => {
 describe("isLargeFacility", () => {
   // 작업지시서 2026-10-06 "#294 검증" §2 — 종일시설 = 타입(amusement_park·zoo·aquarium 등)이면서
   // 리뷰 3만 이상 또는 이름 사전(USJ·디즈니·롯데월드·에버랜드·타롱가 류).
-  it("flags Google Places primaryType values for day-consuming venues when they are big (30k+ reviews)", () => {
+  it("flags theme-park types when they are big (30k+ reviews)", () => {
     expect(isLargeFacility(place({ category: "amusement_park", reviewCount: 90000 }))).toBe(true); // 유니버설 스튜디오 재팬류
-    expect(isLargeFacility(place({ category: "aquarium", reviewCount: 40000 }))).toBe(true); // 오사카 해유관류
-    expect(isLargeFacility(place({ category: "zoo", reviewCount: 30000 }))).toBe(true);
     expect(isLargeFacility(place({ category: "water_park", reviewCount: 50000 }))).toBe(true);
+    expect(isLargeFacility(place({ category: "theme_park", reviewCount: 30000 }))).toBe(true);
   });
 
-  it("flags a known all-day venue by name even with few reviews (USJ · 에버랜드 · Taronga Zoo)", () => {
+  it("flags a known all-day theme park by name even with few reviews (USJ · 에버랜드 · 디즈니씨)", () => {
     expect(isLargeFacility(place({ category: "amusement_park", name: "유니버설 스튜디오 재팬" }))).toBe(true);
     expect(isLargeFacility(place({ category: "amusement_park", name: "Everland" }))).toBe(true);
-    expect(isLargeFacility(place({ category: "zoo", name: "Taronga Zoo Sydney", reviewCount: 500 }))).toBe(true);
+    expect(isLargeFacility(place({ category: "amusement_park", name: "도쿄 디즈니씨", reviewCount: 500 }))).toBe(true);
+  });
+
+  // 작업지시서 2026-10-07 "#296 검증" §2 — 수족관·동물원은 2~3시간·반나절이라 종일시설이 아니다.
+  it("does not flag aquariums or zoos, however many reviews they have (해유관 · SEA LIFE · 타롱가)", () => {
+    expect(isLargeFacility(place({ category: "aquarium", name: "오사카 해유관", reviewCount: 70000 }))).toBe(false);
+    expect(isLargeFacility(place({ category: "aquarium", name: "SEA LIFE Sydney Aquarium", reviewCount: 40000 }))).toBe(false);
+    expect(isLargeFacility(place({ category: "zoo", name: "Taronga Zoo Sydney", reviewCount: 50000 }))).toBe(false);
+    expect(isLargeFacility(place({ category: "amusement_center", name: "Game Center", reviewCount: 90000 }))).toBe(false);
   });
 
   it("does not flag a small attraction with a facility type (시로이코이비토 파크 — 1~2시간 견학)", () => {
