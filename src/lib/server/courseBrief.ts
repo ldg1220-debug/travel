@@ -85,6 +85,12 @@ export interface CourseBriefSpot {
    */
   toNextEstimated?: true;
   /**
+   * 이 구간 값의 출처(하루의 마지막 스팟에는 없다) — 작업지시서 2026-10-07 "#297 검증" §3. "route" =
+   * 실제 경로(또는 국내 도보처럼 의도된 직선 — toNextEstimated와 같은 판정), "straight" = 실제 경로를 못 구해
+   * 직선 추정으로 대체됨(배편 구간 포함, toNextEstimated true와 항상 함께). 순수 추가 필드.
+   */
+  toNextSource?: "route" | "straight";
+  /**
    * 원래(Google 공식) 이름 — name이 표시용으로 정리됐을 때만 채워진다
    * (cleanDisplayName 참고, 예: "대한불교조계종 제11교구 본사 불국사"의
    * name은 "불국사"). 작업지시서 2026-09-29 "#280 검증" §3 "원래 이름은
@@ -135,8 +141,13 @@ export interface CourseBrief {
    * API가 애초에 다루지 않는, 의도된 폴백)은 "실패"로 안 세고, 그 외
    * 구간이 하나라도 직선으로 대체됐으면 "straight". AutoPipeline이 이
    * 필드를 보고 "직선거리 기준" 표기를 자동으로 붙일 수 있다.
+   *
+   * 작업지시서 2026-10-07 "#297 검증" §3 — 일부 구간만 실패했는데 코스 전체가 "straight"로 나가
+   * AutoPipeline이 모든 이동 분을 지웠다(오사카·도쿄·KK). 이제 구간별 출처는 spots[].toNextSource가
+   * 알려주고, 이 필드는 전부 실제 경로면 "route", 전부 직선 추정이면 "straight", 섞여 있으면 "mixed"다
+   * (배편 구간은 세지 않는다). "mixed"면 toNextSource가 "route"인 구간의 이동 시간은 믿어도 된다.
    */
-  distanceSource: "route" | "straight";
+  distanceSource: "route" | "straight" | "mixed";
   /**
    * 일차별 이동 거리·스팟 수 — 작업지시서 2026-09-15 "og:image가
    * 404입니다" §4: AutoPipeline(지식iN 답변·블로그)이 "**1일차 (총 N
@@ -322,7 +333,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 31; // 작업지시서 2026-10-07 "#296 검증: 디즈니씨 빠졌습니다. 해유관이 종일시설이라 오사카 규칙이 깨집니다" — 종일시설을 테마파크로 좁히고(수족관·동물원은 일반 명소)·앵커에서 시설을 제외하는 규칙은 최종 브리프 조립 로직과 후보 읽기 시점에만 있어, 버전을 올리지 않으면 오사카·시드니가 26시간 동안 해유관이 시설 날이 된 v30 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 32; // 작업지시서 2026-10-07 "#297 검증: 이번엔 USJ·디즈니랜드가 종일시설에서 빠졌습니다 · 일본은 코스 전체가 직선거리" — 종일시설의 이름 사전 단독 인정(타입 무관)·구간별 출처(toNextSource)·distanceSource "mixed"·해외 대중교통 → 자동차 폴백은 최종 브리프 조립 로직과 새 응답 필드라, 버전을 올리지 않으면 오사카·도쿄·KK가 26시간 동안 USJ가 시설이 아닌 코스 전체 "straight" v31 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -492,6 +503,18 @@ export function boatLegIfIslandCrossing(a: NamedPoint, b: NamedPoint): RouteResu
   if (!isIsland(a) && !isIsland(b)) return null;
   if (haversineKm(a, b) < WALK_MAX_KM) return null;
   return boatLegMeasurement(a, b);
+}
+
+/**
+ * 코스 단위 distanceSource — 구간(배편 제외)이 전부 실제 경로면 "route", 전부 직선 추정이면 "straight",
+ * 섞여 있으면 "mixed". 구간별 출처(toNextSource)에서 계산하므로 평점 보강 단계의 1번 자리 맞바꿈으로
+ * 구간이 바뀌어도 항상 최종 spots와 일치한다. 구간이 하나도 없으면(하루 1곳뿐) "route".
+ */
+export function computeDistanceSource(spots: readonly CourseBriefSpot[]): CourseBrief["distanceSource"] {
+  const legs = spots.filter((s) => s.toNextMode != null && s.toNextMode !== "boat");
+  const straight = legs.filter((s) => s.toNextSource === "straight").length;
+  if (straight === 0) return "route";
+  return straight === legs.length ? "straight" : "mixed";
 }
 
 /** 이 구간이 실제 경로가 아닌 추정인가 — 배편은 항상, 그 밖엔 직선 폴백(국내 도보의 의도된 직선은 제외). hadStraightFallback과 같은 판정이다. */
@@ -677,7 +700,7 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
   try {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) {
-      console.warn(`[courseBrief] google directions http ${res.status} for ${legCoordsLabel(a, b)}`);
+      console.warn(`[courseBrief] route-fail ${legCoordsLabel(a, b)} mode=${mode} status=http_${res.status}`);
       return null;
     }
     const data = (await res.json()) as {
@@ -685,19 +708,25 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
       error_message?: string;
       routes?: Array<{ legs?: Array<{ distance?: { value: number }; duration?: { value: number } }>; overview_polyline?: { points: string } }>;
     };
-    if (data.status === "ZERO_RESULTS" || data.status === "NOT_FOUND") return "no-route";
+    if (data.status === "ZERO_RESULTS" || data.status === "NOT_FOUND") {
+      console.log(`[courseBrief] route-fail ${legCoordsLabel(a, b)} mode=${mode} status=${data.status}`);
+      return "no-route";
+    }
     if (data.status !== "OK") {
       // OVER_QUERY_LIMIT/REQUEST_DENIED/UNKNOWN_ERROR 등 — 이 장소
       // 판단이 아니다. error_message에 구글이 거부 이유를 정확히
       // 적어준다(예: "REQUEST_DENIED: API not authorized") — 이걸
       // 로그에 안 남겨 GCP 키 제한 문제를 추적하는 데 2시간 가까이
       // 걸렸다(§3).
-      console.warn(`[courseBrief] google directions status=${data.status} (${data.error_message ?? "no error_message"}) for ${legCoordsLabel(a, b)}`);
+      console.warn(`[courseBrief] route-fail ${legCoordsLabel(a, b)} mode=${mode} status=${data.status} (${data.error_message ?? "no error_message"})`);
       return null;
     }
     const route = data.routes?.[0];
     const leg = route?.legs?.[0];
-    if (!route || !leg?.distance || !leg?.duration) return null;
+    if (!route || !leg?.distance || !leg?.duration) {
+      console.warn(`[courseBrief] route-fail ${legCoordsLabel(a, b)} mode=${mode} status=NO_LEGS`);
+      return null;
+    }
     const encoded = route.overview_polyline?.points;
     const points = simplifyPath(encoded ? decodePolyline(encoded) : [a, b]);
     return {
@@ -707,7 +736,7 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
       points,
     };
   } catch (err) {
-    console.warn(`[courseBrief] google directions request failed for ${legCoordsLabel(a, b)}:`, err);
+    console.warn(`[courseBrief] route-fail ${legCoordsLabel(a, b)} mode=${mode} status=REQUEST_FAILED`, err);
     return null;
   } finally {
     clearTimeout(timer);
@@ -727,14 +756,28 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
  * 반출 제한). 그래서 해외 도보만 Google walking을 새로 태우고, 국내
  * 도보는 여전히 직선 추정(§4 "국내 도보는 직선일 수밖에 없다")을 쓴다.
  */
-async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, mode: TravelMode): Promise<RouteResult | "no-route"> {
+async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, plannedMode: TravelMode): Promise<RouteResult | "no-route"> {
+  let mode = plannedMode;
   if (mode === "walk" && scope !== "overseas") return straightRouteMeasurement(a, b, mode); // 국내 도보 — 조회 대상 없음(위 설명)
-  const outcome =
+  let outcome =
     mode === "walk"
       ? await fetchGoogleDirectionsRoute(a, b, "walking")
       : scope === "domestic"
         ? await fetchKakaoDrivingRoute(a, b)
         : await fetchGoogleDirectionsRoute(a, b, mode === "transit" ? "transit" : "driving");
+  // 작업지시서 2026-10-07 "#297 검증" §3③ — 해외 대중교통 조회가 비거나(운행 없음) 실패하면 직선 추정으로
+  // 곧장 떨어지지 않고 자동차 경로를 한 번 더 시도한다(일본에서 구간이 straight로 많이 떨어졌다). 이때 구간의
+  // 이동수단은 실제로 값을 얻은 "car"로 표시한다. 걷기 구간은 이미 걷기로 조회했고(WALK_MAX_KM 이하), 국내는
+  // 처음부터 자동차라 폴백이 없다.
+  let effectiveMode = mode;
+  if (mode === "transit" && scope === "overseas" && (outcome === "no-route" || outcome == null)) {
+    const driving = await fetchGoogleDirectionsRoute(a, b, "driving");
+    if (driving != null && driving !== "no-route") {
+      outcome = driving;
+      effectiveMode = "car";
+    }
+  }
+  mode = effectiveMode;
   if (outcome === "no-route") return "no-route";
   if (outcome == null) return straightRouteMeasurement(a, b, mode); // 조회 실패/판단 보류 — 폴백, 스팟은 유지
   return applyDurationCap(outcome, mode); // §3 ★ 비정상적으로 크면(3시간 초과) "no-route"
@@ -1863,7 +1906,14 @@ export function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   console.log(
     `[courseBrief] path=city-realloc in=[${dayStops.map((d) => d.length).join(",")}] generated=${generated.length} deduped=${deduped.length} facilities=[${facilities.map((f) => f.name).join(", ")}] facilityDropped=[${facilityDropped.map((f) => f.name).join(", ")}] dedupeDropped=[${dedupeDropped.map((d) => d.name).join(", ")}] trimmed=[${trimmedNames.join(", ")}]`,
   );
-  if (trimmedNames.length > 0) console.error(`[courseBrief] city-realloc 용량 초과로 스팟 ${trimmedNames.length}곳을 버렸습니다(그릇 공식 점검 필요): ${trimmedNames.join(", ")}`);
+  if (trimmedNames.length > 0) {
+    // 작업지시서 2026-10-07 "#297 검증" §4 — 용량(일반 날 상한 × 날 수)을 넘는 만큼 버리는 건 정상이다. 남은
+    // 총량이 도시형 최소(일수 × 3)에 못 미칠 때만 그릇 공식 오류로 본다.
+    const remaining = nonFacility.length + facilities.length;
+    const message = `[courseBrief] city-realloc 용량 초과로 스팟 ${trimmedNames.length}곳을 뺐습니다(남은 ${remaining}곳): ${trimmedNames.join(", ")}`;
+    if (remaining < dayCount * 3) console.error(`${message} — 도시형 최소(${dayCount * 3}곳) 미달, 그릇 공식 점검 필요`);
+    else console.log(message);
+  }
 
   let groups: FinalStop[][];
   if (nonFacility.length === 0) {
@@ -2117,12 +2167,14 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
     let toNextMinutes: number | null = null;
     let toNextMode: LegMode | null = null;
     let toNextEstimated = false;
+    let toNextSource: "route" | "straight" | undefined;
     if (i < stops.length - 1) {
       const seg = segments[i];
       distanceKm += seg.distanceKm; // 배편 구간은 0이라 합계에서 자연히 빠진다(boatLegMeasurement)
       toNextMode = seg.mode;
       toNextMinutes = seg.mode === "boat" ? null : seg.durationMinutes;
       toNextEstimated = isEstimatedLeg(seg, scope);
+      toNextSource = toNextEstimated ? "straight" : "route";
       // 국내 도보는 애초에 실경로 조회 대상이 아니다(routeSegment 위
       // 설명 참고) — 의도된 직선 추정이라 "실패"로 세지 않는다. 해외
       // 도보는 작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다"
@@ -2160,6 +2212,7 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
       toNextMinutes,
       toNextMode,
       ...(toNextEstimated ? { toNextEstimated: true as const } : {}),
+      ...(toNextSource ? { toNextSource } : {}),
     };
   });
   return { spots, distanceKm, hadStraightFallback };
@@ -3690,12 +3743,11 @@ export async function buildBrief(
 
   let baseOrder = 1;
   let totalDistanceKm = 0;
-  let hadAnyStraightFallback = false;
   const allSpots: CourseBriefSpot[] = [];
   const mapPaths: string[] = [];
   const dayTotals: CourseBrief["dayTotals"] = [];
   routedDays.forEach(({ stops, segments }, i) => {
-    const { spots, distanceKm, hadStraightFallback } = assembleDaySpots(stops, segments, baseOrder, scope, region, (i + 1) as CourseDays);
+    const { spots, distanceKm } = assembleDaySpots(stops, segments, baseOrder, scope, region, (i + 1) as CourseDays);
     allSpots.push(...spots);
     totalDistanceKm += distanceKm;
     baseOrder += spots.length;
@@ -3704,7 +3756,6 @@ export async function buildBrief(
     // 이어서 같은 날짜 "도보 구간이 직선으로 그려집니다" §5 — 실제 경로가
     // 없는(points === null) 구간은 요일 색 대신 회색(추정 표시)이 우선한다.
     mapPaths.push(...segments.map((s) => (s.points == null ? recolorMapPathAsEstimated(s.mapPath) : recolorMapPathForDay(s.mapPath, i))));
-    if (hadStraightFallback) hadAnyStraightFallback = true;
     dayTotals.push({ day: (i + 1) as CourseDays, distanceKm: round1(distanceKm), spotCount: spots.length, ...(stops.some(isDayFacility) ? { facilityDay: true as const } : {}) });
   });
   // 실패해도 조용히 직선으로 폴백해왔다 — 작업지시서 2026-09-11 "해외
@@ -3712,8 +3763,9 @@ export async function buildBrief(
   // 만든 게 코드 문제". 지금은 로그로라도 남긴다(logger 모듈이 따로
   // 없어 이 파일의 기존 관례 그대로 console 사용 — generateDay의
   // console.error와 같은 패턴).
-  if (hadAnyStraightFallback) {
-    console.warn(`[courseBrief] ${scope}/${region} 코스의 일부 구간이 실제 경로를 못 구해 직선거리로 대체됐습니다 (distanceSource="straight")`);
+  const initialDistanceSource = computeDistanceSource(allSpots);
+  if (initialDistanceSource !== "route") {
+    console.warn(`[courseBrief] ${scope}/${region} 코스의 일부 구간이 실제 경로를 못 구해 직선거리로 대체됐습니다 (distanceSource="${initialDistanceSource}")`);
   }
   // 조용히 틀린 코스를 캐시·반환하는 대신 "지원하지 않는 지역"과
   // 동일하게 명시 거부한다(looksLikeMismatchedOverseasResult 주석 참고).
@@ -3735,7 +3787,7 @@ export async function buildBrief(
     imageUrl: null,
     appUrl,
     ratingSource: "google",
-    distanceSource: hadAnyStraightFallback ? "straight" : "route",
+    distanceSource: initialDistanceSource,
     dayTotals,
     dayImageUrls: [],
   };
@@ -3815,8 +3867,8 @@ export async function buildBrief(
         const startSpot = daySlice[0];
         const jSpot = daySlice[j];
         const nextArr = [...finalSpots];
-        nextArr[start] = { ...jSpot, order: startSpot.order, day: startSpot.day, toNextMinutes: startSpot.toNextMinutes, toNextMode: startSpot.toNextMode, toNextEstimated: startSpot.toNextEstimated };
-        nextArr[globalJ] = { ...startSpot, order: jSpot.order, day: jSpot.day, toNextMinutes: jSpot.toNextMinutes, toNextMode: jSpot.toNextMode, toNextEstimated: jSpot.toNextEstimated };
+        nextArr[start] = { ...jSpot, order: startSpot.order, day: startSpot.day, toNextMinutes: startSpot.toNextMinutes, toNextMode: startSpot.toNextMode, toNextEstimated: startSpot.toNextEstimated, toNextSource: startSpot.toNextSource };
+        nextArr[globalJ] = { ...startSpot, order: jSpot.order, day: jSpot.day, toNextMinutes: jSpot.toNextMinutes, toNextMode: jSpot.toNextMode, toNextEstimated: jSpot.toNextEstimated, toNextSource: jSpot.toNextSource };
 
         let dayDeltaKm = 0;
         for (const [localEdge, seg] of newSegByLocalEdge) {
@@ -3827,11 +3879,11 @@ export async function buildBrief(
             toNextMinutes: seg.mode === "boat" ? null : seg.durationMinutes,
             toNextMode: seg.mode,
             toNextEstimated: isEstimatedLeg(seg, scope) ? true : undefined,
+            toNextSource: isEstimatedLeg(seg, scope) ? "straight" : "route",
           };
           dayDeltaKm += seg.distanceKm - oldDistanceKm;
           const globalMapPathIdx = mapPathOffset + localEdge;
           finalMapPaths[globalMapPathIdx] = seg.points == null ? recolorMapPathAsEstimated(seg.mapPath) : recolorMapPathForDay(seg.mapPath, d);
-          if (seg.mode !== "boat" && seg.points == null && !(seg.mode === "walk" && scope === "domestic")) hadAnyStraightFallback = true;
         }
         finalSpots = nextArr;
         totalDistanceKm += dayDeltaKm;
@@ -3867,7 +3919,7 @@ export async function buildBrief(
     imageUrl,
     dayImageUrls,
     totalDistanceKm: round1(totalDistanceKm),
-    distanceSource: hadAnyStraightFallback ? "straight" : "route",
+    distanceSource: computeDistanceSource(finalSpots),
     dayTotals: [...dayTotals],
   };
 

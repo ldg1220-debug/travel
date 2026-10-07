@@ -22,6 +22,7 @@ import {
   cleanDisplayName,
   clusterByLocation,
   composeResortDays,
+  computeDistanceSource,
   computeViewport,
   dayMapPathname,
   dedupeByBrand,
@@ -2851,6 +2852,9 @@ describe("종일시설은 테마파크만 · 판정 함수 단일화 (작업지�
   const cases: { label: string; category: string; name: string; reviewCount: number; facility: boolean }[] = [
     { label: "USJ", category: "amusement_park", name: "유니버설 스튜디오 재팬", reviewCount: 90000, facility: true },
     { label: "도쿄 디즈니씨", category: "amusement_park", name: "도쿄 디즈니씨", reviewCount: 800, facility: true },
+    { label: "USJ(타입이 테마파크가 아님)", category: "tourist_attraction", name: "유니버설 스튜디오 재팬", reviewCount: 800, facility: true },
+    { label: "도쿄 디즈니랜드(타입 point_of_interest)", category: "point_of_interest", name: "도쿄 디즈니랜드", reviewCount: 800, facility: true },
+    { label: "디즈니 스토어", category: "store", name: "디즈니 스토어", reviewCount: 4000, facility: false },
     { label: "시로이코이비토 파크", category: "amusement_park", name: "시로이코이비토 파크", reviewCount: 16000, facility: false },
     { label: "해유관", category: "aquarium", name: "오사카 해유관", reviewCount: 70000, facility: false },
     { label: "SEA LIFE", category: "aquarium", name: "SEA LIFE Sydney", reviewCount: 40000, facility: false },
@@ -2903,5 +2907,81 @@ describe("종일시설은 테마파크만 · 판정 함수 단일화 (작업지�
     expect(dropped.map((s) => s.id)).toEqual(["other"]);
     expect(days.flat().filter(isDayFacility)).toHaveLength(1);
     expect(days.flat().map((s) => s.id)).toContain("y"); // 시설만 빠지고 같은 날 다른 스팟은 남는다
+  });
+});
+
+describe("구간별 경로 출처 · distanceSource mixed (작업지시서 2026-10-07 '#297 검증' §3)", () => {
+  const at = (id: string, lat: number, lng: number) => stop(id, lat, lng, { name: id });
+  const real = (km: number, mode: RouteResult["mode"] = "car"): RouteResult => ({ ...fakeRoute(km, 10, mode), points: [{ lat: 0, lng: 0 }, { lat: 1, lng: 1 }] });
+  const straight = (km: number, mode: RouteResult["mode"] = "car"): RouteResult => ({ ...fakeRoute(km, 10, mode), points: null });
+
+  it("assembleDaySpots: 실제 경로 구간은 route, 직선 추정 구간은 straight(+toNextEstimated), 마지막 스팟은 없음", () => {
+    const stops = [at("a", 34.7, 135.5), at("b", 34.68, 135.48), at("c", 34.66, 135.46)];
+    const { spots } = assembleDaySpots(stops, [real(3, "transit"), straight(3, "transit")], 1, "overseas", "오사카", 1);
+    expect(spots.map((s) => s.toNextSource)).toEqual(["route", "straight", undefined]);
+    expect(spots[1].toNextEstimated).toBe(true);
+    expect(spots[0].toNextEstimated).toBeUndefined();
+  });
+
+  it("국내 도보의 의도된 직선은 route로 센다(toNextEstimated와 같은 판정)", () => {
+    const { spots } = assembleDaySpots([at("a", 35.8, 129.2), at("b", 35.801, 129.201)], [straight(0.2, "walk")], 1, "domestic", "경주", 1);
+    expect(spots[0].toNextSource).toBe("route");
+  });
+
+  it("computeDistanceSource: 전부 실제 경로면 route · 전부 직선이면 straight · 섞이면 mixed · 배편·구간 없음은 세지 않는다", () => {
+    const spot = (toNextMode: CourseBriefSpot["toNextMode"], toNextSource?: "route" | "straight"): CourseBriefSpot => ({
+      name: "x", category: "관광지", rating: null, reviewCount: null, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: 5, toNextMode, ...(toNextSource ? { toNextSource } : {}),
+    });
+    expect(computeDistanceSource([spot("car", "route"), spot("walk", "route"), spot(null)])).toBe("route");
+    expect(computeDistanceSource([spot("car", "straight"), spot("walk", "straight"), spot(null)])).toBe("straight");
+    expect(computeDistanceSource([spot("car", "route"), spot("transit", "straight"), spot(null)])).toBe("mixed");
+    expect(computeDistanceSource([spot("boat", "straight"), spot("car", "route"), spot(null)])).toBe("route"); // 배편 구간은 세지 않는다
+    expect(computeDistanceSource([spot(null)])).toBe("route"); // 구간이 없다
+  });
+});
+
+describe("routeDayStops — 해외 대중교통 실패 시 자동차 폴백 · route-fail 로그 (작업지시서 2026-10-07 '#297 검증' §3)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+  const okBody = { status: "OK", routes: [{ legs: [{ distance: { value: 3200 }, duration: { value: 600 } }], overview_polyline: { points: "_p~iF~ps|U_ulLnnqC_mqNvxq`@" } }] };
+  const modeOf = (input: unknown) => new URL(String(input)).searchParams.get("mode");
+  // 도쿄 — 한국 박스 밖(해외). 약 2.8km 떨어져 transit 구간이 된다(1~5km).
+  const a = stop("a", 35.6812, 139.7671, { name: "도쿄역" });
+  const b = stop("b", 35.6987, 139.7907, { name: "료고쿠" });
+
+  it("transit이 ZERO_RESULTS이면 driving으로 한 번 더 조회해 실제 경로를 쓰고 이동수단은 car로 표시한다", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    const fetchMock = vi.fn(async (input: unknown) => ({ ok: true, json: async () => (modeOf(input) === "transit" ? { status: "ZERO_RESULTS" } : okBody) }));
+    vi.stubGlobal("fetch", fetchMock);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const routed = await routeDayStops("overseas", [a, b], Date.now() + 5000);
+    expect(routed.stops).toHaveLength(2);
+    expect(routed.segments[0].mode).toBe("car");
+    expect(routed.segments[0].points).not.toBeNull(); // 직선 추정이 아니라 실제 경로
+    expect(fetchMock.mock.calls.map((c) => modeOf(c[0]))).toEqual(["transit", "driving"]);
+    expect(logSpy.mock.calls.some((c) => String(c[0]).includes("route-fail") && String(c[0]).includes("mode=transit") && String(c[0]).includes("status=ZERO_RESULTS"))).toBe(true);
+  });
+
+  it("transit·driving이 둘 다 실패하면 직선 추정(points null)으로 남고 스팟은 유지된다", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ status: "ZERO_RESULTS" }) })));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const routed = await routeDayStops("overseas", [a, b], Date.now() + 5000);
+    expect(routed.stops).toHaveLength(2);
+    expect(routed.segments[0].points).toBeNull();
+  });
+
+  it("route-fail 로그에 구간 좌표·mode·status가 남는다(REQUEST_DENIED 포함)", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ status: "REQUEST_DENIED", error_message: "API not authorized" }) })));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await fetchGoogleDirectionsRoute({ lat: 35.68, lng: 139.76 }, { lat: 35.71, lng: 139.81 }, "driving");
+    const line = String(warnSpy.mock.calls[0][0]);
+    expect(line).toContain("route-fail");
+    expect(line).toContain("mode=driving");
+    expect(line).toContain("status=REQUEST_DENIED");
   });
 });
