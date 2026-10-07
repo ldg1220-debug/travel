@@ -937,17 +937,29 @@ export function applyQualityGate(places: Place[], scope: "overseas" | "domestic"
 // 생겼다. 위 "대형 시설" 이름·#156 출발일 제외도 같은 판정을 쓴다(수족관·동물원은 출발일에도 후보).
 const LARGE_FACILITY_TYPES = new Set(["amusement_park", "theme_park", "water_park"]);
 // 작업지시서 2026-10-06 "#294 검증" §2 — 시로이코이비토 파크(초콜릿 공장 견학, 1~2시간)가 Google
-// primaryType amusement_park라는 이유만으로 종일시설이 돼 [5,1]의 단독 날을 만들었다. 종일시설은 위
-// 타입이면서 리뷰 3만 이상이거나, 이름 사전(USJ·디즈니랜드·디즈니씨·롯데월드·에버랜드·레고랜드·
-// 서울랜드·오션파크·유니버설 류 — 리뷰 수가 덜 쌓였어도 하루가 차는 곳)에 있을 때만이다. 이름 사전은
-// 타입 조건과 함께만 쓴다("디즈니 스토어"·"롯데월드몰" 같은 상점 오탐 방지, 국내 Kakao 후보는
-// 이 타입이 없어 이전과 같이 영향 없음).
+// primaryType amusement_park라는 이유만으로 종일시설이 돼 [5,1]의 단독 날을 만들었다. 그래서
+// 타입만으로는 종일시설로 보지 않는다.
+//
+// 작업지시서 2026-10-07 "#297 검증" §2 — 그런데 #297에서 "테마파크 타입 AND (리뷰 3만 또는 이름
+// 사전)"으로 묶자 USJ·디즈니랜드의 Google 타입이 amusement_park가 아니었는지(tourist_attraction 등,
+// 실제 응답 값은 아직 확인 못 함) 사전에 있어도 탈락해 facilities=[]가 됐다. 종일시설 =
+//   (이름 사전 일치 — 타입 무관, 아래 제외어·시설 유형은 뺀다)  OR  (테마파크 타입 AND 리뷰 3만 이상).
+// 사전은 USJ·유니버설·디즈니(랜드·씨)·롯데월드·에버랜드·레고랜드·서울랜드·오션파크 류 — 리뷰 수가
+// 덜 쌓였어도 하루가 차는 곳이다. 수족관·동물원(타입 aquarium·zoo)은 사전에 이름이 있어도 아니다.
+// 사전은 부분 문자열이라 "디즈니 스토어"·"롯데월드타워/몰/아쿠아리움"·"디즈니 호텔"·"유니버설
+// 시티워크" 같은 곁가지는 제외어로 뺀다. 국내(Kakao) 후보는 타입이 없어도 사전(롯데월드·에버랜드·서울랜드)
+// 으로 종일시설이 된다 — 이전엔 타입이 없어 국내는 영향이 없었다.
 const LARGE_FACILITY_MIN_REVIEWS = 30000;
 const LARGE_FACILITY_NAME_PATTERN =
   /유니버설|universal|\busj\b|디즈니|disney|롯데월드|lotte\s?world|에버랜드|everland|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|씨월드|sea\s?world|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
+const LARGE_FACILITY_NAME_EXCLUDE =
+  /스토어|\bstore\b|\bshop\b|숍|샵|카페|\bcafe\b|호텔|\bhotel\b|리조트\s?라인|resort\s?line|\bline\b|스테이션|\bstation\b|버스|\bbus\b|시티\s?워크|city\s?walk|타워|\btower\b|스카이|\bsky\b|\bmall\b|몰(?:\s|$)|아쿠아리움|aquarium|레스토랑|restaurant|식당|아울렛|outlet/i;
 export function isLargeFacility(p: { category?: string; name?: string; reviewCount?: number | null }): boolean {
-  if (!LARGE_FACILITY_TYPES.has(p.category?.toLowerCase() ?? "")) return false;
-  return (p.reviewCount ?? 0) >= LARGE_FACILITY_MIN_REVIEWS || LARGE_FACILITY_NAME_PATTERN.test(p.name ?? "");
+  const category = p.category?.toLowerCase() ?? "";
+  if (category === "aquarium" || category === "zoo") return false;
+  const name = p.name ?? "";
+  if (LARGE_FACILITY_NAME_PATTERN.test(name) && !LARGE_FACILITY_NAME_EXCLUDE.test(name) && !isNonAttractionVenue(p)) return true;
+  return LARGE_FACILITY_TYPES.has(category) && (p.reviewCount ?? 0) >= LARGE_FACILITY_MIN_REVIEWS;
 }
 
 // 다일정(멀티데이) 실측(오사카 3박4일)에서 관찰: 규카츠가 Day1(모토무라)·

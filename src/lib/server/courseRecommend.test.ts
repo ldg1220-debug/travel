@@ -216,8 +216,7 @@ describe("applyQualityGate", () => {
 // 오사카 3박4일 다일정 실측(5차)에서 발견 — 유니버설 스튜디오 재팬이
 // 공항 출발일 "오전 명소" 슬롯에 1시간짜리로 배정됨 (GitHub issue #156).
 describe("isLargeFacility", () => {
-  // 작업지시서 2026-10-06 "#294 검증" §2 — 종일시설 = 타입(amusement_park·zoo·aquarium 등)이면서
-  // 리뷰 3만 이상 또는 이름 사전(USJ·디즈니·롯데월드·에버랜드·타롱가 류).
+  // 작업지시서 2026-10-07 "#297 검증" §2 — 종일시설 = (이름 사전 일치) OR (테마파크 타입 AND 리뷰 3만 이상).
   it("flags theme-park types when they are big (30k+ reviews)", () => {
     expect(isLargeFacility(place({ category: "amusement_park", reviewCount: 90000 }))).toBe(true); // 유니버설 스튜디오 재팬류
     expect(isLargeFacility(place({ category: "water_park", reviewCount: 50000 }))).toBe(true);
@@ -244,9 +243,45 @@ describe("isLargeFacility", () => {
     expect(isLargeFacility(place({ category: "amusement_park" }))).toBe(false); // 리뷰 수도 이름 사전도 없다
   });
 
-  it("does not use the name dictionary without the facility type (디즈니 스토어 · 롯데월드몰)", () => {
-    expect(isLargeFacility(place({ category: "store", name: "디즈니 스토어" }))).toBe(false);
-    expect(isLargeFacility(place({ category: "shopping_mall", name: "롯데월드몰" }))).toBe(false);
+  // 작업지시서 2026-10-07 "#297 검증" §2 — 이름 사전은 타입과 무관하게 인정한다(#297에서 타입 AND로 묶었더니
+  // USJ·디즈니랜드의 Google 타입이 테마파크 타입이 아닐 때 시설에서 빠졌다). 실제 응답의 타입 값은 아직
+  // 확인하지 못해, 가능한 값을 모두 넣어 둔다.
+  it.each(["amusement_park", "theme_park", "tourist_attraction", "point_of_interest", "establishment", "park", "event_venue", ""])(
+    "recognizes USJ and Tokyo Disneyland by name whatever the Google type is (%s)",
+    (category) => {
+      expect(isLargeFacility(place({ category, name: "유니버설 스튜디오 재팬", reviewCount: 120 }))).toBe(true);
+      expect(isLargeFacility(place({ category, name: "Universal Studios Japan", reviewCount: 120 }))).toBe(true);
+      expect(isLargeFacility(place({ category, name: "도쿄 디즈니랜드", reviewCount: 120 }))).toBe(true);
+      expect(isLargeFacility(place({ category, name: "Tokyo DisneySea", reviewCount: 120 }))).toBe(true);
+    },
+  );
+
+  it("does not treat side businesses of a dictionary name as the park (스토어 · 호텔 · 타워 · 몰 · 아쿠아리움 · 시티워크)", () => {
+    for (const [category, name] of [
+      ["store", "디즈니 스토어"],
+      ["tourist_attraction", "Disney Store Shibuya"],
+      ["shopping_mall", "롯데월드몰"],
+      ["tourist_attraction", "롯데월드타워 서울스카이"],
+      ["lodging", "도쿄 디즈니랜드 호텔"],
+      ["tourist_attraction", "Disney Ambassador Hotel"],
+      ["tourist_attraction", "롯데월드 아쿠아리움"],
+      ["shopping_mall", "유니버설 시티워크 오사카"],
+      ["cafe", "유니버설 카페"],
+      ["restaurant", "Universal Studios Restaurant"],
+    ] as const) {
+      expect(isLargeFacility(place({ category, name })), `${category} ${name}`).toBe(false);
+    }
+  });
+
+  it("recognizes domestic parks (Kakao broad category) by the dictionary, but not a broad category alone", () => {
+    expect(isLargeFacility(place({ category: "관광명소", name: "에버랜드" }))).toBe(true);
+    expect(isLargeFacility(place({ category: "관광명소", name: "롯데월드 어드벤처" }))).toBe(true);
+    expect(isLargeFacility(place({ category: "관광명소", name: "경복궁" }))).toBe(false);
+  });
+
+  it("never treats an aquarium or zoo as a facility, even with a dictionary name", () => {
+    expect(isLargeFacility(place({ category: "aquarium", name: "Universal Aquarium", reviewCount: 90000 }))).toBe(false);
+    expect(isLargeFacility(place({ category: "zoo", name: "Disney Animal Zoo", reviewCount: 90000 }))).toBe(false);
   });
 
   it("is case-insensitive (Google may return the type in either case depending on the call site)", () => {
