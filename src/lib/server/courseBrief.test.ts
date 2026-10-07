@@ -9,6 +9,7 @@ import {
   capAllDayFacilityDays,
   capCityDaySizes,
   capResortDaySizes,
+  dropExcessFacilities,
   dropRemoteResortStops,
   enforceFacilityDayCompanions,
   isValidFacilityCompanion,
@@ -2581,9 +2582,9 @@ describe("재배치가 스팟을 버리지 않는다 — 시드니 d3 · 오사�
     const result = reallocateStopsByDay(days);
     expect(result.flat().length).toBeGreaterThanOrEqual(6);
     expect(result.filter((g) => g.some(isDayFacility)).length).toBeLessThanOrEqual(1);
-    // 인기 낮은 시설(가이유칸)은 일반 스팟으로 취급 — 시설 날 규칙에서 빠진다.
-    const kaiyukanStop = result.flat().find((s) => s.id === "kaiyukan");
-    expect(kaiyukanStop).toBeDefined();
+    // 인기 낮은 시설(가이유칸)은 일반 날에 넣지 않고 코스에서 제외한다(작업지시서 2026-10-06 "#295 검증" §2).
+    expect(result.flat().find((s) => s.id === "kaiyukan")).toBeUndefined();
+    expect(result.flat().find((s) => s.id === "usj")).toBeDefined();
   });
 });
 
@@ -2728,15 +2729,17 @@ describe("종일시설 날 동반 조건 — 시설 5km 이내 · 시설/대형 
 
   it("USJ 날의 해유관·오사카 성·도톤보리는 시설 없는 날로 옮기고, 가까운 식사는 남긴다", () => {
     const days = [
-      [usj(), at("kaiyukan", 34.654, 135.429, { category: "aquarium", facilityDemoted: true } as Partial<FinalStop>), at("castle", 34.687, 135.526, { slotKey: "landmark-anchor" }), at("dotonbori", 34.668, 135.503), at("citywalk", 34.667, 135.435, { meal: true, category: "restaurant" })],
+      [usj(), at("kaiyukan", 34.654, 135.429, { category: "aquarium" }), at("castle", 34.687, 135.526, { slotKey: "landmark-anchor" }), at("dotonbori", 34.668, 135.503), at("citywalk", 34.667, 135.435, { meal: true, category: "restaurant" })],
       [at("a", 34.7, 135.5), at("b", 34.69, 135.51)],
     ];
     const { days: result, moved, dropped } = enforceFacilityDayCompanions(days, 6);
     const usjDay = result.find((d) => d.some((s) => s.id === "usj"))!;
     expect(usjDay.map((s) => s.id).sort()).toEqual(["citywalk", "usj"]);
-    expect(moved.map((s) => s.id).sort()).toEqual(["castle", "dotonbori", "kaiyukan"]);
-    expect(dropped).toHaveLength(0);
-    expect(result.flat()).toHaveLength(7);
+    // 다른 종일시설(해유관)은 일반 날로 옮기지 않고 뺀다 — "#295 검증" §2.
+    expect(moved.map((s) => s.id).sort()).toEqual(["castle", "dotonbori"]);
+    expect(dropped.map((s) => s.id)).toEqual(["kaiyukan"]);
+    expect(result.flat().some((s) => s.id === "kaiyukan")).toBe(false);
+    expect(result.flat()).toHaveLength(6);
   });
 
   it("옮길 날에 자리가 없으면 총량이 허용하는 만큼만 빼고, 총량이 모자라면 그대로 둔다", () => {
@@ -2808,5 +2811,36 @@ describe("capOverseasKoreanRestaurants — 한글 이름 일반 음식점도 한
     ];
     const result = capOverseasKoreanRestaurants([day])[0].map((s) => s.id);
     expect(result).toEqual(["풍류정", "Cabana Restaurant"]);
+  });
+});
+
+describe("dropExcessFacilities — 상한을 넘는 종일시설은 코스에서 제외 (작업지시서 2026-10-06 '#295 검증' §2, 도쿄 디즈니씨)", () => {
+  const park = (id: string, name: string, reviewCount: number) => stop(id, 35.6, 139.8, { name, category: "amusement_park", rating: 4.6, reviewCount });
+  const sight = (id: string) => stop(id, 35.7, 139.8, { name: id, category: "tourist_attraction", rating: 4.4, reviewCount: 900 });
+
+  it("도쿄 3일: 디즈니랜드·디즈니씨 중 인기 높은 랜드만 남고 씨는 어느 날에도 들어가지 않는다", () => {
+    const land = park("land", "도쿄 디즈니랜드", 120000);
+    const sea = park("sea", "도쿄 디즈니씨", 90000);
+    const stops = [land, sea, sight("a"), sight("b")];
+    const { stops: kept, dropped } = dropExcessFacilities(stops, 3);
+    expect(dropped.map((s) => s.id)).toEqual(["sea"]);
+    expect(kept.map((s) => s.id)).toEqual(["land", "a", "b"]);
+  });
+
+  it("전체 흐름: reallocateStopsByDay 후 디즈니씨는 일반 날에도 시설 날에도 없다", () => {
+    const land = park("land", "도쿄 디즈니랜드", 120000);
+    const sea = park("sea", "도쿄 디즈니씨", 90000);
+    const day = (prefix: string, base: P) => cluster(prefix, base, 4).map((s, i) => ({ ...s, category: "tourist_attraction", rating: 4.4, reviewCount: 500 + i }));
+    const result = reallocateStopsByDay([[land, ...day("a", p(35.71, 139.8))], [sea, ...day("b", p(35.68, 139.7))], day("c", p(35.69, 139.75))]);
+    expect(result.flat().some((s) => s.id === "sea")).toBe(false);
+    const landDay = result.find((d) => d.some((s) => s.id === "land"))!;
+    expect(landDay.filter(isDayFacility)).toHaveLength(1);
+  });
+
+  it("상한 이내(2일에 시설 1곳)이면 아무것도 빼지 않는다", () => {
+    const land = park("land", "도쿄 디즈니랜드", 120000);
+    const { stops, dropped } = dropExcessFacilities([land, sight("a")], 2);
+    expect(dropped).toHaveLength(0);
+    expect(stops).toHaveLength(2);
   });
 });
