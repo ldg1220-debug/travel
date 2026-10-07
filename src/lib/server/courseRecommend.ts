@@ -931,16 +931,20 @@ export function applyQualityGate(places: Place[], scope: "overseas" | "domestic"
 // Google Places(New) primaryType 기준(googleToPlace가 category에 그대로
 // 담는다) — Kakao Local엔 이 정도로 세분화된 타입이 없어 국내는 이
 // 목록으로 걸러지는 게 사실상 없다(과잉 배제 위험이 없다는 뜻이기도 함).
-const LARGE_FACILITY_TYPES = new Set(["amusement_park", "theme_park", "water_park", "aquarium", "zoo", "amusement_center"]);
-// 작업지시서 2026-10-06 "#294 검증" §2 — 삿포로 "시로이코이비토 파크"(초콜릿 공장 견학,
-// 1~2시간)가 Google primaryType amusement_park라는 이유만으로 종일시설이 돼 [5,1]의 단독
-// 날을 만들었다. 종일시설은 위 타입이면서 리뷰 3만 이상이거나, 이름 사전(USJ·디즈니·롯데월드·
-// 에버랜드·타롱가 류 — 리뷰 수가 덜 쌓였어도 하루가 차는 곳)에 있을 때만이다. 이름 사전은
+// 작업지시서 2026-10-07 "#296 검증" §2 — 종일시설은 **테마파크**(amusement_park·theme_park·water_park)만이다.
+// 수족관(오사카 해유관·SEA LIFE)·동물원(타롱가)은 2~3시간·반나절이라 일반 명소다 — 종일시설로 보면
+// 시설 날 상한·동반 규칙이 일반 명소(해유관)에 적용돼 오사카 2일에 "시설 날 2일 · 시설 날에 동반 4곳"이
+// 생겼다. 위 "대형 시설" 이름·#156 출발일 제외도 같은 판정을 쓴다(수족관·동물원은 출발일에도 후보).
+const LARGE_FACILITY_TYPES = new Set(["amusement_park", "theme_park", "water_park"]);
+// 작업지시서 2026-10-06 "#294 검증" §2 — 시로이코이비토 파크(초콜릿 공장 견학, 1~2시간)가 Google
+// primaryType amusement_park라는 이유만으로 종일시설이 돼 [5,1]의 단독 날을 만들었다. 종일시설은 위
+// 타입이면서 리뷰 3만 이상이거나, 이름 사전(USJ·디즈니랜드·디즈니씨·롯데월드·에버랜드·레고랜드·
+// 서울랜드·오션파크·유니버설 류 — 리뷰 수가 덜 쌓였어도 하루가 차는 곳)에 있을 때만이다. 이름 사전은
 // 타입 조건과 함께만 쓴다("디즈니 스토어"·"롯데월드몰" 같은 상점 오탐 방지, 국내 Kakao 후보는
 // 이 타입이 없어 이전과 같이 영향 없음).
 const LARGE_FACILITY_MIN_REVIEWS = 30000;
 const LARGE_FACILITY_NAME_PATTERN =
-  /유니버설|universal|\busj\b|디즈니|disney|롯데월드|lotte\s?world|에버랜드|everland|타롱가|taronga|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|해유관|가이유칸|kaiyukan|sea\s?life|시라이프|씨라이프|sea\s?world|씨월드|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
+  /유니버설|universal|\busj\b|디즈니|disney|롯데월드|lotte\s?world|에버랜드|everland|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|씨월드|sea\s?world|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
 export function isLargeFacility(p: { category?: string; name?: string; reviewCount?: number | null }): boolean {
   if (!LARGE_FACILITY_TYPES.has(p.category?.toLowerCase() ?? "")) return false;
   return (p.reviewCount ?? 0) >= LARGE_FACILITY_MIN_REVIEWS || LARGE_FACILITY_NAME_PATTERN.test(p.name ?? "");

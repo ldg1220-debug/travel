@@ -10,6 +10,7 @@ import {
   capCityDaySizes,
   capResortDaySizes,
   dropExcessFacilities,
+  enforceFacilityDayLimit,
   dropRemoteResortStops,
   enforceFacilityDayCompanions,
   isValidFacilityCompanion,
@@ -79,6 +80,7 @@ import {
   type RouteResult,
 } from "./courseBrief";
 import { decodePolyline, haversineKm } from "./courseRoute";
+import { isLargeFacility } from "./courseRecommend";
 import type { FinalStop } from "./courseRecommendV2";
 import type { Place } from "@/lib/types";
 
@@ -2439,24 +2441,24 @@ describe("rebalanceCityDays — 도시형 하루 스팟 수 재배분 (작업지
     const days = [
       normals("a", 6, 0),
       normals("b", 6, 3),
-      [facility("zoo", "zoo", 1, 1)],
-      [facility("aq", "aquarium", 2, 1)],
+      [facility("zoo", "amusement_park", 1, 1)],
+      [facility("aq", "water_park", 2, 1)],
       [facility("luna", "amusement_park", 4, 2)],
     ];
     const result = rebalanceCityDays(days);
     expect(result.flat()).toHaveLength(15);
     for (const day of result) expect(day.length).toBeGreaterThanOrEqual(2);
-    for (const day of result) expect(day.length).toBeLessThanOrEqual(day.some((s) => ["zoo", "aquarium", "amusement_park"].includes(s.category)) ? 3 : 5);
+    for (const day of result) expect(day.length).toBeLessThanOrEqual(day.some((s) => ["amusement_park", "water_park"].includes(s.category)) ? 3 : 5);
     for (const id of ["zoo", "aq", "luna"]) {
       // 시설은 자기 날에 그대로, 다른 시설과 한 날에 섞이지 않는다.
       const day = result.find((d) => d.some((s) => s.id === id))!;
-      expect(day.filter((s) => ["zoo", "aquarium", "amusement_park"].includes(s.category))).toHaveLength(1);
+      expect(day.filter((s) => ["amusement_park", "water_park"].includes(s.category))).toHaveLength(1);
     }
     expect(new Set(result.flat().map((s) => s.id)).size).toBe(15);
   });
 
   it("시드니 3일 6·6·1 → 최대 5곳, 하루 2곳 이상", () => {
-    const result = rebalanceCityDays([normals("a", 6, 0), normals("b", 6, 3), [facility("zoo", "zoo", 1, 1)]]);
+    const result = rebalanceCityDays([normals("a", 6, 0), normals("b", 6, 3), [facility("zoo", "amusement_park", 1, 1)]]);
     expect(result.flat()).toHaveLength(13);
     expect(sizes(result).every((n) => n >= 2 && n <= 5)).toBe(true);
     expect(result.find((d) => d.some((s) => s.id === "zoo"))!.length).toBeLessThanOrEqual(3);
@@ -2470,7 +2472,7 @@ describe("rebalanceCityDays — 도시형 하루 스팟 수 재배분 (작업지
   it("기증일이 여럿이어도 옮길 수 있는 날에서 가져온다(첫 기증일이 식사·시설뿐이어도)", () => {
     const meal = (id: string) => spotAt(id, 0, 0, { meal: true, category: "restaurant" });
     const days = [
-      [facility("zoo", "zoo", 0, 0), meal("m1"), meal("m2")], // 가장 큰 날이지만 옮길 게 없다
+      [facility("zoo", "amusement_park", 0, 0), meal("m1"), meal("m2")], // 가장 큰 날이지만 옮길 게 없다
       normals("b", 3, 1),
       [spotAt("thin", 5, 5)],
     ];
@@ -2494,8 +2496,8 @@ describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 202
 
   it("시드니 3일 [6,6,1]·4일 [6,6,1,1]: 재배분은 총합·구성을 바꾸지 않는다", () => {
     for (const days of [
-      [normals("a", 6, 0), normals("b", 6, 3), [fac("zoo", "zoo", 1)]],
-      [normals("a", 6, 0), normals("b", 6, 3), [fac("zoo", "zoo", 1)], [fac("aq", "aquarium", 2)]],
+      [normals("a", 6, 0), normals("b", 6, 3), [fac("zoo", "amusement_park", 1)]],
+      [normals("a", 6, 0), normals("b", 6, 3), [fac("zoo", "amusement_park", 1)], [fac("aq", "water_park", 2)]],
     ]) {
       const result = rebalanceCityDays(days);
       expect(total(result)).toBe(total(days));
@@ -2504,11 +2506,11 @@ describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 202
   });
 
   it("시드니 3일: 재배분 + 하루 최대 정리 후에도 도시형 최소 총량(days×3=9)을 지킨다", () => {
-    const moved = rebalanceCityDays([normals("a", 6, 0), normals("b", 6, 3), [fac("zoo", "zoo", 1)]]);
+    const moved = rebalanceCityDays([normals("a", 6, 0), normals("b", 6, 3), [fac("zoo", "amusement_park", 1)]]);
     const { days, trimmed } = capCityDaySizes(moved, 9);
     expect(total(days) + trimmed.length).toBe(13);
     expect(total(days)).toBeGreaterThanOrEqual(9);
-    for (const d of days) expect(d.length).toBeLessThanOrEqual(d.some((s) => s.category === "zoo") ? 3 : 5);
+    for (const d of days) expect(d.length).toBeLessThanOrEqual(d.some((s) => s.category === "amusement_park") ? 3 : 5);
   });
 
   it("서울형 [6,6] → 하루 최대 5곳: 외딴 랜드마크가 아니라 식사부터 뺀다 (경복궁 보호)", () => {
@@ -2532,7 +2534,7 @@ describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 202
 
   it("대표 명소 앵커·선착장·섬·종일시설은 절대 빼지 않는다 — 뺄 게 없으면 상한을 넘긴 채 둔다", () => {
     const anchor = (id: string) => spotAt(id, 0, 0, { slotKey: "landmark-anchor", category: "tourist_attraction", rating: 4.5, reviewCount: 100 });
-    const protectedDay = [anchor("a1"), anchor("a2"), anchor("a3"), spotAt("jetty", 0, 0, { slotKey: "jetty", name: "제셀톤 선착장", category: "ferry_terminal" }), spotAt("isl", 0, 0, { name: "사피 섬", category: "island" }), spotAt("zoo", 0, 0, { category: "zoo" })];
+    const protectedDay = [anchor("a1"), anchor("a2"), anchor("a3"), spotAt("jetty", 0, 0, { slotKey: "jetty", name: "제셀톤 선착장", category: "ferry_terminal" }), spotAt("isl", 0, 0, { name: "사피 섬", category: "island" }), spotAt("zoo", 0, 0, { category: "amusement_park", reviewCount: 50000 })];
     const { days, trimmed } = capCityDaySizes([protectedDay, normals("b", 2, 5)], 3);
     expect(trimmed).toHaveLength(0);
     expect(days[0]).toHaveLength(6);
@@ -2562,8 +2564,8 @@ describe("재배치가 스팟을 버리지 않는다 — 시드니 d3 · 오사�
   });
 
   it("시드니 3일: 일별 7곳 21곳 + 시설 2곳 → 총 스팟이 8곳으로 무너지지 않고, 시설 날은 1일 이하", () => {
-    const zoo = fac("zoo", "zoo", p(-33.84, 151.24), 50000);
-    const aquarium = fac("aq", "aquarium", p(-33.87, 151.2), 40000);
+    const zoo = fac("zoo", "amusement_park", p(-33.84, 151.24), 50000);
+    const aquarium = fac("aq", "water_park", p(-33.87, 151.2), 40000);
     const days = [
       [zoo, ...sights("a", 6, p(-33.86, 151.21))],
       [aquarium, ...sights("b", 6, p(-33.87, 151.22))],
@@ -2577,7 +2579,7 @@ describe("재배치가 스팟을 버리지 않는다 — 시드니 d3 · 오사�
 
   it("오사카 2일: 시설 2곳이어도 이틀 모두 시설 날이 되지 않고([1,1] 아님) 최소 총량 6곳 이상", () => {
     const usj = fac("usj", "amusement_park", p(34.665, 135.433), 90000);
-    const kaiyukan = fac("kaiyukan", "aquarium", p(34.654, 135.429), 40000);
+    const kaiyukan = fac("kaiyukan", "water_park", p(34.654, 135.429), 40000);
     const days = [[usj, ...sights("a", 6, p(34.7, 135.49))], [kaiyukan, ...sights("b", 6, p(34.665, 135.5))]];
     const result = reallocateStopsByDay(days);
     expect(result.flat().length).toBeGreaterThanOrEqual(6);
@@ -2594,7 +2596,7 @@ describe("도시형 전체 흐름 — 오사카 2일 · 앵커 보충 (작업지
 
   it("오사카 2일(시설 2곳): 재배치 → 재배분 → 정리까지 거치고도 도시형 최소 6곳 이상, 하루 2곳 이상", () => {
     const usj = fac("usj", "amusement_park", p(34.665, 135.433), 90000);
-    const kaiyukan = fac("kaiyukan", "aquarium", p(34.654, 135.429), 40000);
+    const kaiyukan = fac("kaiyukan", "water_park", p(34.654, 135.429), 40000);
     const days = [[usj, ...sights("a", 6, p(34.7, 135.49))], [kaiyukan, ...sights("b", 6, p(34.665, 135.5))]];
     const realloc = reallocateStopsByDay(days);
     const { days: final } = capCityDaySizes(rebalanceCityDays(realloc), 6);
@@ -2651,7 +2653,7 @@ describe("balanceSightsAcrossDays — 종일시설·앵커는 옮기지 않는�
   it("볼거리 없는 날에는 시설·앵커가 아닌 가장 덜 인기 있는 볼거리를 옮긴다", () => {
     const sight = (id: string, rc: number, extra: Partial<FinalStop> = {}) => stop(id, 0, 0, { category: "tourist_attraction", rating: 4.5, reviewCount: rc, ...extra });
     const days = [
-      [stop("zoo", 0, 0, { category: "zoo", rating: 4.8, reviewCount: 50000 }), sight("anchor", 5, { slotKey: "landmark-anchor" }), sight("plain", 700), sight("big", 9000)],
+      [stop("zoo", 0, 0, { category: "amusement_park", rating: 4.8, reviewCount: 50000 }), sight("anchor", 5, { slotKey: "landmark-anchor" }), sight("plain", 700), sight("big", 9000)],
       [stop("m", 0, 0, { meal: true, category: "restaurant" }), stop("cafe", 0, 0, { category: "cafe" })],
     ];
     const result = balanceSightsAcrossDays(days);
@@ -2722,14 +2724,14 @@ describe("종일시설 날 동반 조건 — 시설 5km 이내 · 시설/대형 
   it("isValidFacilityCompanion: 5km 이내 식사·가벼운 스팟은 가능, 다른 시설·앵커·먼 곳은 불가", () => {
     const f = usj();
     expect(isValidFacilityCompanion(at("food", 34.67, 135.44, { category: "restaurant", meal: true }), f)).toBe(true);
-    expect(isValidFacilityCompanion(at("kaiyukan", 34.654, 135.429, { category: "aquarium" }), f)).toBe(false); // 또 하나의 시설
+    expect(isValidFacilityCompanion(at("kaiyukan", 34.654, 135.429, { category: "water_park", reviewCount: 50000 }), f)).toBe(false); // 또 하나의 시설
     expect(isValidFacilityCompanion(at("castle", 34.687, 135.526, { slotKey: "landmark-anchor" }), f)).toBe(false); // 앵커
     expect(isValidFacilityCompanion(at("dotonbori", 34.668, 135.503), f)).toBe(false); // 6km 넘음
   });
 
   it("USJ 날의 해유관·오사카 성·도톤보리는 시설 없는 날로 옮기고, 가까운 식사는 남긴다", () => {
     const days = [
-      [usj(), at("kaiyukan", 34.654, 135.429, { category: "aquarium" }), at("castle", 34.687, 135.526, { slotKey: "landmark-anchor" }), at("dotonbori", 34.668, 135.503), at("citywalk", 34.667, 135.435, { meal: true, category: "restaurant" })],
+      [usj(), at("kaiyukan", 34.654, 135.429, { category: "water_park", reviewCount: 50000 }), at("castle", 34.687, 135.526, { slotKey: "landmark-anchor" }), at("dotonbori", 34.668, 135.503), at("citywalk", 34.667, 135.435, { meal: true, category: "restaurant" })],
       [at("a", 34.7, 135.5), at("b", 34.69, 135.51)],
     ];
     const { days: result, moved, dropped } = enforceFacilityDayCompanions(days, 6);
@@ -2842,5 +2844,64 @@ describe("dropExcessFacilities — 상한을 넘는 종일시설은 코스에서
     const { stops, dropped } = dropExcessFacilities([land, sight("a")], 2);
     expect(dropped).toHaveLength(0);
     expect(stops).toHaveLength(2);
+  });
+});
+
+describe("종일시설은 테마파크만 · 판정 함수 단일화 (작업지시서 2026-10-07 '#296 검증' §2)", () => {
+  const cases: { label: string; category: string; name: string; reviewCount: number; facility: boolean }[] = [
+    { label: "USJ", category: "amusement_park", name: "유니버설 스튜디오 재팬", reviewCount: 90000, facility: true },
+    { label: "도쿄 디즈니씨", category: "amusement_park", name: "도쿄 디즈니씨", reviewCount: 800, facility: true },
+    { label: "시로이코이비토 파크", category: "amusement_park", name: "시로이코이비토 파크", reviewCount: 16000, facility: false },
+    { label: "해유관", category: "aquarium", name: "오사카 해유관", reviewCount: 70000, facility: false },
+    { label: "SEA LIFE", category: "aquarium", name: "SEA LIFE Sydney", reviewCount: 40000, facility: false },
+    { label: "타롱가 동물원", category: "zoo", name: "Taronga Zoo", reviewCount: 50000, facility: false },
+  ];
+  const at = (c: (typeof cases)[number]) => stop(c.label, 34.66, 135.43, { category: c.category, name: c.name, reviewCount: c.reviewCount, rating: 4.5 });
+
+  it.each(cases)("$label: facilityDay 표시 · 시설 날 판정 · 동반 조건 · 상한이 모두 isLargeFacility 하나와 일치한다", (c) => {
+    const s = at(c);
+    expect(isLargeFacility(s)).toBe(c.facility);
+    expect(isDayFacility(s)).toBe(c.facility); // 시설 날 판정
+    expect(assembleDaySpots([s], [], 1, "overseas", "오사카", 1).spots[0].facilityDay === true).toBe(c.facility); // 응답 표시
+    const usj = stop("usj", 34.665, 135.433, { category: "amusement_park", name: "유니버설 스튜디오 재팬", reviewCount: 90000 });
+    // 동반 조건: 같은 시설 날의 동반이 될 수 있는지 = 시설이 아닐 때만(거리는 가깝게 맞춰 둔다)
+    expect(isValidFacilityCompanion(s, usj)).toBe(!c.facility);
+    // 상한: 2일 코스에서 시설 1곳까지만 허용 — 시설이면 2번째가 빠지고, 시설이 아니면 영향이 없다
+    const { dropped } = enforceFacilityDayLimit([[usj], [s]]);
+    expect(dropped.length === 1).toBe(c.facility);
+  });
+
+  it("오사카 2일(USJ + 해유관): 해유관은 일반 명소로 남고 시설 날은 USJ 하나뿐이다", () => {
+    const usj = stop("usj", 34.665, 135.433, { category: "amusement_park", name: "유니버설 스튜디오 재팬", reviewCount: 90000, rating: 4.6 });
+    const kaiyukan = stop("kaiyukan", 34.654, 135.429, { category: "aquarium", name: "오사카 해유관", reviewCount: 70000, rating: 4.5 });
+    const sights = (prefix: string, base: P) => cluster(prefix, base, 5).map((x, i) => ({ ...x, category: "tourist_attraction", rating: 4.4, reviewCount: 500 + i }));
+    const result = reallocateStopsByDay([[usj, ...sights("a", p(34.7, 135.49))], [kaiyukan, ...sights("b", p(34.665, 135.5))]]);
+    expect(result.flat().some((s) => s.id === "kaiyukan")).toBe(true);
+    expect(result.filter((d) => d.some(isDayFacility))).toHaveLength(1);
+    const kaiyukanDay = result.find((d) => d.some((s) => s.id === "kaiyukan"))!;
+    expect(kaiyukanDay.some(isDayFacility)).toBe(false);
+  });
+
+  it("앵커는 종일시설이 될 수 없다 — 테마파크 후보는 건너뛰고, 수족관(해유관)은 대표 명소로 뽑힌다", () => {
+    const existing = [stop("a", 34.66, 135.43)];
+    const picked = pickLandmarkAnchors(
+      [
+        place("usj", { name: "유니버설 스튜디오 재팬", category: "amusement_park", rating: 4.6, reviewCount: 100000, lat: 34.665, lng: 135.433 }),
+        place("kaiyukan", { name: "오사카 해유관", category: "aquarium", rating: 4.5, reviewCount: 70000, lat: 34.654, lng: 135.429 }),
+      ],
+      existing,
+      2,
+      5,
+    );
+    expect(picked.map((x) => x.id)).toEqual(["kaiyukan"]);
+  });
+
+  it("enforceFacilityDayLimit: 앵커 등으로 시설이 더 들어와도 시설 날은 코스 일수의 절반 이하, 더 인기 있는 시설이 남는다", () => {
+    const usj = stop("usj", 34.665, 135.433, { category: "amusement_park", name: "유니버설 스튜디오 재팬", reviewCount: 90000, rating: 4.6 });
+    const other = stop("other", 34.7, 135.5, { category: "amusement_park", name: "Some Big Park", reviewCount: 40000, rating: 4.4, slotKey: "landmark-anchor" });
+    const { days, dropped } = enforceFacilityDayLimit([[usj, stop("x", 34.66, 135.43)], [other, stop("y", 34.7, 135.5)], [stop("z", 34.7, 135.49)]]);
+    expect(dropped.map((s) => s.id)).toEqual(["other"]);
+    expect(days.flat().filter(isDayFacility)).toHaveLength(1);
+    expect(days.flat().map((s) => s.id)).toContain("y"); // 시설만 빠지고 같은 날 다른 스팟은 남는다
   });
 });
