@@ -91,6 +91,12 @@ export interface CourseBriefSpot {
    */
   toNextSource?: "route" | "straight";
   /**
+   * 대중교통(transit) 조회가 실패해 자동차(driving) 경로로 대신 구한 구간이면 "driving"(아니면 필드 없음) —
+   * 작업지시서 2026-10-08 "#298 검증". 일본은 Google Directions가 대중교통 데이터를 거의 주지 않아 구간이
+   * 전부 car로 바뀌었다. 시간·거리는 참고값으로 유효하나 실제 이동수단(대중교통)과 다르다는 표시. 순수 추가 필드.
+   */
+  toNextFallback?: "driving";
+  /**
    * 원래(Google 공식) 이름 — name이 표시용으로 정리됐을 때만 채워진다
    * (cleanDisplayName 참고, 예: "대한불교조계종 제11교구 본사 불국사"의
    * name은 "불국사"). 작업지시서 2026-09-29 "#280 검증" §3 "원래 이름은
@@ -333,7 +339,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 32; // 작업지시서 2026-10-07 "#297 검증: 이번엔 USJ·디즈니랜드가 종일시설에서 빠졌습니다 · 일본은 코스 전체가 직선거리" — 종일시설의 이름 사전 단독 인정(타입 무관)·구간별 출처(toNextSource)·distanceSource "mixed"·해외 대중교통 → 자동차 폴백은 최종 브리프 조립 로직과 새 응답 필드라, 버전을 올리지 않으면 오사카·도쿄·KK가 26시간 동안 USJ가 시설이 아닌 코스 전체 "straight" v31 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 33; // 작업지시서 2026-10-08 "#298 검증: 전부 route · 종일시설 정상. 차량 폴백 구간만 표시해 주세요" — 새 응답 필드 spots[].toNextFallback은 최종 브리프 조립 결과에만 생기므로, 버전을 올리지 않으면 캐시된 v32 응답에는 필드가 없어 도쿄·나고야·오사카의 폴백 구간이 표시되지 않는다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -479,6 +485,8 @@ export type LegMode = TravelMode | "boat";
 
 export interface RouteResult extends RouteMeasurement {
   mode: LegMode;
+  /** 대중교통 조회가 실패해 자동차 경로로 대신 구한 구간이면 "driving" — 작업지시서 2026-10-08 "#298 검증". */
+  fallback?: "driving";
 }
 
 /**
@@ -770,17 +778,23 @@ async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, p
   // 이동수단은 실제로 값을 얻은 "car"로 표시한다. 걷기 구간은 이미 걷기로 조회했고(WALK_MAX_KM 이하), 국내는
   // 처음부터 자동차라 폴백이 없다.
   let effectiveMode = mode;
+  let fallback: "driving" | undefined;
   if (mode === "transit" && scope === "overseas" && (outcome === "no-route" || outcome == null)) {
+    const transitStatus = outcome === "no-route" ? "ZERO_RESULTS" : "FAILED";
     const driving = await fetchGoogleDirectionsRoute(a, b, "driving");
     if (driving != null && driving !== "no-route") {
       outcome = driving;
       effectiveMode = "car";
+      fallback = "driving";
     }
+    // 작업지시서 2026-10-08 "#298 검증" — 폴백이 성공해도 transit 실패 1줄을 남겨 실패 비율을 집계한다.
+    console.log(`[courseBrief] route-fail ${legCoordsLabel(a, b)} mode=transit status=${transitStatus} fallback=driving ${fallback ? "ok" : "failed"}`);
   }
   mode = effectiveMode;
   if (outcome === "no-route") return "no-route";
   if (outcome == null) return straightRouteMeasurement(a, b, mode); // 조회 실패/판단 보류 — 폴백, 스팟은 유지
-  return applyDurationCap(outcome, mode); // §3 ★ 비정상적으로 크면(3시간 초과) "no-route"
+  const capped = applyDurationCap(outcome, mode); // §3 ★ 비정상적으로 크면(3시간 초과) "no-route"
+  return capped === "no-route" || !fallback ? capped : { ...capped, fallback };
 }
 
 export interface LegRouteResult {
@@ -2168,6 +2182,7 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
     let toNextMode: LegMode | null = null;
     let toNextEstimated = false;
     let toNextSource: "route" | "straight" | undefined;
+    let toNextFallback: "driving" | undefined;
     if (i < stops.length - 1) {
       const seg = segments[i];
       distanceKm += seg.distanceKm; // 배편 구간은 0이라 합계에서 자연히 빠진다(boatLegMeasurement)
@@ -2175,6 +2190,7 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
       toNextMinutes = seg.mode === "boat" ? null : seg.durationMinutes;
       toNextEstimated = isEstimatedLeg(seg, scope);
       toNextSource = toNextEstimated ? "straight" : "route";
+      toNextFallback = seg.fallback;
       // 국내 도보는 애초에 실경로 조회 대상이 아니다(routeSegment 위
       // 설명 참고) — 의도된 직선 추정이라 "실패"로 세지 않는다. 해외
       // 도보는 작업지시서 2026-09-15 "도보 구간이 직선으로 그려집니다"
@@ -2213,6 +2229,7 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
       toNextMode,
       ...(toNextEstimated ? { toNextEstimated: true as const } : {}),
       ...(toNextSource ? { toNextSource } : {}),
+      ...(toNextFallback ? { toNextFallback } : {}),
     };
   });
   return { spots, distanceKm, hadStraightFallback };
@@ -3867,8 +3884,8 @@ export async function buildBrief(
         const startSpot = daySlice[0];
         const jSpot = daySlice[j];
         const nextArr = [...finalSpots];
-        nextArr[start] = { ...jSpot, order: startSpot.order, day: startSpot.day, toNextMinutes: startSpot.toNextMinutes, toNextMode: startSpot.toNextMode, toNextEstimated: startSpot.toNextEstimated, toNextSource: startSpot.toNextSource };
-        nextArr[globalJ] = { ...startSpot, order: jSpot.order, day: jSpot.day, toNextMinutes: jSpot.toNextMinutes, toNextMode: jSpot.toNextMode, toNextEstimated: jSpot.toNextEstimated, toNextSource: jSpot.toNextSource };
+        nextArr[start] = { ...jSpot, order: startSpot.order, day: startSpot.day, toNextMinutes: startSpot.toNextMinutes, toNextMode: startSpot.toNextMode, toNextEstimated: startSpot.toNextEstimated, toNextSource: startSpot.toNextSource, toNextFallback: startSpot.toNextFallback };
+        nextArr[globalJ] = { ...startSpot, order: jSpot.order, day: jSpot.day, toNextMinutes: jSpot.toNextMinutes, toNextMode: jSpot.toNextMode, toNextEstimated: jSpot.toNextEstimated, toNextSource: jSpot.toNextSource, toNextFallback: jSpot.toNextFallback };
 
         let dayDeltaKm = 0;
         for (const [localEdge, seg] of newSegByLocalEdge) {
@@ -3880,6 +3897,7 @@ export async function buildBrief(
             toNextMode: seg.mode,
             toNextEstimated: isEstimatedLeg(seg, scope) ? true : undefined,
             toNextSource: isEstimatedLeg(seg, scope) ? "straight" : "route",
+            toNextFallback: seg.fallback,
           };
           dayDeltaKm += seg.distanceKm - oldDistanceKm;
           const globalMapPathIdx = mapPathOffset + localEdge;

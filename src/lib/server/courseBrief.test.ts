@@ -2965,6 +2965,30 @@ describe("routeDayStops — 해외 대중교통 실패 시 자동차 폴백 · r
     expect(logSpy.mock.calls.some((c) => String(c[0]).includes("route-fail") && String(c[0]).includes("mode=transit") && String(c[0]).includes("status=ZERO_RESULTS"))).toBe(true);
   });
 
+  it("폴백 구간은 fallback driving, 로그는 fallback=driving ok / 실패면 failed, 일반 구간엔 표시가 없다 (작업지시서 2026-10-08 '#298 검증')", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => ({ ok: true, json: async () => (modeOf(input) === "transit" ? { status: "ZERO_RESULTS" } : okBody) })));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const routed = await routeDayStops("overseas", [a, b], Date.now() + 5000);
+    expect(routed.segments[0].fallback).toBe("driving");
+    expect(logSpy.mock.calls.some((c) => String(c[0]).includes("mode=transit status=ZERO_RESULTS fallback=driving ok"))).toBe(true);
+    const { spots } = assembleDaySpots(routed.stops, routed.segments, 1, "overseas", "도쿄", 1);
+    expect(spots[0].toNextMode).toBe("car");
+    expect(spots[0].toNextFallback).toBe("driving");
+    // 처음부터 transit이 성공하는 구간(시드니 류)에는 표시가 없다
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => okBody })));
+    const plain = await routeDayStops("overseas", [a, b], Date.now() + 5000);
+    expect(plain.segments[0].fallback).toBeUndefined();
+    expect(plain.segments[0].mode).toBe("transit");
+    expect(assembleDaySpots(plain.stops, plain.segments, 1, "overseas", "시드니", 1).spots[0].toNextFallback).toBeUndefined();
+    // 둘 다 실패하면 폴백 표시 없이 failed 로그
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ status: "ZERO_RESULTS" }) })));
+    logSpy.mockClear();
+    const failed = await routeDayStops("overseas", [a, b], Date.now() + 5000);
+    expect(failed.segments[0].fallback).toBeUndefined();
+    expect(logSpy.mock.calls.some((c) => String(c[0]).includes("fallback=driving failed"))).toBe(true);
+  });
+
   it("transit·driving이 둘 다 실패하면 직선 추정(points null)으로 남고 스팟은 유지된다", async () => {
     vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ status: "ZERO_RESULTS" }) })));
