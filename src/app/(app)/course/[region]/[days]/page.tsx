@@ -277,9 +277,10 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
           <ul className="space-y-1.5">
             {relatedPosts.map((post) => (
               <li key={post.id}>
-                <Link href={`/trip/${post.id}`} className="text-[13px] text-brand-700 hover:underline dark:text-brand-400">
+                {/* Drive가 로드된 문서(이 페이지)에서 토큰 민감 목적지(/trip)로 가는 링크는 전체 문서 이동 — documentNavigation.ts */}
+                <a href={`/trip/${post.id}`} className="text-[13px] text-brand-700 hover:underline dark:text-brand-400">
                   {post.title}
-                </Link>
+                </a>
               </li>
             ))}
           </ul>

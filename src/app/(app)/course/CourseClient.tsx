@@ -1,5 +1,6 @@
 "use client";
 
+import { pushSafely } from "@/lib/documentNavigation";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -324,7 +325,7 @@ export function CourseBuilderPage() {
     if (city) setCurrentCity(city);
     setRegion(region);
     setFinishOpen(false);
-    router.push("/planner");
+    pushSafely(router, "/planner");
   };
 
   // "동선만 짜기" — no dates; just scrap every pick as a 관심 장소 so the
@@ -421,7 +422,7 @@ export function CourseBuilderPage() {
     setRegion(region);
     setAiCourse(null);
     trackFeatureEvent("course_save", "course", { scope, days: 1 });
-    router.push("/planner");
+    pushSafely(router, "/planner");
   };
 
   // 다일정 — 한 날짜의 한 슬롯만 빼기. 그 날짜의 stops 배열만 갱신한다.
@@ -472,7 +473,7 @@ export function CourseBuilderPage() {
     setRegion(region);
     setAiMultiCourse(null);
     trackFeatureEvent("course_save", "course", { scope, days: aiMultiCourse.length });
-    router.push("/planner");
+    pushSafely(router, "/planner");
   };
 
   return (

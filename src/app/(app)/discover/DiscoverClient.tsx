@@ -1,5 +1,6 @@
 "use client";
 
+import { pushSafely } from "@/lib/documentNavigation";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -652,7 +653,7 @@ export function DiscoverPage() {
     });
     showToast(`"${routeTarget.title}" 일정에 담았습니다`);
     setRouteTarget(null);
-    router.push("/planner");
+    pushSafely(router, "/planner");
   };
 
   // Randomized pick from the top-ranked pool, re-rolled only when the
