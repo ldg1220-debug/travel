@@ -27,6 +27,7 @@ import {
   type TravelRadius,
 } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
+import { isCourseBriefThin } from "@/lib/coursePages";
 import { allSpots, DOMESTIC_LOCALITY_NAMES, OVERSEAS_LOCALITY_NAMES, resolveRegionAlias, styleForRegion, type RegionStyle } from "@/lib/discoverData";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { routeLegColorStaticParam } from "@/lib/mapRouteColors";
@@ -386,6 +387,31 @@ export async function readBriefCache(key: string): Promise<CourseBrief | null> {
   if (Date.now() - new Date(row.created_at).getTime() > BRIEF_CACHE_TTL_MS) return null;
   if (!isFreshBriefPayload(row.payload)) return null;
   return row.payload;
+}
+
+/**
+ * 사이트맵 후보 기록 — 작업지시서 2026-10-08 "#300 검증" §3①. 브리프 캐시 키에는 알고리즘 버전이 들어가
+ * 버전이 오를 때마다 사이트맵 목록이 비었다. 이 기록은 버전과 무관한 별도 키(`course-sitemap:{지역}:{일수}`)로,
+ * "이 (지역, 일수)가 한 번이라도 200(API 기준 + 페이지 기준)을 통과한 시각"만 남긴다 — created_at을
+ * 통과할 때마다 갱신하고, place_candidate_cache의 30일 정리(courseRecommend.ts)가 곧 "최근 30일 내"
+ * 기준이다. 페이지는 열릴 때 새 버전으로 만든다. 실패해도 브리프 생성에는 영향이 없다.
+ */
+export function courseSitemapKey(region: string, days: number): string {
+  return `course-sitemap:${normalizeForMatch(region)}:${days}`;
+}
+
+export async function recordConfirmedCoursePage(brief: Pick<CourseBrief, "region" | "days" | "spots">, style: RegionStyle, days: CourseDays): Promise<void> {
+  if (!isCacheableBrief(brief.spots, style, days)) return;
+  if (isCourseBriefThin(brief.spots, minViableSpots(style, days))) return;
+  try {
+    await pool.query(
+      `insert into place_candidate_cache (cache_key, payload) values ($1, $2)
+       on conflict (cache_key) do update set payload = excluded.payload, created_at = now()`,
+      [courseSitemapKey(brief.region, days), JSON.stringify({ region: brief.region, days })],
+    );
+  } catch (err) {
+    console.error("[courseBrief] sitemap record failed:", err);
+  }
 }
 
 async function writeBriefCache(key: string, brief: CourseBrief): Promise<void> {
@@ -3945,6 +3971,7 @@ export async function buildBrief(
     await writeBriefCache(cacheKey, brief).catch((err) => {
       console.error("[courseBrief] final cache write failed:", err);
     });
+    await recordConfirmedCoursePage(brief, style, days);
   }
 
   return brief;

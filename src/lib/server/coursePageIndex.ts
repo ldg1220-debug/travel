@@ -45,8 +45,25 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
       if (judgeCourseBrief({ spots }, row.region, days as CourseDays) != null) continue;
       value.push({ region: row.region, days: days as CourseDays, lastModified: new Date(row.created_at) });
     }
-    memo = { at: Date.now(), value };
-    return value;
+    // 버전과 무관한 기록(courseSitemapKey) — 캐시 버전이 올라가 위 목록이 비어도 사이트맵에서 빠지지 않는다.
+    // 같은 (지역, 일수)는 더 최근 시각을 쓴다. 작업지시서 2026-10-08 "#300 검증" §3①.
+    const recorded = await pool.query<{ region: string | null; days: string | null; created_at: Date }>(
+      `select payload->>'region' as region, payload->>'days' as days, created_at
+         from place_candidate_cache
+        where cache_key like 'course-sitemap:%' and created_at > now() - interval '30 days'`,
+    );
+    const byKey = new Map(value.map((p) => [`${p.region}/${p.days}`, p]));
+    for (const row of recorded.rows) {
+      const days = Number(row.days);
+      if (!row.region || !Number.isInteger(days) || days < 1 || days > 7) continue;
+      const key = `${row.region}/${days}`;
+      const at = new Date(row.created_at);
+      const prev = byKey.get(key);
+      if (!prev || prev.lastModified < at) byKey.set(key, { region: row.region, days: days as CourseDays, lastModified: at });
+    }
+    const merged = [...byKey.values()];
+    memo = { at: Date.now(), value: merged };
+    return merged;
   } catch (err) {
     console.error("[course-index] failed to load confirmed course pages:", err);
     return [];

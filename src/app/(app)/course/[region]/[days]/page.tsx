@@ -19,6 +19,7 @@ import {
   groupSpotsByDay,
 } from "@/lib/coursePages";
 import { CourseCtaLink } from "@/components/CourseCtaLink";
+import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
 
 /**
  * `/course/{지역}/{일수}` — 작업지시서 2026-09-18 "트레쥴이 구글에
@@ -181,6 +182,8 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(touristTripJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
 
+      {/* 작업지시서 2026-10-08 "#300 검증" §2 — /course/** 도 Drive 로드(공유 토큰이 URL에 없다). */}
+      <TravelpayoutsDriveScript />
       <nav aria-label="breadcrumb" className="text-[12px] text-slate-400">
         <Link href="/" className="hover:underline">트레쥴</Link> › <Link href="/course" className="hover:underline">코스</Link> › <span>{region} {daysLabel}</span>
       </nav>
