@@ -1,5 +1,6 @@
 "use client";
 
+import { navigateByDocumentIfNeeded, pushSafely } from "@/lib/documentNavigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -304,6 +305,7 @@ export function AppBar() {
                 <Link
                   key={tab.key}
                   href={tab.href}
+                  onClick={(e) => navigateByDocumentIfNeeded(e, tab.href)}
                   className={`flex h-11 items-center rounded-full px-3.5 text-[13.5px] font-semibold transition-colors ${
                     active
                       ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
@@ -389,7 +391,7 @@ export function AppBar() {
             <button
               onClick={() => {
                 startNewPlan();
-                router.push("/planner");
+                pushSafely(router, "/planner");
                 setSavedPlansOpen(false);
               }}
               className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:hover:bg-slate-800"
@@ -402,7 +404,7 @@ export function AppBar() {
             <button
               onClick={() => {
                 openDraft();
-                router.push("/planner");
+                pushSafely(router, "/planner");
                 setSavedPlansOpen(false);
               }}
               className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12.5px] font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 dark:hover:bg-slate-800"
@@ -552,7 +554,7 @@ export function AppBar() {
                 setActiveDate(previewDate);
                 suppressStaleActiveDateCorrection();
                 setPreviewPlan(null);
-                router.push("/planner");
+                pushSafely(router, "/planner");
               }}
               className="mt-4 h-11 w-full rounded-xl bg-brand-700 text-sm font-semibold text-white transition-colors hover:bg-brand-800"
             >

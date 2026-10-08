@@ -1,5 +1,6 @@
 "use client";
 
+import { pushSafely } from "@/lib/documentNavigation";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -76,7 +77,7 @@ export function NotificationBell() {
 
   const handleItemClick = (n: AppNotification) => {
     setOpen(false);
-    if (n.postId != null) router.push(`/trip/${n.postId}`);
+    if (n.postId != null) pushSafely(router, `/trip/${n.postId}`);
     else if (n.communityPostId != null) router.push(`/community/${n.communityPostId}`);
     else if (n.actorId != null) setProfileUserId(n.actorId);
   };

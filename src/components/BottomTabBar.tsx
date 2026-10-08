@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { navigateByDocumentIfNeeded } from "@/lib/documentNavigation";
 import { usePathname } from "next/navigation";
 import { Home } from "lucide-react";
 import { CordixIcon } from "@/components/icons/CordixIcon";
@@ -82,6 +83,7 @@ export function BottomTabBar() {
             <Link
               key={tab.key}
               href={tab.href}
+              onClick={(e) => navigateByDocumentIfNeeded(e, tab.href)}
               className={`flex h-14 flex-col items-center justify-center gap-0.5 text-[10.5px] font-medium ${
                 active ? "text-brand-700 dark:text-brand-400" : "text-slate-400 dark:text-slate-500"
               }`}

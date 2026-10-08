@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { navigateByDocumentIfNeeded, pushSafely } from "@/lib/documentNavigation";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Calendar, Check, ChevronRight, Heart, Plus, Search, Sparkles, X } from "lucide-react";
@@ -158,12 +159,12 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
     if (trip.planId) loadPlan(trip.planId);
     setActiveDate(trip.dayDate);
     suppressStaleActiveDateCorrection();
-    router.push("/planner");
+    pushSafely(router, "/planner");
   };
   const goToNewPlan = () => {
     fireCta("new_plan");
     startNewPlan();
-    router.push("/planner");
+    pushSafely(router, "/planner");
   };
   const goToCourse = () => {
     fireCta("ai_course");
@@ -515,7 +516,7 @@ function TripListSection() {
 
   const openPlan = (plan: SavedPlan) => {
     loadPlan(plan.id);
-    router.push("/planner");
+    pushSafely(router, "/planner");
   };
 
   return (
@@ -531,7 +532,7 @@ function TripListSection() {
           <button
             onClick={() => {
               startNewPlan();
-              router.push("/planner");
+              pushSafely(router, "/planner");
             }}
             className="flex shrink-0 items-center gap-1 rounded-full bg-brand-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-800"
           >
@@ -546,11 +547,12 @@ function TripListSection() {
             {/* 진행 중인 계획(초안) — 이어서 하기 */}
             <Link
               href="/planner"
-              onClick={() => {
+              onClick={(e) => {
                 if (earliestItemDate) {
                   setActiveDate(earliestItemDate);
                   suppressStaleActiveDateCorrection();
                 }
+                navigateByDocumentIfNeeded(e, "/planner");
               }}
               className="group rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900"
             >
@@ -681,6 +683,7 @@ function LatestFeedSection() {
             <Link
               key={post.id}
               href={`/trip/${post.id}`}
+              onClick={(e) => navigateByDocumentIfNeeded(e, `/trip/${post.id}`)}
               className="group flex items-center gap-3 rounded-2xl border border-slate-200/70 bg-white p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900"
             >
               {post.images[0] ? (
