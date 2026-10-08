@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { pool } from "@/lib/server/db";
-import { daysToLabel, ENABLED_COURSE_PAGES } from "@/lib/coursePages";
+import { courseCanonicalPath } from "@/lib/coursePages";
+import { fetchConfirmedCoursePages } from "@/lib/server/coursePageIndex";
 
 /**
  * 작업지시서(2026-08-24, "아고다 반려 진단 + 제휴 심사 공통 요건") 2항 —
@@ -40,7 +41,10 @@ import { daysToLabel, ENABLED_COURSE_PAGES } from "@/lib/coursePages";
  */
 export const dynamic = "force-dynamic";
 
-const COURSE_PAGES_IN_SITEMAP = false;
+// 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §2 — 9월부터 false였던 코스 페이지 등록을 켠다.
+// 허용목록(ENABLED_COURSE_PAGES) 대신 "크론이 200 확인한 조합"(최종 브리프 캐시에 있고 페이지 기준을 통과한
+// 것)만 싣는다 — coursePageIndex.ts 참고. 422 조합은 캐시에 없어 제외되고, lastmod는 브리프 생성 시각이다.
+const COURSE_PAGES_IN_SITEMAP = true;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = "https://www.tradule.co.kr";
@@ -62,9 +66,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }));
 
   const coursePageEntries: MetadataRoute.Sitemap = COURSE_PAGES_IN_SITEMAP
-    ? ENABLED_COURSE_PAGES.map(({ region, days }) => ({
-        url: `${base}/course/${encodeURIComponent(region)}/${encodeURIComponent(daysToLabel(days))}`,
-        lastModified: now,
+    ? (await fetchConfirmedCoursePages()).map(({ region, days, lastModified }) => ({
+        url: `${base}${courseCanonicalPath(region, days)}`,
+        lastModified,
         changeFrequency: "weekly" as const,
         priority: 0.7,
       }))

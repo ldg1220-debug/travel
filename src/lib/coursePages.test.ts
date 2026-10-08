@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   ENABLED_COURSE_PAGES,
   ENABLED_COURSE_PAGE_REGIONS,
+  buildCourseBreadcrumbJsonLd,
+  buildCourseDescription,
   buildCourseIntro,
+  buildCourseTitle,
+  courseCanonicalPath,
+  groupSpotsByDay,
+  pickRepresentativeSpots,
   buildCourseItemListJsonLd,
   buildCourseTouristTripJsonLd,
   buildSpotDescription,
@@ -234,5 +240,64 @@ describe("JSON-LD builders (§4)", () => {
     expect(jsonLd["@type"]).toBe("TouristTrip");
     expect(jsonLd.name).toBe("경주 2박3일 코스");
     expect(jsonLd.image).toBe("https://example.com/map.png");
+  });
+});
+
+describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카드·BreadcrumbList (작업지시서 2026-10-08 §3)", () => {
+  const brief = {
+    region: "오사카",
+    days: 3 as const,
+    totalDistanceKm: 12.3,
+    imageUrl: null,
+    dayImageUrls: [null, null, null],
+    dayTotals: [
+      { day: 1 as const, distanceKm: 4.1, spotCount: 2 },
+      { day: 2 as const, distanceKm: 3.0, spotCount: 2, facilityDay: true as const },
+    ],
+    spots: [
+      spot({ name: "오사카 성", category: "관광지", rating: 4.6, reviewCount: 90000, order: 1, day: 1 }),
+      spot({ name: "이치란 도톤보리", category: "음식점", rating: 4.5, reviewCount: 95000, order: 2, day: 1 }),
+      spot({ name: "도톤보리", category: "관광지", rating: 4.5, reviewCount: 85000, order: 3, day: 2 }),
+      spot({ name: "유니버설 스튜디오 재팬", category: "테마파크", rating: 4.6, reviewCount: 60000, order: 4, day: 2 }),
+      spot({ name: "쓰텐카쿠", category: "관광지", rating: 4.2, reviewCount: 40000, order: 5, day: 3 }),
+      spot({ name: "웰컴 호텔", category: "숙소", rating: 4.9, reviewCount: 99999, order: 6, day: 3, lodging: true }),
+    ],
+  };
+
+  it("대표 명소는 식당·카페·숙소·선착장을 빼고 평점×리뷰 순으로 뽑는다", () => {
+    expect(pickRepresentativeSpots(brief.spots, 3)).toEqual(["오사카 성", "도톤보리", "유니버설 스튜디오 재팬"]);
+    expect(pickRepresentativeSpots([spot({ name: "제셀톤 선착장", category: "관광지" }), spot({ name: "Poin Spa", category: "기타" })], 2)).toEqual([]);
+  });
+
+  it("title: '{지역} {일수} 코스 — {N}곳 · {대표1}·{대표2} | 트레쥴', description: 대표 3곳 + 고정 문구", () => {
+    expect(buildCourseTitle(brief)).toBe("오사카 2박3일 코스 — 6곳 · 오사카 성·도톤보리 | 트레쥴");
+    expect(buildCourseDescription(brief)).toBe("오사카 2박3일 코스: 오사카 성, 도톤보리, 유니버설 스튜디오 재팬. 일자별 동선 지도 · 이동 시간 · 평점 정리.");
+    // 6·7일은 URL 라벨과 같은 "5박6일"·"5박7일"
+    expect(buildCourseTitle({ ...brief, region: "세부", days: 7 })).toContain("세부 5박7일 코스");
+  });
+
+  it("canonical 경로는 지역·일수 라벨을 인코딩해 한 가지로만 만든다", () => {
+    expect(courseCanonicalPath("오사카", 3)).toBe(`/course/${encodeURIComponent("오사카")}/${encodeURIComponent("2박3일")}`);
+  });
+
+  it("groupSpotsByDay: 일자별 묶음에 이동거리·시설 날 표시가 붙는다", () => {
+    const groups = groupSpotsByDay(brief);
+    expect(groups.map((g) => [g.day, g.spots.length])).toEqual([[1, 2], [2, 2], [3, 2]]);
+    expect(groups[0].distanceKm).toBe(4.1);
+    expect(groups[1].facilityDay).toBe(true);
+    expect(groups[2].distanceKm).toBeNull();
+  });
+
+  it("BreadcrumbList: 홈 > 코스 > {지역} {일수} 코스, 마지막 항목은 canonical 절대 주소", () => {
+    const ld = buildCourseBreadcrumbJsonLd("오사카", 3) as { itemListElement: { position: number; name: string; item: string }[] };
+    expect(ld.itemListElement.map((e) => e.position)).toEqual([1, 2, 3]);
+    expect(ld.itemListElement[2].name).toBe("오사카 2박3일 코스");
+    expect(ld.itemListElement[2].item).toBe(`https://www.tradule.co.kr${courseCanonicalPath("오사카", 3)}`);
+  });
+
+  it("buildSpotDescription: 차량 폴백·직선 추정 구간은 그 사실을 적는다", () => {
+    expect(buildSpotDescription(spot({ toNextMode: "car", toNextMinutes: 20, toNextFallback: "driving" }))).toContain("대중교통 정보가 없어 차량 기준 참고값");
+    expect(buildSpotDescription(spot({ toNextMode: "car", toNextMinutes: 20, toNextSource: "straight" }))).toContain("직선거리 추정");
+    expect(buildSpotDescription(spot({ toNextMode: "car", toNextMinutes: 20, toNextSource: "route" }))).not.toContain("추정");
   });
 });
