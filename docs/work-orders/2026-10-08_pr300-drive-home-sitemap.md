@@ -49,6 +49,15 @@ sitemap.xml  코스 URL 4개 (위 15곳 방문 직후에도 10분 메모로 4개
 ③ 대표 조합 우선 순서: 지역 popularity 상위 × (도시 2·3일 · 휴양 3·5일) 먼저
 ```
 
+## 3-1. ★ 코스 지도 이미지가 검색엔진에 막혀 있습니다
+
+```
+robots.txt   Disallow: /api/
+지도 이미지   /api/blob/course-maps/…/v33.png  ← 코스 페이지 · 블로그의 핵심 이미지인데 크롤 금지
+```
+
+`Allow: /api/blob/course-maps/` 를 `Disallow: /api/` 앞에 추가 (이미지 검색 유입). 코스 페이지 `og:image` 도 이 지도로.
+
 ## 4. 순서
 
 | | 작업 | 규모 |
@@ -61,7 +70,6 @@ sitemap.xml  코스 URL 4개 (위 15곳 방문 직후에도 10분 메모로 4개
 
 - 동근님: Travelpayouts "Check Drive connection" 클릭 → 통과 확인 → 프로그램 목록에서 승인된 숙소 · 입장권 · 투어 브랜드 알려주기
 - Cowork: 홈 HTML 에 스크립트 1회 로드 · /planner · /trip 에는 없음 · 사이트맵 코스 URL 수 추이
-
 ---
 
 ## 처리 결과
@@ -84,3 +92,8 @@ sitemap.xml  코스 URL 4개 (위 15곳 방문 직후에도 10분 메모로 4개
 
 ### 검증 관련 메모
 프로덕션 접근 불가. 홈 HTML에 스크립트 1회·사이트맵 URL 수 추이는 배포 후 Cowork 확인이 필요하다.
+
+### §3-1 — 완료 (코스 지도 이미지 크롤 허용)
+- `robots.txt`: `Allow: /api/blob/course-maps/`를 `Disallow: /api/` 앞에 추가했다(`allow: ["/", "/api/blob/course-maps/"]` — 더 긴 규칙이 이기므로 `/api/` 차단은 유지). 후기 사진 등 다른 `/api/blob/`은 계속 막힌다. 테스트로 고정.
+- `og:image`: 코스 페이지는 이미 `brief.imageUrl`(= `/api/blob/course-maps/…` 전체 코스 지도)을 `og:image`·`twitter:image`로 쓴다(#300). 변경 없음. 일자별 지도(`dayImageUrls`)는 이 경로 아래라 같은 허용을 받는다.
+- 이 파일은 지시서 v2(§3-1 추가)로 갱신했다 — 같은 PR 파일명을 유지.
