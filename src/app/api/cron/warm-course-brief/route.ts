@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, mapWithConcurrency, pickStaleTasks, type WarmTask } from "@/lib/server/courseBrief";
+import { getCourseBrief, mapWithConcurrency, maxDaysForStyle, pickStaleTasks, type CourseDays, type WarmTask } from "@/lib/server/courseBrief";
 import { flatRegions } from "@/lib/discoverData";
+import { minDaysForStyle } from "@/lib/server/coursePageGate";
 import { ENABLED_COURSE_PAGES } from "@/lib/coursePages";
 
 /**
@@ -77,10 +78,20 @@ const PRIORITY_BATCH_SIZE = 8;
 
 const PRIORITY_TASKS: WarmTask[] = ENABLED_COURSE_PAGES.map(({ region, days }): WarmTask => ({ region, days }));
 
+// 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §2 — 사이트맵에는 "크론이 200 확인한 조합"만
+// 오르므로(coursePageIndex.ts), 일반 풀을 지역 × (도시형 1~5일 · 휴양형 2~7일) 전체로 넓힌다. 기존
+// (국내 1일, 해외 2·3일)은 그 부분집합이다. Hobby 플랜(하루 1회·BATCH_SIZE 12)이라 한 바퀴 도는 데
+// 오래 걸린다 — 캐시가 없는 조합부터 채우고(pickStaleTasks) 페이지 방문도 캐시를 채운다.
+const allDayTasks = (scope: "domestic" | "overseas"): WarmTask[] =>
+  flatRegions(scope).flatMap((r) => {
+    const tasks: WarmTask[] = [];
+    for (let d = minDaysForStyle(r.style); d <= maxDaysForStyle(r.style); d++) tasks.push({ region: r.name, days: d as CourseDays });
+    return tasks;
+  });
+
 const WARM_TASKS: WarmTask[] = [
-  ...flatRegions("domestic").map((r): WarmTask => ({ region: r.name, days: 1 })),
-  ...flatRegions("overseas").map((r): WarmTask => ({ region: r.name, days: 2 })),
-  ...flatRegions("overseas").map((r): WarmTask => ({ region: r.name, days: 3 })),
+  ...allDayTasks("domestic"),
+  ...allDayTasks("overseas"),
   // 작업지시서 2026-09-18 "트레쥴이 구글에 7페이지만 올라가 있습니다" §4/§6:
   // /course/{지역}/{일수} 공개 페이지(coursePages.ts 1단계 허용목록)는
   // getCourseBrief(캐시 미스 시 라이브 생성 폴백 있음)를 쓰지만, 그래도

@@ -1,18 +1,22 @@
 import { cache } from "react";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
-import { getCourseBrief, meetsResortBeachRequirement, minViableSpots, type CourseBrief } from "@/lib/server/courseBrief";
-import { styleForRegion } from "@/lib/discoverData";
+import { getCourseBrief, type CourseBrief, type CourseDays } from "@/lib/server/courseBrief";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
+import { judgeCourseBrief, resolveCoursePageRoute } from "@/lib/server/coursePageGate";
+import { fetchConfirmedCoursePages, parentOfRegion, pickRelatedCourseLinks } from "@/lib/server/coursePageIndex";
 import {
+  buildCourseBreadcrumbJsonLd,
+  buildCourseDescription,
   buildCourseIntro,
   buildCourseItemListJsonLd,
+  buildCourseTitle,
   buildCourseTouristTripJsonLd,
   buildSpotDescription,
-  isCourseBriefThin,
-  isCoursePageEnabled,
-  labelToDays,
+  courseCanonicalPath,
+  daysToLabel,
+  groupSpotsByDay,
 } from "@/lib/coursePages";
 import { CourseCtaLink } from "@/components/CourseCtaLink";
 
@@ -87,58 +91,58 @@ function normalizeParam(value: string): string {
  *    변수 문제) 페이지가 정체불명의 방식으로 죽는 대신 항상 제어된
  *    notFound()로 내려가게 한다 — 로그로 원인은 남긴다.
  */
-const loadEnabledCourseBrief = cache(async (region: string, daysLabel: string): Promise<CourseBrief | null> => {
-  const days = labelToDays(daysLabel);
-  const enabled = days != null && isCoursePageEnabled(region, days);
-  if (!enabled) {
-    // 작업지시서 2026-09-23 "404 결정적 단서 + 후보 급감 실측 데이터"
-    // §1이 요청한 "함수 진입 직후" 로그 — getCourseBrief를 부르기도
-    // 전에 이 게이트에서 걸러지는지, 걸러진다면 정확히 왜인지(days
-    // 파싱 실패인지, 허용목록 불일치인지)를 코드 포인트까지 남겨
-    // 유니코드 정규화 차이(예: NFC/NFD) 같은 눈에 안 보이는 불일치도
-    // 드러나게 한다.
-    console.warn(
-      `[course-page] gate rejected: region=${JSON.stringify(region)} codePoints=[${Array.from(region)
-        .map((c) => c.codePointAt(0))
-        .join(",")}] daysLabel=${JSON.stringify(daysLabel)} parsedDays=${days}`,
-    );
-    return null;
+type LoadedCoursePage =
+  | { kind: "ok"; brief: CourseBrief; region: string; days: CourseDays }
+  | { kind: "redirect"; to: string }
+  | { kind: "missing"; reason: string };
+
+/**
+ * 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §1·§2 — 입구는 허용목록이 아니라
+ * resolveCoursePageRoute(지원 지역 × 스타일별 일수 범위, 숫자 일수·별칭은 정본 주소로 리다이렉트)다.
+ * 탈락하면 이유(region/days/brief 상태)를 한 줄로 남긴다.
+ */
+const loadCoursePage = cache(async (region: string, daysSegment: string): Promise<LoadedCoursePage> => {
+  const route = resolveCoursePageRoute(region, daysSegment);
+  if (route.kind === "redirect") return route;
+  if (route.kind === "reject") {
+    console.warn(`[course-page] gate rejected: region=${JSON.stringify(region)} daysSegment=${JSON.stringify(daysSegment)} reason=${route.reason}`);
+    return { kind: "missing", reason: route.reason };
   }
   let brief: CourseBrief;
   try {
-    brief = await getCourseBrief(region, days);
+    brief = await getCourseBrief(route.region, route.days);
   } catch (err) {
-    console.error(`[course-page] getCourseBrief threw: region=${region} days=${days}`, err);
-    return null;
+    console.error(`[course-page] getCourseBrief threw: region=${route.region} days=${route.days}`, err);
+    return { kind: "missing", reason: "brief-threw" };
   }
-  // 작업지시서 2026-09-28 §2-② — API(course-brief route.ts)와 같은
-  // 기준(minViableSpots)을 쓴다. 고정 5를 쓰던 이전 버전은 API가 거절한
-  // 조합을 페이지가 그대로 렌더하는 불일치를 냈다(경주 2박3일 실측).
-  if (isCourseBriefThin(brief.spots, minViableSpots(styleForRegion(region), days))) return null;
-  // 작업지시서 2026-09-29 "#277 검증" §2 — 같은 이유로, 해변이 하나도
-  // 없는 휴양형 코스도 API(route.ts)와 같은 기준(meetsResortBeachRequirement)
-  // 으로 페이지에서 거절해야 한다.
-  if (!meetsResortBeachRequirement(brief.spots, styleForRegion(region))) return null;
-  return brief;
+  // 작업지시서 2026-09-28 §2-② · 2026-09-29 "#277 검증" §2 — API(course-brief route.ts)·사이트맵과 같은
+  // 기준(judgeCourseBrief: minViableSpots · 얇은 콘텐츠 · 휴양형 해변)을 쓴다.
+  const rejected = judgeCourseBrief(brief, route.region, route.days);
+  if (rejected) {
+    console.warn(`[course-page] brief rejected: region=${route.region} days=${route.days} reason=${rejected}`);
+    return { kind: "missing", reason: rejected };
+  }
+  return { kind: "ok", brief, region: route.region, days: route.days };
 });
 
 export async function generateMetadata({ params }: { params: Promise<CoursePageParams> }): Promise<Metadata> {
   const raw = await params;
-  const region = normalizeParam(raw.region);
-  const daysLabel = normalizeParam(raw.days);
-  const brief = await loadEnabledCourseBrief(region, daysLabel);
-  if (!brief) return { title: "코스를 찾을 수 없어요 - 트레쥴" };
+  const loaded = await loadCoursePage(normalizeParam(raw.region), normalizeParam(raw.days));
+  if (loaded.kind !== "ok") return { title: "코스를 찾을 수 없어요 - 트레쥴", robots: { index: false, follow: true } };
+  const { brief, region, days } = loaded;
 
-  const title = `${region} ${daysLabel} 코스 — ${brief.spots.length}곳, 총 ${brief.totalDistanceKm.toFixed(1)}km`;
-  const description = buildCourseIntro(brief);
+  const title = buildCourseTitle(brief);
+  const description = buildCourseDescription(brief);
+  const canonical = courseCanonicalPath(region, days);
   return {
-    title,
+    title: { absolute: title },
     description,
-    alternates: { canonical: `/course/${region}/${daysLabel}` },
+    alternates: { canonical },
     openGraph: {
       title,
       description,
       type: "article",
+      url: canonical,
       images: brief.imageUrl ? [{ url: brief.imageUrl, width: 1200, height: 630 }] : undefined,
     },
     twitter: {
@@ -152,29 +156,35 @@ export async function generateMetadata({ params }: { params: Promise<CoursePageP
 
 export default async function CoursePage({ params }: { params: Promise<CoursePageParams> }) {
   const raw = await params;
-  const region = normalizeParam(raw.region);
-  const daysLabel = normalizeParam(raw.days);
-  const brief = await loadEnabledCourseBrief(region, daysLabel);
-  if (!brief) {
-    // 이 로그 하나가 §2류 회귀를 다음엔 실측 없이 바로 잡아준다 —
-    // Vercel 로그에서 region·daysLabel을 보면 "허용목록에 없음"과
-    // "캐시가 아직 안 채워짐"을 바로 구분할 수 있다.
-    console.warn(`[course-page] notFound: region=${region} daysLabel=${daysLabel}`);
+  const loaded = await loadCoursePage(normalizeParam(raw.region), normalizeParam(raw.days));
+  if (loaded.kind === "redirect") permanentRedirect(loaded.to);
+  if (loaded.kind === "missing") {
+    // Vercel 로그에서 사유(unsupported-region · days-out-of-range · thin · no-beach · brief-threw)를 바로 본다.
+    console.warn(`[course-page] notFound: region=${normalizeParam(raw.region)} daysSegment=${normalizeParam(raw.days)} reason=${loaded.reason}`);
     notFound();
   }
+  const { brief, region, days } = loaded;
+  const daysLabel = daysToLabel(days);
 
   const intro = buildCourseIntro(brief);
   const itemListJsonLd = buildCourseItemListJsonLd(brief);
   const touristTripJsonLd = buildCourseTouristTripJsonLd(brief, intro);
-  const relatedPosts = await fetchRelatedTripPosts(region).catch(() => []);
+  const breadcrumbJsonLd = buildCourseBreadcrumbJsonLd(region, days);
+  const dayGroups = groupSpotsByDay(brief);
+  const [relatedPosts, confirmed] = await Promise.all([fetchRelatedTripPosts(region).catch(() => []), fetchConfirmedCoursePages()]);
+  const related = pickRelatedCourseLinks({ region, days }, confirmed, parentOfRegion);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6">
       {/* JSON-LD는 스크립트가 아니라 데이터라 XSS 경로가 아니다(작업지시서 §4 "JSON-LD ItemList + TouristTrip"). */}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(touristTripJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
 
-      <p className="text-[12px] font-semibold uppercase tracking-wide text-brand-600">{region}</p>
+      <nav aria-label="breadcrumb" className="text-[12px] text-slate-400">
+        <Link href="/" className="hover:underline">트레쥴</Link> › <Link href="/course" className="hover:underline">코스</Link> › <span>{region} {daysLabel}</span>
+      </nav>
+      <p className="mt-3 text-[12px] font-semibold uppercase tracking-wide text-brand-600">{region}</p>
       <h1 className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
         {region} {daysLabel} 코스
       </h1>
@@ -196,29 +206,67 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
         days={brief.days}
         className="mt-5 flex h-11 w-full items-center justify-center rounded-2xl bg-brand-700 text-[14px] font-semibold text-white transition-colors hover:bg-brand-800"
       >
-        내 계획으로 담아가기
+        이 코스로 내 일정 만들기
       </CourseCtaLink>
 
-      <div className="mt-6 overflow-x-auto">
-        <table className="w-full min-w-[420px] border-collapse text-[13px]">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-slate-500 dark:border-slate-700">
-              <th className="py-2 pr-2 font-semibold">순서</th>
-              <th className="py-2 pr-2 font-semibold">장소</th>
-              <th className="py-2 font-semibold">평점 · 다음 이동</th>
-            </tr>
-          </thead>
-          <tbody>
-            {brief.spots.map((spot) => (
-              <tr key={`${spot.day}-${spot.order}`} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-                <td className="py-2 pr-2 tabular-nums text-slate-400">{spot.order}</td>
-                <td className="py-2 pr-2 font-medium text-slate-800 dark:text-slate-100">{spot.name}</td>
-                <td className="py-2 text-slate-500 dark:text-slate-400">{buildSpotDescription(spot)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* 일자별 카드 — 장소 · 종류 · 평점 · 다음 이동을 텍스트로 렌더한다(이미지만 X, 블로그 일자 카드와 같은 데이터). */}
+      <div className="mt-6 space-y-5">
+        {dayGroups.map((group) => (
+          <section key={group.day} aria-labelledby={`day-${group.day}`} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+            <h2 id={`day-${group.day}`} className="text-[15px] font-bold text-slate-900 dark:text-slate-100">
+              {group.day}일차
+              <span className="ml-2 text-[12px] font-normal text-slate-500 dark:text-slate-400">
+                {group.spots.length}곳{group.distanceKm != null ? ` · 이동 ${group.distanceKm.toFixed(1)}km` : ""}
+                {group.facilityDay ? " · 종일 시설 일정" : ""}
+              </span>
+            </h2>
+            <ol className="mt-3 space-y-3">
+              {group.spots.map((spot) => (
+                <li key={`${spot.day}-${spot.order}`} className="flex gap-3">
+                  <span className="mt-0.5 w-5 shrink-0 text-right text-[13px] tabular-nums text-slate-400">{spot.order}</span>
+                  <div>
+                    <p className="text-[14px] font-medium text-slate-800 dark:text-slate-100">{spot.name}</p>
+                    <p className="text-[12.5px] text-slate-500 dark:text-slate-400">{buildSpotDescription(spot)}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ))}
       </div>
+
+      {(related.sameRegion.length > 0 || related.sameCountry.length > 0) && (
+        <nav aria-label="관련 코스" className="mt-8 border-t border-slate-100 pt-4 dark:border-slate-800">
+          {related.sameRegion.length > 0 && (
+            <div>
+              <p className="mb-2 text-[13px] font-semibold text-slate-700 dark:text-slate-200">{region} 다른 일정</p>
+              <ul className="flex flex-wrap gap-2">
+                {related.sameRegion.map((p) => (
+                  <li key={`${p.region}-${p.days}`}>
+                    <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
+                      {p.region} {daysToLabel(p.days)}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {related.sameCountry.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-[13px] font-semibold text-slate-700 dark:text-slate-200">같은 나라·지역의 다른 코스</p>
+              <ul className="flex flex-wrap gap-2">
+                {related.sameCountry.map((p) => (
+                  <li key={`${p.region}-${p.days}`}>
+                    <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
+                      {p.region} {daysToLabel(p.days)}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </nav>
+      )}
 
       {relatedPosts.length > 0 && (
         <div className="mt-8 border-t border-slate-100 pt-4 dark:border-slate-800">

@@ -208,7 +208,9 @@ export function buildSpotDescription(spot: CourseBriefSpot): string {
   const ratingPart = spot.rating != null ? `평점 ${spot.rating.toFixed(1)}${spot.reviewCount != null ? `(리뷰 ${spot.reviewCount.toLocaleString()}개)` : ""}` : "평점 정보 없음";
   // 작업지시서 2026-09-29 "#282 검증" §2 — 섬이 낀 구간은 배다. 배편
   // 시간은 모르므로 분을 지어내지 않고 이동수단만 정직하게 쓴다.
-  const nextPart = spot.toNextMode === "boat" ? " 다음 장소까지는 배로 이동합니다." : spot.toNextMinutes != null ? ` 다음 장소까지 ${spot.toNextMode === "walk" ? "도보" : spot.toNextMode === "transit" ? "대중교통" : "차량"}로 약 ${spot.toNextMinutes}분.` : "";
+  // 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §3 — 직선 추정·차량 폴백 구간은 그 사실을 같이 적는다(정직한 표기).
+  const estimateNote = spot.toNextFallback === "driving" ? " (대중교통 정보가 없어 차량 기준 참고값)" : spot.toNextSource === "straight" ? " (직선거리 추정)" : "";
+  const nextPart = spot.toNextMode === "boat" ? " 다음 장소까지는 배로 이동합니다." : spot.toNextMinutes != null ? ` 다음 장소까지 ${spot.toNextMode === "walk" ? "도보" : spot.toNextMode === "transit" ? "대중교통" : "차량"}로 약 ${spot.toNextMinutes}분${estimateNote}.` : "";
   return `${spot.category} · ${ratingPart}.${nextPart}`;
 }
 
@@ -243,8 +245,76 @@ export function buildCourseTouristTripJsonLd(
     "@context": "https://schema.org",
     "@type": "TouristTrip",
     name: `${brief.region} ${daysToLabel(brief.days)} 코스`,
+    url: `${SITE_ORIGIN}${courseCanonicalPath(brief.region, brief.days)}`,
     description,
     ...(brief.imageUrl ? { image: brief.imageUrl } : {}),
     itinerary: buildCourseItemListJsonLd(brief),
+  };
+}
+
+// ------------------------------------------------------------------------------------------------
+// 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다. 트레쥴 자체를 검색에 노출합니다" §3 — 검색 품질.
+
+const SITE_ORIGIN = "https://www.tradule.co.kr";
+// 대표 명소 후보에서 빼는 카테고리 버킷(liveCategoryBucket) — 식사·카페·술집·숙소는 "코스의 간판"이 아니다.
+const NON_LANDMARK_BUCKETS = new Set(["음식점", "카페", "술집", "숙소"]);
+const NON_LANDMARK_NAME = /선착장|페리|터미널|\bjetty\b|\bferry\b|스파|마사지|\bspa\b|massage|호텔|\bhotel\b/i;
+
+/** 코스 페이지 경로(인코딩 일관) — canonical·사이트맵·내부 링크가 모두 이 함수를 쓴다. */
+export function courseCanonicalPath(region: string, days: CourseDays): string {
+  return `/course/${encodeURIComponent(region)}/${encodeURIComponent(daysToLabel(days))}`;
+}
+
+/** 리뷰가 많고 평점이 높은 순(평점×리뷰 수)의 대표 명소 이름 n곳 — 식사·카페·숙소·선착장·스파는 뺀다. 같은 이름은 한 번만. */
+export function pickRepresentativeSpots(spots: readonly CourseBriefSpot[], n: number): string[] {
+  const score = (s: CourseBriefSpot) => (s.rating ?? 0) * (s.reviewCount ?? 0);
+  const seen = new Set<string>();
+  return spots
+    .filter((s) => !NON_LANDMARK_BUCKETS.has(s.category) && !NON_LANDMARK_NAME.test(s.name) && !s.lodging)
+    .sort((a, b) => score(b) - score(a))
+    .filter((s) => (seen.has(s.name) ? false : (seen.add(s.name), true)))
+    .slice(0, n)
+    .map((s) => s.name);
+}
+
+/** "{지역} {N박M일} 코스 — {N}곳 · {대표1}·{대표2} | 트레쥴" — 일수 표기는 URL 라벨(daysToLabel)과 같다(6·7일은 "5박6일"·"5박7일"). */
+export function buildCourseTitle(brief: Pick<CourseBrief, "region" | "days" | "spots">): string {
+  const reps = pickRepresentativeSpots(brief.spots, 2);
+  const repPart = reps.length > 0 ? ` · ${reps.join("·")}` : "";
+  return `${brief.region} ${daysToLabel(brief.days)} 코스 — ${brief.spots.length}곳${repPart} | 트레쥴`;
+}
+
+/** "{지역} {일수} 코스: {대표 3곳}. 일자별 동선 지도 · 이동 시간 · 평점 정리." */
+export function buildCourseDescription(brief: Pick<CourseBrief, "region" | "days" | "spots">): string {
+  const reps = pickRepresentativeSpots(brief.spots, 3);
+  const repPart = reps.length > 0 ? `: ${reps.join(", ")}` : "";
+  return `${brief.region} ${daysToLabel(brief.days)} 코스${repPart}. 일자별 동선 지도 · 이동 시간 · 평점 정리.`;
+}
+
+/** 일자별 스팟 묶음 — spot.day 기준(1일차부터), 비어 있는 날은 건너뛴다. */
+export function groupSpotsByDay(brief: Pick<CourseBrief, "spots" | "dayTotals" | "dayImageUrls">): { day: number; spots: CourseBriefSpot[]; distanceKm: number | null; facilityDay: boolean; imageUrl: string | null }[] {
+  const days = Array.from(new Set(brief.spots.map((s) => s.day))).sort((a, b) => a - b);
+  return days.map((day) => {
+    const total = brief.dayTotals?.find((t) => t.day === day);
+    return {
+      day,
+      spots: brief.spots.filter((s) => s.day === day).sort((a, b) => a.order - b.order),
+      distanceKm: total?.distanceKm ?? null,
+      facilityDay: total?.facilityDay === true,
+      imageUrl: brief.dayImageUrls?.[day - 1] ?? null,
+    };
+  });
+}
+
+/** BreadcrumbList JSON-LD — 홈 > 코스 > {지역} {일수}. */
+export function buildCourseBreadcrumbJsonLd(region: string, days: CourseDays): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "트레쥴", item: `${SITE_ORIGIN}/` },
+      { "@type": "ListItem", position: 2, name: "AI 추천 코스", item: `${SITE_ORIGIN}/course` },
+      { "@type": "ListItem", position: 3, name: `${region} ${daysToLabel(days)} 코스`, item: `${SITE_ORIGIN}${courseCanonicalPath(region, days)}` },
+    ],
   };
 }
