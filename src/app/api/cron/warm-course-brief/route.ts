@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { getCourseBrief, mapWithConcurrency, maxDaysForStyle, pickStaleTasks, type CourseDays, type WarmTask } from "@/lib/server/courseBrief";
-import { flatRegions } from "@/lib/discoverData";
+import { flatRegions, type FlatRegion } from "@/lib/discoverData";
 import { minDaysForStyle } from "@/lib/server/coursePageGate";
 import { ENABLED_COURSE_PAGES } from "@/lib/coursePages";
 
@@ -49,7 +49,9 @@ export const maxDuration = 90;
 // 가장 오래된 것으로 취급) 첫 며칠간 배치를 통째로 차지할 수 있다 —
 // "배치가 완주 못 하면 아무것도 안 남는다"(작업지시서 2026-09-02
 // "워밍 재설계")는 교훈을 다시 어기지 않도록 보수적으로 낮춘다.
-const BATCH_SIZE = 12;
+// 한 번에 후보로 뽑는 최대 건수 — 실제로 처리하는 건수는 시간 예산(WARM_START_DEADLINE_MS)이 정한다.
+const BATCH_SIZE = 60;
+const WARM_START_DEADLINE_MS = 55_000; // 이후엔 새 조합을 시작하지 않는다(진행 중인 것이 최대 ~21초 → maxDuration 90초 안)
 const PER_REGION_ENRICH_BUDGET_MS = 8000; // 지시서 §A-3 권장값
 const WARM_CONCURRENCY = 3; // 지시서 §A-3 권장값
 
@@ -74,9 +76,24 @@ const WARM_CONCURRENCY = 3; // 지시서 §A-3 권장값
 // 크론을 늘리거나, BATCH_SIZE/maxDuration을 함께 올려야 하는데 후자는
 // 실제 실행 시간 실측 없이는 위험하다(90초 예산을 넘기면 배치 전체가
 // 실패할 수 있다 — 위 BATCH_SIZE 주석 참고).
-const PRIORITY_BATCH_SIZE = 8;
+const PRIORITY_BATCH_SIZE = 24;
 
-const PRIORITY_TASKS: WarmTask[] = ENABLED_COURSE_PAGES.map(({ region, days }): WarmTask => ({ region, days }));
+// 작업지시서 2026-10-08 "#300 검증" §3②③ — 사이트맵을 빨리 채운다. (a) 우선순위 풀: 지역 popularity 상위 ×
+// (도시형 2·3일 · 휴양형 3·5일)을 먼저, 거기에 기존 ENABLED_COURSE_PAGES. (b) 건수 고정(12건) 대신 시간 예산:
+// 90초 한도 안에서 시작 마감(WARM_START_DEADLINE_MS)까지 계속 새 조합을 시작한다(캐시 히트는 0.2초라 거의
+// 공짜, 캐시 미스는 10~21초 — #300 실측). 동시 3개 · 마감 이후엔 새로 시작하지 않아 진행 중인 것만 끝낸다.
+const POPULAR_REGION_COUNT = 40;
+const POPULAR_DAYS = { city: [2, 3], resort: [3, 5] } as const;
+const popularRegions = (): FlatRegion[] =>
+  flatRegions("overseas")
+    .filter((r) => r.popularity != null)
+    .sort((a, b) => (a.popularity ?? 99) - (b.popularity ?? 99))
+    .slice(0, POPULAR_REGION_COUNT);
+
+const PRIORITY_TASKS: WarmTask[] = [
+  ...popularRegions().flatMap((r) => POPULAR_DAYS[r.style].map((d): WarmTask => ({ region: r.name, days: d as CourseDays }))),
+  ...ENABLED_COURSE_PAGES.map(({ region, days }): WarmTask => ({ region, days })),
+].filter((t, i, all) => all.findIndex((o) => o.region === t.region && o.days === t.days) === i);
 
 // 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §2 — 사이트맵에는 "크론이 200 확인한 조합"만
 // 오르므로(coursePageIndex.ts), 일반 풀을 지역 × (도시형 1~5일 · 휴양형 2~7일) 전체로 넓힌다. 기존
@@ -119,7 +136,13 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const generalBatch = await pickStaleTasks(GENERAL_TASKS, BATCH_SIZE - priorityBatch.length);
   const batch = [...priorityBatch, ...generalBatch];
 
-  const warmed = await mapWithConcurrency(batch, WARM_CONCURRENCY, async ({ region, days }) => {
+  const startedAt = Date.now();
+  let skipped = 0;
+  const results = await mapWithConcurrency(batch, WARM_CONCURRENCY, async ({ region, days }) => {
+    if (Date.now() - startedAt > WARM_START_DEADLINE_MS) {
+      skipped++;
+      return null;
+    }
     try {
       const brief = await getCourseBrief(region, days, PER_REGION_ENRICH_BUDGET_MS);
       return { region, days, ok: true as const, spots: brief.spots.length, rated: brief.spots.filter((s) => s.rating != null).length };
@@ -128,6 +151,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
       return { region, days, ok: false as const };
     }
   });
+  const warmed = results.filter((r): r is NonNullable<typeof r> => r != null);
 
   // Vercel 로그 패널이 응답 본문을 보여주지 않아, 실행 결과를 로그로도
   // 남긴다 — 지시서 §5 "크론 응답에 요약 로그를 남기시면 다음부터
@@ -137,5 +161,5 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     warmed.map((w) => `${w.region}(${w.days}일)${w.ok ? `✓ rated=${w.rated}/${w.spots}` : "✗"}`).join(", "),
   );
 
-  return NextResponse.json({ ok: true, totalTasks: WARM_TASKS.length, batchSize: batch.length, warmed });
+  return NextResponse.json({ ok: true, totalTasks: WARM_TASKS.length, batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
 });

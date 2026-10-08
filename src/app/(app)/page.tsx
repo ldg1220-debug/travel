@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { HomePage } from "./HomeClient";
+import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
 
 const TITLE = "트레쥴 - 지도로 짜는 여행 일정";
 const DESCRIPTION = "지도와 타임라인으로 여행 일정을 계획하세요. AI 추천 코스, 실시간 장소 검색, 여행 보관함까지 한 곳에서.";
@@ -65,6 +66,9 @@ export default function Page() {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }} />
+      {/* 작업지시서 2026-10-08 "#300 검증" §2 — Travelpayouts "Check Drive connection"이 홈을 검사한다(#246 이후 홈에 스크립트가
+          없어 연결 확인에서 멈췄다). 홈은 URL에 공유 토큰이 없어 #246의 location= 유출 사유와 무관하다. */}
+      <TravelpayoutsDriveScript />
       <HomePage />
     </>
   );
