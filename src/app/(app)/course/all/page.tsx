@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { splitTypicalPages } from "@/lib/regionTypicalDays";
 import { fetchConfirmedCoursePages, groupConfirmedForHub } from "@/lib/server/coursePageIndex";
 import { buildCourseHubDescription, buildCourseHubJsonLd, buildCourseHubTitle, COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath, daysToLabel } from "@/lib/coursePages";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
@@ -64,15 +65,27 @@ export default async function CourseHubPage() {
                       {r.region}
                     </Link>
                     {r.reps.length > 0 && <p className="mt-0.5 truncate text-[12px] text-slate-500 dark:text-slate-400">{r.reps.join(" · ")}</p>}
-                    <ul className="mt-2 flex flex-wrap gap-1.5">
-                      {r.pages.map((p) => (
+                    {(() => {
+                      const { typical, others } = splitTypicalPages(r.pages);
+                      const chip = (p: (typeof r.pages)[number]) => (
                         <li key={p.days}>
                           <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-2.5 py-0.5 text-[12px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
                             {daysToLabel(p.days)}
                           </Link>
                         </li>
-                      ))}
-                    </ul>
+                      );
+                      return (
+                        <>
+                          <ul className="mt-2 flex flex-wrap gap-1.5">{typical.map(chip)}</ul>
+                          {others.length > 0 && (
+                            <details className="mt-1.5">
+                              <summary className="cursor-pointer text-[11.5px] text-slate-400">다른 일수</summary>
+                              <ul className="mt-1.5 flex flex-wrap gap-1.5">{others.map(chip)}</ul>
+                            </details>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </li>

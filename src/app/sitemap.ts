@@ -1,3 +1,4 @@
+import { courseSitemapPriority } from "@/lib/regionTypicalDays";
 import type { MetadataRoute } from "next";
 import { pool } from "@/lib/server/db";
 import { COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath } from "@/lib/coursePages";
@@ -70,7 +71,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     url: `${base}${courseCanonicalPath(region, days)}`,
     lastModified,
     changeFrequency: "weekly" as const,
-    priority: 0.7,
+    priority: courseSitemapPriority(region, days), // 대표 일수 0.8 · 휴양형 1~2일 0.3 · 그 외 0.7 (작업지시서 2026-10-13)
   }));
   // 작업지시서 2026-10-12 "코스 페이지가 고아입니다" §2⑤ — 코스 허브(/course/all)와 지역 허브(/course/{지역})를 사이트맵에 올린다
   // (허브 priority 0.8). 허브는 확인된 코스가 하나라도 있을 때만 의미가 있다. lastmod는 그 안의 가장 최근 브리프 시각.

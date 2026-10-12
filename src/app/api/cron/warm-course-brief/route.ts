@@ -1,3 +1,4 @@
+import { regionTypicalDays } from "@/lib/regionTypicalDays";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { getCourseBrief, mapWithConcurrency, maxDaysForStyle, pickStaleTasks, type CourseDays, type WarmTask } from "@/lib/server/courseBrief";
@@ -79,11 +80,12 @@ const WARM_CONCURRENCY = 3; // 지시서 §A-3 권장값
 const PRIORITY_BATCH_SIZE = 24;
 
 // 작업지시서 2026-10-08 "#300 검증" §3②③ — 사이트맵을 빨리 채운다. (a) 우선순위 풀: 지역 popularity 상위 ×
-// (도시형 2·3일 · 휴양형 3·5일)을 먼저, 거기에 기존 ENABLED_COURSE_PAGES. (b) 건수 고정(12건) 대신 시간 예산:
+// (대표 일수 상위 2개)를 먼저, 거기에 기존 ENABLED_COURSE_PAGES. (b) 건수 고정(12건) 대신 시간 예산:
 // 90초 한도 안에서 시작 마감(WARM_START_DEADLINE_MS)까지 계속 새 조합을 시작한다(캐시 히트는 0.2초라 거의
 // 공짜, 캐시 미스는 10~21초 — #300 실측). 동시 3개 · 마감 이후엔 새로 시작하지 않아 진행 중인 것만 끝낸다.
 const POPULAR_REGION_COUNT = 40;
-const POPULAR_DAYS = { city: [2, 3], resort: [3, 5] } as const;
+// 작업지시서 2026-10-13 — 지역 × 대표 일수 상위 2개(regionTypicalDays)를 먼저. 휴양지 2박3일 같은 비대표 일수는 일반 풀이 맡는다.
+const POPULAR_DAYS_PER_REGION = 2;
 const popularRegions = (): FlatRegion[] =>
   flatRegions("overseas")
     .filter((r) => r.popularity != null)
@@ -91,7 +93,7 @@ const popularRegions = (): FlatRegion[] =>
     .slice(0, POPULAR_REGION_COUNT);
 
 const PRIORITY_TASKS: WarmTask[] = [
-  ...popularRegions().flatMap((r) => POPULAR_DAYS[r.style].map((d): WarmTask => ({ region: r.name, days: d as CourseDays }))),
+  ...popularRegions().flatMap((r) => regionTypicalDays(r.name).slice(0, POPULAR_DAYS_PER_REGION).map((d): WarmTask => ({ region: r.name, days: d }))),
   ...ENABLED_COURSE_PAGES.map(({ region, days }): WarmTask => ({ region, days })),
 ].filter((t, i, all) => all.findIndex((o) => o.region === t.region && o.days === t.days) === i);
 

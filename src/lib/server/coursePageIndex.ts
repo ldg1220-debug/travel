@@ -3,6 +3,7 @@ import { COURSE_ALGO_VERSION, isSupportedRegion, resolveScope, type CourseBrief,
 import { judgeCourseBrief } from "./coursePageGate";
 import { flatRegions } from "@/lib/discoverData";
 import { pickRepresentativeSpots } from "@/lib/coursePages";
+import { typicalDayRank } from "@/lib/regionTypicalDays";
 
 /**
  * "크론이 200 확인한 코스 조합" 목록 — 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §2.
@@ -91,7 +92,7 @@ export interface RelatedCourseLinks {
 }
 
 /**
- * 내부 링크 — 같은 지역의 다른 일수, 같은 나라(국내는 같은 광역) 다른 지역(가능하면 같은 일수, 지역당 1개).
+ * 내부 링크 — 같은 지역의 다른 일수(대표 일수 순), 같은 나라(국내는 같은 광역) 다른 지역(가능하면 같은 일수, 지역당 1개).
  * 확인된 조합(confirmed)만 건다 — 404가 될 수 있는 페이지로 링크하지 않는다. parentOf는 지역 → 나라/광역.
  */
 export function pickRelatedCourseLinks(
@@ -100,7 +101,9 @@ export function pickRelatedCourseLinks(
   parentOf: (region: string) => string | undefined,
   limits = { sameRegion: 6, sameCountry: 6 },
 ): RelatedCourseLinks {
-  const sameRegion = confirmed.filter((p) => p.region === current.region && p.days !== current.days).sort((a, b) => a.days - b.days).slice(0, limits.sameRegion);
+  const sameRegion = confirmed.filter((p) => p.region === current.region && p.days !== current.days)
+    .sort((a, b) => typicalDayRank(a.region, a.days) - typicalDayRank(b.region, b.days))
+    .slice(0, limits.sameRegion);
   const parent = parentOf(current.region);
   const byRegion = new Map<string, ConfirmedCoursePage>();
   if (parent) {
@@ -162,7 +165,7 @@ export function groupConfirmedForHub(confirmed: readonly ConfirmedCoursePage[]):
     const meta = regionMeta(region);
     if (!meta) continue; // 목록에 없는 지역(별칭 등)은 허브에 올리지 않는다
     const sorted = [...pages].sort((a, b) => a.days - b.days);
-    const withInfo = sorted.filter((p) => p.info).sort((a, b) => b.days - a.days);
+    const withInfo = sorted.filter((p) => p.info).sort((a, b) => typicalDayRank(a.region, a.days) - typicalDayRank(b.region, b.days)); // 대표 일수 코스의 장소·지도를 카드에 쓴다
     const hubRegion: HubRegion = {
       region,
       pages: sorted,
@@ -181,17 +184,15 @@ export function groupConfirmedForHub(confirmed: readonly ConfirmedCoursePage[]):
 }
 
 /**
- * 홈·탐색·코스 화면의 "인기 여행 코스" — 지역당 1개(2·3일 중 3일 우선, 없으면 가장 가까운 일수), 인기 나라 순 → 국내 → 이름 순으로 limit개.
+ * 홈·탐색·코스 화면의 "인기 여행 코스" — 지역당 1개(그 지역의 대표 일수 중 가장 앞, 없으면 가장 가까운 일수), 인기 나라 순 → 국내 → 이름 순으로 limit개.
  * 확인된 조합만 건다(사이트맵과 같은 소스).
  */
 export function pickPopularCourses(confirmed: readonly ConfirmedCoursePage[], limit = 12): ConfirmedCoursePage[] {
   const bestByRegion = new Map<string, ConfirmedCoursePage>();
   for (const p of confirmed) {
     const prev = bestByRegion.get(p.region);
-    const dist = (x: ConfirmedCoursePage) => Math.abs(x.days - 3);
-    if (!prev || dist(p) < dist(prev) || (dist(p) === dist(prev) && p.days < prev.days)) bestByRegion.set(p.region, p);
+    if (!prev || typicalDayRank(p.region, p.days) < typicalDayRank(prev.region, prev.days)) bestByRegion.set(p.region, p);
   }
   const rank = (p: ConfirmedCoursePage) => regionMeta(p.region)?.popularity ?? 50; // 국내는 해외 인기국 뒤
   return [...bestByRegion.values()].sort((a, b) => rank(a) - rank(b) || a.region.localeCompare(b.region, "ko")).slice(0, limit);
 }
-

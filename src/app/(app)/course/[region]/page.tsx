@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import { isSupportedRegion } from "@/lib/server/courseBrief";
 import { resolveRegionAlias } from "@/lib/discoverData";
+import { splitTypicalPages } from "@/lib/regionTypicalDays";
 import { fetchConfirmedCoursePages } from "@/lib/server/coursePageIndex";
 import { buildRegionHubJsonLd, COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath, daysToLabel } from "@/lib/coursePages";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
@@ -60,8 +61,9 @@ export default async function RegionHubPage({ params }: { params: Promise<Params
           {region} 코스를 준비하고 있어요. <Link href="/course" className="font-semibold text-brand-700 hover:underline dark:text-brand-400">직접 코스 만들기 →</Link>
         </p>
       ) : (
-        <ul className="mt-4 space-y-2">
-          {pages.map((p) => (
+        (() => {
+          const { typical, others } = splitTypicalPages(pages);
+          const card = (p: (typeof pages)[number]) => (
             <li key={p.days}>
               <Link href={courseCanonicalPath(p.region, p.days)} className="block rounded-2xl border border-slate-200 px-4 py-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
                 <span className="text-[14.5px] font-semibold text-slate-900 dark:text-slate-100">{region} {daysToLabel(p.days)} 코스</span>
@@ -73,8 +75,19 @@ export default async function RegionHubPage({ params }: { params: Promise<Params
                 )}
               </Link>
             </li>
-          ))}
-        </ul>
+          );
+          return (
+            <>
+              <ul className="mt-4 space-y-2">{typical.map(card)}</ul>
+              {others.length > 0 && (
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-[12.5px] text-slate-500 dark:text-slate-400">다른 일수</summary>
+                  <ul className="mt-2 space-y-2">{others.map(card)}</ul>
+                </details>
+              )}
+            </>
+          );
+        })()
       )}
       <p className="mt-6 text-[12.5px]">
         <Link href={COURSE_HUB_PATH} className="font-semibold text-brand-700 hover:underline dark:text-brand-400">← 전체 코스 모음</Link>
