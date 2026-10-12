@@ -47,10 +47,10 @@ describe("pickRelatedCourseLinks", () => {
   const page = (region: string, days: number): ConfirmedCoursePage => ({ region, days: days as 1, lastModified: new Date() });
   const parent = (r: string) => ({ 오사카: "일본", 도쿄: "일본", 교토: "일본", 시드니: "호주" })[r];
 
-  it("같은 지역 다른 일수는 일수 순, 같은 나라 다른 지역은 지역당 1개(같은 일수 우선)로 걸고 다른 나라는 거른다", () => {
+  it("같은 지역 다른 일수는 대표 일수 순(오사카 3·4·2), 같은 나라 다른 지역은 지역당 1개(같은 일수 우선)로 걸고 다른 나라는 거른다", () => {
     const confirmed = [page("오사카", 2), page("오사카", 3), page("오사카", 4), page("도쿄", 2), page("도쿄", 3), page("교토", 5), page("시드니", 3)];
     const links = pickRelatedCourseLinks({ region: "오사카", days: 3 }, confirmed, parent);
-    expect(links.sameRegion.map((p) => p.days)).toEqual([2, 4]);
+    expect(links.sameRegion.map((p) => p.days)).toEqual([4, 2]);
     expect(links.sameCountry.map((p) => `${p.region}/${p.days}`)).toEqual(["교토/5", "도쿄/3"]);
   });
 
