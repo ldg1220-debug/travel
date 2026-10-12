@@ -66,15 +66,22 @@ const TYPE_TABLE: Record<string, CourseSpotCategory> = {
   food_court: "음식점",
 };
 
-const NAME_SPA = /스파|마사지|\bspa\b|massage/i;
+// 작업지시서 2026-10-12 "#305 검증" §2③ — 트리쉐이드(세부의 마사지·스파 업장)처럼 이름에 스파 단어가 없는 업장은 이름 사전에 둔다.
+const NAME_SPA = /스파|마사지|\bspa\b|massage|reflexology|리플렉솔로지|웰니스|\bwellness\b|트리쉐이드|tree\s?shade/i;
+// 작업지시서 2026-10-12 "#305 검증" §2② — 상점가·시장·거리·아케이드는 사원·스파 등 이름 규칙보다 우선(신사이바시스지 상점가가 "신사"·"지"로 사원 오판).
+const NAME_STREET = /상점가|시장|거리|스트리트|아케이드|\bstreet\b|\barcade\b|\bmarket\b/i;
 const NAME_TOWER = /전망대|스카이|타워|\btower\b|observat|skytree|sky\s?deck|쓰텐카쿠|tsutenkaku/i;
 const NAME_BEACH = /해변|해수욕장|비치|\bbeach\b/i;
-const NAME_WORSHIP = /신사|신궁|사원|성당|교회|사찰|대성당|\btemple\b|\bshrine\b|\bchurch\b|\bcathedral\b|\bmosque\b/i;
+// 작업지시서 2026-10-12 "#305 검증" §2① — 사원 단어 사전: 절·사찰·신궁·성당·교회·사원·대성당·Temple·Shrine·Church·Cathedral(+Mosque).
+// "신사"는 이름이 "신사"로 끝날 때만(야사카 신사 — "신사이바시"의 "신사"는 아니다), "…사"는 한글 2~4자 + 사로 끝나는 마지막 단어만(불국사·해동용궁사).
+// 이전의 "…지로 끝나면 사원" 규칙은 삭제했다.
+const NAME_WORSHIP = /신궁|사원|성당|교회|사찰|대성당|(?<![가-힣])절(?![가-힣])|\btemple\b|\bshrine\b|\bchurch\b|\bcathedral\b|\bmosque\b|신사$/i;
+const NAME_WORSHIP_SA_SUFFIX = /(?:^|\s)[가-힣]{2,4}사$/;
+// "…사"로 끝나는 회사·기관 이름(주식회사·본사·지사·출판사·보험사·증권사·대사관 등)은 사원이 아니다.
+const NAME_COMPANY_SUFFIX = /(?:회사|본사|지사|출판사|보험사|증권사|여행사|연구사)$/;
 const NAME_PARK = /공원|교엔|정원|가든|\bpark\b|\bgarden\b/i;
 const NAME_HERITAGE = /(?:성|궁|궁전|탑|고분)$|궁전|박물관|미술관|유적|\bcastle\b|\bpalace\b|\bmuseum\b|\bruins?\b/i;
 const NAME_FOOD = /와규|wagyu|스시|sushi|라멘|ramen|이자카야|izakaya|식당|레스토랑|restaurant|steak|스테이크|\bbbq\b|야키니쿠|yakiniku|맛집/i;
-// 3글자 이상 한글 + 사/지 끝(센소지·불국사) — 이름 단서가 이것뿐인 "기타"에만 쓴다.
-const NAME_WORSHIP_SUFFIX = /[가-힣]{2,}(?:사|지)$/;
 
 export function courseSpotCategory(p: { category: string; name: string; beach?: boolean }): CourseSpotCategory {
   const raw = (p.category ?? "").toLowerCase();
@@ -93,16 +100,16 @@ export function courseSpotCategory(p: { category: string; name: string; beach?: 
   // 여기부터는 "관광지"·"기타"(또는 버킷에 없는 값) — 이름 단서로 더 구체적인 종류를 찾는다.
   const asPlace = { category: p.category, name: p.name };
   if (p.beach === true) return "해변"; // 원본 primaryType으로 정한 플래그가 이름 단서보다 우선(섬 이름의 해변 등)
+  if (NAME_STREET.test(p.name)) return "관광지"; // 상점가·시장·거리는 다른 이름 규칙보다 우선
   if (isJetty(asPlace)) return "선착장";
   if (isIsland(asPlace)) return "섬";
   if (NAME_BEACH.test(p.name)) return "해변";
   if (NAME_SPA.test(p.name)) return "스파";
   if (NAME_TOWER.test(p.name)) return "전망대";
-  if (NAME_WORSHIP.test(p.name)) return "사원·성당";
+  if (NAME_WORSHIP.test(p.name) || (NAME_WORSHIP_SA_SUFFIX.test(p.name) && !NAME_COMPANY_SUFFIX.test(p.name))) return "사원·성당";
   if (NAME_PARK.test(p.name)) return "공원";
   if (NAME_HERITAGE.test(p.name)) return "명소/유적";
   if (bucket === "관광지") return "관광지";
   if (NAME_FOOD.test(p.name)) return "음식점";
-  if (NAME_WORSHIP_SUFFIX.test(p.name)) return "사원·성당";
   return "기타";
 }

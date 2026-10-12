@@ -341,7 +341,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 35; // 작업지시서 2026-10-12 "#304 검증: 오사카 57.8→22.9km. 서울은 아직 왕복 · 종류 값이 기타 투성이" — 평점 보강 맞바꿈의 동선 허용치와 코스 스팟 종류(courseSpotCategory) 매핑은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울이 26시간 동안 왕복 순서의 v34 결과를, 세부·도쿄·오사카가 "기타" 종류의 v34 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 36; // 작업지시서 2026-10-12 "#305 검증: 서울 57.8→25.6km · 종류 정상. 이름 규칙 오탐 2건만" — 스팟 종류(courseSpotCategory)의 이름 규칙(신사이바시스지 상점가의 사원 오판·트리쉐이드의 기타)은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 오사카·세부가 26시간 동안 오판된 종류의 v35 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
