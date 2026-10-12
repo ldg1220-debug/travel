@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { HomePage } from "./HomeClient";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
+import { PopularCoursesSection } from "@/components/PopularCoursesSection";
 
 const TITLE = "트레쥴 - 지도로 짜는 여행 일정";
 const DESCRIPTION = "지도와 타임라인으로 여행 일정을 계획하세요. AI 추천 코스, 실시간 장소 검색, 여행 보관함까지 한 곳에서.";
@@ -62,6 +63,9 @@ const JSON_LD = {
   ],
 };
 
+// 인기 코스 섹션이 DB(최근 30일 200 기록)를 읽으므로 빌드 시점 정적 생성이 아니라 요청 시 렌더(목록은 10분 메모).
+export const dynamic = "force-dynamic";
+
 export default function Page() {
   return (
     <>
@@ -70,6 +74,8 @@ export default function Page() {
           없어 연결 확인에서 멈췄다). 홈은 URL에 공유 토큰이 없어 #246의 location= 유출 사유와 무관하다. */}
       <TravelpayoutsDriveScript />
       <HomePage />
+      {/* 작업지시서 2026-10-12 "코스 페이지가 고아입니다" §2③ — 서버 렌더 정적 링크(크롤러용). */}
+      <PopularCoursesSection />
     </>
   );
 }

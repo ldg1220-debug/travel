@@ -1,7 +1,8 @@
 import { pool } from "./db";
-import { COURSE_ALGO_VERSION, type CourseBrief, type CourseDays } from "./courseBrief";
+import { COURSE_ALGO_VERSION, isSupportedRegion, resolveScope, type CourseBrief, type CourseDays } from "./courseBrief";
 import { judgeCourseBrief } from "./coursePageGate";
 import { flatRegions } from "@/lib/discoverData";
+import { pickRepresentativeSpots } from "@/lib/coursePages";
 
 /**
  * "크론이 200 확인한 코스 조합" 목록 — 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §2.
@@ -17,6 +18,8 @@ export interface ConfirmedCoursePage {
   region: string;
   days: CourseDays;
   lastModified: Date;
+  /** 허브 카드용 요약 — 현재 버전 브리프 캐시에서 판정한 조합에만 있다(버전 무관 기록만 있는 조합은 링크만). */
+  info?: { spotCount: number; totalDistanceKm: number | null; imageUrl: string | null; reps: string[] };
 }
 
 const MAX_AGE_DAYS = 14;
@@ -28,11 +31,11 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
   if (memo && Date.now() - memo.at < MEMO_TTL_MS) return memo.value;
   try {
     // payload 전체 대신 판정에 필요한 필드만 SQL에서 뽑는다(spots 각 항목의 name·category·rating·beach).
-    const result = await pool.query<{ region: string | null; days: string | null; created_at: Date; spots: unknown; dayTotals: unknown }>(
+    const result = await pool.query<{ region: string | null; days: string | null; created_at: Date; spots: unknown; totalDistanceKm: string | null; imageUrl: string | null }>(
       `select payload->>'region' as region, payload->>'days' as days, created_at,
-              (select coalesce(jsonb_agg(jsonb_build_object('name', s->'name', 'category', s->'category', 'rating', s->'rating', 'beach', s->'beach')), '[]'::jsonb)
+              (select coalesce(jsonb_agg(jsonb_build_object('name', s->'name', 'category', s->'category', 'rating', s->'rating', 'reviewCount', s->'reviewCount', 'beach', s->'beach', 'lodging', s->'lodging')), '[]'::jsonb)
                  from jsonb_array_elements(case when jsonb_typeof(payload->'spots') = 'array' then payload->'spots' else '[]'::jsonb end) s) as spots,
-              payload->'dayTotals' as "dayTotals"
+              payload->>'totalDistanceKm' as "totalDistanceKm", payload->>'imageUrl' as "imageUrl"
          from place_candidate_cache
         where cache_key like $1 and created_at > now() - ($2 || ' days')::interval`,
       [`content-brief:%:v${COURSE_ALGO_VERSION}`, String(MAX_AGE_DAYS)],
@@ -43,7 +46,13 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
       if (!row.region || !Number.isInteger(days) || days < 1 || days > 7 || !Array.isArray(row.spots)) continue;
       const spots = row.spots as CourseBrief["spots"];
       if (judgeCourseBrief({ spots }, row.region, days as CourseDays) != null) continue;
-      value.push({ region: row.region, days: days as CourseDays, lastModified: new Date(row.created_at) });
+      const km = row.totalDistanceKm != null ? Number(row.totalDistanceKm) : null;
+      value.push({
+        region: row.region,
+        days: days as CourseDays,
+        lastModified: new Date(row.created_at),
+        info: { spotCount: spots.length, totalDistanceKm: km != null && Number.isFinite(km) ? km : null, imageUrl: row.imageUrl || null, reps: pickRepresentativeSpots(spots, 2) },
+      });
     }
     // 버전과 무관한 기록(courseSitemapKey) — 캐시 버전이 올라가 위 목록이 비어도 사이트맵에서 빠지지 않는다.
     // 같은 (지역, 일수)는 더 최근 시각을 쓴다. 작업지시서 2026-10-08 "#300 검증" §3①.
@@ -59,7 +68,8 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
       const key = `${row.region}/${days}`;
       const at = new Date(row.created_at);
       const prev = byKey.get(key);
-      if (!prev || prev.lastModified < at) byKey.set(key, { region: row.region, days: days as CourseDays, lastModified: at });
+      if (!prev) byKey.set(key, { region: row.region, days: days as CourseDays, lastModified: at });
+      else if (prev.lastModified < at) byKey.set(key, { ...prev, lastModified: at }); // 요약(info)은 유지
     }
     const merged = [...byKey.values()];
     memo = { at: Date.now(), value: merged };
@@ -104,13 +114,84 @@ export function pickRelatedCourseLinks(
   return { sameRegion, sameCountry: [...byRegion.values()].sort((a, b) => a.region.localeCompare(b.region, "ko")).slice(0, limits.sameCountry) };
 }
 
-let parentMap: Map<string, string> | null = null;
+interface RegionMeta {
+  parent: string;
+  scope: "domestic" | "overseas";
+  /** 해외만 — 나라 인기 순위(작을수록 인기). */
+  popularity?: number;
+}
+let regionMetaMap: Map<string, RegionMeta> | null = null;
+/** 지역 → 나라(해외)·광역(국내), 범위, 인기 순위. flatRegions 기준. */
+export function regionMeta(region: string): RegionMeta | undefined {
+  if (!regionMetaMap) {
+    regionMetaMap = new Map();
+    for (const scope of ["domestic", "overseas"] as const) for (const r of flatRegions(scope)) regionMetaMap.set(r.name, { parent: r.parent, scope, popularity: r.popularity });
+  }
+  const meta = regionMetaMap.get(region);
+  if (meta) return meta;
+  // flatRegions의 도시 이름이 아닌 지원 지역(서울·부산·제주·인천 같은 광역명 등)은 자기 자신을 묶음으로 삼는다 — 허브에서 빠지지 않게.
+  return isSupportedRegion(region) ? { parent: region, scope: resolveScope(region) } : undefined;
+}
+
 /** 지역 → 나라(해외)·광역(국내). flatRegions의 parent. */
 export function parentOfRegion(region: string): string | undefined {
-  if (!parentMap) {
-    parentMap = new Map();
-    for (const scope of ["domestic", "overseas"] as const) for (const r of flatRegions(scope)) parentMap.set(r.name, r.parent);
+  return regionMeta(region)?.parent;
+}
+
+// ------------------------------------------------------------------------------------------------
+// 코스 허브 — 작업지시서 2026-10-12 "코스 페이지가 고아입니다" §2.
+
+export interface HubRegion {
+  region: string;
+  pages: ConfirmedCoursePage[]; // 일수 오름차순
+  reps: string[];
+  imageUrl: string | null;
+}
+export interface HubGroup {
+  scope: "domestic" | "overseas";
+  parent: string;
+  regions: HubRegion[];
+}
+
+/** 확인된 조합을 범위(국내 → 해외) → 나라·광역 → 지역으로 묶는다. 같은 지역은 일수 오름차순, 해외는 인기 순위 → 이름 순. */
+export function groupConfirmedForHub(confirmed: readonly ConfirmedCoursePage[]): HubGroup[] {
+  const byRegion = new Map<string, ConfirmedCoursePage[]>();
+  for (const p of confirmed) byRegion.set(p.region, [...(byRegion.get(p.region) ?? []), p]);
+  const groups = new Map<string, HubGroup>();
+  for (const [region, pages] of byRegion) {
+    const meta = regionMeta(region);
+    if (!meta) continue; // 목록에 없는 지역(별칭 등)은 허브에 올리지 않는다
+    const sorted = [...pages].sort((a, b) => a.days - b.days);
+    const withInfo = sorted.filter((p) => p.info).sort((a, b) => b.days - a.days);
+    const hubRegion: HubRegion = {
+      region,
+      pages: sorted,
+      reps: withInfo.find((p) => p.info!.reps.length > 0)?.info!.reps ?? [],
+      imageUrl: withInfo.find((p) => p.info!.imageUrl)?.info!.imageUrl ?? null,
+    };
+    const key = `${meta.scope}:${meta.parent}`;
+    const group = groups.get(key) ?? { scope: meta.scope, parent: meta.parent, regions: [] };
+    group.regions.push(hubRegion);
+    groups.set(key, group);
   }
-  return parentMap.get(region);
+  const popularityOf = (g: HubGroup) => regionMeta(g.regions[0].region)?.popularity ?? 99;
+  return [...groups.values()]
+    .map((g) => ({ ...g, regions: g.regions.sort((a, b) => a.region.localeCompare(b.region, "ko")) }))
+    .sort((a, b) => (a.scope === b.scope ? 0 : a.scope === "domestic" ? -1 : 1) || popularityOf(a) - popularityOf(b) || a.parent.localeCompare(b.parent, "ko"));
+}
+
+/**
+ * 홈·탐색·코스 화면의 "인기 여행 코스" — 지역당 1개(2·3일 중 3일 우선, 없으면 가장 가까운 일수), 인기 나라 순 → 국내 → 이름 순으로 limit개.
+ * 확인된 조합만 건다(사이트맵과 같은 소스).
+ */
+export function pickPopularCourses(confirmed: readonly ConfirmedCoursePage[], limit = 12): ConfirmedCoursePage[] {
+  const bestByRegion = new Map<string, ConfirmedCoursePage>();
+  for (const p of confirmed) {
+    const prev = bestByRegion.get(p.region);
+    const dist = (x: ConfirmedCoursePage) => Math.abs(x.days - 3);
+    if (!prev || dist(p) < dist(prev) || (dist(p) === dist(prev) && p.days < prev.days)) bestByRegion.set(p.region, p);
+  }
+  const rank = (p: ConfirmedCoursePage) => regionMeta(p.region)?.popularity ?? 50; // 국내는 해외 인기국 뒤
+  return [...bestByRegion.values()].sort((a, b) => rank(a) - rank(b) || a.region.localeCompare(b.region, "ko")).slice(0, limit);
 }
 
