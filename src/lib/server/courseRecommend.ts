@@ -735,7 +735,7 @@ export function isSpa(p: Place): boolean {
 //     카페·스파 등 명백한 시설 유형(Google primaryType 또는 최종 스팟의
 //     한글 버킷)은 이름과 무관하게 해변에서 뺀다.
 const BEACH_NAME_PATTERN = /해변|해수욕장|비치|beach|pantai|bãi biển|bai bien|ビーチ|海岸|海滩|海灘/i;
-const NON_BEACH_VENUE_CATEGORY = /restaurant|hotel|lodging|resort|cafe|coffee|bakery|\bbar\b|\bpub\b|spa|store|shop|음식점|숙소|카페|술집/i;
+const NON_BEACH_VENUE_CATEGORY = /restaurant|hotel|lodging|resort|cafe|coffee|bakery|\bbar\b|\bpub\b|spa|store|shop|음식점|숙소|카페|술집|스파|선착장/i;
 export function isBeach(p: { category?: string; name: string }): boolean {
   if (p.category?.toLowerCase() === "beach") return true;
   if (p.category && NON_BEACH_VENUE_CATEGORY.test(p.category)) return false;

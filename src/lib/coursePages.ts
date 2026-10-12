@@ -257,7 +257,7 @@ export function buildCourseTouristTripJsonLd(
 
 const SITE_ORIGIN = "https://www.tradule.co.kr";
 // 대표 명소 후보에서 빼는 카테고리 버킷(liveCategoryBucket) — 식사·카페·술집·숙소는 "코스의 간판"이 아니다.
-const NON_LANDMARK_BUCKETS = new Set(["음식점", "카페", "술집", "숙소"]);
+const NON_LANDMARK_BUCKETS = new Set(["음식점", "카페", "술집", "숙소", "스파", "선착장"]);
 const NON_LANDMARK_NAME = /선착장|페리|터미널|\bjetty\b|\bferry\b|스파|마사지|\bspa\b|massage|호텔|\bhotel\b/i;
 
 /** 코스 페이지 경로(인코딩 일관) — canonical·사이트맵·내부 링크가 모두 이 함수를 쓴다. */

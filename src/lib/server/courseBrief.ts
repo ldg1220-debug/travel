@@ -28,6 +28,7 @@ import {
 } from "@/lib/server/courseRecommend";
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { isCourseBriefThin } from "@/lib/coursePages";
+import { courseSpotCategory } from "./courseSpotCategory";
 import { allSpots, DOMESTIC_LOCALITY_NAMES, OVERSEAS_LOCALITY_NAMES, resolveRegionAlias, styleForRegion, type RegionStyle } from "@/lib/discoverData";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { routeLegColorStaticParam } from "@/lib/mapRouteColors";
@@ -340,7 +341,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 34; // 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다 (오사카·도쿄·서울)" — 삽입 이후 하루 순서 재계산(optimizeDayOrder)·앵커의 날 선택(중심 최근접)·이상치 대중교통 구간 대체는 최종 브리프 조립 로직에만 있어, 버전을 올리지 않으면 오사카·도쿄·서울이 26시간 동안 지그재그 순서의 v33 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 35; // 작업지시서 2026-10-12 "#304 검증: 오사카 57.8→22.9km. 서울은 아직 왕복 · 종류 값이 기타 투성이" — 평점 보강 맞바꿈의 동선 허용치와 코스 스팟 종류(courseSpotCategory) 매핑은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울이 26시간 동안 왕복 순서의 v34 결과를, 세부·도쿄·오사카가 "기타" 종류의 v34 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -1231,6 +1232,15 @@ export function optimizeDayOrder(stops: FinalStop[], opts: { preferFirst?: (s: F
 
   const result = [...(head ? [head] : []), ...best.flat(), ...lodging];
   return pathKm(result) < pathKm(stops) - 1e-9 || (prefer != null && !head && !prefer(stops[0]) && prefer(result[0]) && pathKm(result) <= pathKm(stops) + 1e-9) ? result : stops;
+}
+
+/** 1번 자리 맞바꿈(0 ↔ j)의 전후 경로 길이(km)와, 허용치(+10% · +0.3km)를 넘어 길어지는지. */
+export function ratedFirstSwapKm(daySlice: readonly GeoPoint[], j: number): { beforeKm: number; afterKm: number; tooLong: boolean } {
+  const preview = [...daySlice];
+  [preview[0], preview[j]] = [preview[j], preview[0]];
+  const beforeKm = pathKm(daySlice);
+  const afterKm = pathKm(preview);
+  return { beforeKm, afterKm, tooLong: afterKm > beforeKm * DAY_ORDER_PREFER_FIRST_TOLERANCE + DAY_ORDER_PREFER_FIRST_SLACK_KM };
 }
 
 /** 하루별 순서 재계산 + 로그 `path=day-order day=N before=[…] after=[…] km a→b` — 바뀐 날만 남긴다. */
@@ -2405,7 +2415,7 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
     return {
       name: displayName,
       ...(displayName !== stop.name ? { originalName: stop.name } : {}),
-      category: liveCategoryBucket(stop.category),
+      category: courseSpotCategory({ category: stop.category, name: stop.name, beach: isBeach(stop) }),
       ...(isBeach(stop) ? { beach: true as const } : {}),
       ...(isDayFacility(stop) ? { facilityDay: true as const } : {}),
       ...(isLodging(stop) ? { lodging: true as const } : {}),
@@ -4064,7 +4074,17 @@ export async function buildBrief(
     const dayLen = routedDays[d].stops.length;
     const start = dayOffset;
     const daySlice = finalSpots.slice(start, start + dayLen);
-    const j = findRatedFirstStopSwapIndex(daySlice);
+    let j = findRatedFirstStopSwapIndex(daySlice);
+    // 작업지시서 2026-10-12 "#304 검증" §2 — 1번 자리 맞바꿈은 하루 순서 최적화(optimizeDayOrder) 뒤에 순서를 다시 흐트러뜨렸다
+    // (서울 d3 2일차 창덕궁 → 북한산 → 결 → 경복궁, 37.7km). 맞바꾼 경로가 현재보다 10%(+0.3km)를 넘게 길어지면 맞바꾸지 않는다 —
+    // 첫 스팟이 평점 없이 남는 쪽이 동선이 왕복하는 것보다 낫다(optimizeDayOrder의 preferFirst와 같은 허용치).
+    if (j != null) {
+      const { beforeKm, afterKm, tooLong } = ratedFirstSwapKm(daySlice, j);
+      if (tooLong) {
+        console.log(`[courseBrief] path=rated-first-swap-skipped ${scope}/${region} day=${d + 1} 맞바꾸면 동선이 길어져 건너뜀 km ${beforeKm.toFixed(1)}→${afterKm.toFixed(1)}`);
+        j = null;
+      }
+    }
     if (j != null) {
       const globalJ = start + j;
       const affectedLocalEdges = new Set<number>([0]);
