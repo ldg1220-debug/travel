@@ -51,6 +51,7 @@ import {
   optimizeDayOrder,
   orderByNearestNeighbor,
   pathKm,
+  ratedFirstSwapKm,
   parseDays,
   pickBeachCandidate,
   pickBetterDayResult,
@@ -3131,5 +3132,25 @@ describe("routeDayStops — 이상치 대중교통 구간(직선 3km 이하 · 5
     expect(kept.durationMinutes).toBe(55);
     vi.stubGlobal("fetch", bySec({ transit: 30 * 60, walking: 5 * 60 }));
     expect((await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0].mode).toBe("transit");
+  });
+});
+
+describe("평점 보강 1번 자리 맞바꿈 — 동선이 길어지면 건너뛴다 (작업지시서 2026-10-12 '#304 검증' §2, 서울 d3 2일차)", () => {
+  it("[북한산 → 결 → 경복궁 → 창덕궁] 형태에서 0↔1 맞바꿈은 북한산을 가운데로 보내 왕복이 되므로 tooLong", () => {
+    // 북한산(북쪽 외곽)이 한 끝, 창덕궁·경복궁·결이 시내에 모여 있다 — 북한산을 가운데로 보내는 맞바꿈은 왕복이 된다.
+    const day = [
+      { lat: 37.66, lng: 126.98 }, // 북한산둘레길
+      { lat: 37.585, lng: 126.98 }, // 결(카페)
+      { lat: 37.5796, lng: 126.977 }, // 경복궁
+      { lat: 37.5794, lng: 126.991 }, // 창덕궁
+    ];
+    const swap = ratedFirstSwapKm(day, 1);
+    expect(swap.afterKm).toBeGreaterThan(swap.beforeKm);
+    expect(swap.tooLong).toBe(true);
+  });
+
+  it("거의 같은 길이면(가까운 두 곳 교환) 맞바꿈을 허용한다", () => {
+    const day = [{ lat: 37.5796, lng: 126.977 }, { lat: 37.5797, lng: 126.9772 }, { lat: 37.58, lng: 126.978 }];
+    expect(ratedFirstSwapKm(day, 1).tooLong).toBe(false);
   });
 });
