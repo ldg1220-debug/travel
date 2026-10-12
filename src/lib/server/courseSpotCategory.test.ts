@@ -66,8 +66,13 @@ describe("courseSpotCategory — 이름 단서(타입이 관광지·기타일 �
     ["tourist_attraction", "탄중 아루 해변", "해변"],
     ["establishment", "Poin Reflexology Spa", "스파"],
     ["tourist_attraction", "산토니뇨 성당", "사원·성당"],
-    ["point_of_interest", "센소지", "사원·성당"],
     ["point_of_interest", "불국사", "사원·성당"],
+    ["point_of_interest", "해동용궁사", "사원·성당"],
+    ["point_of_interest", "난바 야사카 신사", "사원·성당"],
+    ["point_of_interest", "메이지 신궁", "사원·성당"],
+    ["tourist_attraction", "Fushimi Inari Shrine", "사원·성당"],
+    ["point_of_interest", "트리쉐이드", "스파"],
+    ["point_of_interest", "Poin Reflexology", "스파"],
     ["point_of_interest", "신주쿠 교엔", "공원"],
     ["tourist_attraction", "오사카 성", "명소/유적"],
     ["point_of_interest", "경복궁", "명소/유적"],
@@ -84,5 +89,29 @@ describe("courseSpotCategory — 이름 단서(타입이 관광지·기타일 �
     expect(c("tourist_attraction", "시장 거리")).toBe("관광지");
     expect(c("point_of_interest", "Something")).toBe("기타");
     expect(c("", "")).toBe("기타");
+  });
+});
+
+// 작업지시서 2026-10-12 "#305 검증" §2 — 이름 규칙 오탐.
+describe("courseSpotCategory — 이름 규칙 오탐 방지", () => {
+  it("신사이바시스지 상점가는 사원이 아니다(상점가·시장·거리·아케이드가 사원·스파 이름 규칙보다 우선)", () => {
+    expect(c("point_of_interest", "신사이바시스지 상점가")).toBe("관광지");
+    expect(c("tourist_attraction", "신사이바시스지")).not.toBe("사원·성당"); // "신사"는 이름 끝일 때만
+    expect(c("point_of_interest", "도톤보리 거리")).toBe("관광지");
+    expect(c("point_of_interest", "구로몬 시장")).toBe("관광지");
+    expect(c("establishment", "Kuromon Market")).toBe("관광지");
+    expect(c("establishment", "Arcade Street Spa")).toBe("관광지"); // 우선순위 — 스파 단어가 있어도 거리 이름이 우선
+  });
+
+  it("'…지'로 끝나는 이름만으로는 사원이 아니다 — 센소지는 primaryType(buddhist_temple)으로 사원", () => {
+    expect(c("point_of_interest", "고분지")).toBe("기타");
+    expect(c("buddhist_temple", "센소지")).toBe("사원·성당");
+  });
+
+  it("이름 끝 '…사'는 한글 2~4자 + 사만 — 긴 이름·영문 혼합은 오탐하지 않는다", () => {
+    expect(c("point_of_interest", "불국사")).toBe("사원·성당");
+    expect(c("point_of_interest", "경주 불국사")).toBe("사원·성당");
+    expect(c("point_of_interest", "서울 출판사")).toBe("기타"); // 회사·출판사 등 기관 이름
+    expect(c("point_of_interest", "코리아나 화장품 주식회사")).toBe("기타");
   });
 });
