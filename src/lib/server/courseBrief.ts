@@ -340,7 +340,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 33; // 작업지시서 2026-10-08 "#298 검증: 전부 route · 종일시설 정상. 차량 폴백 구간만 표시해 주세요" — 새 응답 필드 spots[].toNextFallback은 최종 브리프 조립 결과에만 생기므로, 버전을 올리지 않으면 캐시된 v32 응답에는 필드가 없어 도쿄·나고야·오사카의 폴백 구간이 표시되지 않는다.
+export const COURSE_ALGO_VERSION = 34; // 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다 (오사카·도쿄·서울)" — 삽입 이후 하루 순서 재계산(optimizeDayOrder)·앵커의 날 선택(중심 최근접)·이상치 대중교통 구간 대체는 최종 브리프 조립 로직에만 있어, 버전을 올리지 않으면 오사카·도쿄·서울이 26시간 동안 지그재그 순서의 v33 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -790,6 +790,9 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
  * 반출 제한). 그래서 해외 도보만 Google walking을 새로 태우고, 국내
  * 도보는 여전히 직선 추정(§4 "국내 도보는 직선일 수밖에 없다")을 쓴다.
  */
+const TRANSIT_OUTLIER_MIN_MINUTES = 50;
+const TRANSIT_OUTLIER_MAX_KM = 3;
+
 async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, plannedMode: TravelMode): Promise<RouteResult | "no-route"> {
   let mode = plannedMode;
   if (mode === "walk" && scope !== "overseas") return straightRouteMeasurement(a, b, mode); // 국내 도보 — 조회 대상 없음(위 설명)
@@ -817,6 +820,20 @@ async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, p
     console.log(`[courseBrief] route-fail ${legCoordsLabel(a, b)} mode=transit status=${transitStatus} fallback=driving ${fallback ? "ok" : "failed"}`);
   }
   mode = effectiveMode;
+  // 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다" §3③ — 직선 3km 이하인데 대중교통이 50분 이상(오사카 성 → 나가자키초
+  // 59분)이면 이상치다. 도보·차 경로를 조회해 그중 짧은 쪽으로 바꾼다(둘 다 못 구하면 대중교통 값을 그대로 둔다).
+  if (mode === "transit" && scope === "overseas" && outcome != null && outcome !== "no-route" && outcome.durationMinutes >= TRANSIT_OUTLIER_MIN_MINUTES && haversineKm(a, b) <= TRANSIT_OUTLIER_MAX_KM) {
+    const [walk, drive] = await Promise.all([fetchGoogleDirectionsRoute(a, b, "walking"), fetchGoogleDirectionsRoute(a, b, "driving")]);
+    const options: { m: RouteMeasurement; mode: TravelMode }[] = [];
+    if (walk != null && walk !== "no-route") options.push({ m: walk, mode: "walk" });
+    if (drive != null && drive !== "no-route") options.push({ m: drive, mode: "car" });
+    const shortest = options.sort((x, y) => x.m.durationMinutes - y.m.durationMinutes)[0];
+    if (shortest && shortest.m.durationMinutes < outcome.durationMinutes) {
+      console.log(`[courseBrief] route-outlier ${legCoordsLabel(a, b)} transit=${outcome.durationMinutes}분 → ${shortest.mode}=${shortest.m.durationMinutes}분(직선 ${haversineKm(a, b).toFixed(1)}km)`);
+      outcome = shortest.m;
+      mode = shortest.mode;
+    }
+  }
   if (outcome === "no-route") return "no-route";
   if (outcome == null) return straightRouteMeasurement(a, b, mode); // 조회 실패/판단 보류 — 폴백, 스팟은 유지
   const capped = applyDurationCap(outcome, mode); // §3 ★ 비정상적으로 크면(3시간 초과) "no-route"
@@ -1080,6 +1097,153 @@ function catalogRatingFor(scope: CourseBriefScope, region: string, stop: FinalSt
 function hasRatingHint(scope: CourseBriefScope, region: string, stop: FinalStop): boolean {
   if (stop.rating != null) return true;
   return catalogRatingFor(scope, region, stop) != null;
+}
+
+// ------------------------------------------------------------------------------------------------
+// 하루 안 방문 순서 — 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다 (오사카·도쿄·서울)".
+//
+// 앵커·보충·재배분·선착장 삽입은 하루 배열의 끝에 붙이거나 자리만 바꿔, 날 안의 순서를 다시 계산하지 않았다
+// (오사카 d3 2일차: 오사카 성 → 나가자키초 → 우메다 → 아베노 → 만국박람회 공원, 46.9km). 모든 삽입이 끝난 뒤
+// 하루 단위로 순서를 다시 정한다: 스팟 ≤ 6이면 순열 전탐색, 그 이상은 최근접 이웃 + 2-opt. 고정 제약: 선착장 →
+// 섬은 붙어 있는 한 묶음(순서 유지), 숙소는 그날 마지막, 종일시설은 그날 맨 앞.
+
+const DAY_ORDER_EXHAUSTIVE_MAX = 6;
+const DAY_ORDER_PREFER_FIRST_TOLERANCE = 1.1; // 평점 있는 스팟을 1번으로 두는 순서가 최적보다 10%(+0.3km) 이내로만 길면 그쪽을 택한다
+const DAY_ORDER_PREFER_FIRST_SLACK_KM = 0.3;
+
+/** 하루 스팟을 순서대로 이은 직선 거리 합(km) — 순서 재계산 비교와 로그용. */
+export function pathKm(stops: readonly GeoPoint[]): number {
+  let sum = 0;
+  for (let i = 0; i < stops.length - 1; i++) sum += haversineKm(stops[i], stops[i + 1]);
+  return sum;
+}
+
+function permutations<T>(items: T[]): T[][] {
+  if (items.length <= 1) return [items];
+  const result: T[][] = [];
+  items.forEach((item, i) => {
+    const rest = [...items.slice(0, i), ...items.slice(i + 1)];
+    for (const perm of permutations(rest)) result.push([item, ...perm]);
+  });
+  return result;
+}
+
+/**
+ * 하루 안 순서 재계산 — 총 직선 거리가 가장 짧은 열린 경로. 순서 제약은 위 설명 참고. 새 순서가 현재 순서보다
+ * 짧지 않으면 현재 순서를 그대로 돌려준다(불필요한 재라우팅·순서 흔들림 방지). preferFirst(평점 있는 스팟 등)가 주어지면
+ * 1번 자리가 그 조건을 만족하는 순서를 최적과 거의 같은 길이일 때(10% + 0.3km 이내) 우선한다 — 스팟이 ≤ 6일 때만.
+ */
+export function optimizeDayOrder(stops: FinalStop[], opts: { preferFirst?: (s: FinalStop) => boolean } = {}): FinalStop[] {
+  if (stops.length <= 2) return stops;
+  const lodging = stops.filter(isLodging);
+  const body = stops.filter((s) => !isLodging(s));
+  const head = body.find(isDayFacility);
+  const movable = body.filter((s) => s !== head);
+  if (movable.length <= 1 && !head) return stops;
+
+  // 선착장 → 섬(연속한 배 여행 스팟)은 한 묶음 — 내부 순서는 그대로 두고 묶음째 움직인다.
+  const units: FinalStop[][] = [];
+  for (const s of movable) {
+    const last = units[units.length - 1];
+    if (isBoatTripStop(s) && last && isBoatTripStop(last[last.length - 1])) last.push(s);
+    else units.push([s]);
+  }
+  const entry = (u: FinalStop[]) => u[0];
+  const exit = (u: FinalStop[]) => u[u.length - 1];
+  const unitCost = (order: FinalStop[][]): number => {
+    let cost = 0;
+    let prev: FinalStop | undefined = head;
+    for (const u of order) {
+      if (prev) cost += haversineKm(prev, entry(u));
+      cost += pathKm(u);
+      prev = exit(u);
+    }
+    return cost;
+  };
+
+  let best: FinalStop[][];
+  const prefer = opts.preferFirst;
+  if (units.length <= DAY_ORDER_EXHAUSTIVE_MAX) {
+    const perms = permutations(units);
+    let bestCost = Infinity;
+    best = units;
+    for (const perm of perms) {
+      const c = unitCost(perm);
+      if (c < bestCost - 1e-9) {
+        bestCost = c;
+        best = perm;
+      }
+    }
+    if (prefer && !head && !prefer(entry(best[0]))) {
+      let alt: FinalStop[][] | null = null;
+      let altCost = Infinity;
+      for (const perm of perms) {
+        if (!prefer(entry(perm[0]))) continue;
+        const c = unitCost(perm);
+        if (c < altCost - 1e-9) {
+          altCost = c;
+          alt = perm;
+        }
+      }
+      if (alt && altCost <= bestCost * DAY_ORDER_PREFER_FIRST_TOLERANCE + DAY_ORDER_PREFER_FIRST_SLACK_KM) best = alt;
+    }
+  } else {
+    // 최근접 이웃(가장 좋은 시작점) + 2-opt — 구간 뒤집기로 더 짧아지지 않을 때까지.
+    let nn: FinalStop[][] = units;
+    let nnCost = Infinity;
+    for (let start = 0; start < units.length; start++) {
+      const remaining = units.filter((_, i) => i !== start);
+      const order = [units[start]];
+      while (remaining.length > 0) {
+        const from = head && order.length === 0 ? head : exit(order[order.length - 1]);
+        let bi = 0;
+        let bd = Infinity;
+        remaining.forEach((u, i) => {
+          const d = haversineKm(from, entry(u));
+          if (d < bd) {
+            bd = d;
+            bi = i;
+          }
+        });
+        order.push(remaining.splice(bi, 1)[0]);
+      }
+      const c = unitCost(order);
+      if (c < nnCost - 1e-9) {
+        nnCost = c;
+        nn = order;
+      }
+    }
+    best = nn;
+    let improved = true;
+    while (improved) {
+      improved = false;
+      for (let i = 0; i < best.length - 1 && !improved; i++) {
+        for (let j = i + 1; j < best.length && !improved; j++) {
+          const candidate = [...best.slice(0, i), ...best.slice(i, j + 1).reverse(), ...best.slice(j + 1)];
+          if (unitCost(candidate) < unitCost(best) - 1e-9) {
+            best = candidate;
+            improved = true;
+          }
+        }
+      }
+    }
+  }
+
+  const result = [...(head ? [head] : []), ...best.flat(), ...lodging];
+  return pathKm(result) < pathKm(stops) - 1e-9 || (prefer != null && !head && !prefer(stops[0]) && prefer(result[0]) && pathKm(result) <= pathKm(stops) + 1e-9) ? result : stops;
+}
+
+/** 하루별 순서 재계산 + 로그 `path=day-order day=N before=[…] after=[…] km a→b` — 바뀐 날만 남긴다. */
+function orderDaysWithLog(label: string, groups: FinalStop[][], preferFirst?: (s: FinalStop) => boolean): FinalStop[][] {
+  return groups.map((stops, i) => {
+    const ordered = moveLodgingLast(optimizeDayOrder(stops, { preferFirst }));
+    if (ordered.some((s, k) => s !== stops[k])) {
+      console.log(
+        `[courseBrief] path=day-order ${label} day=${i + 1} before=[${stops.map((s) => s.name).join(" → ")}] after=[${ordered.map((s) => s.name).join(" → ")}] km ${pathKm(stops).toFixed(1)}→${pathKm(ordered).toFixed(1)}`,
+      );
+    }
+    return ordered;
+  });
 }
 
 /**
@@ -3586,24 +3750,33 @@ export function placeLandmarkAnchors(dayStops: FinalStop[][], anchors: Place[]):
   const result = dayStops.map((stops) => [...stops]);
   const usedDayIdx = new Set<number>();
   for (const anchor of anchors) {
+    // 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다" §2② — 앵커의 "날"은 그날 스팟들의 중심과 가장 가까운
+    // 날(빈자리 많은 날·인기 낮은 스팟이 있는 날 우선이 아님). 서로 다른 날에 분산하는 규칙(사용한 날 제외)은 그대로다.
     let targetDayIdx = -1;
-    let targetSpotIdx = -1;
-    let lowestPopularity = Infinity;
+    let nearest = Infinity;
     result.forEach((stops, dayIdx) => {
       if (usedDayIdx.has(dayIdx)) return;
       // 종일시설 날에는 대형 명소 앵커를 넣지 않는다(작업지시서 2026-10-06 "#293 검증" §4).
       if (stops.some(isDayFacility)) return;
-      stops.forEach((s, spotIdx) => {
-        if (s.meal) return;
-        const p = popularity(s);
-        if (p < lowestPopularity) {
-          lowestPopularity = p;
-          targetDayIdx = dayIdx;
-          targetSpotIdx = spotIdx;
-        }
-      });
+      if (!stops.some((s) => !s.meal)) return; // 바꿀 스팟이 없다
+      const d = haversineKm(anchor, centroidOf(stops));
+      if (d < nearest) {
+        nearest = d;
+        targetDayIdx = dayIdx;
+      }
     });
     if (targetDayIdx === -1) break;
+    // 그날 안에서는 식사가 아닌 스팟 중 가장 인기 낮은 것과 교체한다(하루 스팟 수 유지).
+    let targetSpotIdx = -1;
+    let lowestPopularity = Infinity;
+    result[targetDayIdx].forEach((s, spotIdx) => {
+      if (s.meal) return;
+      const p = popularity(s);
+      if (p < lowestPopularity) {
+        lowestPopularity = p;
+        targetSpotIdx = spotIdx;
+      }
+    });
     usedDayIdx.add(targetDayIdx);
     const replaced = result[targetDayIdx][targetSpotIdx];
     result[targetDayIdx][targetSpotIdx] = { ...anchor, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: replaced.hour, meal: false };
@@ -3623,10 +3796,11 @@ export function placeCityAnchors(dayStops: FinalStop[][], anchors: Place[], defi
   const toReplace = anchors.slice(deficit);
   const added = dayStops.map((stops) => [...stops]);
   for (const anchor of toAdd) {
+    // 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다" §2② — 자리가 남은 날 중 그날 스팟들의 중심과 가장 가까운 날(빈자리 많은 날 우선 X).
     const target = added
-      .map((stops, i) => ({ i, size: stops.length, cap: CITY_DAY_MAX, facilityDay: stops.some(isDayFacility) }))
+      .map((stops, i) => ({ i, size: stops.length, cap: CITY_DAY_MAX, facilityDay: stops.some(isDayFacility), dist: stops.length > 0 ? haversineKm(anchor, centroidOf(stops)) : Infinity }))
       .filter((d) => !d.facilityDay && d.size < d.cap) // 시설 날은 앵커(대형 명소)를 받지 않는다 — "#293 검증" §4
-      .sort((a, b) => a.size - b.size)[0];
+      .sort((a, b) => a.dist - b.dist || a.size - b.size)[0];
     if (!target) break;
     const anchorStop: FinalStop = { ...anchor, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: 14, meal: false };
     added[target.i] = insertBeforeDinner(added[target.i], anchorStop);
@@ -3753,7 +3927,9 @@ export async function buildBrief(
   // (routeDayStops는 "순서상 이웃한 두 스톱" 사이만 조회하므로, 순서를
   // 정한 뒤에 조회해야 항상 맞는다). preferRatedFirstStop 주석 참고 —
   // 스팟을 빼지 않고 순서만 바꾼다(§3-a 제외는 여전히 보류).
-  const finalDayGroups = anchoredDayGroups.map((stops) => moveLodgingLast(preferRatedFirstStop(scope, region, stops)));
+  // 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다" §2① — 앵커·보충·재배분·선착장 삽입이 모두 끝난 지금
+  // 하루 단위로 순서를 다시 계산한다(평점 있는 스팟을 1번으로 두는 선호(§3-b)는 최적 길이와 거의 같을 때만 반영).
+  const finalDayGroups = orderDaysWithLog(`${scope}/${region}`, anchoredDayGroups, (s) => hasRatingHint(scope, region, s));
   console.log(`[courseBrief] path=composed ${scope}/${region} counts=${counts(finalDayGroups)}`);
 
   // 하루 안의 구간(순서상 이웃한 두 스톱)마다 실제 경로를 조회한다 —
@@ -3776,7 +3952,10 @@ export async function buildBrief(
   const routedDaysBeforeRebalance = routedDays.reduce((sum, d) => sum + d.stops.length, 0);
   {
     const before = routedDays.map((d) => d.stops);
-    const after = (style === "resort" ? rebalanceResortDays(before) : balanceCityDayGroups(before, minViableSpots(style, days), region)).map(moveLodgingLast);
+    const rebalanced = style === "resort" ? rebalanceResortDays(before) : balanceCityDayGroups(before, minViableSpots(style, days), region);
+    // 구성이 바뀐 날만 순서를 다시 계산한다(같은 구성의 날은 이미 라우팅된 순서 그대로 — 재라우팅 방지).
+    const sameMembers = (a: FinalStop[], b: FinalStop[]) => a.length === b.length && a.every((s) => b.some((o) => o.id === s.id));
+    const after = rebalanced.map((stops, i) => (sameMembers(stops, before[i]) ? before[i] : orderDaysWithLog(`${scope}/${region}(post-route)`, [stops], (st) => hasRatingHint(scope, region, st))[0]));
     const changed = after.map((stops, i) => stops.map((s) => s.id).join("|") !== before[i].map((s) => s.id).join("|"));
     console.log(`[courseBrief] path=post-route-rebalance ${scope}/${region} routed=${counts(before)} after=${counts(after)} changed=[${changed.join(",")}]`);
     if (changed.some(Boolean)) {
