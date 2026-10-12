@@ -1,5 +1,5 @@
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
-import { isIsland, isJetty } from "./courseRecommend";
+import { isIsland, isJetty, isLargeFacility } from "./courseRecommend";
 
 /**
  * 코스 스팟의 한국어 "종류" — 작업지시서 2026-10-12 "#304 검증" §3. 이전엔 discover용 7개 버킷
@@ -83,10 +83,14 @@ const NAME_PARK = /공원|교엔|정원|가든|\bpark\b|\bgarden\b/i;
 const NAME_HERITAGE = /(?:성|궁|궁전|탑|고분)$|궁전|박물관|미술관|유적|\bcastle\b|\bpalace\b|\bmuseum\b|\bruins?\b/i;
 const NAME_FOOD = /와규|wagyu|스시|sushi|라멘|ramen|이자카야|izakaya|식당|레스토랑|restaurant|steak|스테이크|\bbbq\b|야키니쿠|yakiniku|맛집/i;
 
-export function courseSpotCategory(p: { category: string; name: string; beach?: boolean }): CourseSpotCategory {
+export function courseSpotCategory(p: { category: string; name: string; beach?: boolean; reviewCount?: number | null }): CourseSpotCategory {
   const raw = (p.category ?? "").toLowerCase();
   const exact = TYPE_TABLE[raw];
   if (exact) return exact;
+
+  // 작업지시서 2026-10-12 "#306 검증" §2 — 종일시설(facilityDay)인 스팟은 종류도 "테마파크"다. Kakao(국내) 후보는 primaryType이
+  // 없어 롯데월드 어드벤처가 "관광지"로 나갔다 — 표시(facilityDay)와 종류가 같은 판정(isLargeFacility)을 쓰게 한다.
+  if (isLargeFacility(p)) return "테마파크";
 
   const bucket = liveCategoryBucket(p.category ?? "");
   if (bucket === "음식점" || bucket === "술집" || bucket === "카페" || bucket === "숙소") return bucket;

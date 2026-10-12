@@ -341,7 +341,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 36; // 작업지시서 2026-10-12 "#305 검증: 서울 57.8→25.6km · 종류 정상. 이름 규칙 오탐 2건만" — 스팟 종류(courseSpotCategory)의 이름 규칙(신사이바시스지 상점가의 사원 오판·트리쉐이드의 기타)은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 오사카·세부가 26시간 동안 오판된 종류의 v35 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 37; // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -2415,7 +2415,7 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
     return {
       name: displayName,
       ...(displayName !== stop.name ? { originalName: stop.name } : {}),
-      category: courseSpotCategory({ category: stop.category, name: stop.name, beach: isBeach(stop) }),
+      category: courseSpotCategory({ category: stop.category, name: stop.name, beach: isBeach(stop), reviewCount: stop.reviewCount }),
       ...(isBeach(stop) ? { beach: true as const } : {}),
       ...(isDayFacility(stop) ? { facilityDay: true as const } : {}),
       ...(isLodging(stop) ? { lodging: true as const } : {}),
