@@ -48,7 +48,9 @@ import {
   medoidOf,
   meetsResortBeachRequirement,
   minViableSpots,
+  optimizeDayOrder,
   orderByNearestNeighbor,
+  pathKm,
   parseDays,
   pickBeachCandidate,
   pickBetterDayResult,
@@ -3007,5 +3009,127 @@ describe("routeDayStops — 해외 대중교통 실패 시 자동차 폴백 · r
     expect(line).toContain("route-fail");
     expect(line).toContain("mode=driving");
     expect(line).toContain("status=REQUEST_DENIED");
+  });
+});
+
+describe("하루 안 순서 재계산 — optimizeDayOrder (작업지시서 2026-10-12 '하루 안 방문 순서가 지그재그입니다')", () => {
+  const at = (id: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name: id, ...extra });
+  const ids = (s: FinalStop[]) => s.map((x) => x.id);
+
+  it("오사카 d3 2일차 모양: 성 → 나가자키초 → 우메다 → 아베노 → 만국박람회 공원의 지그재그가 짧아진다", () => {
+    const day = [
+      at("오사카 성", 34.6873, 135.5262),
+      at("나가자키초", 34.7052, 135.5077),
+      at("우메다 스카이빌딩", 34.7054, 135.4903),
+      at("아베노하루카스", 34.6459, 135.5135),
+      at("만국박람회 공원", 34.8094, 135.5326),
+    ];
+    const result = optimizeDayOrder(day);
+    expect(result).toHaveLength(5);
+    expect(new Set(ids(result))).toEqual(new Set(ids(day)));
+    expect(pathKm(result)).toBeLessThan(pathKm(day) - 5);
+    // 가장 먼 북쪽 외곽(박람회 공원)은 경로의 끝에 있고, 남쪽 아베노는 반대쪽 끝에 있다 — 가운데서 왔다 갔다 하지 않는다
+    const order = ids(result);
+    expect(["만국박람회 공원", "아베노하루카스"]).toContain(order[0]);
+    expect(["만국박람회 공원", "아베노하루카스"]).toContain(order[4]);
+  });
+
+  it("이미 최적이면 같은 배열을 돌려준다(불필요한 재라우팅 방지)", () => {
+    const line = [at("a", 35, 135), at("b", 35.01, 135), at("c", 35.02, 135)];
+    expect(optimizeDayOrder(line)).toBe(line);
+    expect(optimizeDayOrder([at("x", 35, 135), at("y", 35.5, 135)])).toEqual([at("x", 35, 135), at("y", 35.5, 135)]);
+  });
+
+  it("고정 제약: 숙소는 마지막 · 종일시설은 맨 앞 · 선착장 → 섬은 붙어서 순서 유지", () => {
+    const hotel = at("hotel", 35.0, 135.0, { category: "hotel", name: "웰컴 호텔" });
+    const usj = at("usj", 34.665, 135.433, { category: "amusement_park", name: "유니버설 스튜디오 재팬", reviewCount: 90000 });
+    const near = at("near", 34.67, 135.44);
+    const far = at("far", 34.68, 135.5);
+    const withFacility = optimizeDayOrder([far, hotel, near, usj]);
+    expect(ids(withFacility)[0]).toBe("usj");
+    expect(ids(withFacility).at(-1)).toBe("hotel");
+    const jetty = at("jetty", 5.98, 116.06, { slotKey: "jetty", name: "제셀톤 선착장", category: "ferry_terminal" });
+    const island = at("island", 5.97, 116.0, { name: "사피 섬", category: "island" });
+    const a = at("a", 5.97, 116.01);
+    const b = at("b", 5.99, 116.07);
+    const c = at("c", 5.95, 116.04);
+    const boat = optimizeDayOrder([a, jetty, island, b, c]);
+    const o = ids(boat);
+    expect(o.indexOf("island")).toBe(o.indexOf("jetty") + 1); // 선착장 바로 뒤가 섬
+    expect(new Set(o).size).toBe(5);
+  });
+
+  it("스팟이 7곳 이상이면 최근접 이웃 + 2-opt — 모든 스팟을 보존하고 더 길어지지 않는다", () => {
+    const zig = [0, 6, 1, 7, 2, 8, 3, 9].map((i) => at(`p${i}`, 35 + i * 0.01, 135));
+    const result = optimizeDayOrder(zig);
+    expect(new Set(ids(result))).toEqual(new Set(ids(zig)));
+    expect(pathKm(result)).toBeLessThan(pathKm(zig));
+    expect(pathKm(result)).toBeCloseTo(0.09 * 111.2, 0); // 일직선 순서의 길이
+  });
+
+  it("평점 있는 스팟을 1번으로 두는 선호는 최적과 거의 같은 길이일 때만 반영한다", () => {
+    const rated = (s: FinalStop) => s.rating != null;
+    const day = [at("a", 35.0, 135), at("b", 35.01, 135, { rating: 4.5 }), at("c", 35.02, 135)];
+    // 최적 순서는 a-b-c(또는 c-b-a) — 1번이 평점 있는 b가 되면 a-b 뒤 c로 가는 길이가 훨씬 길다 → 선호 무시
+    expect(ids(optimizeDayOrder([day[1], day[0], day[2]], { preferFirst: rated }))[0]).not.toBe("b");
+    const close = [at("a", 35.0, 135), at("b", 35.0005, 135, { rating: 4.5 }), at("c", 35.001, 135)];
+    expect(ids(optimizeDayOrder([close[0], close[2], close[1]], { preferFirst: rated }))[0]).toBe("b");
+  });
+});
+
+describe("앵커의 날 선택 — 스팟 중심과 가장 가까운 날 (작업지시서 2026-10-12 §2②)", () => {
+  const at = (id: string, lat: number, lng: number) => stop(id, lat, lng, { name: id });
+  const days = () => [
+    [at("n1", 35.0, 135.0), at("n2", 35.01, 135.0)], // 북쪽 날(스팟 적음)
+    [at("s1", 34.6, 135.5), at("s2", 34.61, 135.5), at("s3", 34.6, 135.51)], // 남쪽 날(스팟 많음)
+  ];
+
+  it("placeLandmarkAnchors(교체): 남쪽 앵커는 스팟이 더 많아도 남쪽 날에 들어간다", () => {
+    const result = placeLandmarkAnchors(days(), [place("anchor", { name: "남쪽 명소", lat: 34.605, lng: 135.505, rating: 4.5, reviewCount: 9000 })]);
+    expect(result[1].some((s) => s.id === "anchor")).toBe(true);
+    expect(result[0].some((s) => s.id === "anchor")).toBe(false);
+  });
+
+  it("placeCityAnchors(추가): 빈자리가 많은 날이 아니라 중심이 가장 가까운 날에 붙는다", () => {
+    const result = placeCityAnchors(days(), [place("anchor", { name: "남쪽 명소", lat: 34.605, lng: 135.505, rating: 4.5, reviewCount: 9000 })], 1);
+    expect(result[1].some((s) => s.id === "anchor")).toBe(true);
+    expect(result[0]).toHaveLength(2);
+  });
+});
+
+describe("routeDayStops — 이상치 대중교통 구간(직선 3km 이하 · 50분 이상)은 도보/차 중 짧은 쪽 (작업지시서 2026-10-12 §3③)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+  const body = (seconds: number) => ({ status: "OK", routes: [{ legs: [{ distance: { value: 2600 }, duration: { value: seconds } }], overview_polyline: { points: "_p~iF~ps|U_ulLnnqC_mqNvxq`@" } }] });
+  const modeOf = (input: unknown) => new URL(String(input)).searchParams.get("mode");
+  const a = stop("a", 34.6873, 135.5262, { name: "오사카 성" });
+  const b = stop("b", 34.7052, 135.5077, { name: "나가자키초" });
+
+  it("transit 59분 · walking 35분 · driving 12분 → 차(12분)로 바꾸고 route-outlier 로그를 남긴다", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    const secondsByMode: Record<string, number> = { transit: 59 * 60, walking: 35 * 60, driving: 12 * 60 };
+    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => ({ ok: true, json: async () => body(secondsByMode[modeOf(input) ?? ""]) })));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const routed = await routeDayStops("overseas", [a, b], Date.now() + 5000);
+    expect(routed.segments[0].mode).toBe("car");
+    expect(routed.segments[0].durationMinutes).toBe(12);
+    expect(logSpy.mock.calls.some((c) => String(c[0]).includes("route-outlier") && String(c[0]).includes("transit=59분"))).toBe(true);
+  });
+
+  it("도보가 더 짧으면 도보, 둘 다 실패하거나 transit이 정상(50분 미만)이면 그대로 둔다", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const bySec = (m: Record<string, number>) => vi.fn(async (input: unknown) => ({ ok: true, json: async () => (m[modeOf(input) ?? ""] ? body(m[modeOf(input) ?? ""]) : { status: "ZERO_RESULTS" }) }));
+    vi.stubGlobal("fetch", bySec({ transit: 55 * 60, walking: 20 * 60, driving: 25 * 60 }));
+    expect((await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0].mode).toBe("walk");
+    vi.stubGlobal("fetch", bySec({ transit: 55 * 60 }));
+    const kept = (await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0];
+    expect(kept.mode).toBe("transit");
+    expect(kept.durationMinutes).toBe(55);
+    vi.stubGlobal("fetch", bySec({ transit: 30 * 60, walking: 5 * 60 }));
+    expect((await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0].mode).toBe("transit");
   });
 });
