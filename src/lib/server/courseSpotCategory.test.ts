@@ -115,3 +115,29 @@ describe("courseSpotCategory — 이름 규칙 오탐 방지", () => {
     expect(c("point_of_interest", "코리아나 화장품 주식회사")).toBe("기타");
   });
 });
+
+// 작업지시서 2026-10-12 "#306 검증" §2 — 종일시설이면 종류도 테마파크(국내 Kakao 후보는 primaryType이 없다).
+describe("courseSpotCategory — 종일시설은 테마파크", () => {
+  it.each([
+    ["관광명소", "롯데월드 어드벤처"],
+    ["관광명소", "에버랜드"],
+    ["문화시설", "서울랜드"],
+    ["관광명소", "레고랜드 코리아 리조트"],
+    ["tourist_attraction", "유니버설 스튜디오 재팬"],
+    ["amusement_park", "도쿄 디즈니랜드"],
+  ])("%s %s → 테마파크", (category, name) => {
+    expect(c(category, name)).toBe("테마파크");
+  });
+
+  it("곁가지·수족관·동물원은 테마파크가 아니다 — 롯데월드타워·몰·아쿠아리움, 디즈니 스토어", () => {
+    expect(c("관광명소", "롯데월드타워 서울스카이")).toBe("전망대");
+    expect(c("shopping_mall", "롯데월드몰")).not.toBe("테마파크");
+    expect(c("aquarium", "롯데월드 아쿠아리움")).toBe("수족관");
+    expect(c("store", "디즈니 스토어")).not.toBe("테마파크");
+  });
+
+  it("리뷰 3만 이상 테마파크 타입도(사전에 없어도) 테마파크, 작은 테마파크 타입은 타입대로 테마파크", () => {
+    expect(c("amusement_park", "어떤 놀이공원")).toBe("테마파크");
+    expect(courseSpotCategory({ category: "amusement_park", name: "큰 놀이공원", reviewCount: 50000 })).toBe("테마파크");
+  });
+});
