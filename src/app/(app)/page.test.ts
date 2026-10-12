@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("./HomeClient", () => ({ HomePage: () => null }));
+vi.mock("@/components/PopularCoursesSection", () => ({ PopularCoursesSection: () => null })); // 서버 컴포넌트(DB) — 이 테스트는 Drive 범위만 본다
 
 import Page from "./page";
 

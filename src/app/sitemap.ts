@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { pool } from "@/lib/server/db";
-import { courseCanonicalPath } from "@/lib/coursePages";
+import { COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath } from "@/lib/coursePages";
 import { fetchConfirmedCoursePages } from "@/lib/server/coursePageIndex";
 
 /**
@@ -65,14 +65,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: r.priority,
   }));
 
-  const coursePageEntries: MetadataRoute.Sitemap = COURSE_PAGES_IN_SITEMAP
-    ? (await fetchConfirmedCoursePages()).map(({ region, days, lastModified }) => ({
-        url: `${base}${courseCanonicalPath(region, days)}`,
-        lastModified,
-        changeFrequency: "weekly" as const,
-        priority: 0.7,
-      }))
-    : [];
+  const confirmedCourses = COURSE_PAGES_IN_SITEMAP ? await fetchConfirmedCoursePages() : [];
+  const coursePageEntries: MetadataRoute.Sitemap = confirmedCourses.map(({ region, days, lastModified }) => ({
+    url: `${base}${courseCanonicalPath(region, days)}`,
+    lastModified,
+    changeFrequency: "weekly" as const,
+    priority: 0.7,
+  }));
+  // 작업지시서 2026-10-12 "코스 페이지가 고아입니다" §2⑤ — 코스 허브(/course/all)와 지역 허브(/course/{지역})를 사이트맵에 올린다
+  // (허브 priority 0.8). 허브는 확인된 코스가 하나라도 있을 때만 의미가 있다. lastmod는 그 안의 가장 최근 브리프 시각.
+  const latest = (items: { lastModified: Date }[]) => new Date(Math.max(...items.map((i) => i.lastModified.getTime())));
+  const regions = [...new Set(confirmedCourses.map((c) => c.region))];
+  const hubEntries: MetadataRoute.Sitemap =
+    confirmedCourses.length === 0
+      ? []
+      : [
+          { url: `${base}${COURSE_HUB_PATH}`, lastModified: latest(confirmedCourses), changeFrequency: "daily" as const, priority: 0.8 },
+          ...regions.map((region) => ({
+            url: `${base}${courseRegionHubPath(region)}`,
+            lastModified: latest(confirmedCourses.filter((c) => c.region === region)),
+            changeFrequency: "weekly" as const,
+            priority: 0.8,
+          })),
+        ];
 
   let tripPostEntries: MetadataRoute.Sitemap = [];
   try {
@@ -92,5 +107,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.error("[sitemap] failed to load public trip posts:", err);
   }
 
-  return [...staticEntries, ...coursePageEntries, ...tripPostEntries];
+  return [...staticEntries, ...hubEntries, ...coursePageEntries, ...tripPostEntries];
 }

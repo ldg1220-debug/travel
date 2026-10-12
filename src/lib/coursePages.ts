@@ -306,15 +306,80 @@ export function groupSpotsByDay(brief: Pick<CourseBrief, "spots" | "dayTotals" |
   });
 }
 
-/** BreadcrumbList JSON-LD — 홈 > 코스 > {지역} {일수}. */
+export const COURSE_HUB_PATH = "/course/all";
+
+/** 지역 허브 경로 `/course/{지역}` — 인코딩 일관. */
+export function courseRegionHubPath(region: string): string {
+  return `/course/${encodeURIComponent(region)}`;
+}
+
+/** BreadcrumbList JSON-LD — 홈 > 여행 코스 모음(허브) > {지역}(지역 허브) > {지역} {일수} 코스. 화면의 브레드크럼과 같다. */
 export function buildCourseBreadcrumbJsonLd(region: string, days: CourseDays): Record<string, unknown> {
   return {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "트레쥴", item: `${SITE_ORIGIN}/` },
-      { "@type": "ListItem", position: 2, name: "AI 추천 코스", item: `${SITE_ORIGIN}/course` },
-      { "@type": "ListItem", position: 3, name: `${region} ${daysToLabel(days)} 코스`, item: `${SITE_ORIGIN}${courseCanonicalPath(region, days)}` },
+      { "@type": "ListItem", position: 2, name: "여행 코스 모음", item: `${SITE_ORIGIN}${COURSE_HUB_PATH}` },
+      { "@type": "ListItem", position: 3, name: `${region} 코스`, item: `${SITE_ORIGIN}${courseRegionHubPath(region)}` },
+      { "@type": "ListItem", position: 4, name: `${region} ${daysToLabel(days)} 코스`, item: `${SITE_ORIGIN}${courseCanonicalPath(region, days)}` },
+    ],
+  };
+}
+
+/** 허브 title — "여행 코스 모음 — {N}개 도시 · 일자별 동선 | 트레쥴". */
+export function buildCourseHubTitle(regionCount: number): string {
+  return `여행 코스 모음 — ${regionCount}개 도시 · 일자별 동선 | 트레쥴`;
+}
+
+export function buildCourseHubDescription(regionCount: number, pageCount: number): string {
+  return `${regionCount}개 도시, ${pageCount}개 여행 코스를 한눈에. 일정별(당일치기·1박2일·2박3일…) 일자별 동선 지도 · 이동 시간 · 평점을 정리했어요.`;
+}
+
+/** 허브 JSON-LD — CollectionPage + 코스 페이지 ItemList + BreadcrumbList. */
+export function buildCourseHubJsonLd(pages: readonly { region: string; days: CourseDays }[]): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "CollectionPage",
+        name: "여행 코스 모음",
+        url: `${SITE_ORIGIN}${COURSE_HUB_PATH}`,
+        mainEntity: {
+          "@type": "ItemList",
+          numberOfItems: pages.length,
+          itemListElement: pages.map((p, i) => ({ "@type": "ListItem", position: i + 1, url: `${SITE_ORIGIN}${courseCanonicalPath(p.region, p.days)}`, name: `${p.region} ${daysToLabel(p.days)} 코스` })),
+        },
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "트레쥴", item: `${SITE_ORIGIN}/` },
+          { "@type": "ListItem", position: 2, name: "여행 코스 모음", item: `${SITE_ORIGIN}${COURSE_HUB_PATH}` },
+        ],
+      },
+    ],
+  };
+}
+
+/** 지역 허브 JSON-LD — 그 지역의 코스 ItemList + BreadcrumbList(홈 > 허브 > 지역). */
+export function buildRegionHubJsonLd(region: string, days: readonly CourseDays[]): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "ItemList",
+        name: `${region} 여행 코스`,
+        itemListElement: days.map((d, i) => ({ "@type": "ListItem", position: i + 1, url: `${SITE_ORIGIN}${courseCanonicalPath(region, d)}`, name: `${region} ${daysToLabel(d)} 코스` })),
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "트레쥴", item: `${SITE_ORIGIN}/` },
+          { "@type": "ListItem", position: 2, name: "여행 코스 모음", item: `${SITE_ORIGIN}${COURSE_HUB_PATH}` },
+          { "@type": "ListItem", position: 3, name: `${region} 코스`, item: `${SITE_ORIGIN}${courseRegionHubPath(region)}` },
+        ],
+      },
     ],
   };
 }

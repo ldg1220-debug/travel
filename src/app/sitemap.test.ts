@@ -18,12 +18,17 @@ describe("sitemap", () => {
     const lastModified = new Date("2026-10-07T01:00:00Z");
     confirmedMock.mockResolvedValue([{ region: "오사카", days: 3, lastModified }, { region: "세부", days: 7, lastModified }]);
     const entries = await sitemap();
-    const course = entries.filter((e) => e.url.includes("/course/"));
+    const course = entries.filter((e) => /\/course\/[^/]+\/[^/]+$/.test(e.url));
     expect(course.map((e) => e.url)).toEqual([
       `https://www.tradule.co.kr/course/${encodeURIComponent("오사카")}/${encodeURIComponent("2박3일")}`,
       `https://www.tradule.co.kr/course/${encodeURIComponent("세부")}/${encodeURIComponent("5박7일")}`,
     ]);
     expect(course[0].lastModified).toEqual(lastModified);
+    // 작업지시서 2026-10-12 "코스 페이지가 고아입니다" §2⑤ — 코스 허브 + 지역 허브(priority 0.8)
+    const hubs = entries.filter((e) => e.priority === 0.8 && e.url.includes("/course/") && !/\/course\/[^/]+\/[^/]+$/.test(e.url));
+    expect(hubs.map((e) => e.url).sort()).toEqual(
+      [`https://www.tradule.co.kr/course/all`, `https://www.tradule.co.kr/course/${encodeURIComponent("세부")}`, `https://www.tradule.co.kr/course/${encodeURIComponent("오사카")}`].sort(),
+    );
     expect(entries.some((e) => e.url === "https://www.tradule.co.kr/course")).toBe(true); // 기존 정적 항목 유지
   });
 
@@ -31,6 +36,6 @@ describe("sitemap", () => {
     confirmedMock.mockResolvedValue([]);
     const entries = await sitemap();
     expect(entries.length).toBeGreaterThanOrEqual(7);
-    expect(entries.some((e) => e.url.includes("/course/"))).toBe(false);
+    expect(entries.some((e) => e.url.includes("/course/"))).toBe(false); // 확인된 조합이 없으면 허브도 올리지 않는다
   });
 });

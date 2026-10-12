@@ -288,11 +288,13 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
     expect(groups[2].distanceKm).toBeNull();
   });
 
-  it("BreadcrumbList: 홈 > 코스 > {지역} {일수} 코스, 마지막 항목은 canonical 절대 주소", () => {
+  it("BreadcrumbList: 홈 > 여행 코스 모음(허브) > {지역}(지역 허브) > {지역} {일수} 코스, 마지막 항목은 canonical 절대 주소", () => {
     const ld = buildCourseBreadcrumbJsonLd("오사카", 3) as { itemListElement: { position: number; name: string; item: string }[] };
-    expect(ld.itemListElement.map((e) => e.position)).toEqual([1, 2, 3]);
-    expect(ld.itemListElement[2].name).toBe("오사카 2박3일 코스");
-    expect(ld.itemListElement[2].item).toBe(`https://www.tradule.co.kr${courseCanonicalPath("오사카", 3)}`);
+    expect(ld.itemListElement.map((e) => e.position)).toEqual([1, 2, 3, 4]);
+    expect(ld.itemListElement[1].item).toBe("https://www.tradule.co.kr/course/all");
+    expect(ld.itemListElement[2].item).toBe(`https://www.tradule.co.kr/course/${encodeURIComponent("오사카")}`);
+    expect(ld.itemListElement[3].name).toBe("오사카 2박3일 코스");
+    expect(ld.itemListElement[3].item).toBe(`https://www.tradule.co.kr${courseCanonicalPath("오사카", 3)}`);
   });
 
   it("buildSpotDescription: 차량 폴백·직선 추정 구간은 그 사실을 적는다", () => {

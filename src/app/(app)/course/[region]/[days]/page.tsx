@@ -14,7 +14,9 @@ import {
   buildCourseTitle,
   buildCourseTouristTripJsonLd,
   buildSpotDescription,
+  COURSE_HUB_PATH,
   courseCanonicalPath,
+  courseRegionHubPath,
   daysToLabel,
   groupSpotsByDay,
 } from "@/lib/coursePages";
@@ -185,7 +187,7 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
       {/* 작업지시서 2026-10-08 "#300 검증" §2 — /course/** 도 Drive 로드(공유 토큰이 URL에 없다). */}
       <TravelpayoutsDriveScript />
       <nav aria-label="breadcrumb" className="text-[12px] text-slate-400">
-        <Link href="/" className="hover:underline">트레쥴</Link> › <Link href="/course" className="hover:underline">코스</Link> › <span>{region} {daysLabel}</span>
+        <Link href="/" className="hover:underline">트레쥴</Link> › <Link href={COURSE_HUB_PATH} className="hover:underline">여행 코스 모음</Link> › <Link href={courseRegionHubPath(region)} className="hover:underline">{region}</Link> › <span>{daysLabel}</span>
       </nav>
       <p className="mt-3 text-[12px] font-semibold uppercase tracking-wide text-brand-600">{region}</p>
       <h1 className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
