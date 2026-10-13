@@ -13,6 +13,8 @@ import {
   enforceFacilityDayLimit,
   dropRemoteResortStops,
   pairJettiesBeforeIslands,
+  separateRemoteCityStops,
+  hasStopAfterIsland,
   spreadMealsAcrossDays,
   enforceFacilityDayCompanions,
   isValidFacilityCompanion,
@@ -3203,5 +3205,60 @@ describe("새 대표 일수 코스 점검 (2026-10-13)", () => {
     expect(spreadMealsAcrossDays(normal)).toEqual(normal);
     const far = [d1, [at("먼 곳", 7.5, 117.5)]]; // 15km 밖
     expect(spreadMealsAcrossDays(far)[0].filter((s) => s.meal)).toHaveLength(2);
+  });
+});
+
+// 작업지시서 2026-10-13 "#312 검증" §2·§3
+describe("#312 검증 — 도시형 원거리 근교 날 · 섬 복귀 순서", () => {
+  const at = (id: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name: id, rating: 4.5, reviewCount: 500, ...extra });
+  const cm = { lat: 18.7883, lng: 98.9853 }; // 치앙마이
+
+  it("separateRemoteCityStops: 4일 코스는 가장 인기 있는 원거리 스팟으로 근교 날을 만들고, 시내 스팟은 옆 날로 옮기며, 다른 방향 원거리는 제외한다", () => {
+    const city = (id: string, dLat: number, dLng: number) => at(id, 18.79 + dLat, 98.98 + dLng);
+    const wachi = at("와치라탄 폭포", 18.54, 98.5, { reviewCount: 9000 }); // 남서 ~60km+
+    const monjam = at("몬쨈", 19.17, 98.9, { reviewCount: 800 }); // 북쪽 ~42km
+    const days = [
+      [city("a1", 0, 0), city("a2", 0.01, 0), city("a3", 0.02, 0)],
+      [city("b1", 0, 0.01), city("b2", 0.01, 0.01), wachi],
+      [city("c1", 0.02, 0.01), city("c2", 0.02, 0.02), monjam],
+      [city("d1", -0.01, 0), city("d2", -0.01, 0.01), city("d3", -0.02, 0)],
+    ];
+    const { days: out, log } = separateRemoteCityStops(days, cm, 8);
+    const wachiDay = out.find((d) => d.includes(wachi))!;
+    expect(wachiDay.map((s) => s.id)).toEqual(["와치라탄 폭포"]); // 근교 날: 시내 스팟이 섞이지 않는다
+    expect(out.flat().some((s) => s.id === "몬쨈")).toBe(false); // 다른 방향 원거리는 제외
+    expect(out.flat()).toHaveLength(days.flat().length - 1); // 시내 스팟은 잃지 않는다
+    expect(out.filter((d) => d !== wachiDay).every((d) => d.length <= 5)).toBe(true);
+    expect(log.map((l) => `${l.name}:${l.action}`)).toEqual(["와치라탄 폭포:split", "몬쨈:drop"]);
+    // 두 번 불러도 같은 결과(post-route 재호출)
+    expect(separateRemoteCityStops(out, cm, 8).days.map((d) => d.map((s) => s.id))).toEqual(out.map((d) => d.map((s) => s.id)));
+  });
+
+  it("separateRemoteCityStops: 3일 이하이거나 옮길 자리가 없으면 분리하지 않고 제외한다 · 총량 하한 아래로는 안 뺀다", () => {
+    const city = (id: string, k: number) => at(id, 18.79 + k * 0.001, 98.98);
+    const far = at("먼 폭포", 18.54, 98.5);
+    const three = [[city("a", 1), city("b", 2), far], [city("c", 3), city("d", 4)], [city("e", 5), city("f", 6)]];
+    const r3 = separateRemoteCityStops(three, cm, 5);
+    expect(r3.days.flat().some((s) => s.id === "먼 폭포")).toBe(false);
+    expect(r3.log[0].action).toBe("drop");
+    const tight = separateRemoteCityStops(three, cm, 8);
+    expect(tight.days.flat().some((s) => s.id === "먼 폭포")).toBe(true);
+    expect(tight.log[0].action).toBe("keep");
+    const full = [0, 1, 2].map((i) => [1, 2, 3, 4, 5].map((k) => city(`x${i}${k}`, k)));
+    const crowded = [[city("n1", 1), city("n2", 2), far], ...full];
+    expect(separateRemoteCityStops(crowded, cm, 8).days.flat().some((s) => s.id === "먼 폭포")).toBe(false); // 시내 스팟을 옮길 자리가 없다 → 제외
+  });
+
+  it("optimizeDayOrder: 선착장→섬 묶음은 그날 마지막(섬 뒤에 방문 스팟을 두지 않는다)", () => {
+    const jetty = at("힐튼 선착장", 10.31, 123.98, { category: "ferry_terminal", name: "힐튼 선착장", slotKey: "jetty" });
+    const island = at("Caohagan Island", 10.2, 124.1, { name: "Caohagan Island" });
+    const beach = at("수바-배즈바스 퍼블릭 비치", 10.29, 123.99, { category: "beach", name: "수바-배즈바스 퍼블릭 비치" });
+    const spa = at("Cheeva Spa", 10.3, 123.97, { category: "spa" });
+    const cabana = at("Cabana", 10.32, 123.96);
+    const input = [cabana, jetty, island, beach, spa];
+    expect(hasStopAfterIsland(input)).toBe(true);
+    const out = optimizeDayOrder(input);
+    expect(hasStopAfterIsland(out)).toBe(false);
+    expect(out.slice(-2).map((s) => s.id)).toEqual(["힐튼 선착장", "Caohagan Island"]);
   });
 });

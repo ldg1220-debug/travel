@@ -57,6 +57,11 @@ function cityCoords(city: string): { lat: number; lng: number } | undefined {
   return coordMap.get(city);
 }
 
+/** 지역의 기준 좌표(WORLD_CITIES, 없으면 그 도시 스팟 평균). 좌표를 모르면(국내 등) undefined. */
+export function regionCoords(region: string): { lat: number; lng: number } | undefined {
+  return cityCoords(resolveRegionAlias(region));
+}
+
 /** 서울에서 지역까지 km. 좌표를 모르면 undefined. */
 export function distanceFromSeoulKm(region: string): number | undefined {
   const c = cityCoords(resolveRegionAlias(region));
