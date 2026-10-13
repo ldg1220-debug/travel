@@ -2,6 +2,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
+import { GoogleAttribution } from "@/components/GoogleAttribution";
 import { getCourseBrief, type CourseBrief, type CourseDays } from "@/lib/server/courseBrief";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
 import { judgeCourseBrief, resolveCoursePageRoute } from "@/lib/server/coursePageGate";
@@ -236,6 +237,7 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
           </section>
         ))}
       </div>
+      {brief.spots.some((s) => s.rating != null) && <GoogleAttribution className="mt-3" />}
 
       {(related.sameRegion.length > 0 || related.sameCountry.length > 0) && (
         <nav aria-label="관련 코스" className="mt-8 border-t border-slate-100 pt-4 dark:border-slate-800">

@@ -1,5 +1,6 @@
 "use client";
 
+import { GoogleAttribution } from "@/components/GoogleAttribution";
 import { pushSafely } from "@/lib/documentNavigation";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -1400,6 +1401,7 @@ function SlotResults({
           />
         ))}
       </div>
+      {pageItems.some((p) => p.rating != null) && <GoogleAttribution className="mt-2" />}
 
       <PlacePager page={page} totalPages={totalPages} onChange={setPage} />
       {page === totalPages && availableToken && (
