@@ -1,6 +1,7 @@
+import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, isRefreshTokenValid, maxDaysForStyle, meetsResortBeachRequirement, minViableSpots, parseDays, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { getCourseBrief, isRefreshTokenValid, meetsResortBeachRequirement, minViableSpots, parseDays, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
 import { styleForRegion, suggestOverseasRegions } from "@/lib/discoverData";
 
 /**
@@ -41,7 +42,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const days = parseDays(request.nextUrl.searchParams.get("days"));
   if (days == null) return NextResponse.json({ error: "days must be an integer from 1 to 7" }, { status: 400 });
   const style = styleForRegion(region);
-  const maxDays = maxDaysForStyle(style);
+  const maxDays = maxDaysForRegion(region);
   if (days > maxDays) {
     return NextResponse.json({ error: "days exceeds this region's style limit", style, maxDays }, { status: 400 });
   }

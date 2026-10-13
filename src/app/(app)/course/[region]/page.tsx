@@ -5,7 +5,7 @@ import { isSupportedRegion } from "@/lib/server/courseBrief";
 import { resolveRegionAlias } from "@/lib/discoverData";
 import { splitTypicalPages } from "@/lib/regionTypicalDays";
 import { fetchConfirmedCoursePages } from "@/lib/server/coursePageIndex";
-import { buildRegionHubJsonLd, COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath, daysToLabel } from "@/lib/coursePages";
+import { buildRegionHubJsonLd, COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath, dayDisplayLabel, daysToLabel } from "@/lib/coursePages";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
 
 /**
@@ -66,7 +66,7 @@ export default async function RegionHubPage({ params }: { params: Promise<Params
           const card = (p: (typeof pages)[number]) => (
             <li key={p.days}>
               <Link href={courseCanonicalPath(p.region, p.days)} className="block rounded-2xl border border-slate-200 px-4 py-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
-                <span className="text-[14.5px] font-semibold text-slate-900 dark:text-slate-100">{region} {daysToLabel(p.days)} 코스</span>
+                <span className="text-[14.5px] font-semibold text-slate-900 dark:text-slate-100">{region} {dayDisplayLabel(p.region, p.days)} 코스</span>
                 {p.info && (
                   <span className="mt-0.5 block text-[12.5px] text-slate-500 dark:text-slate-400">
                     {p.info.spotCount}곳{p.info.totalDistanceKm != null ? ` · 이동 ${p.info.totalDistanceKm.toFixed(1)}km` : ""}

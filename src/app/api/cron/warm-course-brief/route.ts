@@ -1,7 +1,7 @@
-import { regionTypicalDays } from "@/lib/regionTypicalDays";
+import { maxDaysForRegion, regionTypicalDays } from "@/lib/regionTypicalDays";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, mapWithConcurrency, maxDaysForStyle, pickStaleTasks, type CourseDays, type WarmTask } from "@/lib/server/courseBrief";
+import { getCourseBrief, mapWithConcurrency, pickStaleTasks, type CourseDays, type WarmTask } from "@/lib/server/courseBrief";
 import { flatRegions, type FlatRegion } from "@/lib/discoverData";
 import { minDaysForStyle } from "@/lib/server/coursePageGate";
 import { ENABLED_COURSE_PAGES } from "@/lib/coursePages";
@@ -104,7 +104,7 @@ const PRIORITY_TASKS: WarmTask[] = [
 const allDayTasks = (scope: "domestic" | "overseas"): WarmTask[] =>
   flatRegions(scope).flatMap((r) => {
     const tasks: WarmTask[] = [];
-    for (let d = minDaysForStyle(r.style); d <= maxDaysForStyle(r.style); d++) tasks.push({ region: r.name, days: d as CourseDays });
+    for (let d = minDaysForStyle(r.style); d <= maxDaysForRegion(r.name); d++) tasks.push({ region: r.name, days: d as CourseDays });
     return tasks;
   });
 

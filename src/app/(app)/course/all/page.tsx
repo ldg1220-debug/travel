@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { splitTypicalPages } from "@/lib/regionTypicalDays";
 import { fetchConfirmedCoursePages, groupConfirmedForHub } from "@/lib/server/coursePageIndex";
-import { buildCourseHubDescription, buildCourseHubJsonLd, buildCourseHubTitle, COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath, daysToLabel } from "@/lib/coursePages";
+import { buildCourseHubDescription, buildCourseHubJsonLd, buildCourseHubTitle, COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath, dayDisplayLabel } from "@/lib/coursePages";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
 
 /**
@@ -70,7 +70,7 @@ export default async function CourseHubPage() {
                       const chip = (p: (typeof r.pages)[number]) => (
                         <li key={p.days}>
                           <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-2.5 py-0.5 text-[12px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
-                            {daysToLabel(p.days)}
+                            {dayDisplayLabel(p.region, p.days)}
                           </Link>
                         </li>
                       );

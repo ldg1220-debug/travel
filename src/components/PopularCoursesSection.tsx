@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { fetchConfirmedCoursePages, pickPopularCourses } from "@/lib/server/coursePageIndex";
-import { COURSE_HUB_PATH, courseCanonicalPath, daysToLabel } from "@/lib/coursePages";
+import { COURSE_HUB_PATH, courseCanonicalPath, dayDisplayLabel } from "@/lib/coursePages";
 
 /**
  * "인기 여행 코스" 섹션 — 작업지시서 2026-10-12 "코스 페이지가 고아입니다" §2③. 홈·/discover·/course의 서버 컴포넌트
@@ -28,7 +28,7 @@ export async function PopularCoursesSection({ limit = 12 }: { limit?: number }) 
               href={courseCanonicalPath(p.region, p.days)}
               className="block rounded-xl border border-slate-200 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
             >
-              <span className="font-semibold">{p.region}</span> {daysToLabel(p.days)}
+              <span className="font-semibold">{p.region}</span> {dayDisplayLabel(p.region, p.days)}
               {p.info && p.info.reps.length > 0 && <span className="mt-0.5 block truncate text-[11.5px] text-slate-400">{p.info.reps.join(" · ")}</span>}
             </Link>
           </li>

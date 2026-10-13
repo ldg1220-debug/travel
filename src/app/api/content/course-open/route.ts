@@ -1,9 +1,9 @@
+import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { pool } from "@/lib/server/db";
-import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, maxDaysForStyle, parseDays, resolveScope, TransientApiFailureError, UnsupportedRegionError, type CourseBriefSpot } from "@/lib/server/courseBrief";
-import { styleForRegion } from "@/lib/discoverData";
+import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, parseDays, resolveScope, TransientApiFailureError, UnsupportedRegionError, type CourseBriefSpot } from "@/lib/server/courseBrief";
 import { DEFAULT_DURATION_MINUTES, formatTime, shiftISODate, todayISODate } from "@/lib/timeline";
 import type { ItineraryItem, Region } from "@/lib/types";
 
@@ -131,7 +131,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // course-brief/route.ts와 같은 스타일별 상한 검사(styleForRegion 주석 참고).
   const days = parseDays(request.nextUrl.searchParams.get("days"));
   if (days == null) return NextResponse.json({ error: "days must be an integer from 1 to 7" }, { status: 400 });
-  const maxDays = maxDaysForStyle(styleForRegion(region));
+  const maxDays = maxDaysForRegion(region);
   if (days > maxDays) {
     return NextResponse.json({ error: "days exceeds this region's style limit", maxDays }, { status: 400 });
   }

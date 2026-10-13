@@ -17,7 +17,7 @@ import {
   COURSE_HUB_PATH,
   courseCanonicalPath,
   courseRegionHubPath,
-  daysToLabel,
+  dayDisplayLabel,
   groupSpotsByDay,
 } from "@/lib/coursePages";
 import { CourseCtaLink } from "@/components/CourseCtaLink";
@@ -167,7 +167,7 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
     notFound();
   }
   const { brief, region, days } = loaded;
-  const daysLabel = daysToLabel(days);
+  const daysLabel = dayDisplayLabel(region, days);
 
   const intro = buildCourseIntro(brief);
   const itemListJsonLd = buildCourseItemListJsonLd(brief);
@@ -249,7 +249,7 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
                 {related.sameRegion.map((p) => (
                   <li key={`${p.region}-${p.days}`}>
                     <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
-                      {p.region} {daysToLabel(p.days)}
+                      {p.region} {dayDisplayLabel(p.region, p.days)}
                     </Link>
                   </li>
                 ))}
@@ -263,7 +263,7 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
                 {related.sameCountry.map((p) => (
                   <li key={`${p.region}-${p.days}`}>
                     <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
-                      {p.region} {daysToLabel(p.days)}
+                      {p.region} {dayDisplayLabel(p.region, p.days)}
                     </Link>
                   </li>
                 ))}

@@ -1,4 +1,5 @@
-import { isSupportedRegion, maxDaysForStyle, meetsResortBeachRequirement, minViableSpots, type CourseBrief, type CourseDays } from "./courseBrief";
+import { isSupportedRegion, meetsResortBeachRequirement, minViableSpots, type CourseBrief, type CourseDays } from "./courseBrief";
+import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { resolveRegionAlias, styleForRegion } from "@/lib/discoverData";
 import { courseCanonicalPath, isCourseBriefThin, labelToDays } from "@/lib/coursePages";
 
@@ -32,7 +33,7 @@ export function resolveCoursePageRoute(region: string, daysSegment: string): Cou
 
   const style = styleForRegion(canonicalRegion);
   const min = minDaysForStyle(style);
-  const max = maxDaysForStyle(style);
+  const max = maxDaysForRegion(canonicalRegion);
   if (days < min || days > max) return { kind: "reject", reason: `days-out-of-range(days=${days} allowed=${min}~${max} style=${style})` };
 
   // 별칭("발리")·숫자 일수("3")는 정본 주소로 모은다 — 중복 URL이 색인에 갈라지지 않게.
