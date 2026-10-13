@@ -12,6 +12,8 @@ import {
   dropExcessFacilities,
   enforceFacilityDayLimit,
   dropRemoteResortStops,
+  pairJettiesBeforeIslands,
+  spreadMealsAcrossDays,
   enforceFacilityDayCompanions,
   isValidFacilityCompanion,
   capLodgingToOne,
@@ -3152,5 +3154,54 @@ describe("평점 보강 1번 자리 맞바꿈 — 동선이 길어지면 건너�
   it("거의 같은 길이면(가까운 두 곳 교환) 맞바꿈을 허용한다", () => {
     const day = [{ lat: 37.5796, lng: 126.977 }, { lat: 37.5797, lng: 126.9772 }, { lat: 37.58, lng: 126.978 }];
     expect(ratedFirstSwapKm(day, 1).tooLong).toBe(false);
+  });
+});
+
+// 작업지시서 2026-10-13 "새 대표 일수 코스 점검" §2·§3
+describe("새 대표 일수 코스 점검 (2026-10-13)", () => {
+  const at = (id: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name: id, ...extra });
+
+  it("pairJettiesBeforeIslands: 사피 섬 → Star Marina 를 Star Marina → 사피 섬으로 바꾼다(없으면 그대로)", () => {
+    const island = at("사피 섬", 6.0, 116.0, { category: "tourist_attraction", name: "사피 섬" });
+    const marina = at("Star Marina", 5.99, 116.01, { category: "marina", name: "Star Marina" });
+    const food = at("식당", 5.98, 116.07, { meal: true, category: "restaurant" });
+    const out = pairJettiesBeforeIslands([food, island, marina]);
+    expect(out.map((s) => s.id)).toEqual(["식당", "Star Marina", "사피 섬"]);
+    expect(pairJettiesBeforeIslands([marina, island, food])).toEqual([marina, island, food]); // 이미 앞에 있다
+    expect(pairJettiesBeforeIslands([food, marina])).toEqual([food, marina]); // 섬이 없다
+  });
+
+  it("optimizeDayOrder: 섬 뒤에 있던 선착장이 최적화 후에도 섬 바로 앞이다", () => {
+    const island = at("사피 섬", 6.0, 116.0, { name: "사피 섬" });
+    const marina = at("Star Marina", 5.99, 116.01, { category: "marina", name: "Star Marina" });
+    const a = at("a", 5.97, 116.06);
+    const out = optimizeDayOrder([a, island, marina]);
+    expect(out.indexOf(marina)).toBe(out.indexOf(island) - 1);
+  });
+
+  it("dropRemoteResortStops(도시형 60/40km): 치앙마이 시내에서 100km 떨어진 폭포를 뺀다 — 앵커·시설은 보호", () => {
+    const days = [
+      [at("a", 18.79, 98.98), at("b", 18.8, 98.99), at("c", 18.78, 98.97)],
+      [at("d", 18.77, 98.98), at("e", 18.8, 98.96), at("와치라탄 폭포", 18.54, 98.2, { category: "tourist_attraction" })],
+    ];
+    const opts = { centerKm: 60, neighborKm: 40, protect: (s: FinalStop) => s.slotKey === "landmark-anchor" };
+    const { dropped } = dropRemoteResortStops(days, 5, opts);
+    expect(dropped.map((s) => s.id)).toEqual(["와치라탄 폭포"]);
+    const anchorDays = [days[0], [...days[1].slice(0, 2), at("와치라탄 폭포", 18.54, 98.2, { slotKey: "landmark-anchor" })]];
+    expect(dropRemoteResortStops(anchorDays, 5, opts).dropped).toHaveLength(0);
+  });
+
+  it("spreadMealsAcrossDays: 식사 2곳 날의 하나를 식사 0곳 날로(가까울 때만), 정상 분포는 그대로", () => {
+    const meal = (id: string, lat: number, lng: number) => at(id, lat, lng, { meal: true, category: "restaurant" });
+    const d1 = [at("spa", 5.98, 116.07), meal("m1", 5.98, 116.08), meal("m2", 5.97, 116.06), at("해변", 5.96, 116.05)];
+    const d2 = [at("사피 섬", 6.0, 116.0, { name: "사피 섬" }), at("Star Marina", 5.99, 116.01, { category: "marina" })];
+    const out = spreadMealsAcrossDays([d1, d2]);
+    expect(out[0].filter((s) => s.meal)).toHaveLength(1);
+    expect(out[1].filter((s) => s.meal)).toHaveLength(1);
+    expect(out.flat()).toHaveLength(6); // 스팟을 잃지 않는다
+    const normal = [[at("x", 5.9, 116.0), meal("m3", 5.9, 116.01)], [at("y", 5.95, 116.0), meal("m4", 5.95, 116.01)]];
+    expect(spreadMealsAcrossDays(normal)).toEqual(normal);
+    const far = [d1, [at("먼 곳", 7.5, 117.5)]]; // 15km 밖
+    expect(spreadMealsAcrossDays(far)[0].filter((s) => s.meal)).toHaveLength(2);
   });
 });

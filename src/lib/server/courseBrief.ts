@@ -341,7 +341,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 37; // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 38; // 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -1134,7 +1134,8 @@ function permutations<T>(items: T[]): T[][] {
  * 짧지 않으면 현재 순서를 그대로 돌려준다(불필요한 재라우팅·순서 흔들림 방지). preferFirst(평점 있는 스팟 등)가 주어지면
  * 1번 자리가 그 조건을 만족하는 순서를 최적과 거의 같은 길이일 때(10% + 0.3km 이내) 우선한다 — 스팟이 ≤ 6일 때만.
  */
-export function optimizeDayOrder(stops: FinalStop[], opts: { preferFirst?: (s: FinalStop) => boolean } = {}): FinalStop[] {
+export function optimizeDayOrder(stopsIn: FinalStop[], opts: { preferFirst?: (s: FinalStop) => boolean } = {}): FinalStop[] {
+  const stops = pairJettiesBeforeIslands(stopsIn);
   if (stops.length <= 2) return stops;
   const lodging = stops.filter(isLodging);
   const body = stops.filter((s) => !isLodging(s));
@@ -1232,6 +1233,30 @@ export function optimizeDayOrder(stops: FinalStop[], opts: { preferFirst?: (s: F
 
   const result = [...(head ? [head] : []), ...best.flat(), ...lodging];
   return pathKm(result) < pathKm(stops) - 1e-9 || (prefer != null && !head && !prefer(stops[0]) && prefer(result[0]) && pathKm(result) <= pathKm(stops) + 1e-9) ? result : stops;
+}
+
+/**
+ * 같은 날 선착장(marina·pier·ferry)이 있는데 섬 *뒤*나 다른 자리에 있으면, 가장 가까운 선착장을 섬 바로 앞으로 옮긴다 —
+ * 작업지시서 2026-10-13 "새 대표 일수 코스 점검" §3(코타키나발루 d2 "사피 섬 → Star Marina": 배를 어디서 타는지 없음).
+ * 섬 앞이 이미 선착장·섬이면 건드리지 않는다. 선착장이 없으면(삽입은 ensureJettyBeforeIslands 몫) 그대로.
+ */
+export function pairJettiesBeforeIslands(stops: FinalStop[]): FinalStop[] {
+  if (!stops.some(isIsland)) return stops;
+  const out = [...stops];
+  const isJettyStop = (s: FinalStop) => s.slotKey === "jetty" || isJetty(s);
+  for (const island of stops.filter(isIsland)) {
+    const i = out.indexOf(island);
+    const prev = out[i - 1];
+    if (prev && (isJettyStop(prev) || isIsland(prev))) continue;
+    const pick = out
+      .map((s, j) => ({ s, j }))
+      .filter(({ s, j }) => j !== i && isJettyStop(s) && !(out[j + 1] && isIsland(out[j + 1])))
+      .sort((a, b) => haversineKm(a.s, island) - haversineKm(b.s, island))[0];
+    if (!pick) continue;
+    out.splice(pick.j, 1);
+    out.splice(out.indexOf(island), 0, pick.s);
+  }
+  return out.every((s, k) => s === stops[k]) ? stops : out;
 }
 
 /** 1번 자리 맞바꿈(0 ↔ j)의 전후 경로 길이(km)와, 허용치(+10% · +0.3km)를 넘어 길어지는지. */
@@ -2922,7 +2947,7 @@ export function isSightStop(s: FinalStop): boolean {
 
 /** 배 여행 묶음(선착장 → 배 → 섬)에 속한 스팟 — 다른 날·다른 순서로 옮기면 인접이 깨진다. */
 function isBoatTripStop(s: FinalStop): boolean {
-  return s.slotKey === "jetty" || isIsland(s);
+  return s.slotKey === "jetty" || isJetty(s) || isIsland(s);
 }
 
 function popularity(s: { rating?: number; reviewCount?: number }): number {
@@ -3267,6 +3292,30 @@ async function ensureResortBeachSpot(
   return dayStops;
 }
 
+const MEAL_SPREAD_MAX_KM = 15;
+
+/**
+ * 식사 분산 — 작업지시서 2026-10-13 "새 대표 일수 코스 점검" §3(코타키나발루 1일차에 해산물 식당 2곳이 연속인데 2일차는 식사 0곳).
+ * 식사가 2곳 이상인 날의 식사 하나를, 식사가 0곳이고 자리(하루 최대 미만)가 있는 날로 옮긴다(그날 스팟들과 15km 이내일 때만 —
+ * 갈 곳이 없으면 그대로 둔다). 식사가 하루 1~2곳인 정상 분포는 건드리지 않는다. 스팟을 빼거나 새로 만들지 않는다.
+ */
+export function spreadMealsAcrossDays(dayGroups: FinalStop[][]): FinalStop[][] {
+  const result = dayGroups.map((d) => [...d]);
+  for (const recipient of result) {
+    if (recipient.length === 0 || recipient.length >= CITY_DAY_MAX || recipient.some((s) => s.meal) || recipient.some(isDayFacility)) continue;
+    const donors = result.filter((d) => d !== recipient && d.filter((s) => s.meal).length >= 2).sort((a, b) => b.filter((s) => s.meal).length - a.filter((s) => s.meal).length);
+    for (const donor of donors) {
+      const nearest = (m: FinalStop) => recipient.reduce((best, o) => Math.min(best, haversineKm(m, o)), Infinity);
+      const pick = donor.filter((s) => s.meal && !isLodging(s)).map((m) => ({ m, km: nearest(m) })).filter((x) => x.km <= MEAL_SPREAD_MAX_KM).sort((a, b) => a.km - b.km)[0];
+      if (!pick) continue;
+      donor.splice(donor.indexOf(pick.m), 1);
+      recipient.push(pick.m);
+      break;
+    }
+  }
+  return result;
+}
+
 /**
  * 휴양형 조립의 재배치 이후 단계 전체 — 스파 하루 상한 → 섬 없는 선착장 분리 →
  * 대표 명소·섬 앵커 → 하루 최소 2곳·볼거리 재배분 → 해변 보장 → 섬 앞 선착장
@@ -3295,7 +3344,7 @@ export async function composeResortDays(
   const jettyEnsured = removeOrphanJetties(await ensureJettyBeforeIslands(deps.label, deps.overseas, beachEnsured, deps.fetchSlot, removed));
   // 휴양형도 하루 최대 5곳 — 선착장·섬·앵커·코스 유일의 해변은 빼지 않고, 숙소부터 뺀다. 해변·선착장
   // 삽입이 모두 끝난 마지막 단계에서 해야 방금 넣은 스팟이 상한을 다시 넘기지 않는다.
-  const { days: capped, trimmed } = capResortDaySizes(jettyEnsured, minTotal);
+  const { days: capped, trimmed } = capResortDaySizes(spreadMealsAcrossDays(jettyEnsured), minTotal);
   if (trimmed.length > 0) console.log(`[courseBrief] path=resort-cap ${deps.label} 하루 최대 초과로 뺀 스팟: ${trimmed.map((s) => s.name).join(", ")}`);
   snapshot("end", capped);
   return capped;
@@ -3519,6 +3568,8 @@ export function capResortDaySizes(dayGroups: FinalStop[][], minTotal: number): {
 
 const RESORT_REMOTE_CENTER_KM = 80;
 const RESORT_REMOTE_NEIGHBOR_KM = 50;
+const CITY_REMOTE_CENTER_KM = 60;
+const CITY_REMOTE_NEIGHBOR_KM = 40;
 
 /**
  * 휴양형 원거리 스팟 제외 — 작업지시서 2026-10-06 "#293 검증" §3. 세부 d2의 카와산 폭포는
@@ -3528,21 +3579,27 @@ const RESORT_REMOTE_NEIGHBOR_KM = 50;
  * 묶음이라 대상이 아니다). 총량 minTotal 아래로는 내려가지 않는다. 뺀 스팟이 있던 날이
  * 얇아지면 뒤의 재배분이 채운다 — 그래서 앵커·재배분보다 앞에서 부른다.
  */
-export function dropRemoteResortStops(dayGroups: FinalStop[][], minTotal: number): { days: FinalStop[][]; dropped: FinalStop[] } {
+export function dropRemoteResortStops(
+  dayGroups: FinalStop[][],
+  minTotal: number,
+  opts: { centerKm?: number; neighborKm?: number; protect?: (s: FinalStop) => boolean } = {},
+): { days: FinalStop[][]; dropped: FinalStop[] } {
+  const centerKm = opts.centerKm ?? RESORT_REMOTE_CENTER_KM;
+  const neighborKm = opts.neighborKm ?? RESORT_REMOTE_NEIGHBOR_KM;
   const result = dayGroups.map((d) => [...d]);
   const dropped: FinalStop[] = [];
   const all = result.flat();
   if (all.length <= minTotal || all.length === 0) return { days: result, dropped };
   const center = medoidOf(all);
   const candidates = all
-    .filter((s) => !isBoatTripStop(s) && haversineKm(s, center) > RESORT_REMOTE_CENTER_KM)
+    .filter((s) => !isBoatTripStop(s) && !opts.protect?.(s) && haversineKm(s, center) > centerKm)
     .sort((a, b) => haversineKm(b, center) - haversineKm(a, center));
   for (const stop of candidates) {
     if (result.flat().length <= minTotal) break;
     const day = result.find((d) => d.includes(stop));
     if (!day || day.length < 2) continue; // 단독 날은 그대로 둔다
     const nearestInDay = day.reduce((m, o) => (o === stop ? m : Math.min(m, haversineKm(stop, o))), Infinity);
-    if (nearestInDay < RESORT_REMOTE_NEIGHBOR_KM) continue;
+    if (nearestInDay < neighborKm) continue;
     day.splice(day.indexOf(stop), 1);
     dropped.push(stop);
   }
@@ -3646,7 +3703,15 @@ function moveCityStops(dayGroups: FinalStop[][]): FinalStop[][] {
 }
 
 /** 재배분(옮기기만) → 하루 최대 초과 정리(외딴 스팟 제외, 최소 총량 유지). buildBrief의 도시형 두 지점(라우팅 전·후)이 같은 순서로 쓴다. */
-function balanceCityDayGroups(dayGroups: FinalStop[][], minTotal: number, region: string): FinalStop[][] {
+function balanceCityDayGroups(dayGroupsIn: FinalStop[][], minTotal: number, region: string): FinalStop[][] {
+  // 작업지시서 2026-10-13 "새 대표 일수 코스 점검" §2 — 도시형도 외곽 스팟(치앙마이 4일의 와치라탄 폭포: 시내에서 약 100km)이
+  // 하루를 209km로 만든다. 코스 중심에서 60km 넘고 그날 다른 스팟과 40km 이상 떨어진 스팟은 뺀다(앵커·종일시설·배 여행 묶음 제외, 총량 minTotal 유지).
+  const { days: dayGroups, dropped: remote } = dropRemoteResortStops(dayGroupsIn, minTotal, {
+    centerKm: CITY_REMOTE_CENTER_KM,
+    neighborKm: CITY_REMOTE_NEIGHBOR_KM,
+    protect: (s) => s.slotKey === "landmark-anchor" || isDayFacility(s),
+  });
+  if (remote.length > 0) console.log(`[courseBrief] path=city-remote ${region} 원거리로 뺀 스팟: ${remote.map((s) => s.name).join(", ")}`);
   const moved = rebalanceCityDays(dayGroups);
   // 작업지시서 2026-10-01 "#292 검증" §2 — 도시형도 하루 볼거리(식사·카페·스파·숙소 아님)
   // 1곳 이상. 볼거리 2곳 이상인 날에서 가장 덜 인기 있는 것을 옮긴다(balanceSightsAcrossDays

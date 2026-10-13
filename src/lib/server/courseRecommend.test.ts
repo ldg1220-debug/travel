@@ -12,6 +12,7 @@ import {
   isTravelAgency,
   isSpa,
   isBeach,
+  isBeachByName,
   isIsland,
   isJetty,
   isNonAttractionVenue,
@@ -754,5 +755,40 @@ describe("isLodging — 휴양형 숙소 1곳 캡 판정용 (작업지시서 202
 
   it("does not flag an unrelated place", () => {
     expect(isLodging(place({ category: "spa", name: "Cheeva Spa" }))).toBe(false);
+  });
+});
+
+// 작업지시서 2026-10-13 "새 대표 일수 코스 점검" §1 — 괌 4일: 식당·디너쇼가 해변·섬으로, 해변이 공원으로.
+describe("섬·해변 판정 — 식음료·공연 시설 제외, 이름 끝 일치 (2026-10-13 §1)", () => {
+  it("식당·바·디너쇼는 이름에 Beach/Island/비치가 있어도 해변·섬이 아니다", () => {
+    expect(isBeach(place({ category: "restaurant", name: "괌 더비치 바 레스토랑" }))).toBe(false);
+    expect(isBeach(place({ category: "tourist_attraction", name: "괌 더비치 바 레스토랑" }))).toBe(false); // primaryType 을 몰라도 이름의 식음료 표지
+    expect(isIsland(place({ category: "event_venue", name: "Fish Eye Island Cultural Dinner Show" }))).toBe(false);
+    expect(isIsland(place({ category: "tourist_attraction", name: "Fish Eye Island Cultural Dinner Show" }))).toBe(false);
+    expect(isIsland(place({ category: "bar_and_grill", name: "Gaya Island Grill" }))).toBe(false);
+  });
+  it("섬은 이름이 섬/Island 로 끝나거나 Pulau·Isla 로 시작할 때만 — 중간의 Island 는 아니다", () => {
+    expect(isIsland(place({ category: "tourist_attraction", name: "사피 섬" }))).toBe(true);
+    expect(isIsland(place({ category: "tourist_attraction", name: "Sapi Island" }))).toBe(true);
+    expect(isIsland(place({ category: "tourist_attraction", name: "마누칸 섬 (Pulau Manukan)" }))).toBe(true);
+    expect(isIsland(place({ category: "tourist_attraction", name: "Pulau Sapi" }))).toBe(true);
+    expect(isIsland(place({ category: "island", name: "아무 이름" }))).toBe(true);
+    expect(isIsland(place({ category: "tourist_attraction", name: "Island Hopping Tour Center" }))).toBe(false);
+    expect(isIsland(place({ category: "tourist_attraction", name: "섬마을 공원" }))).toBe(false);
+  });
+  it("이름이 해변·Beach·비치로 끝나면(괄호 표기 포함) primaryType 이 park 여도 해변", () => {
+    expect(isBeach(place({ category: "park", name: "이파오 해변(스노클링)" }))).toBe(true);
+    expect(isBeach(place({ category: "park", name: "탄중 리팟 해변" }))).toBe(true);
+    expect(isBeach(place({ category: "park", name: "Tanjung Aru Beach" }))).toBe(true);
+    expect(isBeach(place({ category: "nature_preserve", name: "리티디안 포인트" }))).toBe(true);
+    expect(isBeachByName(place({ category: "restaurant", name: "Sunset Beach" }))).toBe(false);
+  });
+});
+
+describe("isLargeFacility — 캐리비안 베이 (2026-10-13 §4)", () => {
+  it("캐리비안 베이는 타입·리뷰 수와 무관하게 종일시설", () => {
+    expect(isLargeFacility({ category: "tourist_attraction", name: "캐리비안 베이" })).toBe(true);
+    expect(isLargeFacility({ name: "캐리비안베이" })).toBe(true);
+    expect(isLargeFacility({ category: "restaurant", name: "캐리비안 베이 푸드코트 레스토랑" })).toBe(false);
   });
 });
