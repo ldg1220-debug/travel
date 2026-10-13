@@ -35,6 +35,7 @@ describe("blobBudget", () => {
   it("한도·정지 오류 판별", () => {
     expect(isBlobLimitError(new Error("Vercel Blob: This store has been suspended."))).toBe(true);
     expect(isBlobLimitError(new Error("You have reached your usage limits for this store using the Hobby plan."))).toBe(true);
+    expect(isBlobLimitError(new Error("Vercel Blob: Failed to fetch blob: 403 Forbidden"))).toBe(true); // #314 검증 실측: 정지 중 읽기 응답
     expect(isBlobLimitError(new Error("network reset"))).toBe(false);
   });
 });

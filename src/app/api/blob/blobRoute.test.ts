@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const getMock = vi.fn();
 vi.mock("@vercel/blob", () => ({ get: (...a: unknown[]) => getMock(...a) }));
 
-import { GET, legacyCourseMapRedirect } from "./[...path]/route";
+import { GET, legacyCourseMapRedirect, legacyPlanMapRedirect } from "./[...path]/route";
 
 // 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" §3③④ — 과거 코스 지도 경로는 Blob 에서 못 읽으면 course-map 으로 302, 후기 사진은 플레이스홀더.
 const call = (pathname: string) =>
@@ -19,31 +19,29 @@ describe("legacyCourseMapRedirect", () => {
   it("지도 경로가 아니면 null", () => {
     expect(legacyCourseMapRedirect("reviews/u1/1-a.jpg")).toBeNull();
     expect(legacyCourseMapRedirect("plan-maps/tok/1.png")).toBeNull();
+    expect(legacyPlanMapRedirect("reviews/u1/1-a.jpg")).toBeNull();
   });
 });
 
 describe("GET /api/blob/[...path]", () => {
-  it("과거 지도: Blob 이 막혀 있으면(throw) course-map 으로 302", async () => {
-    getMock.mockRejectedValueOnce(new Error("Vercel Blob: This store has been suspended."));
-    const res = await call("course-maps/overseas/세부/7/v22.png");
+  beforeEach(() => getMock.mockReset());
+
+  it("과거 지도: Blob 을 읽지 않고 곧바로 302 · s-maxage 30일", async () => {
+    const res = await call("course-maps/overseas/세부/7/d3/v22.png");
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toContain("/api/content/course-map?region=");
-    expect(res.headers.get("location")).toContain("days=7");
+    expect(res.headers.get("location")).toContain("days=7&day=3");
+    expect(res.headers.get("cache-control")).toBe("public, s-maxage=2592000");
+    expect(getMock).not.toHaveBeenCalled();
   });
-  it("과거 지도: Blob 에 없으면(null) course-map 으로 302", async () => {
-    getMock.mockResolvedValueOnce(null);
-    const res = await call("course-maps/overseas/오사카/3/d1/v33.png");
+  it("과거 계획 지도(plan-maps)도 Blob 없이 og 라우트로 302", async () => {
+    const res = await call("plan-maps/abc123/1790000000000.png");
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toContain("days=3&day=1");
+    expect(res.headers.get("location")).toContain("/api/og/plan/abc123.png?v=1790000000000");
+    expect(getMock).not.toHaveBeenCalled();
   });
-  it("과거 지도: Blob 에 있으면 그대로 스트리밍", async () => {
-    getMock.mockResolvedValueOnce({ stream: new Blob(["x"]).stream(), blob: { contentType: "image/png" } });
-    const res = await call("course-maps/overseas/세부/7/v22.png");
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("image/png");
-  });
-  it("후기 사진: Blob 오류면 깨진 이미지 대신 플레이스홀더(no-store), 없으면 404", async () => {
-    getMock.mockRejectedValueOnce(new Error("Vercel Blob: This store has been suspended."));
+  it("후기 사진: Blob 오류(403 Forbidden 포함)면 깨진 이미지 대신 플레이스홀더(no-store), 없으면 404, 있으면 스트리밍", async () => {
+    getMock.mockRejectedValueOnce(new Error("Vercel Blob: Failed to fetch blob: 403 Forbidden"));
     const res = await call("reviews/u1/1-a.jpg");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/svg+xml");
@@ -51,5 +49,7 @@ describe("GET /api/blob/[...path]", () => {
     expect(await res.text()).toContain("사진을 잠시 불러올 수 없어요");
     getMock.mockResolvedValueOnce(null);
     expect((await call("reviews/u1/missing.jpg")).status).toBe(404);
+    getMock.mockResolvedValueOnce({ stream: new Blob(["x"]).stream(), blob: { contentType: "image/jpeg" } });
+    expect((await call("reviews/u1/ok.jpg")).headers.get("content-type")).toBe("image/jpeg");
   });
 });

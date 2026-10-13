@@ -34,23 +34,32 @@ export function legacyCourseMapRedirect(pathname: string): string | null {
   return `/api/content/course-map?region=${encodeURIComponent(region)}&days=${m[2]}${m[3] ? `&day=${m[3]}` : ""}`;
 }
 
+/**
+ * 과거 계획 지도 경로 `plan-maps/{shareToken}/{updatedAtMs}.png` → 해당 og 라우트(Blob 없이 CDN). 작업지시서 2026-10-13 "#314 검증" §2②.
+ */
+export function legacyPlanMapRedirect(pathname: string): string | null {
+  const m = /^plan-maps\/([^/]+)\/(\d+)\.png$/.exec(pathname);
+  return m ? `/api/og/plan/${encodeURIComponent(m[1])}.png?v=${m[2]}` : null;
+}
+
 export const GET = withApiErrorHandling(async (request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) => {
   const { path } = await params;
   const pathname = path.join("/");
 
-  const legacyMap = legacyCourseMapRedirect(pathname);
+  // 작업지시서 2026-10-13 "#314 검증" §2② — 코스·계획 지도는 이제 Blob 에 새로 쓰이지 않는다. Blob 을 읽으려 하지 않고 곧바로 302 한다
+  // (정지 중 매 요청 Blob 실패 왕복 제거 · 정지 해제 후에도 Blob 전송량/Simple op 0). 경로가 버전/시각 고정이라 바뀌지 않으므로 CDN 이 길게 캐시한다.
+  const legacyRedirect = legacyCourseMapRedirect(pathname) ?? legacyPlanMapRedirect(pathname);
+  if (legacyRedirect) {
+    return NextResponse.redirect(new URL(legacyRedirect, request.url), { status: 302, headers: { "cache-control": "public, s-maxage=2592000" } });
+  }
+
   let result: Awaited<ReturnType<typeof get>> = null;
   try {
     result = await get(pathname, { access: "private" });
   } catch (err) {
-    console.error(`[blob] read failed for ${pathname}${legacyMap ? " — course-map 로 대체" : ""}:`, err instanceof Error ? err.message : err);
+    console.error(`[blob] read failed for ${pathname}:`, err instanceof Error ? err.message : err);
     // 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" §3④ — 후기 사진은 깨진 이미지 대신 "잠시 불러올 수 없어요" 플레이스홀더(캐시하지 않는다).
-    if (!legacyMap) {
-      return new NextResponse(PHOTO_UNAVAILABLE_SVG, { status: 200, headers: { "content-type": "image/svg+xml", "cache-control": "no-store" } });
-    }
-  }
-  if (!result && legacyMap) {
-    return NextResponse.redirect(new URL(legacyMap, request.url), { status: 302, headers: { "cache-control": "public, s-maxage=86400" } });
+    return new NextResponse(PHOTO_UNAVAILABLE_SVG, { status: 200, headers: { "content-type": "image/svg+xml", "cache-control": "no-store" } });
   }
   if (!result) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

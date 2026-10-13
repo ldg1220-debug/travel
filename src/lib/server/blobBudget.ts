@@ -51,8 +51,11 @@ export async function reserveBlobPut(kind: "review" | "other", n = 1, now = new 
   }
 }
 
-/** Vercel Blob 의 한도 초과·정지 오류인가(SDK: "This store has been suspended." · 대시보드: "You have reached your usage limits for this store …"). */
+/**
+ * Vercel Blob 의 한도 초과·정지 오류인가. 대시보드: "You have reached your usage limits for this store …", SDK: "This store has been suspended.",
+ * 읽기는 정지 중 "Vercel Blob: Failed to fetch blob: 403 Forbidden"(작업지시서 2026-10-13 "#314 검증" §2① 실측)로 온다.
+ */
 export function isBlobLimitError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err ?? "");
-  return /store has been suspended|suspended|usage limit|reached your usage|limits for this store|exceeded.*(?:limit|quota)/i.test(message);
+  return /\b403\b|forbidden|store has been suspended|suspended|usage limit|reached your usage|limits for this store|exceeded.*(?:limit|quota)/i.test(message);
 }
