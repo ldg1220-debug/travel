@@ -1,5 +1,6 @@
 "use client";
 
+import { GoogleAttribution } from "@/components/GoogleAttribution";
 import { pushSafely } from "@/lib/documentNavigation";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -1072,7 +1073,8 @@ export function DiscoverPage() {
             </motion.div>
           </AnimatePresence>
         )}
-        {!isSearching && (Object.keys(spotMetrics ?? {}).length > 0 || browseData?.notice === "live") && <GoogleAttribution />}
+        {/* Google Places 평점·리뷰 출처 표기 — 공용 컴포넌트(Places 정책 스타일, 2026-10-14). 지표가 보일 때만 렌더한다. */}
+        {!isSearching && (Object.keys(spotMetrics ?? {}).length > 0 || browseData?.notice === "live") && <GoogleAttribution className="mt-8 text-center" />}
       </div>
 
       {/* "+" 퀵 버튼 — 일정에 추가할지 관심 장소(찜)에 추가할지 물어보는
@@ -1203,21 +1205,6 @@ export function DiscoverPage() {
       )}
     </div>
     </SpotMetricsContext.Provider>
-  );
-}
-
-/**
- * Google Places 데이터를 표시하는 화면에 요구되는 출처 표기. 큐레이션
- * 카드(SpotCard)가 실제 rating을 하나라도 보여주고 있을 때만 렌더한다 —
- * 매칭 전이라 지표가 아직 하나도 안 보이는 상태에서 출처 표기부터
- * 뜨는 건 어색하다. LivePlaceCard 쪽 실시간 검색 결과는 애초에
- * Google/Kakao 지도 링크를 노출하므로 별도 표기가 이미 붙어 있다.
- */
-function GoogleAttribution() {
-  return (
-    <p className="mt-8 text-center text-[11px] text-slate-400">
-      평점·리뷰 정보 제공: Google
-    </p>
   );
 }
 
