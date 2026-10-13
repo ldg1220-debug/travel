@@ -13,6 +13,9 @@ import {
   enforceFacilityDayLimit,
   dropRemoteResortStops,
   pairJettiesBeforeIslands,
+  computeMapHash,
+  courseMapUrl,
+  courseMapInputKey,
   separateRemoteCityStops,
   hasStopAfterIsland,
   spreadMealsAcrossDays,
@@ -3260,5 +3263,27 @@ describe("#312 검증 — 도시형 원거리 근교 날 · 섬 복귀 순서", 
     const out = optimizeDayOrder(input);
     expect(hasStopAfterIsland(out)).toBe(false);
     expect(out.slice(-2).map((s) => s.id)).toEqual(["힐튼 선착장", "Caohagan Island"]);
+  });
+});
+
+// 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" §3①② — 지도 내용 해시 · course-map URL
+describe("지도 내용 해시 · course-map URL (Blob 없음)", () => {
+  const spots = [{ order: 1, lat: 10.31572, lng: 123.88541 }, { order: 2, lat: 10.32, lng: 123.9 }];
+  it("같은 코스면 해시가 같다(COURSE_ALGO_VERSION 과 무관) · 좌표/경로/일자 묶음이 바뀌면 달라진다", () => {
+    const h = computeMapHash(spots, ["p1"], [2]);
+    expect(computeMapHash(spots.map((s) => ({ ...s })), ["p1"], [2])).toBe(h);
+    expect(computeMapHash(spots, ["p2"], [2])).not.toBe(h);
+    expect(computeMapHash(spots, ["p1"], [1, 1])).not.toBe(h);
+    expect(computeMapHash([{ ...spots[0], lat: 10.4 }, spots[1]], ["p1"], [2])).not.toBe(h);
+    expect(h).toMatch(/^[0-9a-f]{16}$/);
+  });
+  it("courseMapUrl: 전체 / 일자별 · 해시 앞 10자를 v 로", () => {
+    expect(courseMapUrl("세부", 7, "abcdef0123456789")).toBe(`https://www.tradule.co.kr/api/content/course-map?region=${encodeURIComponent("세부")}&days=7&v=abcdef0123`);
+    expect(courseMapUrl("세부", 7, "abcdef0123456789", 3)).toContain("&days=7&day=3&v=abcdef0123");
+  });
+  it("지도 입력 키는 버전과 무관(별칭도 같은 키)", () => {
+    expect(courseMapInputKey("세부", 7)).toBe(courseMapInputKey("세부", 7));
+    expect(courseMapInputKey("세부", 7)).not.toContain("v4");
+    expect(courseMapInputKey("나트랑", 5)).toBe(courseMapInputKey("냐짱", 5));
   });
 });

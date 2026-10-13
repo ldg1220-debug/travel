@@ -4,7 +4,9 @@ import { auth } from "@/auth";
 import { sniffImageType } from "@/lib/server/imageSniff";
 import { checkRateLimit } from "@/lib/server/rateLimit";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { isBlobLimitError, reserveBlobPut } from "@/lib/server/blobBudget";
 
+const PHOTO_UPLOAD_PAUSED = "사진 업로드가 잠시 중단됐어요 — 글은 사진 없이 저장돼요";
 const MAX_FILES = 6;
 const MAX_BYTES = 8 * 1024 * 1024; // 8MB per photo
 
@@ -66,6 +68,12 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
     sniffed.push({ file, buffer, contentType });
   }
 
+  // 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" §3④⑥ — 월 Advanced 사용량 추정 카운터로 한도 직전에 막고, 한도 오류는 안내 문구로.
+  // 글 저장은 사진과 별개 요청이라(작성 화면이 업로드 실패를 안내하고 계속 저장한다) 사진 없이도 성공한다.
+  const budget = await reserveBlobPut("review", sniffed.length);
+  if (!budget.allowed) {
+    return NextResponse.json({ error: PHOTO_UPLOAD_PAUSED }, { status: 503 });
+  }
   try {
     const urls = await Promise.all(
       sniffed.map(async ({ file, buffer, contentType }) => {
@@ -77,6 +85,7 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ urls });
   } catch (err) {
     console.error("Blob upload failed", err);
+    if (isBlobLimitError(err)) return NextResponse.json({ error: PHOTO_UPLOAD_PAUSED }, { status: 503 });
     return NextResponse.json({ error: "사진 업로드에 실패했어요. 잠시 후 다시 시도해주세요" }, { status: 502 });
   }
 });
