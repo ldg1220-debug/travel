@@ -736,9 +736,30 @@ export function isSpa(p: Place): boolean {
 //     한글 버킷)은 이름과 무관하게 해변에서 뺀다.
 const BEACH_NAME_PATTERN = /해변|해수욕장|비치|beach|pantai|bãi biển|bai bien|ビーチ|海岸|海滩|海灘/i;
 const NON_BEACH_VENUE_CATEGORY = /restaurant|hotel|lodging|resort|cafe|coffee|bakery|\bbar\b|\bpub\b|spa|store|shop|음식점|숙소|카페|술집|스파|선착장/i;
+// 작업지시서 2026-10-13 "새 대표 일수 코스 점검" §1① — 공연장·디너쇼·바그릴(night_club · event_venue · performing_arts_theater · bar_and_grill)도 식음료·공연 시설이라
+// 이름의 Beach/Island 로 해변·섬이 되지 않는다. NON_BEACH_VENUE_CATEGORY 에 넣지 않은 이유: isNonAttractionVenue/isLargeFacility 가 같은 정규식을 쓰는데
+// USJ·디즈니의 Google 타입이 event_venue 로 오는 실측이 있다(종일시설 판정이 깨진다).
+const SHOW_VENUE_CATEGORY = /night_club|event_venue|performing_arts|bar_and_grill/i;
+// 같은 지시서 §1① — primaryType 을 모르는 후보(Kakao·비어 있는 category)도 이름의 식음료·공연 표지로 시설을 알아본다
+// ("괌 더비치 바 레스토랑" · "Fish Eye Island Cultural Dinner Show"). 이 이름이면 Beach/Island 단어가 있어도 해변·섬이 아니다.
+const VENUE_NAME_PATTERN = /레스토랑|식당|\brestaurant\b|\bgrill\b|\bdiner\b|\bbar\b|바$|\bpub\b|카페|\bcafe\b|디너|\bdinner\b|쇼$|\bshow\b|\btheat(?:er|re)\b|극장|공연/i;
+// 같은 지시서 §1③ — 이름이 해변 단어로 끝나거나("…해변" · "…Beach" · "…비치") 끝에 괄호 표기가 붙은 "…해변(스노클링)"이면 primaryType 이 park 여도 해변이다.
+// "리티디안(Ritidian)"은 해변 보호구역인데 이름에 해변 단어가 없어 사전에 둔다.
+const BEACH_STRICT_NAME_PATTERN = /(?:해변|해수욕장|비치|\bbeach|(?:리티디안|ritidian)(?:\s*(?:포인트|point))?)(?:\s*[(（][^)）]*[)）])?\s*$/i;
+/** 이름의 식음료·공연 표지(레스토랑·바·디너쇼 …). */
+export function isVenueName(name: string): boolean {
+  return VENUE_NAME_PATTERN.test(name);
+}
+/** 이름이 해변 단어로 끝나는가(식음료·공연 시설 제외). courseSpotCategory 가 primaryType 이 park 인 해변을 알아본다. */
+export function isBeachByName(p: { category?: string; name: string }): boolean {
+  if (p.category && (NON_BEACH_VENUE_CATEGORY.test(p.category) || SHOW_VENUE_CATEGORY.test(p.category))) return false;
+  return BEACH_STRICT_NAME_PATTERN.test(p.name) && !VENUE_NAME_PATTERN.test(p.name);
+}
 export function isBeach(p: { category?: string; name: string }): boolean {
   if (p.category?.toLowerCase() === "beach") return true;
-  if (p.category && NON_BEACH_VENUE_CATEGORY.test(p.category)) return false;
+  if (p.category && (NON_BEACH_VENUE_CATEGORY.test(p.category) || SHOW_VENUE_CATEGORY.test(p.category))) return false;
+  if (BEACH_STRICT_NAME_PATTERN.test(p.name)) return !VENUE_NAME_PATTERN.test(p.name);
+  if (VENUE_NAME_PATTERN.test(p.name)) return false;
   return BEACH_NAME_PATTERN.test(p.name);
 }
 
@@ -787,7 +808,15 @@ export function isNonAttractionVenue(p: { category?: string }): boolean {
 // "없음"으로 나온다(courseBrief.ts routeDayStops가 해변과 같은 이유로 예외
 // 처리). "Pulau"는 말레이·인도네시아어로 섬이다. 시설 유형("Island
 // Grill" 식당, "Gaya Island Resort" 숙소)은 이름과 무관하게 뺀다.
-const ISLAND_NAME_PATTERN = /(^|[\s(])섬([\s()]|$)|\bisland\b|\bpulau\b|\bisla\b/i;
+// 작업지시서 2026-10-13 "새 대표 일수 코스 점검" §1② — 섬은 이름이 "섬"/"Island(s)"로 *끝나거나*(괄호 표기 제외) "Pulau …"/"Isla …"로 시작할 때만.
+// Island 가 이름 중간에 있는 상호("Fish Eye Island Cultural Dinner Show")는 섬이 아니다.
+const ISLAND_NAME_END_PATTERN = /(?:^|[\s])섬$|\bislands?$/i;
+const ISLAND_NAME_START_PATTERN = /^\s*(?:pulau|isla)\s+\S/i;
+function islandNameMatches(name: string): boolean {
+  const inner = [...name.matchAll(/[(（]([^)）]*)[)）]/g)].map((m) => m[1].trim());
+  const outer = name.replace(/[(（][^)）]*[)）]/g, "").trim();
+  return [name.trim(), outer, ...inner].some((v) => ISLAND_NAME_END_PATTERN.test(v) || ISLAND_NAME_START_PATTERN.test(v));
+}
 // 작업지시서 2026-09-29 "#283 검증" §2 — 배는 선착장에서 탄다. 섬 앞에 끼울
 // 선착장 판정: Google ferry_terminal·marina 타입이거나 이름에 선착장/페리/
 // ferry/jetty/pier/marina/항구/부두. 식당·숙소 등 시설 유형("Jetty
@@ -807,8 +836,8 @@ export function isPier(p: { category?: string; name: string }): boolean {
 
 export function isIsland(p: { category?: string; name: string }): boolean {
   if (p.category?.toLowerCase() === "island") return true;
-  if (isNonAttractionVenue(p)) return false;
-  return ISLAND_NAME_PATTERN.test(p.name);
+  if (isNonAttractionVenue(p) || (p.category && SHOW_VENUE_CATEGORY.test(p.category)) || VENUE_NAME_PATTERN.test(p.name)) return false;
+  return islandNameMatches(p.name);
 }
 
 // 같은 지시서(#277 검증) §3-② — 휴양형 activity/relax 슬롯이
@@ -951,7 +980,7 @@ const LARGE_FACILITY_TYPES = new Set(["amusement_park", "theme_park", "water_par
 // 으로 종일시설이 된다 — 이전엔 타입이 없어 국내는 영향이 없었다.
 const LARGE_FACILITY_MIN_REVIEWS = 30000;
 const LARGE_FACILITY_NAME_PATTERN =
-  /유니버설|universal|\busj\b|디즈니|disney|롯데월드|lotte\s?world|에버랜드|everland|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|씨월드|sea\s?world|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
+  /유니버설|universal|\busj\b|디즈니|disney|캐리비안\s?베이|caribbean\s?bay|롯데월드|lotte\s?world|에버랜드|everland|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|씨월드|sea\s?world|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
 const LARGE_FACILITY_NAME_EXCLUDE =
   /스토어|\bstore\b|\bshop\b|숍|샵|카페|\bcafe\b|호텔|\bhotel\b|리조트\s?라인|resort\s?line|\bline\b|스테이션|\bstation\b|버스|\bbus\b|시티\s?워크|city\s?walk|타워|\btower\b|스카이|\bsky\b|\bmall\b|몰(?:\s|$)|아쿠아리움|aquarium|레스토랑|restaurant|식당|아울렛|outlet/i;
 export function isLargeFacility(p: { category?: string; name?: string; reviewCount?: number | null }): boolean {

@@ -141,3 +141,25 @@ describe("courseSpotCategory — 종일시설은 테마파크", () => {
     expect(courseSpotCategory({ category: "amusement_park", name: "큰 놀이공원", reviewCount: 50000 })).toBe("테마파크");
   });
 });
+
+// 작업지시서 2026-10-13 "새 대표 일수 코스 점검" §1·§2·§4
+describe("courseSpotCategory — 괌·치앙마이·덴포잔 (2026-10-13)", () => {
+  it("디너쇼·식당은 섬·해변이 아니다", () => {
+    expect(c("event_venue", "Fish Eye Island Cultural Dinner Show")).not.toBe("섬");
+    expect(c("tourist_attraction", "Fish Eye Island Cultural Dinner Show")).not.toBe("섬");
+    expect(c("restaurant", "괌 더비치 바 레스토랑")).toBe("음식점");
+    expect(c("tourist_attraction", "괌 더비치 바 레스토랑")).not.toBe("해변");
+  });
+  it("이름이 해변으로 끝나면 park 이어도 해변 · 리티디안 포인트도 해변", () => {
+    expect(c("park", "이파오 해변(스노클링)")).toBe("해변");
+    expect(c("park", "탄중 리팟 해변")).toBe("해변");
+    expect(c("park", "신주쿠 교엔")).toBe("공원");
+    expect(c("nature_preserve", "리티디안 포인트")).toBe("해변");
+  });
+  it("USJ(event_venue)는 여전히 테마파크, 카오소이·대관람차는 음식점·전망대", () => {
+    expect(c("event_venue", "유니버설 스튜디오 재팬")).toBe("테마파크");
+    expect(c("establishment", "카오소이 매싸이")).toBe("음식점");
+    expect(c("establishment", "덴포잔 대관람차")).toBe("전망대");
+    expect(c("establishment", "Tempozan Ferris Wheel")).toBe("전망대");
+  });
+});
