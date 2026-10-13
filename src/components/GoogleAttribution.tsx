@@ -1,10 +1,18 @@
 /**
- * 평점·리뷰 수의 Google 출처 표시 — 작업지시서 2026-10-13 "PR #316 후속: Google 출처 표시" A-1.
- * 이 서비스의 평점·리뷰 수는 Google Places 에서 가져온 값이다. Google Maps Platform 정책상 Google 지도 없이 Places 데이터를 보여줄 때는
- * Google 출처 표시가 필요하다(지도 이미지가 페이지에 있어도 평점 목록은 지도와 떨어져 있어 목록 근처에 따로 둔다).
- * 가장 단순한 텍스트 표기("Google Maps")를 쓴다 — 정확한 형식은 Places API 정책 페이지의 출처 표시 항목을 따른다(확인 필요).
- * /discover 에는 같은 취지의 인라인 표기(DiscoverClient 의 GoogleAttribution, "평점·리뷰 정보 제공: Google")가 이미 있어 그대로 둔다.
+ * 평점·리뷰 수의 Google 출처 표시 — 작업지시서 2026-10-13 "PR #316 후속: Google 출처 표시" A-1, 2026-10-14 "#317 검증" 로 정책 스타일에 맞춤.
+ * 이 서비스의 평점·리뷰 수는 Google Places 에서 가져온 값이다. Places API 정책(Google Maps attribution requirements)상 지도 없이 Places 내용을 보여줄 때는
+ * Google Maps 로고가 원칙이고 공간이 부족하면 텍스트 "Google Maps" 도 허용된다. 텍스트 방식의 스타일 요구:
+ * 12~16px · 색 #1F1F1F 또는 #5E5E5E(어두운 배경에선 흰색, 대비 4.5:1) · "Google Maps" 가 두 줄로 나뉘지 않음(nowrap) · translate="no" ·
+ * 글꼴 Roboto(없으면 제품 sans-serif) · weight 400 · 표기·대소문자 변경 금지.
+ * 코스 상세·앱 코스 선택·/discover 가 모두 이 컴포넌트를 쓴다.
  */
 export function GoogleAttribution({ className = "" }: { className?: string }) {
-  return <p className={`text-[11px] text-slate-400 ${className}`.trim()}>평점·리뷰 정보 제공: Google Maps</p>;
+  return (
+    <p className={`text-[12px] font-normal text-[#5E5E5E] dark:text-white ${className}`.trim()}>
+      평점·리뷰 정보 제공:{" "}
+      <span translate="no" className="gmp-attribution whitespace-nowrap font-normal" style={{ fontFamily: "Roboto, var(--font-sans), sans-serif", letterSpacing: "normal" }}>
+        Google Maps
+      </span>
+    </p>
+  );
 }

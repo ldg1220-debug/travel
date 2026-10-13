@@ -275,6 +275,7 @@ describe("코스 상세 페이지 Google 출처 표시", () => {
     getCourseBriefMock.mockResolvedValue(thickBrief());
     const html = renderToStaticMarkup(await CoursePage({ params: Promise.resolve({ region: "경주", days: "2박3일" }) }));
     expect(html.match(/Google Maps/g)).toHaveLength(1);
-    expect(html).toContain("평점·리뷰 정보 제공: Google Maps");
+    expect(html).toContain("평점·리뷰 정보 제공:");
+    expect(html).toMatch(/<span[^>]*translate="no"[^>]*>Google Maps<\/span>/);
   });
 });
