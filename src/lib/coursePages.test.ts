@@ -227,11 +227,15 @@ describe("JSON-LD builders (§4)", () => {
     expect(jsonLd.itemListElement[1].item.name).toBe("동궁과 월지");
   });
 
-  it("omits aggregateRating for a spot with no rating", () => {
-    const jsonLd = buildCourseItemListJsonLd({ spots: [spot({ rating: null, reviewCount: null })] }) as {
+  it("never emits aggregateRating (Google Places 평점은 리뷰 스니펫 대상이 아니다 — 2026-10-13 Search Console 심각 오류) · 좌표만 싣는다", () => {
+    const jsonLd = buildCourseItemListJsonLd({ spots: [spot({ rating: 4.5, reviewCount: 20824 }), spot({ rating: null, reviewCount: null, order: 2 })] }) as {
       itemListElement: { item: Record<string, unknown> }[];
     };
-    expect(jsonLd.itemListElement[0].item.aggregateRating).toBeUndefined();
+    for (const el of jsonLd.itemListElement) {
+      expect(el.item.aggregateRating).toBeUndefined();
+      expect(el.item.geo).toMatchObject({ "@type": "GeoCoordinates" });
+    }
+    expect(JSON.stringify(jsonLd)).not.toContain("aggregateRating");
   });
 
   it("builds a TouristTrip wrapping the same itinerary", () => {

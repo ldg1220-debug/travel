@@ -225,7 +225,7 @@ export function buildSpotDescription(spot: CourseBriefSpot): string {
 }
 
 /**
- * 작업지시서 §4 "JSON-LD ItemList(장소 순서) + TouristTrip" — 순수 객체
+ * 작업지시서 §4 "JSON-LD ItemList(장소 순서) + TouristTrip" — 순수 객체(2026-10-13: 페이지에는 단독 ItemList 블록을 내지 않고 TouristTrip.itinerary 로만 싣는다)
  * 생성부만 여기 두고 페이지 컴포넌트는 JSON.stringify해 <script
  * type="application/ld+json">에 넣기만 한다.
  */
@@ -239,9 +239,10 @@ export function buildCourseItemListJsonLd(brief: Pick<CourseBrief, "spots">): Re
       item: {
         "@type": "TouristAttraction",
         name: spot.name,
-        ...(spot.rating != null && spot.reviewCount != null
-          ? { aggregateRating: { "@type": "AggregateRating", ratingValue: spot.rating, reviewCount: spot.reviewCount } }
-          : {}),
+        // 작업지시서 2026-10-13 Search Console "리뷰 스니펫" 심각 오류 — aggregateRating 을 넣지 않는다. TouristAttraction 은 리뷰 스니펫 상위 유형이 아니고,
+        // 이 평점은 Google Places 에서 가져온 남의 평점이라 "사용자에게서 직접 수집한 평점만" 마크업하라는 지침에도 어긋난다(유형을 LocalBusiness 로 바꿔도 마찬가지).
+        // 화면에 보이는 평점 표기는 그대로 둔다. 좌표만 싣는다.
+        ...(Number.isFinite(spot.lat) && Number.isFinite(spot.lng) ? { geo: { "@type": "GeoCoordinates", latitude: spot.lat, longitude: spot.lng } } : {}),
       },
     })),
   };

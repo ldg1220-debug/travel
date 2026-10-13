@@ -3287,3 +3287,17 @@ describe("지도 내용 해시 · course-map URL (Blob 없음)", () => {
     expect(courseMapInputKey("나트랑", 5)).toBe(courseMapInputKey("냐짱", 5));
   });
 });
+
+// 작업지시서 2026-10-13 Search Console "리뷰 스니펫" §4 — 키워드 나열형 상호명 정제
+describe("cleanDisplayName — 키워드 나열형 상호명 꼬리 제거", () => {
+  it("끝에 일반 검색어가 3개 이상 연달아 붙으면 그 꼬리를 뗀다", () => {
+    expect(cleanDisplayName("경주 용황 광 옛날통닭 치킨 맥주 호프 저녁 야식")).toBe("경주 용황 광 옛날통닭");
+    expect(cleanDisplayName("OO 식당 맛집 추천 가성비")).toBe("OO 식당");
+  });
+  it("1~2개는 진짜 상호일 수 있어 그대로 · 앞부분이 2토큰 아래로 줄면 원래 이름", () => {
+    expect(cleanDisplayName("교촌 치킨")).toBe("교촌 치킨");
+    expect(cleanDisplayName("황남 옛날 호프 맥주")).toBe("황남 옛날 호프 맥주");
+    expect(cleanDisplayName("치킨 맥주 호프")).toBe("치킨 맥주 호프");
+    expect(cleanDisplayName("경주 황리단길")).toBe("경주 황리단길");
+  });
+});

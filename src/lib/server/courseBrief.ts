@@ -2388,8 +2388,21 @@ export function findRatedFirstStopSwapIndex(daySpots: readonly CourseBriefSpot[]
  * 이름은 assembleDaySpots가 originalName으로 보존한다.
  */
 export function cleanDisplayName(name: string): string {
-  const stripped = name.replace(/^\s*대한불교조계종\s*제\s*\d+\s*교구\s*(?:본사|말사)\s*/, "").trim();
+  const stripped = stripKeywordStuffing(name.replace(/^\s*대한불교조계종\s*제\s*\d+\s*교구\s*(?:본사|말사)\s*/, "").trim());
   return stripped || name;
+}
+
+// 작업지시서 2026-10-13 Search Console "리뷰 스니펫" §4 — 검색어를 이어 붙인 상호명("경주 용황 광 옛날통닭 치킨 맥주 호프 저녁 야식")이
+// 공개 페이지와 구조화된 데이터에 그대로 나간다. 이름 *끝*에 일반 검색어(메뉴·시간대·홍보 단어)가 3개 이상 연달아 붙어 있으면 그 꼬리를 뗀다.
+// 1~2개는 진짜 상호의 일부일 수 있어("OO 치킨", "OO 맥주") 건드리지 않고, 앞부분이 2토큰 아래로 줄면 원래 이름을 둔다.
+const STUFFING_KEYWORDS = new Set(["치킨", "맥주", "호프", "저녁", "야식", "맛집", "추천", "가성비", "점심", "브런치", "술집", "안주", "회식", "데이트", "혼술", "분위기", "인기", "최고"]);
+const STUFFING_MIN_TAIL = 3;
+export function stripKeywordStuffing(name: string): string {
+  const tokens = name.split(/\s+/).filter(Boolean);
+  let tail = 0;
+  while (tail < tokens.length && STUFFING_KEYWORDS.has(tokens[tokens.length - 1 - tail])) tail++;
+  if (tail < STUFFING_MIN_TAIL || tokens.length - tail < 2) return name;
+  return tokens.slice(0, tokens.length - tail).join(" ");
 }
 
 /**

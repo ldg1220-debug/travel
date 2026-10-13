@@ -10,7 +10,6 @@ import {
   buildCourseBreadcrumbJsonLd,
   buildCourseDescription,
   buildCourseIntro,
-  buildCourseItemListJsonLd,
   buildCourseTitle,
   buildCourseTouristTripJsonLd,
   buildSpotDescription,
@@ -170,7 +169,6 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
   const daysLabel = dayDisplayLabel(region, days);
 
   const intro = buildCourseIntro(brief);
-  const itemListJsonLd = buildCourseItemListJsonLd(brief);
   const touristTripJsonLd = buildCourseTouristTripJsonLd(brief, intro);
   const breadcrumbJsonLd = buildCourseBreadcrumbJsonLd(region, days);
   const dayGroups = groupSpotsByDay(brief);
@@ -180,7 +178,6 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
   return (
     <div className="mx-auto max-w-2xl px-4 py-6">
       {/* JSON-LD는 스크립트가 아니라 데이터라 XSS 경로가 아니다(작업지시서 §4 "JSON-LD ItemList + TouristTrip"). */}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(touristTripJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
 
