@@ -243,3 +243,22 @@ describe("generateMetadata와 CoursePage가 같은 입력에 대해 항상 일�
     expect(html).toContain("이 코스로 내 일정 만들기");
   });
 });
+
+// 작업지시서 2026-10-13 Search Console "리뷰 스니펫" 심각 오류 — 코스 상세 JSON-LD 에 aggregateRating 이 다시 들어가는 걸 막는다.
+describe("코스 상세 JSON-LD (리뷰 스니펫 오류 방지)", () => {
+  beforeEach(() => {
+    getCourseBriefMock.mockReset();
+  });
+
+  it("aggregateRating 이 0개이고, JSON-LD 블록은 TouristTrip · BreadcrumbList 둘뿐이며 평점 표기는 화면에 그대로 있다", async () => {
+    getCourseBriefMock.mockResolvedValue(thickBrief());
+    const { default: CoursePage } = await import("./page");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const html = renderToStaticMarkup(await CoursePage({ params: Promise.resolve({ region: "경주", days: "2박3일" }) }));
+    expect(html).not.toContain("aggregateRating");
+    expect(html).not.toContain("AggregateRating");
+    const blocks = [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/g)].map((m) => JSON.parse(m[1].replace(/&quot;/g, '"')) as { "@type": string });
+    expect(blocks.map((b) => b["@type"]).sort()).toEqual(["BreadcrumbList", "TouristTrip"]);
+    expect(html).toContain("4.5"); // 화면 평점 표기는 유지
+  });
+});
