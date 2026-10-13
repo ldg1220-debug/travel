@@ -3,7 +3,7 @@ import { COURSE_ALGO_VERSION, isSupportedRegion, resolveScope, type CourseBrief,
 import { judgeCourseBrief } from "./coursePageGate";
 import { flatRegions, styleForRegion } from "@/lib/discoverData";
 import { pickRepresentativeSpots } from "@/lib/coursePages";
-import { typicalDayRank } from "@/lib/regionTypicalDays";
+import { regionTypicalDays, typicalDayRank } from "@/lib/regionTypicalDays";
 
 /**
  * "크론이 200 확인한 코스 조합" 목록 — 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §2.
@@ -190,7 +190,7 @@ const POPULAR_MIN_OVERSEAS_RESORT = 2;
 const DOMESTIC_ROUND_RANK = 3.5; // 라운드로빈에서 해외 인기 상위 3개국 다음 차례
 
 /**
- * 홈·탐색·코스 화면의 "인기 여행 코스" — 지역당 1개(그 지역의 대표 일수 중 가장 앞, 없으면 가장 가까운 일수).
+ * 홈·탐색·코스 화면의 "인기 여행 코스" — 지역당 1개 — 그 지역의 대표 1순위 일수 조합이 확인된 지역만(없으면 카드 없음).
  * 나라(국내는 한 묶음) 라운드로빈 — 일본1 → 베트남1 → 태국1 → 국내1 → … — 로 나라당 최대 3개, 그중 국내 2개와
  * 해외 휴양지 2개는 (후보가 있으면) 반드시 넣는다. 확인된 조합만 건다(사이트맵과 같은 소스).
  */
@@ -202,7 +202,9 @@ export function pickPopularCourses(confirmed: readonly ConfirmedCoursePage[], li
   for (const [region, pages] of pagesByRegion) {
     const meta = regionMeta(region);
     if (!meta) continue;
-    const page = pages.reduce((best, p) => (typicalDayRank(p.region, p.days) < typicalDayRank(best.region, best.days) ? p : best));
+    // 그 지역의 대표 1순위 일수 조합이 확인된 경우만 카드로 쓴다 — 비대표 일수(시드니/2박3일)나 해외 당일치기 카드는 만들지 않는다.
+    const page = pages.find((p) => p.days === regionTypicalDays(region)[0]);
+    if (!page) continue;
     const domestic = meta.scope === "domestic";
     const group = domestic ? "국내" : meta.parent;
     const cand: Cand = { page, group, groupRank: domestic ? DOMESTIC_ROUND_RANK : (meta.popularity ?? 50), domestic, resort: !domestic && styleForRegion(region) === "resort", count: pages.length };

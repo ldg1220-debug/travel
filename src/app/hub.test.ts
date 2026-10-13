@@ -22,7 +22,7 @@ const page = (region: string, days: number, extra: Partial<ConfirmedCoursePage> 
   info: { spotCount: 12, totalDistanceKm: 22.9, imageUrl: `https://www.tradule.co.kr/api/blob/course-maps/${region}.png`, reps: [`${region} 명소1`, `${region} 명소2`] },
   ...extra,
 });
-const SAMPLE = [page("오사카", 2), page("오사카", 3), page("도쿄", 3), page("방콕", 3), page("서울", 2), page("경주", 3), page("후쿠오카", 3), page("교토", 3), page("삿포로", 2), page("다낭", 4), page("제주", 3), page("부산", 2)];
+const SAMPLE = [page("오사카", 2), page("오사카", 3), page("도쿄", 3), page("방콕", 4), page("서울", 2), page("경주", 2), page("후쿠오카", 3), page("교토", 3), page("삿포로", 3), page("다낭", 4), page("제주", 3), page("부산", 2)];
 
 const hrefs = (html: string) => [...html.matchAll(/href="([^"]+)"/g)].map((m) => decodeURIComponent(m[1]));
 const titleOf = (m: { title?: unknown }) => (typeof m.title === "string" ? m.title : String((m.title as { absolute?: string })?.absolute ?? ""));
@@ -76,7 +76,7 @@ describe("인기 여행 코스 섹션 (홈·/discover·/course)", () => {
     expect(courseLinks.length).toBeLessThanOrEqual(12);
     expect(new Set(courseLinks.map((h) => h.split("/")[2])).size).toBe(courseLinks.length); // 지역당 1개
     expect(links).toContain("/course/all");
-    expect(courseLinks).toContain("/course/오사카/2박3일"); // 3일 우선
+    expect(courseLinks).toContain("/course/오사카/2박3일"); // 대표 1순위 일수 카드
   });
 
   it("확인된 조합이 없으면 아무것도 그리지 않는다", async () => {

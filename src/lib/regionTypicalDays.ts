@@ -1,6 +1,6 @@
 import type { CourseDays } from "./server/courseBrief";
 import { DOMESTIC_LOCALITY_NAMES, WORLD_CITIES, allSpots, flatRegions, resolveRegionAlias, styleForRegion } from "./discoverData";
-import overrideData from "@/data/regionTypicalDays.json";
+import { TYPICAL_DAYS_DATA } from "./regionTypicalDaysData";
 
 /**
  * 지역별 "실제로 많이 가는 일수" — 작업지시서 2026-10-13 v2 "거리(비행시간) 기준 + 검색량 덮어쓰기".
@@ -80,8 +80,16 @@ function isJeju(region: string): boolean {
   return jejuNames.has(region);
 }
 
+/**
+ * 지역별 최대 일수 — 휴양형 7, 도시형 5. 단 서울에서 5,000km 이상인 원거리 도시(시드니·유럽·미주)는 도시형도 7일까지
+ * (작업지시서 2026-10-13 "대표 일수를 네이버 검색량으로" §3③ — 시드니 5박7일). 좌표를 모르는 지역은 스타일 상한.
+ */
+export function maxDaysForRegion(region: string): CourseDays {
+  const name = resolveRegionAlias(region);
+  return styleForRegion(name) === "resort" || bandOf(name) === "veryFar" ? 7 : 5;
+}
 function maxDaysOf(name: string): number {
-  return styleForRegion(name) === "resort" ? 7 : 5;
+  return maxDaysForRegion(name);
 }
 /** 스타일이 허용하는 일수만 남긴다. 하나도 안 남으면(도시형 [7,6]) 허용 상한부터 두 개. */
 function clampDays(days: readonly number[], max: number): readonly CourseDays[] {
@@ -92,8 +100,8 @@ function clampDays(days: readonly number[], max: number): readonly CourseDays[] 
 /** 앞쪽일수록 대표. JSON 덮어쓰기 → 국내(제주 [3,2,4]) → 서울 거리 구간. 좌표도 모르면 스타일 기본([7,6,5] 휴양 · [3,2,4] 도시). */
 export function regionTypicalDays(region: string): readonly CourseDays[] {
   const name = resolveRegionAlias(region);
-  const override = (overrideData as Record<string, number[]>)[name];
-  if (override?.length) return clampDays(override, maxDaysOf(name));
+  const override = TYPICAL_DAYS_DATA[name]?.days;
+  if (override?.length) return clampDays(override, maxDaysForRegion(name));
   if (isJeju(name)) return JEJU;
   const band = bandOf(name);
   if (band) return clampDays(BAND_DAYS[band][styleForRegion(name)], maxDaysOf(name));
@@ -137,10 +145,10 @@ export function splitTypicalPages<T extends { region: string; days: CourseDays }
   return { typical, others };
 }
 
-/** 사이트맵 priority — 대표 일수 0.8, 서울에서 3,000km 이상 지역의 1~2일 0.3, 대표 1순위가 7일인 지역(코타키나발루·세부 등)은 3일 이하 0.3, 그 외 0.5. */
+/** 사이트맵 priority — 대표 일수 0.8, 서울에서 3,000km 이상 지역의 1~2일 0.3, 3,000km 이상 휴양지는 3일 이하 0.3, 그 외 0.5. */
 export function courseSitemapPriority(region: string, days: CourseDays): number {
   if (isTypicalDays(region, days)) return 0.8;
   if (days <= 2 && isLongHaul(region)) return 0.3;
-  if (days <= 3 && regionTypicalDays(region)[0] === 7) return 0.3; // 작업지시서 2026-10-13 "#309 검증" §3
+  if (days <= 3 && isLongHaul(region) && styleForRegion(resolveRegionAlias(region)) === "resort") return 0.3; // 원거리 휴양지의 2박3일(작업지시서 2026-10-13 "#309 검증" §3)
   return 0.5;
 }

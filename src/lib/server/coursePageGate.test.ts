@@ -10,6 +10,12 @@ function spot(over: Partial<CourseBriefSpot> = {}): CourseBriefSpot {
 }
 
 describe("resolveCoursePageRoute", () => {
+  it("5,000km 이상 원거리 도시는 도시형도 7일(5박7일)까지 열고, 가까운 도시형은 5일까지(6일 거부)", () => {
+    expect(resolveCoursePageRoute("시드니", "5박7일")).toEqual({ kind: "ok", region: "시드니", days: 7 });
+    expect(resolveCoursePageRoute("파리", "5박6일")).toMatchObject({ kind: "ok", days: 6 });
+    expect(resolveCoursePageRoute("오사카", "5박6일")).toMatchObject({ kind: "reject" });
+  });
+
   it.each([
     ["서울", "1박2일", 2],
     ["경주", "2박3일", 3],

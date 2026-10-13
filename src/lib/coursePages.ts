@@ -1,3 +1,4 @@
+import { altLabelFor } from "./regionTypicalDaysData";
 import type { CourseBrief, CourseBriefSpot, CourseDays } from "./server/courseBrief";
 
 /**
@@ -35,6 +36,15 @@ const DAY_LABELS: Record<CourseDays, string> = {
 export const COURSE_PAGE_DAY_LABELS: Record<string, CourseDays> = Object.fromEntries(
   (Object.entries(DAY_LABELS) as [string, string][]).map(([days, label]) => [label, Number(days) as CourseDays]),
 );
+
+/**
+ * 화면·제목용 일수 표기 — URL 라벨(daysToLabel)에, 검색량 데이터가 정한 다른 표기("3박5일")를 병기한다("3박4일·3박5일").
+ * URL 은 항상 daysToLabel 정본이다(작업지시서 2026-10-13 "대표 일수를 네이버 검색량으로" §3②).
+ */
+export function dayDisplayLabel(region: string, days: CourseDays): string {
+  const alt = altLabelFor(region, days);
+  return alt ? `${DAY_LABELS[days]}·${alt}` : DAY_LABELS[days];
+}
 
 export function daysToLabel(days: CourseDays): string {
   return DAY_LABELS[days];
@@ -193,7 +203,7 @@ function pickJosa(word: string, withBatchim: string, withoutBatchim: string): st
  * 그대로 조합해 지역명만 바뀌는 빈칸 채우기가 되지 않게 한다.
  */
 export function buildCourseIntro(brief: Pick<CourseBrief, "region" | "days" | "totalDistanceKm" | "spots">): string {
-  const daysLabel = daysToLabel(brief.days);
+  const daysLabel = dayDisplayLabel(brief.region, brief.days);
   const stats = `${brief.region} ${daysLabel} 코스 — ${brief.spots.length}곳 · 총 이동 ${brief.totalDistanceKm.toFixed(1)}km`;
   const rated = brief.spots.filter((s): s is CourseBriefSpot & { rating: number } => s.rating != null);
   if (rated.length === 0) return `${stats}.`;
@@ -244,7 +254,7 @@ export function buildCourseTouristTripJsonLd(
   return {
     "@context": "https://schema.org",
     "@type": "TouristTrip",
-    name: `${brief.region} ${daysToLabel(brief.days)} 코스`,
+    name: `${brief.region} ${dayDisplayLabel(brief.region, brief.days)} 코스`,
     url: `${SITE_ORIGIN}${courseCanonicalPath(brief.region, brief.days)}`,
     description,
     ...(brief.imageUrl ? { image: brief.imageUrl } : {}),
@@ -281,14 +291,14 @@ export function pickRepresentativeSpots(spots: readonly CourseBriefSpot[], n: nu
 export function buildCourseTitle(brief: Pick<CourseBrief, "region" | "days" | "spots">): string {
   const reps = pickRepresentativeSpots(brief.spots, 2);
   const repPart = reps.length > 0 ? ` · ${reps.join("·")}` : "";
-  return `${brief.region} ${daysToLabel(brief.days)} 코스 — ${brief.spots.length}곳${repPart} | 트레쥴`;
+  return `${brief.region} ${dayDisplayLabel(brief.region, brief.days)} 코스 — ${brief.spots.length}곳${repPart} | 트레쥴`;
 }
 
 /** "{지역} {일수} 코스: {대표 3곳}. 일자별 동선 지도 · 이동 시간 · 평점 정리." */
 export function buildCourseDescription(brief: Pick<CourseBrief, "region" | "days" | "spots">): string {
   const reps = pickRepresentativeSpots(brief.spots, 3);
   const repPart = reps.length > 0 ? `: ${reps.join(", ")}` : "";
-  return `${brief.region} ${daysToLabel(brief.days)} 코스${repPart}. 일자별 동선 지도 · 이동 시간 · 평점 정리.`;
+  return `${brief.region} ${dayDisplayLabel(brief.region, brief.days)} 코스${repPart}. 일자별 동선 지도 · 이동 시간 · 평점 정리.`;
 }
 
 /** 일자별 스팟 묶음 — spot.day 기준(1일차부터), 비어 있는 날은 건너뛴다. */
@@ -322,7 +332,7 @@ export function buildCourseBreadcrumbJsonLd(region: string, days: CourseDays): R
       { "@type": "ListItem", position: 1, name: "트레쥴", item: `${SITE_ORIGIN}/` },
       { "@type": "ListItem", position: 2, name: "여행 코스 모음", item: `${SITE_ORIGIN}${COURSE_HUB_PATH}` },
       { "@type": "ListItem", position: 3, name: `${region} 코스`, item: `${SITE_ORIGIN}${courseRegionHubPath(region)}` },
-      { "@type": "ListItem", position: 4, name: `${region} ${daysToLabel(days)} 코스`, item: `${SITE_ORIGIN}${courseCanonicalPath(region, days)}` },
+      { "@type": "ListItem", position: 4, name: `${region} ${dayDisplayLabel(region, days)} 코스`, item: `${SITE_ORIGIN}${courseCanonicalPath(region, days)}` },
     ],
   };
 }
@@ -348,7 +358,7 @@ export function buildCourseHubJsonLd(pages: readonly { region: string; days: Cou
         mainEntity: {
           "@type": "ItemList",
           numberOfItems: pages.length,
-          itemListElement: pages.map((p, i) => ({ "@type": "ListItem", position: i + 1, url: `${SITE_ORIGIN}${courseCanonicalPath(p.region, p.days)}`, name: `${p.region} ${daysToLabel(p.days)} 코스` })),
+          itemListElement: pages.map((p, i) => ({ "@type": "ListItem", position: i + 1, url: `${SITE_ORIGIN}${courseCanonicalPath(p.region, p.days)}`, name: `${p.region} ${dayDisplayLabel(p.region, p.days)} 코스` })),
         },
       },
       {
@@ -370,7 +380,7 @@ export function buildRegionHubJsonLd(region: string, days: readonly CourseDays[]
       {
         "@type": "ItemList",
         name: `${region} 여행 코스`,
-        itemListElement: days.map((d, i) => ({ "@type": "ListItem", position: i + 1, url: `${SITE_ORIGIN}${courseCanonicalPath(region, d)}`, name: `${region} ${daysToLabel(d)} 코스` })),
+        itemListElement: days.map((d, i) => ({ "@type": "ListItem", position: i + 1, url: `${SITE_ORIGIN}${courseCanonicalPath(region, d)}`, name: `${region} ${dayDisplayLabel(region, d)} 코스` })),
       },
       {
         "@type": "BreadcrumbList",
