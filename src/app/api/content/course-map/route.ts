@@ -1,8 +1,8 @@
 import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, parseDays, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
-import { styleForRegion } from "@/lib/discoverData";
+import { getCourseBrief, loadCourseMapInput, parseDays, renderCourseMapPng, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
+import { resolveRegionAlias, styleForRegion } from "@/lib/discoverData";
 
 /**
  * 트레쥴 콘텐츠 API — 동선 지도 이미지 전용 엔드포인트. 작업지시서
@@ -10,12 +10,9 @@ import { styleForRegion } from "@/lib/discoverData";
  * API를 부르면 지도 키가 파이프라인 쪽으로 새고 브랜딩도 제각각이
  * 되니, 트레쥴이 이미지를 만들어 하나의 URL로 내려준다.
  *
- * 새 이미지 생성 로직을 따로 만들지 않는다 — course-brief가 이미
- * best-effort로 만들어 Blob에 올려두는 imageUrl(courseBrief.ts의
- * generateCourseMapImage, 트레쥴 워터마크 포함)을 그대로 재사용한다.
- * course-brief와 완전히 같은 캐시(getCourseBrief)를 타므로 별도 비용이
- * 거의 없다 — "course-brief와 같은 캐시 키를 쓰면 추가 비용이 거의
- * 없습니다"(지시서 §B-1)를 그대로 만족한다.
+ * 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도는 Blob 에 저장하지 않고 이 라우트가 요청 때
+ * 저장된 지도 입력(courseBrief.ts prepareCourseMaps)으로 Static Maps PNG 를 만들어 직접 응답한다.
+ * Cache-Control s-maxage 30일 + ETag(지도 내용 해시)라 Vercel CDN 이 캐시하고, 코스가 같으면 재생성이 없다.
  *
  * width/format 파라미터는 아직 안 받는다 — Blob 캐시가 (지역, 일수)
  * 하나당 이미지 하나인데, 커스텀 크기까지 캐시 키에 넣으면 그 재사용
@@ -51,41 +48,44 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     day = n;
   }
 
-  let brief;
-  try {
-    console.log(`[courseBrief] route=course-map region=${region} days=${days}`);
-    brief = await getCourseBrief(region, days);
-  } catch (err) {
-    // course-brief/route.ts와 같은 이유(작업지시서 2026-09-14 §3) — 미지원
-    // 지역엔 엉뚱한 코스 지도 대신 명시적으로 거부한다.
-    if (err instanceof UnsupportedRegionError) {
-      return NextResponse.json({ error: "unsupported_region", region: err.region, message: "지원하지 않는 지역입니다." }, { status: 404 });
+  const canonicalRegion = resolveRegionAlias(region);
+  // 지도 입력(스팟·경로선)이 저장돼 있으면 코스를 다시 만들지 않는다 — 이 요청은 CDN 에 캐시되고, 캐시 미스에서 코스 생성(수십 초)을 기다리게 하지 않는다.
+  let input = await loadCourseMapInput(canonicalRegion, days);
+  if (!input) {
+    try {
+      console.log(`[courseBrief] route=course-map region=${region} days=${days}`);
+      await getCourseBrief(region, days); // 코스가 만들어지면서 지도 입력도 함께 저장된다
+    } catch (err) {
+      // course-brief/route.ts와 같은 이유(작업지시서 2026-09-14 §3) — 미지원
+      // 지역엔 엉뚱한 코스 지도 대신 명시적으로 거부한다.
+      if (err instanceof UnsupportedRegionError) {
+        return NextResponse.json({ error: "unsupported_region", region: err.region, message: "지원하지 않는 지역입니다." }, { status: 404 });
+      }
+      // course-brief/route.ts와 같은 이유(작업지시서 2026-09-27 A-6).
+      if (err instanceof TransientApiFailureError) {
+        return NextResponse.json({ error: "temporarily_unavailable", region: err.region, message: "일시적으로 지도를 만들 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
+      }
+      throw err;
     }
-    // course-brief/route.ts와 같은 이유(작업지시서 2026-09-27 A-6).
-    if (err instanceof TransientApiFailureError) {
-      return NextResponse.json({ error: "temporarily_unavailable", region: err.region, message: "일시적으로 지도를 만들 수 없습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
-    }
-    throw err;
+    input = await loadCourseMapInput(canonicalRegion, days);
   }
-  if (day != null) {
-    // 일자별 지도는 course-brief 생성 때 함께 만들어져 brief.dayImageUrls에
-    // 들어 있다(courseBrief.ts generateDayMapImages) — 여기서 새로 그리지
-    // 않는다(전체 지도와 같은 캐시를 타 추가 비용이 거의 없다는 이 파일의
-    // 원칙 그대로). 그 날짜 지도를 못 만들었으면(키 미설정·생성 실패, 또는
-    // 실제로 채워진 날짜 수가 요청 days보다 적음) 정직하게 404.
-    const dayUrl = brief.dayImageUrls?.[day - 1];
-    if (!dayUrl) {
-      return NextResponse.json({ error: "day map not available for this region yet", day }, { status: 404 });
-    }
-    return NextResponse.redirect(dayUrl, 302);
+  if (!input) {
+    // 지도를 못 만든 이유는 다양하다(Static Maps 키 미설정, 해당 지역에 스팟이 아예 없음, 422 코스 …) — 가짜 이미지를 만들 수는 없으니 정직하게 404.
+    return NextResponse.json({ error: day != null ? "day map not available for this region yet" : "map not available for this region yet", ...(day != null ? { day } : {}) }, { status: 404 });
   }
-  if (!brief.imageUrl) {
-    // 지도를 못 만든 이유는 다양하다(Google Static Maps API 미설정,
-    // Blob 저장소 미설정, 해당 지역에 스팟이 아예 없음, 생성 자체
-    // 실패 등) — 이미지 엔드포인트에서 가짜 이미지를 만들어 낼 수는
-    // 없으므로 정직하게 404를 준다. <img> 태그에서는 깨진 이미지
-    // 아이콘으로 보이는 정도다.
-    return NextResponse.json({ error: "map not available for this region yet" }, { status: 404 });
+  if (day != null && !(input.dayLengths[day - 1] > 0)) {
+    return NextResponse.json({ error: "day map not available for this region yet", day }, { status: 404 });
   }
-  return NextResponse.redirect(brief.imageUrl, 302);
+
+  // ETag = 지도 내용 해시(+일자) — 같으면 Static Maps 를 부르지 않고 304. CDN: 30일 캐시 + 하루 stale 허용(작업지시서 2026-10-13 §3②).
+  const etag = `"${input.hash}${day != null ? `-d${day}` : ""}"`;
+  const cacheHeaders = { "cache-control": "public, s-maxage=2592000, stale-while-revalidate=86400", etag };
+  if (request.headers.get("if-none-match") === etag) return new NextResponse(null, { status: 304, headers: cacheHeaders });
+
+  const png = await renderCourseMapPng(input, day);
+  if (!png) {
+    console.error(`[courseBrief] course-map render failed region=${region} days=${days} day=${day ?? "all"}`);
+    return NextResponse.json({ error: "map_render_failed" }, { status: 502, headers: { "cache-control": "no-store" } });
+  }
+  return new NextResponse(new Uint8Array(png), { status: 200, headers: { ...cacheHeaders, "content-type": "image/png" } });
 });

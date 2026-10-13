@@ -1,6 +1,5 @@
 import { regionCoords } from "@/lib/regionTypicalDays";
-import { timingSafeEqual } from "node:crypto";
-import { put } from "@vercel/blob";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
@@ -342,7 +341,7 @@ const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 �
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 39; // 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 40; // 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -2702,52 +2701,92 @@ export function sliceDayMapInputs(
   });
 }
 
-async function generateCourseMapImage(cacheKey: string, spots: CourseBriefSpot[], mapPaths: string[]): Promise<string | null> {
-  return renderMapToBlob(courseMapPathname(cacheKey), spots, mapPaths);
-}
-
 /**
- * 작업지시서 2026-09-29 §1 — 날짜마다 그날 스팟·구간 경로만 그린 지도를
- * 만든다. 전체 지도와 병렬로 돌릴 수 있게 각각 독립 호출이다(한 날짜
- * 실패가 다른 날짜·전체 지도에 영향을 주지 않는다). 줌은 그날 스팟의
- * 핵심 군집(excludeOutlierSpots)에 맞춘다 — "하루 동선이 한 동네면
- * 크게".
+ * 코스 지도는 이제 Blob에 올리지 않는다 — 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" §3①②.
+ * COURSE_ALGO_VERSION 이 오를 때마다 지역 × 일수 × (전체 + 일자별 N장)을 새 경로로 put 해 Blob Advanced Operations(월 2,000회)를 다 썼다.
+ * 대신 ① 지도 입력(스팟 좌표·구간 경로선·일자 묶음)을 Postgres(place_candidate_cache, 버전과 무관한 키)에 한 줄 저장하고,
+ * ② imageUrl·dayImageUrls 는 `/api/content/course-map?region=&days=[&day=]&v={내용 해시}` URL 로 둔다.
+ * course-map 라우트가 요청 때 Static Maps 로 PNG 를 만들어 CDN 캐시 헤더(s-maxage 30일)와 해시 ETag 로 내려준다 — 코스가 같으면
+ * 해시가 같아 재생성·재업로드가 없고, Blob 저장은 필요 없다.
  */
-async function generateDayMapImages(cacheKey: string, spots: CourseBriefSpot[], mapPaths: string[], dayLengths: number[]): Promise<(string | null)[]> {
-  const inputs = sliceDayMapInputs(spots, mapPaths, dayLengths);
-  return Promise.all(
-    inputs.map((input, i) => {
-      if (input.spots.length === 0) return Promise.resolve(null);
-      const viewport = computeViewport(excludeOutlierSpots(input.spots));
-      return renderMapToBlob(dayMapPathname(cacheKey, i + 1), input.spots, input.mapPaths, viewport, { numbered: true });
-    }),
-  );
+export interface CourseMapInput {
+  hash: string;
+  spots: { order: number; lat: number; lng: number }[];
+  mapPaths: string[];
+  dayLengths: number[];
 }
 
-async function renderMapToBlob(
-  pathname: string,
-  spots: { order: number; lat: number; lng: number }[],
-  mapPaths: string[],
-  viewport?: MapViewport,
-  options: { numbered?: boolean } = {},
-): Promise<string | null> {
-  if (spots.length === 0) return null;
-  // 기존 GOOGLE_PLACES_API_KEY/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY는 브라우저에도
-  // 노출되는 키라 HTTP 리퍼러 제한이 걸려 있다(작업지시서 2026-09-06 "PR
-  // #231 검증" §2 실측) — Places API(New)는 POST+헤더 방식이라 리퍼러
-  // 제한이 적용되지 않아 정상 동작했지만, Static Maps는 GET+쿼리파라미터
-  // key= 방식이라 리퍼러가 없는 서버 환경에서 그대로 403이 난다. "같은
-  // 키인데 Places는 되고 Static Maps는 403"의 실제 원인이 이것이었다 —
-  // Maps Static API 활성화 누락이 아니었다. 그래서 Static Maps 전용 서버
-  // 키(GOOGLE_MAPS_SERVER_KEY — 애플리케이션 제한 없음, API 제한은 Maps
-  // Static API만)를 새로 등록해 이 호출에만 쓴다. 기존 키로 폴백하지
-  // 않는다 — 리퍼러 제한 탓에 어차피 403이 나 호출만 낭비하게 된다.
-  const apiKey = process.env.GOOGLE_MAPS_SERVER_KEY;
+const MAP_RENDER_VERSION = 1; // 지도 그리는 방식(크기·마커·축척)을 바꾸면 올린다 — 해시에 들어가 CDN 캐시가 갈린다.
+
+export function courseMapInputKey(region: string, days: number): string {
+  return `course-map-input:${normalizeForMatch(resolveRegionAlias(region))}:${days}`;
+}
+
+/** 지도 내용 해시 — 스팟 좌표(소수 5자리)·순서·구간 경로선·일자 묶음. 코스가 같으면 COURSE_ALGO_VERSION 이 올라도 같다. */
+export function computeMapHash(spots: { order: number; lat: number; lng: number }[], mapPaths: string[], dayLengths: number[]): string {
+  const payload = JSON.stringify({ v: MAP_RENDER_VERSION, s: spots.map((p) => [p.order, Number(p.lat.toFixed(5)), Number(p.lng.toFixed(5))]), p: mapPaths, d: dayLengths });
+  return createHash("sha1").update(payload).digest("hex").slice(0, 16);
+}
+
+/** 지도 URL — 전체(day 생략) 또는 일자별. v 는 내용 해시(캐시 무효화용; 서버는 값을 검증하지 않고 최신 지도를 낸다). */
+export function courseMapUrl(region: string, days: number, hash: string, day?: number): string {
+  const q = `region=${encodeURIComponent(region)}&days=${days}${day != null ? `&day=${day}` : ""}&v=${hash.slice(0, 10)}`;
+  return `https://www.tradule.co.kr/api/content/course-map?${q}`;
+}
+
+/** 지도 입력을 저장하고 URL 을 돌려준다 — 네트워크 호출 없음(DB 한 줄). Static Maps 키가 없거나 스팟이 없으면 지도 없음(null). */
+async function prepareCourseMaps(region: string, days: number, spots: CourseBriefSpot[], mapPaths: string[], dayLengths: number[]): Promise<{ imageUrl: string | null; dayImageUrls: (string | null)[] }> {
+  const none = { imageUrl: null, dayImageUrls: dayLengths.map(() => null) };
+  if (spots.length === 0 || !process.env.GOOGLE_MAPS_SERVER_KEY) return none;
+  const input: CourseMapInput = { hash: "", spots: spots.map((p) => ({ order: p.order, lat: p.lat, lng: p.lng })), mapPaths, dayLengths };
+  input.hash = computeMapHash(input.spots, input.mapPaths, input.dayLengths);
+  try {
+    await pool.query(
+      `insert into place_candidate_cache (cache_key, payload) values ($1, $2)
+       on conflict (cache_key) do update set payload = excluded.payload, created_at = now()`,
+      [courseMapInputKey(region, days), JSON.stringify(input)],
+    );
+  } catch (err) {
+    console.error("[courseBrief] map input save failed:", err);
+    return none;
+  }
+  return {
+    imageUrl: courseMapUrl(region, days, input.hash),
+    dayImageUrls: dayLengths.map((len, i) => (len > 0 ? courseMapUrl(region, days, input.hash, i + 1) : null)),
+  };
+}
+
+/** 저장된 지도 입력 — 없거나 형식이 다르면 null. */
+export async function loadCourseMapInput(region: string, days: number): Promise<CourseMapInput | null> {
+  try {
+    const r = await pool.query<{ payload: unknown }>(`select payload from place_candidate_cache where cache_key = $1`, [courseMapInputKey(region, days)]);
+    const p = r.rows[0]?.payload as Partial<CourseMapInput> | undefined;
+    if (!p || typeof p.hash !== "string" || !Array.isArray(p.spots) || !Array.isArray(p.mapPaths) || !Array.isArray(p.dayLengths)) return null;
+    return p as CourseMapInput;
+  } catch (err) {
+    console.error("[courseBrief] map input load failed:", err);
+    return null;
+  }
+}
+
+/** 지도 PNG 를 Static Maps 에서 가져온다(day 가 있으면 그날만, 번호 마커·핵심 군집 축척). 실패하면 null — 로그에 상태를 남긴다. */
+export async function renderCourseMapPng(input: CourseMapInput, day: number | null): Promise<Buffer | null> {
+  const apiKey = process.env.GOOGLE_MAPS_SERVER_KEY; // 사유는 buildStaticMapUrl 위 주석 참고 — Static Maps 전용 서버 키
   if (!apiKey) return null;
-  if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) return null;
-
+  let spots = input.spots;
+  let mapPaths = input.mapPaths;
+  let viewport: MapViewport | undefined;
+  let options: { numbered?: boolean } = {};
+  if (day != null) {
+    const slice = sliceDayMapInputs(input.spots, input.mapPaths, input.dayLengths)[day - 1];
+    if (!slice || slice.spots.length === 0) return null;
+    spots = slice.spots;
+    mapPaths = slice.mapPaths;
+    viewport = computeViewport(excludeOutlierSpots(slice.spots));
+    options = { numbered: true };
+  }
+  if (spots.length === 0) return null;
   const url = buildStaticMapUrl(apiKey, spots, mapPaths, viewport, options);
-
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MAP_CALL_TIMEOUT_MS);
   try {
@@ -2757,18 +2796,11 @@ async function renderMapToBlob(
       return null;
     }
     const bytes = Buffer.from(await res.arrayBuffer());
-    // 캐시 키(course_cache와 겹치지 않는 place_candidate_cache 네임스페이스와
-    // 같은 관례) 기준 고정 경로(pathname은 호출부가 정한다) —
-    // addRandomSuffix:false로 재생성될 때마다 같은 자리에 덮어써서, 지역이
-    // 다시 워밍/조회될 때마다 blob이 쌓이지 않게 한다.
-    const blob = await put(pathname, bytes, { access: "private", contentType: "image/png", addRandomSuffix: false, allowOverwrite: true });
-    void blob; // put()의 반환 url은 private blob이라 브라우저에서 401 — 우리 프록시 경로를 대신 반환한다.
-    // AutoPipeline 등 외부 소비자가 그대로 fetch/임베드해야 하므로
-    // appUrlFor()와 마찬가지로 절대 URL로 반환한다(상대 경로는 이
-    // 도메인 밖에서 못 씀).
-    return `https://www.tradule.co.kr/api/blob/${pathname.split("/").map(encodeURIComponent).join("/")}`;
+    // Google Static Maps 호출 1회 — Vercel 로그에서 이 줄을 세면 월 사용량을 볼 수 있다(CDN HIT 은 여기까지 오지 않는다).
+    console.log(`[courseMap] rendered hash=${input.hash} day=${day ?? "all"} bytes=${bytes.length}`);
+    return bytes;
   } catch (err) {
-    console.error("[courseBrief] course map generation failed:", err);
+    console.error("[courseBrief] course map render failed:", err);
     return null;
   } finally {
     clearTimeout(timer);
@@ -4321,15 +4353,13 @@ export async function buildBrief(
   let imageUrl: string | null = null;
   let dayImageUrls: (string | null)[] = routedDays.map(() => null);
   if (mapsNeeded) {
-    [imageUrl, dayImageUrls] = await Promise.all([
-      generateCourseMapImage(cacheKey, finalSpots, finalMapPaths),
-      generateDayMapImages(
-        cacheKey,
-        finalSpots,
-        finalMapPaths,
-        routedDays.map((d) => d.stops.length),
-      ),
-    ]);
+    ({ imageUrl, dayImageUrls } = await prepareCourseMaps(
+      region,
+      days,
+      finalSpots,
+      finalMapPaths,
+      routedDays.map((d) => d.stops.length),
+    ));
   }
   brief = {
     ...brief,

@@ -7,6 +7,7 @@ describe("robots", () => {
 
   it("코스 지도 이미지 경로를 허용하고, 더 일반적인 /api/ 차단은 유지한다", () => {
     expect(rules.allow).toContain("/api/blob/course-maps/");
+    expect(rules.allow).toContain("/api/content/course-map");
     expect(rules.disallow).toContain("/api/");
     // 더 긴(구체적) 규칙이 이긴다 — 허용 경로가 차단 경로의 하위여야 의미가 있다
     expect("/api/blob/course-maps/overseas/오사카/3/v33.png".startsWith("/api/")).toBe(true);

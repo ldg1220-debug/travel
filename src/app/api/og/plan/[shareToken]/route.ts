@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/server/db";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { generatePlanMapImage } from "@/lib/server/planMapImage";
+import { renderPlanMapPng } from "@/lib/server/planMapImage";
 import type { ItineraryItem } from "@/lib/types";
 
 /**
@@ -29,7 +29,7 @@ export const maxDuration = 30;
 
 const DEFAULT_OG_IMAGE = "https://www.tradule.co.kr/opengraph-image";
 
-export const GET = withApiErrorHandling(async (_request: NextRequest, { params }: { params: Promise<{ shareToken: string }> }) => {
+export const GET = withApiErrorHandling(async (request: NextRequest, { params }: { params: Promise<{ shareToken: string }> }) => {
   const raw = (await params).shareToken;
   const shareToken = raw.endsWith(".png") ? raw.slice(0, -4) : raw;
   if (!shareToken) {
@@ -46,6 +46,11 @@ export const GET = withApiErrorHandling(async (_request: NextRequest, { params }
     return NextResponse.redirect(DEFAULT_OG_IMAGE, 302);
   }
 
-  const imageUrl = await generatePlanMapImage(shareToken, items, new Date(row.updated_at).getTime());
-  return NextResponse.redirect(imageUrl ?? DEFAULT_OG_IMAGE, 302);
+  // 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" §3④ — Blob 에 저장하지 않고 PNG 를 직접 응답한다(CDN 이 캐시, ETag = updated_at).
+  const etag = `"plan-${new Date(row.updated_at).getTime()}"`;
+  const cacheHeaders = { "cache-control": "public, s-maxage=86400, stale-while-revalidate=86400", etag };
+  if (request.headers.get("if-none-match") === etag) return new NextResponse(null, { status: 304, headers: cacheHeaders });
+  const png = await renderPlanMapPng(items);
+  if (!png) return NextResponse.redirect(DEFAULT_OG_IMAGE, 302);
+  return new NextResponse(new Uint8Array(png), { status: 200, headers: { ...cacheHeaders, "content-type": "image/png" } });
 });

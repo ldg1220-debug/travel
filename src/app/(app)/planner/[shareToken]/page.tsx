@@ -24,8 +24,8 @@ export function buildOgDescription(items: ItineraryItem[]): string {
 
 export async function generateMetadata({ params }: { params: Promise<{ shareToken: string }> }): Promise<Metadata> {
   const { shareToken } = await params;
-  const result = await pool.query<{ title: string; region: string; placesData: ItineraryItem[] }>(
-    `select title, region, "placesData" from itineraries where "shareToken" = $1`,
+  const result = await pool.query<{ title: string; region: string; placesData: ItineraryItem[]; updated_at: string }>(
+    `select title, region, "placesData", updated_at from itineraries where "shareToken" = $1`,
     [shareToken],
   );
   const row = result.rows[0];
@@ -45,7 +45,8 @@ export async function generateMetadata({ params }: { params: Promise<{ shareToke
   // (레이아웃 주석 참고) 여기서 openGraph만 정의하면 루트 레이아웃의
   // twitter.images(사이트 기본 이미지)가 그대로 남아 트위터 카드만 이
   // 계획과 무관한 이미지를 보여줬다.
-  const imageUrl = `https://www.tradule.co.kr/api/og/plan/${encodeURIComponent(shareToken)}.png`;
+  // 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" §3④ — 이 이미지는 이제 Blob 없이 CDN 캐시(s-maxage)로 서빙되므로, 계획이 수정되면 ?v=(updated_at)로 URL 이 바뀌어 캐시가 갈린다.
+  const imageUrl = `https://www.tradule.co.kr/api/og/plan/${encodeURIComponent(shareToken)}.png?v=${new Date(row.updated_at).getTime()}`;
   return {
     title,
     description,
