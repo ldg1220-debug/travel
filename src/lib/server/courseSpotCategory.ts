@@ -83,6 +83,10 @@ const NAME_PARK = /공원|교엔|정원|가든|\bpark\b|\bgarden\b/i;
 const NAME_HERITAGE = /(?:성|궁|궁전|탑|고분)$|궁전|박물관|미술관|유적|\bcastle\b|\bpalace\b|\bmuseum\b|\bruins?\b/i;
 const NAME_FOOD = /카오소이|쌀국수|국수|noodle|와규|wagyu|스시|sushi|라멘|ramen|이자카야|izakaya|식당|레스토랑|restaurant|steak|스테이크|\bbbq\b|야키니쿠|yakiniku|맛집/i;
 
+const NAME_RESTAURANT_WORD = /레스토랑|\brestaurant\b|\bbistro\b|\bbrasserie\b/i;
+const NAME_BY_CHEF = /\bby\s+\p{Lu}/u; // 대소문자 구분 — "by Paul Pairet"
+const NAME_CAFE_WORD = /카페|커피|베이커리|\bcafe\b|café|\bcoffee\b|\bbakery\b|\broasters?\b/i;
+
 export function courseSpotCategory(p: { category: string; name: string; beach?: boolean; reviewCount?: number | null }): CourseSpotCategory {
   const raw = (p.category ?? "").toLowerCase();
   const exact = TYPE_TABLE[raw];
@@ -96,6 +100,9 @@ export function courseSpotCategory(p: { category: string; name: string; beach?: 
   if (isLargeFacility(p)) return "테마파크";
 
   const bucket = liveCategoryBucket(p.category ?? "");
+  // 작업지시서 2026-10-13 "#312 검증" §4 — primaryType 이 cafe 여도 이름이 레스토랑 표지(Restaurant·레스토랑·Bistro·Brasserie·"by {셰프명}")면 음식점
+  // (상하이 Polux by Paul Pairet). 이름에 카페·커피·베이커리 단어가 있으면 카페 그대로.
+  if (bucket === "카페" && (NAME_RESTAURANT_WORD.test(p.name) || NAME_BY_CHEF.test(p.name)) && !NAME_CAFE_WORD.test(p.name)) return "음식점";
   if (bucket === "음식점" || bucket === "술집" || bucket === "카페" || bucket === "숙소") return bucket;
   if (bucket === "테마파크") {
     // Kakao 한글 분류("아쿠아리움"·"동물원")는 테마파크가 아니다.

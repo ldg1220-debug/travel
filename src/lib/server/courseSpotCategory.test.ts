@@ -163,3 +163,14 @@ describe("courseSpotCategory — 괌·치앙마이·덴포잔 (2026-10-13)", () 
     expect(c("establishment", "Tempozan Ferris Wheel")).toBe("전망대");
   });
 });
+
+describe("courseSpotCategory — cafe 타입 레스토랑 (2026-10-13 #312 §4)", () => {
+  it("cafe 여도 레스토랑 표지·by 셰프명이면 음식점, 카페 단어가 있으면 카페", () => {
+    expect(c("cafe", "Polux by Paul Pairet")).toBe("음식점");
+    expect(c("cafe", "Le Bistro")).toBe("음식점");
+    expect(c("cafe", "Seaside Restaurant")).toBe("음식점");
+    expect(c("cafe", "스타벅스 리저브")).toBe("카페");
+    expect(c("cafe", "Blue Bottle Coffee by Kiyosumi")).toBe("카페");
+    expect(c("cafe", "Pika's Cafe")).toBe("카페");
+  });
+});
