@@ -262,3 +262,19 @@ describe("코스 상세 JSON-LD (리뷰 스니펫 오류 방지)", () => {
     expect(html).toContain("4.5"); // 화면 평점 표기는 유지
   });
 });
+
+// 작업지시서 2026-10-13 "PR #316 후속: Google 출처 표시" A-1 — 평점이 보이는 코스 페이지 본문에 Google 출처 표시.
+describe("코스 상세 페이지 Google 출처 표시", () => {
+  beforeEach(() => {
+    getCourseBriefMock.mockReset();
+  });
+
+  it("평점이 있는 스팟이 있으면 목록 아래에 'Google Maps' 출처가 한 번", async () => {
+    const { default: CoursePage } = await import("./page");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    getCourseBriefMock.mockResolvedValue(thickBrief());
+    const html = renderToStaticMarkup(await CoursePage({ params: Promise.resolve({ region: "경주", days: "2박3일" }) }));
+    expect(html.match(/Google Maps/g)).toHaveLength(1);
+    expect(html).toContain("평점·리뷰 정보 제공: Google Maps");
+  });
+});
