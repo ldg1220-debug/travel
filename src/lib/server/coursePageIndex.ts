@@ -1,7 +1,7 @@
 import { pool } from "./db";
 import { COURSE_ALGO_VERSION, isSupportedRegion, resolveScope, type CourseBrief, type CourseDays } from "./courseBrief";
 import { judgeCourseBrief } from "./coursePageGate";
-import { flatRegions } from "@/lib/discoverData";
+import { flatRegions, styleForRegion } from "@/lib/discoverData";
 import { pickRepresentativeSpots } from "@/lib/coursePages";
 import { typicalDayRank } from "@/lib/regionTypicalDays";
 
@@ -183,16 +183,41 @@ export function groupConfirmedForHub(confirmed: readonly ConfirmedCoursePage[]):
     .sort((a, b) => (a.scope === b.scope ? 0 : a.scope === "domestic" ? -1 : 1) || popularityOf(a) - popularityOf(b) || a.parent.localeCompare(b.parent, "ko"));
 }
 
+/** 인기 코스 다양성 규칙(작업지시서 2026-10-13 "#309 검증") — 나라당 최대 3개 · 국내 최소 2개 · 해외 휴양지 최소 2개. */
+const POPULAR_PER_COUNTRY_MAX = 3;
+const POPULAR_MIN_DOMESTIC = 2;
+const POPULAR_MIN_OVERSEAS_RESORT = 2;
+const DOMESTIC_ROUND_RANK = 3.5; // 라운드로빈에서 해외 인기 상위 3개국 다음 차례
+
 /**
- * 홈·탐색·코스 화면의 "인기 여행 코스" — 지역당 1개(그 지역의 대표 일수 중 가장 앞, 없으면 가장 가까운 일수), 인기 나라 순 → 국내 → 이름 순으로 limit개.
- * 확인된 조합만 건다(사이트맵과 같은 소스).
+ * 홈·탐색·코스 화면의 "인기 여행 코스" — 지역당 1개(그 지역의 대표 일수 중 가장 앞, 없으면 가장 가까운 일수).
+ * 나라(국내는 한 묶음) 라운드로빈 — 일본1 → 베트남1 → 태국1 → 국내1 → … — 로 나라당 최대 3개, 그중 국내 2개와
+ * 해외 휴양지 2개는 (후보가 있으면) 반드시 넣는다. 확인된 조합만 건다(사이트맵과 같은 소스).
  */
 export function pickPopularCourses(confirmed: readonly ConfirmedCoursePage[], limit = 12): ConfirmedCoursePage[] {
-  const bestByRegion = new Map<string, ConfirmedCoursePage>();
-  for (const p of confirmed) {
-    const prev = bestByRegion.get(p.region);
-    if (!prev || typicalDayRank(p.region, p.days) < typicalDayRank(prev.region, prev.days)) bestByRegion.set(p.region, p);
+  const pagesByRegion = new Map<string, ConfirmedCoursePage[]>();
+  for (const p of confirmed) pagesByRegion.set(p.region, [...(pagesByRegion.get(p.region) ?? []), p]);
+  interface Cand { page: ConfirmedCoursePage; group: string; groupRank: number; domestic: boolean; resort: boolean; count: number }
+  const groups = new Map<string, Cand[]>();
+  for (const [region, pages] of pagesByRegion) {
+    const meta = regionMeta(region);
+    if (!meta) continue;
+    const page = pages.reduce((best, p) => (typicalDayRank(p.region, p.days) < typicalDayRank(best.region, best.days) ? p : best));
+    const domestic = meta.scope === "domestic";
+    const group = domestic ? "국내" : meta.parent;
+    const cand: Cand = { page, group, groupRank: domestic ? DOMESTIC_ROUND_RANK : (meta.popularity ?? 50), domestic, resort: !domestic && styleForRegion(region) === "resort", count: pages.length };
+    groups.set(group, [...(groups.get(group) ?? []), cand]);
   }
-  const rank = (p: ConfirmedCoursePage) => regionMeta(p.region)?.popularity ?? 50; // 국내는 해외 인기국 뒤
-  return [...bestByRegion.values()].sort((a, b) => rank(a) - rank(b) || a.region.localeCompare(b.region, "ko")).slice(0, limit);
+  const ordered = [...groups.entries()]
+    .map(([name, cands]) => ({ name, rank: cands[0].groupRank, cands: cands.sort((a, b) => b.count - a.count || a.page.region.localeCompare(b.page.region, "ko")).slice(0, POPULAR_PER_COUNTRY_MAX) }))
+    .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, "ko"));
+  // 라운드로빈 순서열
+  const seq: Cand[] = [];
+  for (let round = 0; round < POPULAR_PER_COUNTRY_MAX; round++) for (const g of ordered) if (g.cands[round]) seq.push(g.cands[round]);
+  // 필수 몫(국내·해외 휴양지)을 먼저 확보하고 나머지는 라운드로빈 순서로 채운 뒤, 출력은 라운드로빈 순서로.
+  const chosen = new Set<Cand>();
+  for (const c of seq.filter((c) => c.domestic).slice(0, POPULAR_MIN_DOMESTIC)) chosen.add(c);
+  for (const c of seq.filter((c) => c.resort).slice(0, POPULAR_MIN_OVERSEAS_RESORT)) chosen.add(c);
+  for (const c of seq) if (chosen.size < limit) chosen.add(c);
+  return seq.filter((c) => chosen.has(c)).slice(0, limit).map((c) => c.page);
 }
