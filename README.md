@@ -36,6 +36,10 @@ Copy `.env.example` to `.env.local` and set the relevant keys:
   search/trend sheet use separate, screen-local implementations instead
   (see the Phase 4 section further down)
 
+Google API 사용처(프로젝트 ↔ API ↔ 환경 변수 ↔ 호출 지점 ↔ 월 무료 한도 가드)는
+[`docs/GOOGLE_APIS.md`](docs/GOOGLE_APIS.md) 에 있다 — Google API 호출을
+추가·변경하는 PR 은 이 문서도 같이 고친다.
+
 ## Interactions (`/planner`)
 
 - **Tap** a pin → time/date picker modal → **Register Schedule**.
