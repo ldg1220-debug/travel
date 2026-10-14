@@ -32,7 +32,8 @@ function rememberPhotoName(q: string, photoName: string | null): void {
   photoNameMemo.set(q, photoName);
 }
 
-const CACHE_HEADERS = { "Cache-Control": "public, max-age=86400, s-maxage=604800" };
+// 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" — 사진 참조는 Places 콘텐츠라 CDN 캐시도 하루로(원래 7일).
+const CACHE_HEADERS = { "Cache-Control": "public, max-age=86400, s-maxage=86400" };
 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const q = (request.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 80);

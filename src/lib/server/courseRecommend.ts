@@ -1,3 +1,4 @@
+import { PLACES_CONTENT_TTL_MS } from "./placesRetention";
 import { regionSelfNames } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
 import { pool } from "@/lib/server/db";
@@ -616,9 +617,10 @@ function kakaoToPlace(d: KakaoDoc, fallbackCategory: string): Place {
 // 도시×슬롯 후보 검색 결과 캐시(place_candidate_cache, schema.sql) — 실측
 // 응답시간(8~14초)의 상당 부분이 이 라이브 검색이었고, 인기 도시는 여러
 // 사용자가 반복 요청하므로 캐시 히트가 그대로 지연시간과 Places API
-// 비용(요청 1건당 과금) 양쪽을 줄인다. 평점·순위 같은 신호는 하루이틀
-// 사이에 크게 안 바뀌므로 TTL을 넉넉히(7일) 잡았다.
-const CANDIDATE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// 비용(요청 1건당 과금) 양쪽을 줄인다. 원래는 평점·순위가 하루이틀 사이에 크게 안 바뀐다며 TTL을 7일로 잡았지만,
+// 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" — Places 약관상 이름·평점 등 콘텐츠는 보관할 수 없고(place_id 무기한 ·
+// 좌표 30일 외), 화면 표시용 단기 캐시만 허용돼 26시간(PLACES_CONTENT_TTL_MS)으로 줄였다. 만료 행은 placesRetention 이 지운다.
+const CANDIDATE_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS;
 
 function candidateCacheKey(scope: "overseas" | "domestic", city: string, slot: RecommendSlot, extraQuery: boolean): string {
   // extraQuery(동의어 2차 검색 포함 여부)에 따라 결과 집합 자체가 다르므로
