@@ -1,3 +1,4 @@
+import { purgeExpiredPlacesCache } from "@/lib/server/placesRetention";
 import { maxDaysForRegion, regionTypicalDays } from "@/lib/regionTypicalDays";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
@@ -163,5 +164,12 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     warmed.map((w) => `${w.region}(${w.days}일)${w.ok ? `✓ rated=${w.rated}/${w.spots}` : "✗"}`).join(", "),
   );
 
-  return NextResponse.json({ ok: true, totalTasks: WARM_TASKS.length, batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
+  // 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" §2 — 보관 기간이 지난 Places 유래 캐시 행(이름·평점 26h+2h · 좌표 30일)을 지운다.
+  const purged = await purgeExpiredPlacesCache().catch((err) => {
+    console.error("[warm-course-brief] places cache purge failed:", err);
+    return null;
+  });
+  if (purged) console.log(`[warm-course-brief] places cache purge: content=${purged.content} latLng=${purged.latLng}`);
+
+  return NextResponse.json({ ok: true, purged, totalTasks: WARM_TASKS.length, batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
 });

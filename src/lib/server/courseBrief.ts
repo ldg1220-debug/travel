@@ -1,4 +1,5 @@
 import { regionCoords } from "@/lib/regionTypicalDays";
+import { PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS } from "@/lib/server/placesRetention";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
@@ -325,7 +326,7 @@ export function appUrlFor(region: string, days: CourseDays): string {
 // 우회도 필요 없어지고(코드도 단순해짐), 청소 주기도 30일이라 아래 TTL과
 // 충돌하지 않는다 — 국내 평점 라이브 조회 캐시(아래 RATING_ENRICH_*)도
 // 이미 같은 테이블을 이렇게 쓰고 있다.
-const BRIEF_CACHE_TTL_MS = 26 * 60 * 60 * 1000; // 하루 1회 워밍 + 다음 크론까지 버틸 여유(1일 + 2시간)
+const BRIEF_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS; // 하루 1회 워밍 + 다음 크론까지 버틸 여유(1일 + 2시간)
 
 // 배분/생성 로직을 바꿀 때마다 올린다 — 작업지시서 2026-09-07 "PR #234
 // 프로덕션 검증 결과" §1: 캐시 키가 지역·일수만 반영해서, 알고리즘을
@@ -2216,7 +2217,8 @@ export function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
 // 부재처럼 이 장소 자체에 대한 판단이 아닌 경우는 캐시하지 않는다 —
 // 그런 걸 캐시해버리면 나중에 조건이 나아져도(키 설정, 서버 응답 빨라짐)
 // 30일 동안 영영 재시도가 안 된다.
-const RATING_ENRICH_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" — 평점·리뷰 수는 Places 콘텐츠라 26시간(원래 30일). 만료 행은 placesRetention 이 지운다.
+const RATING_ENRICH_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS;
 // 같은 물리적 장소로 볼 수 있는 한계 — Kakao/Google 좌표는 같은 곳이면
 // 보통 수십~수백m 안쪽으로 겹치므로, 지역명까지 넣은 검색어의 상위 결과
 // 중 이 거리 안에서 이름까지 맞는 것만 신뢰한다(다른 지역 동명 업체
@@ -2772,7 +2774,9 @@ async function prepareCourseMaps(region: string, days: number, spots: CourseBrie
 /** 저장된 지도 입력 — 없거나 형식이 다르면 null. */
 export async function loadCourseMapInput(region: string, days: number): Promise<CourseMapInput | null> {
   try {
-    const r = await pool.query<{ payload: unknown }>(`select payload from place_candidate_cache where cache_key = $1`, [courseMapInputKey(region, days)]);
+    const r = await pool.query<{ payload: unknown; created_at: string }>(`select payload, created_at from place_candidate_cache where cache_key = $1`, [courseMapInputKey(region, days)]);
+    // 좌표는 최대 30일(Places 약관) — 지난 행은 없는 것으로 보고 코스를 다시 만든다(작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" §2②).
+    if (r.rows[0] && Date.now() - new Date(r.rows[0].created_at).getTime() > PLACES_LATLNG_TTL_MS) return null;
     const p = r.rows[0]?.payload as Partial<CourseMapInput> | undefined;
     if (!p || typeof p.hash !== "string" || !Array.isArray(p.spots) || !Array.isArray(p.mapPaths) || !Array.isArray(p.dayLengths)) return null;
     return p as CourseMapInput;

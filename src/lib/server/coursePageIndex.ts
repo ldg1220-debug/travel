@@ -1,3 +1,4 @@
+import { PLACES_CONTENT_TTL_MS } from "./placesRetention";
 import { pool } from "./db";
 import { COURSE_ALGO_VERSION, isSupportedRegion, resolveScope, type CourseBrief, type CourseDays } from "./courseBrief";
 import { judgeCourseBrief } from "./coursePageGate";
@@ -12,8 +13,8 @@ import { regionTypicalDays, typicalDayRank } from "@/lib/regionTypicalDays";
  * 브리프는 isCacheableBrief(= API 200 기준)를 통과한 것만 캐시에 쓰이고, 거기에 페이지 기준(judgeCourseBrief)
  * 을 한 번 더 건다. 422 조합은 캐시에 없어 자연히 빠진다. lastmod는 브리프 생성 시각(created_at).
  *
- * 한계: 크론이 하루 1회·12건(Hobby 플랜)이라 목록은 며칠에 걸쳐 자란다. 캐시 TTL(26시간)이 지난 행도
- * 14일 안이면 "한 번 200을 확인한 조합"으로 보고 남긴다(페이지는 요청 시 다시 만들 수 있다).
+ * 한계: 크론이 하루 1회·12건(Hobby 플랜)이라 목록은 며칠에 걸쳐 자란다. 캐시 TTL(26시간)이 지난 브리프 행은 요약(info)에 쓰지 않고,
+ * "한 번 200을 확인한 조합"은 course-sitemap 기록(지역·일수만, 30일)으로 남긴다(페이지는 요청 시 다시 만들 수 있다).
  */
 export interface ConfirmedCoursePage {
   region: string;
@@ -23,7 +24,7 @@ export interface ConfirmedCoursePage {
   info?: { spotCount: number; totalDistanceKm: number | null; imageUrl: string | null; reps: string[] };
 }
 
-const MAX_AGE_DAYS = 14;
+// 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" — 브리프 행(이름·평점)은 26시간만 쓴다(원래 14일). 그보다 오래된 조합은 아래 course-sitemap 기록(지역·일수만)으로 목록에만 남는다.
 const MEMO_TTL_MS = 10 * 60 * 1000;
 let memo: { at: number; value: ConfirmedCoursePage[] } | null = null;
 
@@ -38,8 +39,8 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
                  from jsonb_array_elements(case when jsonb_typeof(payload->'spots') = 'array' then payload->'spots' else '[]'::jsonb end) s) as spots,
               payload->>'totalDistanceKm' as "totalDistanceKm", payload->>'imageUrl' as "imageUrl"
          from place_candidate_cache
-        where cache_key like $1 and created_at > now() - ($2 || ' days')::interval`,
-      [`content-brief:%:v${COURSE_ALGO_VERSION}`, String(MAX_AGE_DAYS)],
+        where cache_key like $1 and created_at > now() - ($2 || ' milliseconds')::interval`,
+      [`content-brief:%:v${COURSE_ALGO_VERSION}`, String(PLACES_CONTENT_TTL_MS)],
     );
     const value: ConfirmedCoursePage[] = [];
     for (const row of result.rows) {
