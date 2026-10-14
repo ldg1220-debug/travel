@@ -1,3 +1,4 @@
+import { chooseGuardedMask } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
@@ -97,11 +98,13 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     placeId = resolved;
   }
 
+  // 작업지시서 2026-10-14 "Places 호출 비용" §2 — 평점 · 리뷰 · 영업시간은 Enterprise. 한도에 닿으면 사진만 받고(평점/리뷰 없음), Pro 한도도 닿으면 빈 상세.
+  const guarded = await chooseGuardedMask("details", "photos,reviews,rating,userRatingCount,currentOpeningHours.openNow");
+  if (!guarded) return NextResponse.json(EMPTY_DETAILS);
   const res = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
     headers: {
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask":
-        "photos,reviews,rating,userRatingCount,currentOpeningHours.openNow",
+      "X-Goog-FieldMask": guarded.mask,
       "Accept-Language": "ko",
     },
     cache: "no-store",

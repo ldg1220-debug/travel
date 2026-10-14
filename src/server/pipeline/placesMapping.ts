@@ -1,3 +1,4 @@
+import { chooseGuardedMask } from "@/lib/server/mapsBudget";
 import type { ResolvedPlace } from "./types";
 
 // Minimal field mask — only what the app renders (id, name, coords, rating).
@@ -16,12 +17,14 @@ export async function resolvePlace(nameGuess: string): Promise<ResolvedPlace | n
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return OFFLINE_FIXTURES[nameGuess] ?? null;
 
+  const guarded = await chooseGuardedMask("text", FIELD_MASK); // 작업지시서 2026-10-14 "Places 호출 비용" §2 — rating 은 Enterprise
+  if (!guarded) return null;
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": FIELD_MASK,
+      "X-Goog-FieldMask": guarded.mask,
     },
     body: JSON.stringify({ textQuery: `${nameGuess} Kyoto` }),
   });

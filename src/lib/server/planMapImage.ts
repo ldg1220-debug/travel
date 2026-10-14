@@ -1,3 +1,4 @@
+import { reserveMapsOp } from "./mapsBudget";
 import {
   buildStaticMapUrl,
   computeViewport,
@@ -91,6 +92,8 @@ export async function renderPlanMapPng(items: ItineraryItem[]): Promise<Buffer |
   if (items.length === 0) return null;
   const apiKey = process.env.GOOGLE_MAPS_SERVER_KEY;
   if (!apiKey) return null;
+  // 작업지시서 2026-10-14 "Places 호출 비용" §2① — Static Maps 월 한도 가드(닿으면 null → 라우트가 사이트 기본 이미지로 302).
+  if (!(await reserveMapsOp("static")).allowed) return null;
 
   const { spots, dayItems, viewport } = buildPlanMapSpots(items);
   const mapPaths = await fetchPlanDayRoutePaths(dayItems);

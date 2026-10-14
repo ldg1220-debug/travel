@@ -1,3 +1,4 @@
+import { chooseGuardedMask } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { getTrendingPlaces } from "@/lib/server/getTrendingPlaces";
 import { DOMESTIC_PLACES } from "@/lib/mockPlacesDomestic";
@@ -372,14 +373,16 @@ async function rawGoogleSearch(
   languageCode: string | undefined,
   bias?: { lat: number; lng: number },
 ): Promise<GooglePlaceResult[] | null> {
+  // 작업지시서 2026-10-14 "Places 호출 비용" §2 — Enterprise 필드(평점 · 리뷰 수 · 가격대)는 월 한도 가드를 거친다(강등 시 평점 없이).
+  const guarded = await chooseGuardedMask("text", "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.priceLevel,places.primaryType,places.photos,places.googleMapsUri");
+  if (!guarded) return null;
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask":
-        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.priceLevel,places.primaryType,places.photos,places.googleMapsUri",
+      "X-Goog-FieldMask": guarded.mask,
     },
     body: JSON.stringify({
       textQuery: query,
@@ -480,10 +483,12 @@ function googlePlaceToPlace(p: GooglePlaceResult, nativeText?: string): Place {
 export async function searchByPlaceId(placeId: string): Promise<{ places: Place[]; source: PlaceSearchSource }> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (!apiKey) return { places: [], source: "mock" };
+  const guarded = await chooseGuardedMask("details", "id,displayName,formattedAddress,location,rating,userRatingCount,priceLevel,primaryType,photos,googleMapsUri");
+  if (!guarded) return { places: [], source: "mock" };
   const res = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
     headers: {
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "id,displayName,formattedAddress,location,rating,userRatingCount,priceLevel,primaryType,photos,googleMapsUri",
+      "X-Goog-FieldMask": guarded.mask,
       "Accept-Language": "ko", // 한글 이름/주소 — /api/places/details와 같은 관례
     },
     cache: "no-store",
@@ -685,14 +690,15 @@ async function domesticGoogleFallback(query: string, pageToken?: string): Promis
 
 /** Raw `places:searchText` fetch used for a fresh query or a `pageToken` continuation — returns null on a non-ok response. */
 async function fetchGooglePlacesPage(apiKey: string, body: Record<string, unknown>): Promise<{ places: GooglePlaceResult[]; nextPageToken?: string } | null> {
+  const guarded = await chooseGuardedMask("text", "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.priceLevel,places.primaryType,places.photos,places.googleMapsUri,nextPageToken");
+  if (!guarded) return null;
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask":
-        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.priceLevel,places.primaryType,places.photos,places.googleMapsUri,nextPageToken",
+      "X-Goog-FieldMask": guarded.mask,
     },
     body: JSON.stringify(body),
   });

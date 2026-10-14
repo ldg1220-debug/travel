@@ -1,11 +1,11 @@
 import { purgeExpiredPlacesCache } from "@/lib/server/placesRetention";
-import { maxDaysForRegion, regionTypicalDays } from "@/lib/regionTypicalDays";
+import { maxDaysForRegion } from "@/lib/regionTypicalDays";
+import { fetchRecentlyVisitedTasks } from "@/lib/server/courseVisits";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { getCourseBrief, mapWithConcurrency, pickStaleTasks, type CourseDays, type WarmTask } from "@/lib/server/courseBrief";
-import { flatRegions, type FlatRegion } from "@/lib/discoverData";
+import { flatRegions } from "@/lib/discoverData";
 import { minDaysForStyle } from "@/lib/server/coursePageGate";
-import { ENABLED_COURSE_PAGES } from "@/lib/coursePages";
 
 /**
  * Vercel Cron(vercel.json, 하루 1회) — 블로그 파이프라인이 실제로 쓸
@@ -57,47 +57,6 @@ const WARM_START_DEADLINE_MS = 55_000; // 이후엔 새 조합을 시작하지 �
 const PER_REGION_ENRICH_BUDGET_MS = 8000; // 지시서 §A-3 권장값
 const WARM_CONCURRENCY = 3; // 지시서 §A-3 권장값
 
-// 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §2 —
-// pickStaleTasks가 WARM_TASKS 전체(수백 개)를 하나의 풀로 놓고 가장
-// 오래된 BATCH_SIZE(12)개만 뽑다 보니, sitemap에 올라가는 24개
-// (ENABLED_COURSE_PAGES)도 그 큰 풀 안에서 순번을 기다려야 했다 —
-// 한 번 워밍된 뒤 다시 그 24개 차례가 오기까지 전체 태스크 수에 비례한
-// 날짜가 걸려 TTL(26시간) 안에 못 돌아올 수 있었다. sitemap 우선순위
-// 태스크는 별도 풀로 떼어 매 실행마다 고정된 몫(PRIORITY_BATCH_SIZE)을
-// 먼저 배정하고, 남는 자리만 나머지 태스크에 준다 — 전체 BATCH_SIZE는
-// 그대로라 실행 시간 예산(90초)에 새 위험을 더하지 않는다.
-//
-// 지시서는 크론 주기도 TTL보다 짧게(6시간마다) 줄이라고 했으나, 그
-// 설정(vercel.json "0 */6 * * *")은 PR #270 배포에서 Vercel이 거부했다 —
-// "Hobby accounts are limited to daily cron jobs." 이 프로젝트는 Hobby
-// 플랜이라 하루 1회보다 잦은 크론을 못 쓴다(vercel.json은 하루 1회로
-// 되돌렸다). 그래서 이 우선순위 분리만으로는 24개 전부가 항상 TTL 안에
-// 갱신된다고 보장하지 못한다 — 하루 1회·회당 PRIORITY_BATCH_SIZE(8)개면
-// 24개를 한 바퀴 채우는 데 최대 3일이 걸린다. 그래도 이전(태스크 수백
-// 개와 무순위 경쟁)보다는 훨씬 낫다. 완전히 해결하려면 Pro 플랜으로
-// 크론을 늘리거나, BATCH_SIZE/maxDuration을 함께 올려야 하는데 후자는
-// 실제 실행 시간 실측 없이는 위험하다(90초 예산을 넘기면 배치 전체가
-// 실패할 수 있다 — 위 BATCH_SIZE 주석 참고).
-const PRIORITY_BATCH_SIZE = 24;
-
-// 작업지시서 2026-10-08 "#300 검증" §3②③ — 사이트맵을 빨리 채운다. (a) 우선순위 풀: 지역 popularity 상위 ×
-// (대표 일수 상위 2개)를 먼저, 거기에 기존 ENABLED_COURSE_PAGES. (b) 건수 고정(12건) 대신 시간 예산:
-// 90초 한도 안에서 시작 마감(WARM_START_DEADLINE_MS)까지 계속 새 조합을 시작한다(캐시 히트는 0.2초라 거의
-// 공짜, 캐시 미스는 10~21초 — #300 실측). 동시 3개 · 마감 이후엔 새로 시작하지 않아 진행 중인 것만 끝낸다.
-const POPULAR_REGION_COUNT = 40;
-// 작업지시서 2026-10-13 — 지역 × 대표 일수 상위 2개(regionTypicalDays)를 먼저. 휴양지 2박3일 같은 비대표 일수는 일반 풀이 맡는다.
-const POPULAR_DAYS_PER_REGION = 2;
-const popularRegions = (): FlatRegion[] =>
-  flatRegions("overseas")
-    .filter((r) => r.popularity != null)
-    .sort((a, b) => (a.popularity ?? 99) - (b.popularity ?? 99))
-    .slice(0, POPULAR_REGION_COUNT);
-
-const PRIORITY_TASKS: WarmTask[] = [
-  ...popularRegions().flatMap((r) => regionTypicalDays(r.name).slice(0, POPULAR_DAYS_PER_REGION).map((d): WarmTask => ({ region: r.name, days: d }))),
-  ...ENABLED_COURSE_PAGES.map(({ region, days }): WarmTask => ({ region, days })),
-].filter((t, i, all) => all.findIndex((o) => o.region === t.region && o.days === t.days) === i);
-
 // 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §2 — 사이트맵에는 "크론이 200 확인한 조합"만
 // 오르므로(coursePageIndex.ts), 일반 풀을 지역 × (도시형 1~5일 · 휴양형 2~7일) 전체로 넓힌다. 기존
 // (국내 1일, 해외 2·3일)은 그 부분집합이다. Hobby 플랜(하루 1회·BATCH_SIZE 12)이라 한 바퀴 도는 데
@@ -109,22 +68,18 @@ const allDayTasks = (scope: "domestic" | "overseas"): WarmTask[] =>
     return tasks;
   });
 
-const WARM_TASKS: WarmTask[] = [
-  ...allDayTasks("domestic"),
-  ...allDayTasks("overseas"),
-  // 작업지시서 2026-09-18 "트레쥴이 구글에 7페이지만 올라가 있습니다" §4/§6:
-  // /course/{지역}/{일수} 공개 페이지(coursePages.ts 1단계 허용목록)는
-  // getCourseBrief(캐시 미스 시 라이브 생성 폴백 있음)를 쓰지만, 그래도
-  // 여기서 미리 채워둬야 첫 방문자·크롤러가 콜드 캐시로 라이브 생성
-  // (LLM+DP, 최대 수십 초)을 그대로 기다리지 않는다. (region, days) 쌍
-  // 그대로 워밍한다 — 서울·부산·제주·인천(§3, days=2)이 기존 20곳
-  // (days=3)과 다른 일수라 곱집합으로 되돌리면 안 된다.
-  ...PRIORITY_TASKS,
-];
+const WARM_TASKS: WarmTask[] = [...allDayTasks("domestic"), ...allDayTasks("overseas")];
+const WARM_TASK_KEYS = new Set(WARM_TASKS.map((t) => `${t.region}/${t.days}`));
 
-// 위 우선순위 풀과 겹치는 태스크를 일반 풀에서 뺀다 — 같은 (region,
-// days)가 두 풀 모두에서 뽑혀 한 배치 안에서 두 번 워밍되는 낭비를 막는다.
-const GENERAL_TASKS: WarmTask[] = WARM_TASKS.filter((t) => !PRIORITY_TASKS.some((p) => p.region === t.region && p.days === t.days));
+// 작업지시서 2026-10-14 "긴급: #319 이후 Places 호출 비용" §2③ — 매일 20지역 일괄 재조회는 Places 무료 한도(Enterprise 월 1,000회)를 넘는다.
+// 최근 26시간 안에 방문(코스 페이지 · course-brief 요청)된 조합만, 그중 캐시가 곧 만료되는(20시간 이상 묵은) 것부터 하루 WARM_DAILY_MAX(기본 5)개만 갱신한다.
+// 방문 없는 조합은 만료된 채로 두고 다음 첫 요청 때 만든다(월 예산 가드 안에서). 환경 변수 WARM_DAILY_MAX 로 조정한다.
+const WARM_DAILY_MAX_DEFAULT = 5;
+const WARM_MIN_AGE_MS = 20 * 60 * 60 * 1000;
+function warmDailyMax(): number {
+  const n = Number(process.env.WARM_DAILY_MAX);
+  return Number.isInteger(n) && n >= 0 ? n : WARM_DAILY_MAX_DEFAULT;
+}
 
 export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const secret = process.env.CRON_SECRET;
@@ -135,9 +90,8 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const priorityBatch = await pickStaleTasks(PRIORITY_TASKS, PRIORITY_BATCH_SIZE);
-  const generalBatch = await pickStaleTasks(GENERAL_TASKS, BATCH_SIZE - priorityBatch.length);
-  const batch = [...priorityBatch, ...generalBatch];
+  const visited = (await fetchRecentlyVisitedTasks()).filter((t) => WARM_TASK_KEYS.has(`${t.region}/${t.days}`));
+  const batch = await pickStaleTasks(visited, Math.min(warmDailyMax(), BATCH_SIZE), { minAgeMs: WARM_MIN_AGE_MS });
 
   const startedAt = Date.now();
   let skipped = 0;
@@ -171,5 +125,5 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   });
   if (purged) console.log(`[warm-course-brief] places cache purge: content=${purged.content} latLng=${purged.latLng}`);
 
-  return NextResponse.json({ ok: true, purged, totalTasks: WARM_TASKS.length, batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
+  return NextResponse.json({ ok: true, purged, totalTasks: WARM_TASKS.length, visited: visited.length, dailyMax: warmDailyMax(), batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
 });

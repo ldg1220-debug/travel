@@ -1,3 +1,4 @@
+import { reserveMapsOp } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
@@ -26,6 +27,10 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "Google API key missing" }, { status: 500 });
   }
 
+  // 작업지시서 2026-10-14 "Places 호출 비용" §2① — 사진(Place Photos)은 월 무료 1,000회. 한도(90%)에 닿으면 호출하지 않는다(화면은 사진 없음/플레이스홀더).
+  if (!(await reserveMapsOp("photos")).allowed) {
+    return NextResponse.json({ error: "photo budget exhausted" }, { status: 404, headers: { "Cache-Control": "public, max-age=600" } });
+  }
   const res = await fetch(
     `https://places.googleapis.com/v1/${name}/media?maxWidthPx=${width}&skipHttpRedirect=true`,
     { headers: { "X-Goog-Api-Key": apiKey }, cache: "no-store" },

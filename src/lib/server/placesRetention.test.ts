@@ -20,7 +20,7 @@ describe("placesRetention", () => {
   });
 
   it("purge: 콘텐츠 행(후보 풀·브리프·평점)과 좌표 행(지도 입력)만 지우고 사이트맵 기록·카운터는 건드리지 않는다", async () => {
-    queryMock.mockResolvedValueOnce({ rowCount: 5 }).mockResolvedValueOnce({ rowCount: 2 });
+    queryMock.mockResolvedValueOnce({ rowCount: 5 }).mockResolvedValueOnce({ rowCount: 2 }).mockResolvedValue({ rowCount: 0 });
     expect(await purgeExpiredPlacesCache()).toEqual({ content: 5, latLng: 2 });
     const [contentSql, contentParams] = queryMock.mock.calls[0];
     expect(contentSql).toContain("content-brief:%");

@@ -168,8 +168,9 @@ export function matchEnabledCourseRegion(title: string): string | null {
 // 자체는 호출부(page.tsx, 서버 컴포넌트)가 minViableSpots(style, days)로
 // 계산해 여기엔 숫자로만 넘긴다 — 이 함수는 여전히 courseBrief.ts를
 // 몰라도 되는 순수 함수로 남는다.
-export function isCourseBriefThin(spots: CourseBriefSpot[], minSpots: number): boolean {
+export function isCourseBriefThin(spots: CourseBriefSpot[], minSpots: number, opts: { ratingsUnavailable?: boolean } = {}): boolean {
   if (spots.length < minSpots) return true;
+  if (opts.ratingsUnavailable) return false; // 월 한도로 평점 없이 만든 코스 — 작업지시서 2026-10-14 "Places 호출 비용" §2①
   const unrated = spots.filter((s) => s.rating == null).length;
   return unrated / spots.length >= 0.5;
 }

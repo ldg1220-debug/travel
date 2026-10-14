@@ -5,10 +5,6 @@
       "schedule": "0 3 * * *"
     },
     {
-      "path": "/api/cron/refresh-spot-metrics",
-      "schedule": "0 4 1 * *"
-    },
-    {
       "path": "/api/cron/warm-course-brief",
       "schedule": "0 5 * * *"
     }

@@ -132,11 +132,11 @@ describe("평점·좌표 매칭 반영 (2026-08-14)", () => {
     for (const [, ids] of names) expect(ids.length).toBe(1);
   });
 
-  it("matched 스팟은 placeId·rating·reviewCount를 갖고 좌표는 그대로다", () => {
+  it("matched 스팟은 placeId를 갖고 좌표는 그대로다 — rating·reviewCount는 커밋하지 않는다(Places 약관 · 2026-10-14)", () => {
     const spot = allSpots("domestic").find((s) => s.id === "d-t1")!;
     expect(spot.placeId).toBe("ChIJI9pHulD1DDURR1SI8elRLgA");
-    expect(spot.rating).toBe(4.3);
-    expect(spot.reviewCount).toBe(526);
+    expect(spot.rating).toBeUndefined();
+    expect(spot.reviewCount).toBeUndefined();
     expect(spot.lat).toBeCloseTo(33.4623, 3);
   });
 
