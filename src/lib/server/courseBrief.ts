@@ -741,9 +741,13 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ROUTE_CALL_TIMEOUT_MS);
+  // 작업지시서 2026-10-14 "Google API 사용처 문서화" §1② — Directions 오류율(콘솔 30일 약 17%)의 원인을 로그로 가리기 위해 호출마다 응답 status 를 한 줄로 남긴다.
+  // `[directions] status=OK|ZERO_RESULTS|NOT_FOUND|OVER_QUERY_LIMIT|REQUEST_DENIED|http_4xx|REQUEST_FAILED mode=… scope=…` — Vercel 로그에서 status 별로 센다.
+  let directionsStatus = "REQUEST_FAILED";
   try {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) {
+      directionsStatus = `http_${res.status}`;
       console.warn(`[courseBrief] route-fail ${legCoordsLabel(a, b)} mode=${mode} status=http_${res.status}`);
       return null;
     }
@@ -752,6 +756,7 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
       error_message?: string;
       routes?: Array<{ legs?: Array<{ distance?: { value: number }; duration?: { value: number } }>; overview_polyline?: { points: string } }>;
     };
+    directionsStatus = data.status;
     if (data.status === "ZERO_RESULTS" || data.status === "NOT_FOUND") {
       console.log(`[courseBrief] route-fail ${legCoordsLabel(a, b)} mode=${mode} status=${data.status}`);
       return "no-route";
@@ -784,6 +789,7 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
     return null;
   } finally {
     clearTimeout(timer);
+    console.log(`[directions] status=${directionsStatus} mode=${mode}`);
   }
 }
 
