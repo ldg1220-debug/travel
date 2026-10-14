@@ -42,10 +42,10 @@ export function resolveCoursePageRoute(region: string, daysSegment: string): Cou
 }
 
 /** 브리프가 페이지로 낼 만한가 — course-brief API(422)·사이트맵과 같은 기준. 통과면 null, 아니면 사유. */
-export function judgeCourseBrief(brief: Pick<CourseBrief, "spots">, region: string, days: CourseDays): string | null {
+export function judgeCourseBrief(brief: Pick<CourseBrief, "spots"> & { ratingsUnavailable?: boolean }, region: string, days: CourseDays): string | null {
   const style = styleForRegion(region);
   const min = minViableSpots(style, days);
-  if (isCourseBriefThin(brief.spots as CourseBrief["spots"], min)) return `thin(spots=${brief.spots.length} min=${min} unrated=${brief.spots.filter((s) => s.rating == null).length})`;
+  if (isCourseBriefThin(brief.spots as CourseBrief["spots"], min, { ratingsUnavailable: brief.ratingsUnavailable })) return `thin(spots=${brief.spots.length} min=${min} unrated=${brief.spots.filter((s) => s.rating == null).length})`;
   if (!meetsResortBeachRequirement(brief.spots, style)) return "no-beach";
   return null;
 }

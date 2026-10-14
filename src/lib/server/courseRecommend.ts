@@ -1,3 +1,4 @@
+import { chooseGuardedMask } from "./mapsBudget";
 import { PLACES_CONTENT_TTL_MS } from "./placesRetention";
 import { regionSelfNames } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
@@ -519,6 +520,8 @@ export function sameShop(a: string, b: string): boolean {
 // 재사용한다 — 검색 요청 자체는 여기 있는 로직 그대로 쓰고, 호출부에서
 // 캐시하는 방식(courseRecommend.ts 자체의 place_candidate_cache와 같은
 // 패턴)으로 쿼터를 지킨다.
+const GOOGLE_TOP_FIELD_MASK =
+  "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryType,places.photos,places.googleMapsUri";
 export async function googleTop(
   query: string,
   apiKey: string,
@@ -526,6 +529,10 @@ export async function googleTop(
   signal?: AbortSignal,
   onFailure?: (status: number) => void,
 ): Promise<GooglePlace[]> {
+  // 작업지시서 2026-10-14 "Places 호출 비용" §2①② — rating · userRatingCount 를 받으면 Enterprise 라 월 무료 1,000회다. 한도(90%)에 닿으면 평점 없이 Pro 필드로
+  // 강등하고(코스는 평점 없이 만들어진다), Pro 한도도 닿으면 이 검색을 건너뛴다.
+  const guarded = await chooseGuardedMask("text", GOOGLE_TOP_FIELD_MASK);
+  if (!guarded) return [];
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     cache: "no-store",
@@ -533,8 +540,7 @@ export async function googleTop(
     headers: {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask":
-        "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryType,places.photos,places.googleMapsUri",
+      "X-Goog-FieldMask": guarded.mask,
     },
     body: JSON.stringify({ textQuery: query, maxResultCount: 20, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
   });

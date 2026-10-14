@@ -33,11 +33,11 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
   if (memo && Date.now() - memo.at < MEMO_TTL_MS) return memo.value;
   try {
     // payload 전체 대신 판정에 필요한 필드만 SQL에서 뽑는다(spots 각 항목의 name·category·rating·beach).
-    const result = await pool.query<{ region: string | null; days: string | null; created_at: Date; spots: unknown; totalDistanceKm: string | null; imageUrl: string | null }>(
+    const result = await pool.query<{ region: string | null; days: string | null; created_at: Date; spots: unknown; totalDistanceKm: string | null; imageUrl: string | null; ratingsUnavailable: string | null }>(
       `select payload->>'region' as region, payload->>'days' as days, created_at,
               (select coalesce(jsonb_agg(jsonb_build_object('name', s->'name', 'category', s->'category', 'rating', s->'rating', 'reviewCount', s->'reviewCount', 'beach', s->'beach', 'lodging', s->'lodging')), '[]'::jsonb)
                  from jsonb_array_elements(case when jsonb_typeof(payload->'spots') = 'array' then payload->'spots' else '[]'::jsonb end) s) as spots,
-              payload->>'totalDistanceKm' as "totalDistanceKm", payload->>'imageUrl' as "imageUrl"
+              payload->>'totalDistanceKm' as "totalDistanceKm", payload->>'imageUrl' as "imageUrl", payload->>'ratingsUnavailable' as "ratingsUnavailable"
          from place_candidate_cache
         where cache_key like $1 and created_at > now() - ($2 || ' milliseconds')::interval`,
       [`content-brief:%:v${COURSE_ALGO_VERSION}`, String(PLACES_CONTENT_TTL_MS)],
@@ -47,7 +47,7 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
       const days = Number(row.days);
       if (!row.region || !Number.isInteger(days) || days < 1 || days > 7 || !Array.isArray(row.spots)) continue;
       const spots = row.spots as CourseBrief["spots"];
-      if (judgeCourseBrief({ spots }, row.region, days as CourseDays) != null) continue;
+      if (judgeCourseBrief({ spots, ratingsUnavailable: row.ratingsUnavailable === "true" }, row.region, days as CourseDays) != null) continue;
       const km = row.totalDistanceKm != null ? Number(row.totalDistanceKm) : null;
       value.push({
         region: row.region,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { get } from "@vercel/blob";
 import { pool } from "@/lib/server/db";
+import { getMapsUsage } from "@/lib/server/mapsBudget";
 import { BLOB_ADVANCED_MONTHLY_LIMIT, getBlobAdvancedOps, isBlobLimitError } from "@/lib/server/blobBudget";
 
 /**
@@ -35,7 +36,7 @@ async function checkDb(): Promise<{ status: "ok" | "error"; message?: string }> 
 }
 
 export async function GET() {
-  const [blob, db] = await Promise.all([checkBlob(), checkDb()]);
+  const [blob, db, maps] = await Promise.all([checkBlob(), checkDb(), getMapsUsage()]);
   const ok = db.status === "ok" && (blob.status === "ok" || blob.status === "unconfigured");
   return NextResponse.json(
     {
@@ -43,6 +44,8 @@ export async function GET() {
       db,
       blob,
       staticMapsKey: Boolean(process.env.GOOGLE_MAPS_SERVER_KEY),
+      // 작업지시서 2026-10-14 "Places 호출 비용" §2① — SKU 별 이번 달 호출 수와 가드 상한(월 무료 한도의 90%). limit 에 닿으면 그 SKU 호출은 건너뛴다.
+      maps,
       checkedAt: new Date().toISOString(),
     },
     { status: ok ? 200 : 503, headers: { "cache-control": "no-store" } },

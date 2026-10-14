@@ -39,5 +39,9 @@ export async function purgeExpiredPlacesCache(): Promise<PurgeResult> {
     `delete from place_candidate_cache where created_at < now() - ($1 || ' milliseconds')::interval and cache_key like 'course-map-input:%'`,
     [String(PLACES_LATLNG_TTL_MS)],
   );
+  // /discover 큐레이션 지표(spot_place_metrics) — place_id 는 무기한 보관 가능, 평점 등 값은 콘텐츠라 28시간 초과 행을 지운다.
+  await pool.query(`delete from spot_place_metrics where updated_at < now() - ($1 || ' milliseconds')::interval`, [String(PLACES_CONTENT_PURGE_MS)]).catch(() => undefined);
+  // 방문 기록(course-visit)은 26시간 창으로만 쓰므로 7일 지난 것은 정리한다(Places 값은 없다).
+  await pool.query(`delete from place_candidate_cache where created_at < now() - interval '7 days' and cache_key like 'course-visit:%'`);
   return { content: content.rowCount ?? 0, latLng: latLng.rowCount ?? 0 };
 }

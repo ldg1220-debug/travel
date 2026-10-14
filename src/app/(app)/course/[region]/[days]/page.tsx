@@ -1,3 +1,4 @@
+import { recordCourseVisit } from "@/lib/server/courseVisits";
 import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -111,6 +112,7 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
     console.warn(`[course-page] gate rejected: region=${JSON.stringify(region)} daysSegment=${JSON.stringify(daysSegment)} reason=${route.reason}`);
     return { kind: "missing", reason: route.reason };
   }
+  recordCourseVisit(route.region, route.days); // 작업지시서 2026-10-14 §2③ — 워밍 크론은 최근 방문된 조합만 갱신한다
   let brief: CourseBrief;
   try {
     brief = await getCourseBrief(route.region, route.days);

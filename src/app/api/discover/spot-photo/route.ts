@@ -1,3 +1,4 @@
+import { chooseGuardedMask, reserveMapsOp } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
@@ -43,14 +44,18 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   if (!apiKey) return NextResponse.json({ error: "no api key" }, { status: 404, headers: CACHE_HEADERS });
 
   let photoName = photoNameMemo.get(q);
+  // 작업지시서 2026-10-14 "Places 호출 비용" §2 — 검색(Text Search Pro)과 사진(Photos)은 월 한도 가드를 거친다. 닿으면 사진 없음(플레이스홀더)로 짧게 응답한다.
+  const BUDGET_SKIP = { "Cache-Control": "public, max-age=600" };
   if (photoName === undefined) {
+    const guarded = await chooseGuardedMask("text", "places.photos");
+    if (!guarded) return NextResponse.json({ error: "photo budget exhausted" }, { status: 404, headers: BUDGET_SKIP });
     const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
       cache: "no-store",
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.photos",
+        "X-Goog-FieldMask": guarded.mask,
       },
       body: JSON.stringify({ textQuery: q, maxResultCount: 1, languageCode: "ko" }),
     });
@@ -63,6 +68,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   }
   if (!photoName) return NextResponse.json({ error: "no photo" }, { status: 404, headers: CACHE_HEADERS });
 
+  if (!(await reserveMapsOp("photos")).allowed) return NextResponse.json({ error: "photo budget exhausted" }, { status: 404, headers: BUDGET_SKIP });
   const media = await fetch(
     `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=480&skipHttpRedirect=true`,
     { headers: { "X-Goog-Api-Key": apiKey }, cache: "no-store" },

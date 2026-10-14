@@ -1,5 +1,6 @@
 import { regionCoords } from "@/lib/regionTypicalDays";
 import { PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS } from "@/lib/server/placesRetention";
+import { isMapsBudgetExhausted, reserveMapsOp } from "@/lib/server/mapsBudget";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
@@ -127,6 +128,11 @@ export interface CourseBriefSpot {
 }
 
 export interface CourseBrief {
+  /**
+   * 작업지시서 2026-10-14 "Places 호출 비용" §2① — 월 무료 한도(Enterprise)에 닿아 평점 없이 만든 코스. true 면 "평점 없는 스팟이 절반 이상"이어도 얇은 콘텐츠로
+   * 보지 않는다(옛 값을 쓰는 대신 평점 없이 보여주는 쪽 — 페이지가 월말까지 404 가 되지 않게). 평소엔 없다.
+   */
+  ratingsUnavailable?: boolean;
   region: string;
   days: CourseDays;
   totalDistanceKm: number;
@@ -402,9 +408,9 @@ export function courseSitemapKey(region: string, days: number): string {
   return `course-sitemap:${normalizeForMatch(region)}:${days}`;
 }
 
-export async function recordConfirmedCoursePage(brief: Pick<CourseBrief, "region" | "days" | "spots">, style: RegionStyle, days: CourseDays): Promise<void> {
+export async function recordConfirmedCoursePage(brief: Pick<CourseBrief, "region" | "days" | "spots" | "ratingsUnavailable">, style: RegionStyle, days: CourseDays): Promise<void> {
   if (!isCacheableBrief(brief.spots, style, days)) return;
-  if (isCourseBriefThin(brief.spots, minViableSpots(style, days))) return;
+  if (isCourseBriefThin(brief.spots, minViableSpots(style, days), { ratingsUnavailable: brief.ratingsUnavailable })) return;
   try {
     await pool.query(
       `insert into place_candidate_cache (cache_key, payload) values ($1, $2)
@@ -725,6 +731,8 @@ const GOOGLE_DIRECTIONS_URL = "https://maps.googleapis.com/maps/api/directions/j
 export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode: "walking" | "transit" | "driving"): Promise<RouteMeasurement | "no-route" | null> {
   const apiKey = process.env.GOOGLE_MAPS_SERVER_KEY;
   if (!apiKey) return null;
+  // 작업지시서 2026-10-14 "Places 호출 비용" §2① — 경로 조회는 월 무료 한도(90%)까지만. 닿으면 null(호출부가 직선 추정으로 폴백한다).
+  if (!(await reserveMapsOp("routes")).allowed) return null;
   const url = new URL(GOOGLE_DIRECTIONS_URL);
   url.searchParams.set("origin", `${a.lat},${a.lng}`);
   url.searchParams.set("destination", `${b.lat},${b.lng}`);
@@ -2753,6 +2761,7 @@ export function courseMapUrl(region: string, days: number, hash: string, day?: n
 async function prepareCourseMaps(region: string, days: number, spots: CourseBriefSpot[], mapPaths: string[], dayLengths: number[]): Promise<{ imageUrl: string | null; dayImageUrls: (string | null)[] }> {
   const none = { imageUrl: null, dayImageUrls: dayLengths.map(() => null) };
   if (spots.length === 0 || !process.env.GOOGLE_MAPS_SERVER_KEY) return none;
+  if (await isMapsBudgetExhausted("static")) return none; // 한도에 닿았으면 지도 없이(imageUrl null) — 작업지시서 2026-10-14 §2①
   const input: CourseMapInput = { hash: "", spots: spots.map((p) => ({ order: p.order, lat: p.lat, lng: p.lng })), mapPaths, dayLengths };
   input.hash = computeMapHash(input.spots, input.mapPaths, input.dayLengths);
   try {
@@ -2790,6 +2799,8 @@ export async function loadCourseMapInput(region: string, days: number): Promise<
 export async function renderCourseMapPng(input: CourseMapInput, day: number | null): Promise<Buffer | null> {
   const apiKey = process.env.GOOGLE_MAPS_SERVER_KEY; // 사유는 buildStaticMapUrl 위 주석 참고 — Static Maps 전용 서버 키
   if (!apiKey) return null;
+  // 작업지시서 2026-10-14 "Places 호출 비용" §2① — Static Maps 는 월 무료 10,000회(상한 90%). 닿으면 지도를 그리지 않는다(CDN HIT 은 여기까지 오지 않는다).
+  if (!(await reserveMapsOp("static")).allowed) return null;
   let spots = input.spots;
   let mapPaths = input.mapPaths;
   let viewport: MapViewport | undefined;
@@ -4378,8 +4389,12 @@ export async function buildBrief(
       routedDays.map((d) => d.stops.length),
     ));
   }
+  // 평점이 절반 넘게 비었고 Enterprise 한도(가드)에 닿아 있으면 "평점 없이 만든 코스"로 표시한다(작업지시서 2026-10-14 §2①).
+  const unratedShare = finalSpots.length > 0 ? finalSpots.filter((s) => s.rating == null).length / finalSpots.length : 0;
+  const ratingsUnavailable = unratedShare >= 0.5 && (await isMapsBudgetExhausted("text-enterprise"));
   brief = {
     ...brief,
+    ...(ratingsUnavailable ? { ratingsUnavailable: true } : {}),
     spots: finalSpots,
     imageUrl,
     dayImageUrls,
@@ -4534,15 +4549,18 @@ export interface WarmTask {
  * 애초에 안 쓰이므로, 워밍 크론이 국내는 days=1을, 해외는 days=2·3을
  * 태스크로 넘긴다.
  */
-export async function pickStaleTasks(tasks: WarmTask[], limit: number): Promise<WarmTask[]> {
+export async function pickStaleTasks(tasks: WarmTask[], limit: number, opts: { minAgeMs?: number } = {}): Promise<WarmTask[]> {
+  if (tasks.length === 0 || limit <= 0) return [];
   const keys = tasks.map((t) => briefCacheKey(resolveScope(t.region), t.region, t.days));
   const result = await pool.query<{ cache_key: string; created_at: string }>(
     `select cache_key, created_at from place_candidate_cache where cache_key = any($1)`,
     [keys],
   );
   const createdAtByKey = new Map(result.rows.map((row) => [row.cache_key, new Date(row.created_at).getTime()]));
+  const freshSince = opts.minAgeMs != null ? Date.now() - opts.minAgeMs : null; // minAgeMs 보다 최근에 만든 캐시는 아직 갱신할 필요가 없다(작업지시서 2026-10-14 §2③)
   return tasks
     .map((task, i) => ({ task, age: createdAtByKey.get(keys[i]) ?? -Infinity })) // 캐시 없음 = 가장 오래된 것으로 취급(맨 앞으로)
+    .filter((x) => freshSince == null || x.age <= freshSince)
     .sort((a, b) => a.age - b.age)
     .slice(0, limit)
     .map((x) => x.task);

@@ -1,3 +1,4 @@
+import { recordCourseVisit } from "@/lib/server/courseVisits";
 import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
@@ -55,6 +56,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const refresh = isRefreshTokenValid(refreshParam, process.env.CRON_SECRET);
   if (refreshParam && !refresh) console.log("[courseBrief] refresh 토큰이 유효하지 않아 무시했습니다");
   console.log(`[courseBrief] route=course-brief region=${region} days=${days} refresh=${refresh}`);
+  recordCourseVisit(region, days); // 작업지시서 2026-10-14 §2③ — 워밍 크론은 최근 방문된 조합만 갱신한다
   let brief;
   try {
     brief = await getCourseBrief(region, days, undefined, { refresh });
