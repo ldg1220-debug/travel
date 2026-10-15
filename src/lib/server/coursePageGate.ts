@@ -12,6 +12,14 @@ import { courseCanonicalPath, isCourseBriefThin, labelToDays } from "@/lib/cours
  * 숫자로 와도 정본 주소로 영구 리다이렉트한다.
  */
 
+/** 코스를 일시적으로 만들 수 없다(404 아님) — 사유는 thin/no-beach/brief-threw. */
+export class CoursePageUnavailableError extends Error {
+  constructor(reason: string) {
+    super(`course-page-unavailable: ${reason}`);
+    this.name = "CoursePageUnavailableError";
+  }
+}
+
 export type CoursePageRoute =
   | { kind: "ok"; region: string; days: CourseDays }
   | { kind: "redirect"; to: string }

@@ -4,9 +4,9 @@ import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
 import { GoogleAttribution } from "@/components/GoogleAttribution";
-import { getCourseBrief, type CourseBrief, type CourseDays } from "@/lib/server/courseBrief";
+import { getCourseBrief, UnsupportedRegionError, type CourseBrief, type CourseDays } from "@/lib/server/courseBrief";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
-import { judgeCourseBrief, resolveCoursePageRoute } from "@/lib/server/coursePageGate";
+import { CoursePageUnavailableError, judgeCourseBrief, resolveCoursePageRoute } from "@/lib/server/coursePageGate";
 import { fetchConfirmedCoursePages, parentOfRegion, pickRelatedCourseLinks } from "@/lib/server/coursePageIndex";
 import {
   buildCourseBreadcrumbJsonLd,
@@ -98,7 +98,7 @@ function normalizeParam(value: string): string {
 type LoadedCoursePage =
   | { kind: "ok"; brief: CourseBrief; region: string; days: CourseDays }
   | { kind: "redirect"; to: string }
-  | { kind: "missing"; reason: string };
+  | { kind: "missing"; reason: string; /** 존재하지 않는 지역·일수(영구 404) — false 면 일시적으로 못 만든 것(503 대신 5xx 로 색인 보호). */ permanent: boolean };
 
 /**
  * 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §1·§2 — 입구는 허용목록이 아니라
@@ -110,7 +110,7 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
   if (route.kind === "redirect") return route;
   if (route.kind === "reject") {
     console.warn(`[course-page] gate rejected: region=${JSON.stringify(region)} daysSegment=${JSON.stringify(daysSegment)} reason=${route.reason}`);
-    return { kind: "missing", reason: route.reason };
+    return { kind: "missing", reason: route.reason, permanent: true };
   }
   recordCourseVisit(route.region, route.days); // 작업지시서 2026-10-14 §2③ — 워밍 크론은 최근 방문된 조합만 갱신한다
   let brief: CourseBrief;
@@ -118,14 +118,15 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
     brief = await getCourseBrief(route.region, route.days);
   } catch (err) {
     console.error(`[course-page] getCourseBrief threw: region=${route.region} days=${route.days}`, err);
-    return { kind: "missing", reason: "brief-threw" };
+    // 지원하지 않는 지역은 존재하지 않는 페이지(영구 404), 그 밖의 예외는 일시적 실패다.
+    return { kind: "missing", reason: "brief-threw", permanent: err instanceof UnsupportedRegionError };
   }
   // 작업지시서 2026-09-28 §2-② · 2026-09-29 "#277 검증" §2 — API(course-brief route.ts)·사이트맵과 같은
   // 기준(judgeCourseBrief: minViableSpots · 얇은 콘텐츠 · 휴양형 해변)을 쓴다.
   const rejected = judgeCourseBrief(brief, route.region, route.days);
   if (rejected) {
     console.warn(`[course-page] brief rejected: region=${route.region} days=${route.days} reason=${rejected}`);
-    return { kind: "missing", reason: rejected };
+    return { kind: "missing", reason: rejected, permanent: false };
   }
   return { kind: "ok", brief, region: route.region, days: route.days };
 });
@@ -133,6 +134,7 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
 export async function generateMetadata({ params }: { params: Promise<CoursePageParams> }): Promise<Metadata> {
   const raw = await params;
   const loaded = await loadCoursePage(normalizeParam(raw.region), normalizeParam(raw.days));
+  if (loaded.kind === "missing" && !loaded.permanent) return { title: "코스를 준비하고 있어요 - 트레쥴", robots: { index: false, follow: true } };
   if (loaded.kind !== "ok") return { title: "코스를 찾을 수 없어요 - 트레쥴", robots: { index: false, follow: true } };
   const { brief, region, days } = loaded;
 
@@ -165,8 +167,11 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
   if (loaded.kind === "redirect") permanentRedirect(loaded.to);
   if (loaded.kind === "missing") {
     // Vercel 로그에서 사유(unsupported-region · days-out-of-range · thin · no-beach · brief-threw)를 바로 본다.
-    console.warn(`[course-page] notFound: region=${normalizeParam(raw.region)} daysSegment=${normalizeParam(raw.days)} reason=${loaded.reason}`);
-    notFound();
+    console.warn(`[course-page] ${loaded.permanent ? "notFound" : "unavailable"}: region=${normalizeParam(raw.region)} daysSegment=${normalizeParam(raw.days)} reason=${loaded.reason}`);
+    // 작업지시서 2026-10-15 장애 §2③ — 404 는 "존재하지 않는 지역·일수"일 때만. 코스를 일시적으로 못 만든 경우(예산 가드로 스팟 부족 · 생성 실패)는 404 로 끝내지 않는다:
+    // Google 이 404 가 이어지면 색인에서 뺀다. App Router 페이지는 상태 코드를 직접 못 정해 5xx(error 경계)로 응답한다 — 일시적 오류라 색인을 유지한다(503 + Retry-After 는 못 줌).
+    if (loaded.permanent) notFound();
+    throw new CoursePageUnavailableError(loaded.reason);
   }
   const { brief, region, days } = loaded;
   const daysLabel = dayDisplayLabel(region, days);

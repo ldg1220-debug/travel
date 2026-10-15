@@ -416,6 +416,8 @@ export interface GooglePlace {
   primaryType?: string;
   photos?: { name: string }[];
   googleMapsUri?: string;
+  /** 예산 가드 강등(평점 필드 없이 받음)으로 rating 이 비어 있다 — 품질 게이트가 이 후보를 떨어뜨리지 않게 표시한다. */
+  ratingsSkipped?: boolean;
 }
 
 /** rating weighted by log(review count) — favors well-reviewed AND well-rated places over a 5.0 with 3 reviews. */
@@ -571,7 +573,8 @@ export async function googleTop(
     return [];
   }
   const data = (await res.json()) as { places?: GooglePlace[] };
-  return data.places ?? [];
+  const places = data.places ?? [];
+  return guarded.degraded ? places.map((p) => ({ ...p, ratingsSkipped: true })) : places;
 }
 
 interface KakaoDoc {
@@ -607,6 +610,7 @@ function googleToPlace(p: GooglePlace, fallbackCategory: string): Place {
     lng: p.location?.longitude ?? 0,
     rating: p.rating,
     reviewCount: p.userRatingCount,
+    ...(p.ratingsSkipped ? { ratingUnavailable: true } : {}),
     address: p.formattedAddress,
     photoName: p.photos?.[0]?.name,
     googleMapsUri: p.googleMapsUri,
@@ -947,6 +951,9 @@ const DEFAULT_MIN_REVIEWS = 12;
  */
 export function passesQualityGate(p: Place, scope: "overseas" | "domestic", slotCategory?: RecommendSlot["category"]): boolean {
   if (scope === "domestic") return true;
+  // 작업지시서 2026-10-15 장애(#322 이후 코스 페이지 404) — 예산 가드로 평점 없이 받은 후보는 게이트에서 떨어뜨리지 않는다. 안 그러면 강등 검색 결과 전부가
+  // 평점 없음으로 걸러져 스팟이 임계 미만(count 8 < 9)이 되고 422 → 404 가 된다.
+  if (p.ratingUnavailable) return true;
   if (p.rating == null || p.reviewCount == null) return false;
   const min = slotCategory ? (MIN_REVIEWS_BY_CATEGORY[slotCategory] ?? DEFAULT_MIN_REVIEWS) : DEFAULT_MIN_REVIEWS;
   return p.reviewCount >= min;
