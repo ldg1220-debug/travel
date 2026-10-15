@@ -1,4 +1,4 @@
-import { chooseGuardedMask, reserveMapsOp } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, reserveMapsOp, settleGuarded } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
@@ -59,6 +59,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
       },
       body: JSON.stringify({ textQuery: q, maxResultCount: 1, languageCode: "ko" }),
     });
+    await settleGuarded(guarded, res.status);
     if (!res.ok) {
       return NextResponse.json({ error: "lookup failed" }, { status: 404, headers: CACHE_HEADERS });
     }

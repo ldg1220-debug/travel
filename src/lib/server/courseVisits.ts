@@ -33,6 +33,24 @@ export function recordCourseVisit(region: string, days: number, now = Date.now()
     });
 }
 
+/**
+ * 갱신할 조합(오래된 것부터 정렬돼 있다)을 지역 단위로 묶고, 처음 나온 순서대로 최대 maxRegions 개 지역만 남긴다 — 한 지역의 방문된 일수는 전부 같은 후보 풀로 만든다.
+ * 지역 안의 일수는 오름차순. (작업지시서 2026-10-15 "긴급: 평점 검색(Enterprise) 하루 만에 243/900" §2④)
+ */
+export function groupTasksByRegion(tasks: readonly WarmTask[], maxRegions: number): WarmTask[][] {
+  const order: string[] = [];
+  const byRegion = new Map<string, WarmTask[]>();
+  for (const t of tasks) {
+    if (!byRegion.has(t.region)) {
+      if (order.length >= maxRegions) continue;
+      order.push(t.region);
+      byRegion.set(t.region, []);
+    }
+    byRegion.get(t.region)!.push(t);
+  }
+  return order.map((r) => byRegion.get(r)!.sort((a, b) => a.days - b.days));
+}
+
 /** 최근 windowMs 안에 방문된 (지역, 일수) — 가장 최근 방문순. DB 오류면 빈 목록. */
 export async function fetchRecentlyVisitedTasks(windowMs = VISIT_WINDOW_MS): Promise<WarmTask[]> {
   try {

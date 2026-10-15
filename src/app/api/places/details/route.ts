@@ -1,4 +1,4 @@
-import { chooseGuardedMask } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, settleGuarded } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
@@ -109,6 +109,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     },
     cache: "no-store",
   });
+  await settleGuarded(guarded, res.status); // 작업지시서 2026-10-15 §2③ — 처리된(2xx) 호출만 센다
   if (!res.ok) {
     return NextResponse.json({ error: "details lookup failed" }, { status: res.status === 404 ? 404 : 502 });
   }

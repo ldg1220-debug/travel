@@ -22,7 +22,13 @@
 
 ## B. 호출 지점 ↔ API ↔ SKU ↔ 키 ↔ 가드 ↔ 한도 시 동작
 
-월 무료 한도·가드는 `src/lib/server/mapsBudget.ts`(DB 카운터 `maps-ops:{sku}:YYYY-MM`, 호출 직전 +1, 상한 = 무료 한도의 90%). 현재 사용량은 `GET /api/health` 의 `maps`. 가드 시험은 환경 변수 `MAPS_BUDGET_OVERRIDE='{"text-enterprise":0}'`.
+월 무료 한도·가드는 `src/lib/server/mapsBudget.ts`(DB 카운터 `maps-ops:{sku}:YYYY-MM`, 호출 직전 +1, 상한 = 무료 한도의 90%). 현재 사용량은 `GET /api/health` 의 `maps`(SKU 별 `count/limit/freeLimit`, Enterprise 는 `todayCount/todayLimit` 포함). 가드 시험은 환경 변수 `MAPS_BUDGET_OVERRIDE='{"text-enterprise":0}'`.
+
+2026-10-15 보강(작업지시서 "평점 검색(Enterprise) 하루 만에 243/900"):
+- **일 단위 페이싱**(Enterprise 두 SKU): 오늘 상한 = `floor((월 상한 − 오늘 이전 사용) / 남은 날수)`, 최소 10(예: 10/15 → (900−243)/17 ≈ 38). 사용자 요청은 오늘 상한까지, **워밍 크론은 오늘 상한의 50%까지**. 로그 `[mapsBudget] … action=pacing`.
+- **Google 이 실제 처리한 호출(2xx)만 센다**: 429/5xx/타임아웃/4xx 는 예약을 되돌린다(`settleGuarded`). 429(RESOURCE_EXHAUSTED = 콘솔 하루 상한 도달)는 그 SKU 의 오늘 남은 호출을 건너뛰게 표시한다(`maps-429:{sku}:{날짜}`, 로그 `action=quota429`).
+- **후보 풀은 지역 단위 1벌**: 캐시 키에 일수가 없어 한 지역의 모든 일수 코스가 같은 풀을 쓴다(26시간). 한 지역 빌드의 Text Search ≈ 슬롯 7(휴양형 3) + 3일차 이후 식당 슬롯 동의어 2(휴양형 1) + 랜드마크 1(휴양형 3) ≈ 10회(예전 21~22회).
+- **워밍 크론**: 단위가 "조합 5개"에서 "지역 2개"(`WARM_DAILY_MAX`)로 — 최근 26시간 방문된 지역의 만료 임박 일수를 모두 같은 풀로 만든다.
 
 | 호출 지점 (파일 · 함수) | API | 필드 마스크 / 요청 | SKU | 키(환경 변수) | mapsBudget 상한(무료×0.9) | 한도 시 동작 |
 |---|---|---|---|---|---|---|

@@ -3,7 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
-import { chooseGuardedMask, mapsBudgetLimit, mapsOpsKey, placesFieldTier, reserveMapsOp, stripEnterpriseFields } from "./mapsBudget";
+import {
+  chooseGuardedMask,
+  dailyPacingLimit,
+  daysRemainingInMonth,
+  mapsBudgetLimit,
+  mapsDayKey,
+  mapsOpsKey,
+  mapsQuota429Key,
+  placesFieldTier,
+  reserveMapsOp,
+  runWithMapsSource,
+  settleGuarded,
+  stripEnterpriseFields,
+} from "./mapsBudget";
 import { isCourseBriefThin } from "@/lib/coursePages";
 import type { CourseBriefSpot } from "./courseBrief";
 
@@ -44,42 +57,69 @@ describe("한도: 무료 한도의 90% · MAPS_BUDGET_OVERRIDE", () => {
   });
 });
 
+// 인메모리 가짜 DB — 카운터 키 → 값. SQL 모양으로 reserve(returning) · bump(greatest) · mark429 · select 를 흉내 낸다.
+function fakeStore(initial: Record<string, number> = {}) {
+  const store = new Map<string, number>(Object.entries(initial));
+  queryMock.mockImplementation(async (sql: string, params: unknown[]) => {
+    const key = params[0] as string;
+    if (/^\s*select/i.test(sql)) return store.has(key) ? { rows: [{ n: store.get(key) }] } : { rows: [] };
+    if (/returning/i.test(sql)) {
+      const limit = params[1] as number;
+      const cur = store.get(key) ?? 0;
+      if (cur >= limit) return { rows: [] };
+      store.set(key, cur + 1);
+      return { rows: [{ n: cur + 1 }] };
+    }
+    if (/greatest/i.test(sql)) {
+      store.set(key, Math.max((store.get(key) ?? 0) + (params[1] as number), 0));
+      return { rows: [] };
+    }
+    store.set(key, store.get(key) ?? 1); // mark429
+    return { rows: [] };
+  });
+  return store;
+}
+const NOW = new Date("2026-10-15T06:00:00Z");
+
 describe("reserveMapsOp / chooseGuardedMask", () => {
   beforeEach(() => {
     queryMock.mockReset();
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  it("한도 안이면 허용하고 카운트를 돌려준다", async () => {
-    queryMock.mockResolvedValue({ rows: [{ n: 12 }] });
-    expect(await reserveMapsOp("text-enterprise")).toEqual({ allowed: true, count: 12, limit: 900 });
+  it("한도 안이면 허용하고 월·일 카운터를 올린다", async () => {
+    const store = fakeStore();
+    expect(await reserveMapsOp("text-enterprise", NOW)).toEqual({ allowed: true, count: 1, limit: 900 });
+    expect(store.get(mapsOpsKey("text-enterprise", NOW))).toBe(1);
+    expect(store.get(mapsDayKey("text-enterprise", NOW))).toBe(1);
   });
-  it("한도에 닿으면(UPDATE 가 행을 못 돌려줌) 거절하고 현재 카운트를 읽는다", async () => {
-    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ n: 900 }] });
-    expect(await reserveMapsOp("text-enterprise")).toEqual({ allowed: false, count: 900, limit: 900 });
+  it("월 한도에 닿으면 거절한다(카운터는 오르지 않는다)", async () => {
+    const store = fakeStore({ [mapsOpsKey("static", NOW)]: 9000 });
+    expect((await reserveMapsOp("static", NOW)).allowed).toBe(false);
+    expect(store.get(mapsOpsKey("static", NOW))).toBe(9000);
   });
   it("한도 0 이면 DB 를 건드리지 않고 거절한다", async () => {
     vi.stubEnv("MAPS_BUDGET_OVERRIDE", '{"text-enterprise":0}');
-    expect((await reserveMapsOp("text-enterprise")).allowed).toBe(false);
+    expect((await reserveMapsOp("text-enterprise", NOW)).allowed).toBe(false);
     expect(queryMock).not.toHaveBeenCalled();
   });
   it("DB 오류면 막지 않는다(추정 불가)", async () => {
     queryMock.mockImplementation(async () => {
       throw new Error("db down");
     });
-    expect((await reserveMapsOp("static")).allowed).toBe(true);
+    expect((await reserveMapsOp("static", NOW)).allowed).toBe(true);
   });
 
   const FULL = "places.id,places.displayName,places.location,places.rating,places.userRatingCount,places.photos";
-  it("평소엔 요청한 마스크 그대로", async () => {
-    queryMock.mockResolvedValue({ rows: [{ n: 1 }] });
-    expect(await chooseGuardedMask("text", FULL)).toEqual({ mask: FULL, degraded: false });
+  it("평소엔 요청한 마스크 그대로(정산용 sku 포함)", async () => {
+    fakeStore();
+    expect(await chooseGuardedMask("text", FULL)).toMatchObject({ mask: FULL, degraded: false, sku: "text-enterprise" });
   });
   it("Enterprise 한도에 닿으면 평점 없이 Pro 마스크로 강등", async () => {
     vi.stubEnv("MAPS_BUDGET_OVERRIDE", '{"text-enterprise":0}');
-    queryMock.mockResolvedValue({ rows: [{ n: 1 }] });
+    fakeStore();
     const chosen = await chooseGuardedMask("text", FULL);
-    expect(chosen).toEqual({ mask: "places.id,places.displayName,places.location,places.photos", degraded: true });
+    expect(chosen).toMatchObject({ mask: "places.id,places.displayName,places.location,places.photos", degraded: true, sku: "text-pro" });
     expect(chosen!.mask).not.toContain("rating");
   });
   it("Pro 한도도 닿으면 null(호출 안 함) — 한도 0 가드 테스트에서 호출 0", async () => {
@@ -89,6 +129,78 @@ describe("reserveMapsOp / chooseGuardedMask", () => {
   });
   it("IDs Only 는 무료·무제한이라 가드를 거치지 않는다", async () => {
     expect(await chooseGuardedMask("text", "places.id")).toEqual({ mask: "places.id", degraded: false });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+});
+
+// 작업지시서 2026-10-15 "긴급: 평점 검색(Enterprise) 하루 만에 243/900"
+describe("일 단위 페이싱", () => {
+  beforeEach(() => {
+    queryMock.mockReset();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("오늘 상한 = floor((월 상한 − 오늘 이전 사용) / 남은 날수), 최소 10 — 10/15 (900−243)/17 ≈ 38", () => {
+    expect(daysRemainingInMonth(NOW)).toBe(17);
+    expect(dailyPacingLimit(900, 243, 17)).toBe(38);
+    expect(dailyPacingLimit(900, 890, 5)).toBe(10); // 예산이 바닥이어도 하루 최소 10
+    expect(dailyPacingLimit(900, 0, 31)).toBe(29);
+  });
+
+  it("사용자 요청은 오늘 상한까지, 워밍은 오늘 상한의 50%까지", async () => {
+    const monthKey = mapsOpsKey("text-enterprise", NOW);
+    const dayKey = mapsDayKey("text-enterprise", NOW);
+    // 월 243(오늘 이전 243 − 오늘 0 → 오늘 상한 38). 오늘 이미 19건 → 월 262
+    fakeStore({ [monthKey]: 262, [dayKey]: 19 });
+    // 오늘 이전 사용 = 262 − 19 = 243 → 상한 floor(657/17) = 38
+    expect((await runWithMapsSource("warm", () => reserveMapsOp("text-enterprise", NOW))).allowed).toBe(false); // 워밍 상한 19 도달
+    expect((await reserveMapsOp("text-enterprise", NOW)).allowed).toBe(true); // 사용자는 38 까지
+  });
+  it("오늘 상한에 닿으면 사용자도 거절", async () => {
+    fakeStore({ [mapsOpsKey("text-enterprise", NOW)]: 281, [mapsDayKey("text-enterprise", NOW)]: 38 });
+    expect((await reserveMapsOp("text-enterprise", NOW)).allowed).toBe(false);
+  });
+  it("Pro 등 페이싱 SKU 가 아닌 것은 일 상한 없이 월 한도만", async () => {
+    fakeStore({ [mapsOpsKey("static", NOW)]: 8000, [mapsDayKey("static", NOW)]: 5000 });
+    expect((await reserveMapsOp("static", NOW)).allowed).toBe(true);
+  });
+});
+
+describe("정산: Google 이 실제 처리한 호출만 센다 (429 = 오늘 상한 도달)", () => {
+  beforeEach(() => {
+    queryMock.mockReset();
+  });
+  const sku = "text-enterprise" as const;
+  const guarded = { mask: "x", degraded: false, sku };
+  it("2xx 는 그대로 센다", async () => {
+    const store = fakeStore();
+    await reserveMapsOp(sku, NOW);
+    await settleGuarded(guarded, 200);
+    expect(store.get(mapsOpsKey(sku, NOW))).toBe(1);
+  });
+  it("5xx · 타임아웃(null) · 4xx 는 되돌린다", async () => {
+    const store = fakeStore();
+    for (const status of [500, null, 400]) {
+      await reserveMapsOp(sku, NOW);
+      await settleGuarded(guarded, status);
+    }
+    expect(store.get(mapsOpsKey(sku, NOW))).toBe(0);
+    expect(store.get(mapsDayKey(sku, NOW))).toBe(0);
+  });
+  it("429 는 되돌리고 오늘 남은 호출을 건너뛰게 표시한다(action=quota429)", async () => {
+    const store = fakeStore();
+    await reserveMapsOp(sku, NOW);
+    await settleGuarded(guarded, 429);
+    expect(store.get(mapsOpsKey(sku, NOW))).toBe(0);
+    expect(store.get(mapsQuota429Key(sku, NOW))).toBe(1);
+    expect((await reserveMapsOp(sku, NOW)).allowed).toBe(false);
+    // 내일은 다시 시도한다
+    expect((await reserveMapsOp(sku, new Date("2026-10-16T06:00:00Z"))).allowed).toBe(true);
+  });
+  it("sku 가 없는 선택(IDs Only · 강등 IDs)은 정산하지 않는다", async () => {
+    fakeStore();
+    await settleGuarded({}, 500);
+    await settleGuarded(null, 500);
     expect(queryMock).not.toHaveBeenCalled();
   });
 });
