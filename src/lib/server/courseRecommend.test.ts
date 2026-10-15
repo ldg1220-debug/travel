@@ -792,3 +792,36 @@ describe("isLargeFacility — 캐리비안 베이 (2026-10-13 §4)", () => {
     expect(isLargeFacility({ category: "restaurant", name: "캐리비안 베이 푸드코트 레스토랑" })).toBe(false);
   });
 });
+
+// 작업지시서 2026-10-15 장애 — 예산 가드로 평점 없이 받은 후보는 품질 게이트에서 떨어지지 않는다(안 그러면 강등 결과 전부가 걸러져 422 → 404).
+describe("예산 가드 강등 후보 (ratingUnavailable)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("passesQualityGate: 해외에서 평점·리뷰 수가 없으면 떨어지지만 ratingUnavailable 이면 통과", () => {
+    const bare = place({ id: "x", name: "후보", rating: undefined, reviewCount: undefined });
+    expect(passesQualityGate(bare, "overseas", "attraction")).toBe(false);
+    expect(passesQualityGate({ ...bare, ratingUnavailable: true }, "overseas", "attraction")).toBe(true);
+  });
+
+  it("googleTop: Enterprise 한도 0 이면 평점 필드 없이 요청하고 후보에 ratingsSkipped 를 단다", async () => {
+    vi.stubEnv("MAPS_BUDGET_OVERRIDE", '{"text-enterprise":0}');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ places: [{ id: "p1", displayName: { text: "오사카성" } }] }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await googleTop("오사카 관광지", "test-key");
+    const mask = (fetchMock.mock.calls[0][1] as { headers: Record<string, string> }).headers["X-Goog-FieldMask"];
+    expect(mask).not.toContain("rating");
+    expect(mask).not.toContain("userRatingCount");
+    expect(result).toEqual([{ id: "p1", displayName: { text: "오사카성" }, ratingsSkipped: true }]);
+  });
+
+  it("googleTop: 평소(한도 안)에는 평점 필드를 요청하고 표시를 달지 않는다", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ places: [{ id: "p1" }] }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await googleTop("오사카 관광지", "test-key");
+    expect((fetchMock.mock.calls[0][1] as { headers: Record<string, string> }).headers["X-Goog-FieldMask"]).toContain("places.rating");
+    expect(result).toEqual([{ id: "p1" }]);
+  });
+});

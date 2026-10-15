@@ -1,6 +1,6 @@
 import { regionCoords } from "@/lib/regionTypicalDays";
 import { PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS } from "@/lib/server/placesRetention";
-import { isMapsBudgetExhausted, reserveMapsOp } from "@/lib/server/mapsBudget";
+import { currentMapsSource, isMapsBudgetExhausted, isMapsThrottled, reserveMapsOp } from "@/lib/server/mapsBudget";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
@@ -348,7 +348,7 @@ const BRIEF_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS; // 하루 1회 워밍 + 다음
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 41; // 작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 40; // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -383,6 +383,25 @@ export function isFreshBriefPayload(payload: CourseBrief): boolean {
   // 그러면 캐시 TTL 26시간 동안 해변 없는 "휴양 코스"가 계속 나간다).
   if (!meetsResortBeachRequirement(payload.spots, styleForRegion(payload.region))) return false;
   return payload.spots.every((s) => typeof (s as { day?: unknown }).day === "number");
+}
+
+/**
+ * 같은 (scope, region, days)의 *다른 버전* 최종 브리프 중 가장 최근 것 — 26시간(PLACES_CONTENT_TTL_MS) 이내이고 현재 기준(isFreshBriefPayload)을 통과하는 것만.
+ * 키 접두(`content-brief:{scope}:{region}:{days}:v`)를 SQL 의 left()로 비교한다(지역명의 LIKE 와일드카드 문자와 무관).
+ */
+export async function readPreviousVersionBrief(scope: CourseBriefScope, region: string, days: number): Promise<{ brief: CourseBrief; version: string } | null> {
+  const current = briefCacheKey(scope, region, days);
+  const prefix = current.slice(0, current.lastIndexOf(":v") + 2);
+  const result = await pool.query<{ cache_key: string; payload: CourseBrief; created_at: string }>(
+    `select cache_key, payload, created_at from place_candidate_cache
+      where left(cache_key, $1) = $2 and cache_key <> $3 and created_at > now() - ($4 || ' milliseconds')::interval
+      order by created_at desc limit 5`,
+    [prefix.length, prefix, current, String(PLACES_CONTENT_TTL_MS)],
+  );
+  for (const row of result.rows) {
+    if (isFreshBriefPayload(row.payload)) return { brief: row.payload, version: row.cache_key.slice(prefix.length) };
+  }
+  return null;
 }
 
 export async function readBriefCache(key: string): Promise<CourseBrief | null> {
@@ -2318,6 +2337,8 @@ async function liveDomesticRatingFor(region: string, stop: { name: string; lat: 
   } finally {
     clearTimeout(timer);
   }
+  // 예산 가드로 평점 없이 받았거나 건너뛴 결과(null)는 "진짜 매칭 실패"가 아니므로 캐시하지 않는다(작업지시서 2026-10-15 장애 대응).
+  if (cacheable && result.rating == null && (await isMapsThrottled("text-enterprise"))) cacheable = false;
   if (cacheable) await writeRatingEnrichCache(key, result);
   return result;
 }
@@ -4397,7 +4418,7 @@ export async function buildBrief(
   }
   // 평점이 절반 넘게 비었고 Enterprise 한도(가드)에 닿아 있으면 "평점 없이 만든 코스"로 표시한다(작업지시서 2026-10-14 §2①).
   const unratedShare = finalSpots.length > 0 ? finalSpots.filter((s) => s.rating == null).length / finalSpots.length : 0;
-  const ratingsUnavailable = unratedShare >= 0.5 && (await isMapsBudgetExhausted("text-enterprise"));
+  const ratingsUnavailable = unratedShare >= 0.5 && (await isMapsThrottled("text-enterprise"));
   brief = {
     ...brief,
     ...(ratingsUnavailable ? { ratingsUnavailable: true } : {}),
@@ -4508,6 +4529,18 @@ export async function getCourseBrief(
   if (cached) {
     console.log(`[courseBrief] path=cache-hit key=${cacheKey} spots=${cached.spots.length} dayCounts=[${(cached.dayTotals ?? []).map((d) => d.spotCount).join(",")}]`);
     return cached;
+  }
+  // 작업지시서 2026-10-15 장애 §3④⑤ — stale-while-rebuild: 사용자 요청이 새 버전 캐시가 없다고 재빌드를 유발하지 않는다. 같은 조합의 직전 버전 캐시(26시간 이내)가
+  // 있으면 그걸 반환하고, 새 버전은 워밍 크론이 페이싱 안에서 천천히 만든다(방문 기록이 남아 있어 대상이 된다). 워밍 자신과 refresh 는 새로 만든다.
+  if (!options.refresh && currentMapsSource() !== "warm") {
+    const previous = await readPreviousVersionBrief(scope, region, days).catch((err) => {
+      console.error("[courseBrief] previous-version read failed:", err);
+      return null;
+    });
+    if (previous) {
+      console.log(`[courseBrief] path=stale-while-rebuild key=${cacheKey} from=v${previous.version} spots=${previous.brief.spots.length}`);
+      return previous.brief;
+    }
   }
   console.log(`[courseBrief] path=cache-miss key=${cacheKey} scope=${scope}`);
   // 작업지시서 2026-09-27 "Places API 비용 절감" A-6 — 실패 추적(tracker)과

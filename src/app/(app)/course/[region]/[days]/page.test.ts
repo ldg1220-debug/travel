@@ -33,6 +33,8 @@ vi.mock("@/lib/server/coursePageIndex", async (importOriginal) => {
   return { ...actual, fetchConfirmedCoursePages: vi.fn().mockResolvedValue([]) };
 });
 
+vi.mock("@/lib/server/courseVisits", () => ({ recordCourseVisit: vi.fn() }));
+
 vi.mock("@/lib/server/coursePageLinks", () => ({
   fetchRelatedTripPosts: vi.fn().mockResolvedValue([]),
 }));
@@ -151,21 +153,31 @@ describe("generateMetadata와 CoursePage가 같은 입력에 대해 항상 일�
     const params = Promise.resolve({ region: "경주", days: "2박3일" });
 
     const metadata = await generateMetadata({ params });
-    expect(titleOf(metadata)).toBe("코스를 찾을 수 없어요 - 트레쥴");
-    // notFound()가 던지는 특수 에러로 내려가야 한다 — getCourseBrief의
-    // 원본 에러("anthropic 500")가 그대로 페이지 밖으로 새 나가면 안 된다.
-    await expect(CoursePage({ params })).rejects.toThrow();
+    // 작업지시서 2026-10-15 장애 §2③ — 일시적 실패는 404 가 아니다(색인 보호): "준비 중" 메타 + 제어된 일시 오류.
+    expect(titleOf(metadata)).toBe("코스를 준비하고 있어요 - 트레쥴");
+    // getCourseBrief의 원본 에러("anthropic 500")가 그대로 페이지 밖으로 새 나가면 안 된다.
+    await expect(CoursePage({ params })).rejects.toThrow("course-page-unavailable");
     await expect(CoursePage({ params })).rejects.not.toThrow("anthropic 500");
   });
 
-  it("얇은 콘텐츠(스팟<5)면 둘 다 '못 찾음'으로 일치한다", async () => {
+  it("얇은 콘텐츠(스팟<5)는 404 가 아니라 일시 오류로 일치한다 (작업지시서 2026-10-15 장애 §2③)", async () => {
     getCourseBriefMock.mockResolvedValue(thickBrief({ spots: [spot(), spot(), spot()] }));
     const { generateMetadata, default: CoursePage } = await import("./page");
     const params = Promise.resolve({ region: "경주", days: "2박3일" });
 
     const metadata = await generateMetadata({ params });
-    expect(titleOf(metadata)).toBe("코스를 찾을 수 없어요 - 트레쥴");
-    await expect(CoursePage({ params })).rejects.toThrow();
+    expect(titleOf(metadata)).toBe("코스를 준비하고 있어요 - 트레쥴");
+    await expect(CoursePage({ params })).rejects.toThrow("course-page-unavailable");
+  });
+
+  it("평점 없이 만든 코스(ratingsUnavailable — 예산 가드)는 평점이 비어도 200 이다 · 평점 없는 코스가 아니면 얇다 (작업지시서 2026-10-15 장애 §2②, §3⑥)", async () => {
+    const unrated = Array.from({ length: 12 }, (_, i) => spot({ order: i + 1, day: ((i % 3) + 1) as 1 | 2 | 3, rating: null, reviewCount: null }));
+    const { default: CoursePage } = await import("./page");
+    const params = Promise.resolve({ region: "경주", days: "2박3일" });
+    getCourseBriefMock.mockResolvedValue(thickBrief({ spots: unrated, ratingsUnavailable: true }));
+    await expect(CoursePage({ params })).resolves.toBeTruthy();
+    getCourseBriefMock.mockResolvedValue(thickBrief({ spots: unrated }));
+    await expect(CoursePage({ params })).rejects.toThrow("course-page-unavailable");
   });
 
   // ---- 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §1 — 허용목록이 아니라 (지원 지역 × 일수 범위)가 입구다.
@@ -198,8 +210,8 @@ describe("generateMetadata와 CoursePage가 같은 입력에 대해 항상 일�
     getCourseBriefMock.mockResolvedValue(thickFor("세부", 7, 16));
     const { generateMetadata, default: CoursePage } = await import("./page");
     const params = Promise.resolve({ region: "세부", days: "5박7일" });
-    expect(titleOf(await generateMetadata({ params }))).toBe("코스를 찾을 수 없어요 - 트레쥴");
-    await expect(CoursePage({ params })).rejects.toThrow();
+    expect(titleOf(await generateMetadata({ params }))).toBe("코스를 준비하고 있어요 - 트레쥴");
+    await expect(CoursePage({ params })).rejects.toThrow("course-page-unavailable");
   });
 
   it("일수 범위를 벗어나면 getCourseBrief 없이 '못 찾음' — 도시형 6일(5박6일), 휴양형 당일치기", async () => {
@@ -207,7 +219,7 @@ describe("generateMetadata와 CoursePage가 같은 입력에 대해 항상 일�
     for (const [region, days] of [["오사카", "5박6일"], ["세부", "당일치기"]] as const) {
       const params = Promise.resolve({ region, days });
       expect(titleOf(await generateMetadata({ params }))).toBe("코스를 찾을 수 없어요 - 트레쥴");
-      await expect(CoursePage({ params })).rejects.toThrow();
+      await expect(CoursePage({ params })).rejects.toMatchObject({ digest: expect.stringContaining("404") }); // 존재하지 않는 지역·일수만 404
     }
     expect(getCourseBriefMock).not.toHaveBeenCalled();
   });
@@ -226,7 +238,7 @@ describe("generateMetadata와 CoursePage가 같은 입력에 대해 항상 일�
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     getCourseBriefMock.mockResolvedValue(thickBrief({ spots: [spot(), spot(), spot()] }));
     const { default: CoursePage } = await import("./page");
-    await expect(CoursePage({ params: Promise.resolve({ region: "경주", days: "2박3일" }) })).rejects.toThrow();
+    await expect(CoursePage({ params: Promise.resolve({ region: "경주", days: "2박3일" }) })).rejects.toThrow("course-page-unavailable");
     expect(warn.mock.calls.some((c) => String(c[0]).includes("[course-page]") && String(c[0]).includes("reason=thin"))).toBe(true);
     warn.mockRestore();
   });

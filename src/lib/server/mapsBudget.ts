@@ -66,6 +66,11 @@ export function runWithMapsSource<T>(source: MapsCallSource, fn: () => Promise<T
   return sourceContext.run(source, fn);
 }
 
+/** 지금 호출의 출처(워밍 크론이면 "warm", 그 밖엔 "user"). */
+export function currentMapsSource(): MapsCallSource {
+  return sourceContext.getStore() ?? "user";
+}
+
 export function mapsDayKey(sku: MapsSku, now = new Date()): string {
   return `maps-ops-day:${sku}:${now.toISOString().slice(0, 10)}`;
 }
@@ -211,6 +216,31 @@ export async function settleGuarded(guarded: { sku?: MapsSku } | null, status: n
   if (status != null && status >= 200 && status < 300) return;
   if (status === 429) await markQuota429(sku);
   await releaseMapsOp(sku);
+}
+
+/**
+ * 지금 이 SKU 호출이 막혀 있는가(읽기 전용) — 월 한도 도달 · 오늘 페이싱 상한 도달 · 오늘 Google 429 표시 중 하나. 조회 실패면 false.
+ * 이때 만든 코스는 평점 없이(강등) 나가므로 "평점 없는 코스"(ratingsUnavailable)로 표시하고, 평점 보강 결과(null)를 캐시하지 않는 데 쓴다.
+ */
+export async function isMapsThrottled(sku: MapsSku, now = new Date()): Promise<boolean> {
+  const limit = mapsBudgetLimit(sku);
+  if (limit <= 0) return true;
+  try {
+    if (((await readCounter(mapsQuota429Key(sku, now))) ?? 0) > 0) return true;
+    const month = await readMapsOps(sku, now);
+    if (month != null && month >= limit) return true;
+    if (PACED_SKUS.has(sku)) {
+      const today = await readMapsOpsToday(sku, now);
+      if (month != null && today != null) {
+        const todayLimit = dailyPacingLimit(limit, month - today, daysRemainingInMonth(now));
+        const cap = currentMapsSource() === "warm" ? Math.floor(todayLimit * WARM_SHARE_OF_DAILY) : todayLimit;
+        return today >= cap;
+      }
+    }
+  } catch {
+    // 조회 실패는 막힌 것으로 보지 않는다
+  }
+  return false;
 }
 
 /** 이번 달 호출 수를 올리지 않고 한도에 닿았는가(읽기 전용). 조회 실패면 false. */
