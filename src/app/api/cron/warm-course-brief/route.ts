@@ -1,6 +1,7 @@
 import { purgeExpiredPlacesCache } from "@/lib/server/placesRetention";
 import { maxDaysForRegion } from "@/lib/regionTypicalDays";
-import { fetchRecentlyVisitedTasks } from "@/lib/server/courseVisits";
+import { fetchRecentlyVisitedTasks, groupTasksByRegion } from "@/lib/server/courseVisits";
+import { runWithMapsSource } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { getCourseBrief, mapWithConcurrency, pickStaleTasks, type CourseDays, type WarmTask } from "@/lib/server/courseBrief";
@@ -72,9 +73,11 @@ const WARM_TASKS: WarmTask[] = [...allDayTasks("domestic"), ...allDayTasks("over
 const WARM_TASK_KEYS = new Set(WARM_TASKS.map((t) => `${t.region}/${t.days}`));
 
 // 작업지시서 2026-10-14 "긴급: #319 이후 Places 호출 비용" §2③ — 매일 20지역 일괄 재조회는 Places 무료 한도(Enterprise 월 1,000회)를 넘는다.
-// 최근 26시간 안에 방문(코스 페이지 · course-brief 요청)된 조합만, 그중 캐시가 곧 만료되는(20시간 이상 묵은) 것부터 하루 WARM_DAILY_MAX(기본 5)개만 갱신한다.
+// 최근 26시간 안에 방문(코스 페이지 · course-brief 요청)된 조합만, 그중 캐시가 곧 만료되는(20시간 이상 묵은) 것부터 갱신한다.
+// 작업지시서 2026-10-15 "긴급: 평점 검색(Enterprise) 하루 만에 243/900" §2④ — 후보 풀이 지역 단위로 공유되므로 단위를 "조합 5개"에서 "지역 2개"로 바꿨다:
+// WARM_DAILY_MAX = 하루에 갱신할 지역 수(기본 2) — 그 지역의 방문된(만료 임박) 일수는 전부 같은 풀로 만든다. 워밍은 Places 호출을 오늘 상한의 50%까지만 쓴다(mapsBudget).
 // 방문 없는 조합은 만료된 채로 두고 다음 첫 요청 때 만든다(월 예산 가드 안에서). 환경 변수 WARM_DAILY_MAX 로 조정한다.
-const WARM_DAILY_MAX_DEFAULT = 5;
+const WARM_DAILY_MAX_DEFAULT = 2;
 const WARM_MIN_AGE_MS = 20 * 60 * 60 * 1000;
 function warmDailyMax(): number {
   const n = Number(process.env.WARM_DAILY_MAX);
@@ -91,24 +94,33 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   }
 
   const visited = (await fetchRecentlyVisitedTasks()).filter((t) => WARM_TASK_KEYS.has(`${t.region}/${t.days}`));
-  const batch = await pickStaleTasks(visited, Math.min(warmDailyMax(), BATCH_SIZE), { minAgeMs: WARM_MIN_AGE_MS });
+  const stale = await pickStaleTasks(visited, BATCH_SIZE, { minAgeMs: WARM_MIN_AGE_MS });
+  const regionGroups = groupTasksByRegion(stale, warmDailyMax());
+  const batch = regionGroups.flat();
 
   const startedAt = Date.now();
   let skipped = 0;
-  const results = await mapWithConcurrency(batch, WARM_CONCURRENCY, async ({ region, days }) => {
-    if (Date.now() - startedAt > WARM_START_DEADLINE_MS) {
-      skipped++;
-      return null;
-    }
-    try {
-      const brief = await getCourseBrief(region, days, PER_REGION_ENRICH_BUDGET_MS);
-      return { region, days, ok: true as const, spots: brief.spots.length, rated: brief.spots.filter((s) => s.rating != null).length };
-    } catch (err) {
-      console.error(`[warm-course-brief] ${region}(${days}일) 실패:`, err);
-      return { region, days, ok: false as const };
-    }
-  });
-  const warmed = results.filter((r): r is NonNullable<typeof r> => r != null);
+  // 지역끼리는 병렬(WARM_CONCURRENCY), 한 지역의 일수는 순서대로 — 같은 후보 풀을 동시에 두 번 만들지 않는다. 워밍 호출은 mapsBudget 에서 "warm" 출처로 센다.
+  const results = await runWithMapsSource("warm", () =>
+    mapWithConcurrency(regionGroups, WARM_CONCURRENCY, async (group) => {
+      const out: Array<{ region: string; days: CourseDays; ok: boolean; spots?: number; rated?: number }> = [];
+      for (const { region, days } of group) {
+        if (Date.now() - startedAt > WARM_START_DEADLINE_MS) {
+          skipped++;
+          continue;
+        }
+        try {
+          const brief = await getCourseBrief(region, days, PER_REGION_ENRICH_BUDGET_MS);
+          out.push({ region, days, ok: true, spots: brief.spots.length, rated: brief.spots.filter((s) => s.rating != null).length });
+        } catch (err) {
+          console.error(`[warm-course-brief] ${region}(${days}일) 실패:`, err);
+          out.push({ region, days, ok: false });
+        }
+      }
+      return out;
+    }),
+  );
+  const warmed = results.flat();
 
   // Vercel 로그 패널이 응답 본문을 보여주지 않아, 실행 결과를 로그로도
   // 남긴다 — 지시서 §5 "크론 응답에 요약 로그를 남기시면 다음부터
@@ -125,5 +137,5 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   });
   if (purged) console.log(`[warm-course-brief] places cache purge: content=${purged.content} latLng=${purged.latLng}`);
 
-  return NextResponse.json({ ok: true, purged, totalTasks: WARM_TASKS.length, visited: visited.length, dailyMax: warmDailyMax(), batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
+  return NextResponse.json({ ok: true, purged, totalTasks: WARM_TASKS.length, visited: visited.length, dailyMaxRegions: warmDailyMax(), regions: regionGroups.length, batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
 });

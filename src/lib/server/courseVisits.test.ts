@@ -4,7 +4,7 @@ const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 vi.mock("@/lib/server/db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
-import { courseVisitKey, fetchRecentlyVisitedTasks, recordCourseVisit } from "./courseVisits";
+import { courseVisitKey, fetchRecentlyVisitedTasks, groupTasksByRegion, recordCourseVisit } from "./courseVisits";
 import { pickStaleTasks } from "./courseBrief";
 
 // 작업지시서 2026-10-14 "긴급: #319 이후 Places 호출 비용" §2③ — 최근 방문된 조합만 워밍.
@@ -53,5 +53,18 @@ describe("pickStaleTasks minAgeMs", () => {
     expect(picked.map((t) => t.region)).toEqual(["교토", "도쿄"]); // 캐시 없음 → 22시간 묵음, 5시간 된 오사카는 제외
     expect(await pickStaleTasks(tasks, 1, { minAgeMs: 20 * 3600 * 1000 })).toHaveLength(1);
     expect(await pickStaleTasks([], 5)).toEqual([]);
+  });
+});
+
+describe("groupTasksByRegion — 워밍 단위는 지역", () => {
+  const t = (region: string, days: number) => ({ region, days: days as 3 });
+  it("오래된 순서로 처음 나온 지역 N개만, 그 지역의 일수는 모두(오름차순)", () => {
+    const stale = [t("오사카", 4), t("도쿄", 3), t("오사카", 2), t("세부", 5), t("도쿄", 2)];
+    expect(groupTasksByRegion(stale, 2)).toEqual([
+      [t("오사카", 2), t("오사카", 4)],
+      [t("도쿄", 2), t("도쿄", 3)],
+    ]);
+    expect(groupTasksByRegion(stale, 0)).toEqual([]);
+    expect(groupTasksByRegion([], 2)).toEqual([]);
   });
 });

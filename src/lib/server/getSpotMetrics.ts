@@ -1,6 +1,6 @@
 import { pool } from "./db";
 import { allSpots } from "@/lib/discoverData";
-import { chooseGuardedMask } from "./mapsBudget";
+import { chooseGuardedMask, settleGuarded } from "./mapsBudget";
 import { PLACES_CONTENT_TTL_MS } from "./placesRetention";
 
 export interface SpotMetrics {
@@ -64,6 +64,7 @@ export async function refreshStaleSpotMetrics(limit = REFRESH_PER_REQUEST): Prom
         headers: { "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": guarded.mask },
         cache: "no-store",
       });
+      await settleGuarded(guarded, res.status);
       if (!res.ok) continue;
       const data = (await res.json()) as { rating?: number; userRatingCount?: number; priceLevel?: string };
       await pool.query(

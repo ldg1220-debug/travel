@@ -1,4 +1,4 @@
-import { chooseGuardedMask } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, settleGuarded } from "@/lib/server/mapsBudget";
 import type { ResolvedPlace } from "./types";
 
 // Minimal field mask — only what the app renders (id, name, coords, rating).
@@ -28,6 +28,7 @@ export async function resolvePlace(nameGuess: string): Promise<ResolvedPlace | n
     },
     body: JSON.stringify({ textQuery: `${nameGuess} Kyoto` }),
   });
+  await settleGuarded(guarded, res.status);
   if (!res.ok) return null;
 
   const data = (await res.json()) as {

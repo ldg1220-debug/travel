@@ -1,4 +1,4 @@
-import { chooseGuardedMask } from "./mapsBudget";
+import { chooseGuardedMask, settleGuarded } from "./mapsBudget";
 import { PLACES_CONTENT_TTL_MS } from "./placesRetention";
 import { regionSelfNames } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
@@ -533,17 +533,25 @@ export async function googleTop(
   // 강등하고(코스는 평점 없이 만들어진다), Pro 한도도 닿으면 이 검색을 건너뛴다.
   const guarded = await chooseGuardedMask("text", GOOGLE_TOP_FIELD_MASK);
   if (!guarded) return [];
-  const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
-    method: "POST",
-    cache: "no-store",
-    signal,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": guarded.mask,
-    },
-    body: JSON.stringify({ textQuery: query, maxResultCount: 20, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
-  });
+  let res: Response;
+  try {
+    res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      cache: "no-store",
+      signal,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": guarded.mask,
+      },
+      body: JSON.stringify({ textQuery: query, maxResultCount: 20, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
+    });
+  } catch (err) {
+    await settleGuarded(guarded, null); // 타임아웃·네트워크 오류 — Google 이 처리하지 않았으니 카운트를 되돌린다(작업지시서 2026-10-15 §2③)
+    throw err;
+  }
+  // Google 이 실제로 처리한 호출(2xx)만 센다. 429(RESOURCE_EXHAUSTED)는 콘솔 하루 상한 도달로 표시, 그 밖의 실패는 되돌린다.
+  await settleGuarded(guarded, res.status);
   if (!res.ok) {
     // 작업지시서 2026-09-27 "해외 코스 후보가 2개로 무너졌습니다" A-1 —
     // 고베 d2·교토 d1·오사카 d2가 전부 정확히 count=2로 붕괴했는데,
@@ -1029,6 +1037,17 @@ export async function fetchSlotCandidates(
   extraQuery = false,
   onFailure?: (status: number) => void,
 ): Promise<Place[]> {
+  // 작업지시서 2026-10-15 "긴급: 평점 검색(Enterprise) 하루 만에 243/900" §2② — 후보 풀은 지역 단위 1벌이다. 예전엔 3일차부터(extraQuery) 모든 슬롯을
+  // 별도 키(:x2)로 "기본 질의 + 동의어 질의" 2회씩 다시 불러 지역당 21회였다. 이제 해외는 기본 풀(키에 일수 없음 — 모든 일수 코스가 공유)을 그대로 쓰고,
+  // 넓히는 건 *식당* 슬롯(같은 식당이 반복되는 곳)의 동의어 질의 1회뿐이다(별도 키 :syn). 지역당 슬롯 7 + 식당 2 + 랜드마크 1 ≈ 10회.
+  if (extraQuery && scope === "overseas") {
+    const base = await fetchSlotCandidates(scope, city, slot, false, onFailure);
+    if (!slot.category || !WIDEN_SYNONYM_CATEGORIES.has(slot.category)) return base;
+    const synonymPlaces = await fetchSynonymPool(scope, city, slot, onFailure);
+    const seen = new Set(base.map((p) => p.id));
+    const qualityFiltered = applyQualityGate(synonymPlaces, scope, slot.category).filter((p) => !isTravelAgency(p) && !isTransitFacility(p) && !isRegionItself(p, city));
+    return [...base, ...qualityFiltered.filter((p) => !seen.has(p.id))].slice(0, POOL_SIZE * 2);
+  }
   const cacheKey = candidateCacheKey(scope, city, slot, extraQuery);
   // applyQualityGate(passesQualityGate 기반)는 캐시에 굽지 않고 읽는
   // 시점에만 적용한다 — 임계값을 나중에 튜닝해도 캐시 TTL(7일)을 기다리지
@@ -1180,6 +1199,24 @@ async function fetchLandmarkPool(cacheKey: string, query: string, includedType: 
   const results = await googleTop(query, apiKey, includedType, undefined, onFailure);
   const places = results.map((p) => googleToPlace(p, CATEGORY_LABEL.attraction)).slice(0, LANDMARK_CANDIDATE_LIMIT);
   if (places.length > 0) await writeCandidateCache(cacheKey, places);
+  return places;
+}
+
+/** 3일차부터 동의어 질의로 풀을 넓히는 슬롯 카테고리 — 식당만(점심·저녁이 같은 곳으로 반복되는 문제). 나머지는 기본 풀 1회로 충분하다. */
+const WIDEN_SYNONYM_CATEGORIES: ReadonlySet<string> = new Set(["restaurant"]);
+
+/** 슬롯의 동의어 질의 1회(캐시 키 `{기본키}:syn`, 26시간 TTL) — 기본 풀과 별개로 지역당 한 번만 부른다. */
+async function fetchSynonymPool(scope: "overseas" | "domestic", city: string, slot: RecommendSlot, onFailure?: (status: number) => void): Promise<Place[]> {
+  const key = `${candidateCacheKey(scope, city, slot, false)}:syn`;
+  const cached = await readCandidateCache(key);
+  if (cached) return cached.filter(isValidPlace);
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return [];
+  const type = slot.category ? CATEGORY_TYPE[slot.category] : undefined;
+  const synonym = slot.category ? CATEGORY_SYNONYM_LABEL[slot.category] : undefined;
+  const results = await googleTop(`${city} ${slot.keyword}${synonym ? " " + synonym : ""}`, apiKey, type, undefined, onFailure);
+  const places = results.map((p) => googleToPlace(p, slot.label)).filter(isValidPlace).slice(0, POOL_SIZE);
+  if (places.length > 0) await writeCandidateCache(key, places);
   return places;
 }
 

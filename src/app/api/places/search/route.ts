@@ -1,4 +1,4 @@
-import { chooseGuardedMask } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, settleGuarded } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { getTrendingPlaces } from "@/lib/server/getTrendingPlaces";
 import { DOMESTIC_PLACES } from "@/lib/mockPlacesDomestic";
@@ -393,6 +393,7 @@ async function rawGoogleSearch(
       ...(bias ? { locationBias: { circle: { center: { latitude: bias.lat, longitude: bias.lng }, radius: NEAR_RADIUS_M } } } : {}),
     }),
   });
+  await settleGuarded(guarded, res.status); // 작업지시서 2026-10-15 §2③ — 처리된(2xx) 호출만 센다
   if (!res.ok) {
     // Only log the Korean (primary) failure loudly; a failed native lookup is non-fatal.
     if (languageCode === "ko") {
@@ -493,6 +494,7 @@ export async function searchByPlaceId(placeId: string): Promise<{ places: Place[
     },
     cache: "no-store",
   });
+  await settleGuarded(guarded, res.status);
   if (!res.ok) {
     console.error("[places/search] place-id lookup error:", res.status, res.statusText, await res.text());
     return { places: [], source: "mock" };
@@ -702,6 +704,7 @@ async function fetchGooglePlacesPage(apiKey: string, body: Record<string, unknow
     },
     body: JSON.stringify(body),
   });
+  await settleGuarded(guarded, res.status);
   if (!res.ok) {
     console.error("[places/search] Google searchText page error:", res.status, res.statusText, await res.text());
     return null;
