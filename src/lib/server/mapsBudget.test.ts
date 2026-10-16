@@ -175,14 +175,14 @@ describe("정산: Google 이 실제 처리한 호출만 센다 (429 = 오늘 상
   it("2xx 는 그대로 센다", async () => {
     const store = fakeStore();
     await reserveMapsOp(sku, NOW);
-    await settleGuarded(guarded, 200);
+    await settleGuarded(guarded, 200, NOW);
     expect(store.get(mapsOpsKey(sku, NOW))).toBe(1);
   });
   it("5xx · 타임아웃(null) · 4xx 는 되돌린다", async () => {
     const store = fakeStore();
     for (const status of [500, null, 400]) {
       await reserveMapsOp(sku, NOW);
-      await settleGuarded(guarded, status);
+      await settleGuarded(guarded, status, NOW);
     }
     expect(store.get(mapsOpsKey(sku, NOW))).toBe(0);
     expect(store.get(mapsDayKey(sku, NOW))).toBe(0);
@@ -190,7 +190,7 @@ describe("정산: Google 이 실제 처리한 호출만 센다 (429 = 오늘 상
   it("429 는 되돌리고 오늘 남은 호출을 건너뛰게 표시한다(action=quota429)", async () => {
     const store = fakeStore();
     await reserveMapsOp(sku, NOW);
-    await settleGuarded(guarded, 429);
+    await settleGuarded(guarded, 429, NOW);
     expect(store.get(mapsOpsKey(sku, NOW))).toBe(0);
     expect(store.get(mapsQuota429Key(sku, NOW))).toBe(1);
     expect((await reserveMapsOp(sku, NOW)).allowed).toBe(false);

@@ -210,12 +210,12 @@ export async function markQuota429(sku: MapsSku, now = new Date()): Promise<void
  * 가드를 통과한 호출의 결과를 정산한다 — status 가 200 대(처리됨)면 그대로 두고, 429 면 오늘 상한 도달로 표시하고 되돌리며,
  * 그 밖의 실패(5xx · 타임아웃 = null)는 되돌리기만 한다. 4xx(400/403/404)도 Google 이 과금하지 않으므로 되돌린다.
  */
-export async function settleGuarded(guarded: { sku?: MapsSku } | null, status: number | null): Promise<void> {
+export async function settleGuarded(guarded: { sku?: MapsSku } | null, status: number | null, now = new Date()): Promise<void> {
   const sku = guarded?.sku;
   if (!sku) return;
   if (status != null && status >= 200 && status < 300) return;
-  if (status === 429) await markQuota429(sku);
-  await releaseMapsOp(sku);
+  if (status === 429) await markQuota429(sku, now);
+  await releaseMapsOp(sku, now);
 }
 
 /**
