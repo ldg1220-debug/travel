@@ -19,6 +19,22 @@ export const PLACES_CONTENT_PURGE_MS = PLACES_CONTENT_TTL_MS + 2 * 60 * 60 * 100
 export interface PurgeResult {
   content: number;
   latLng: number;
+  degradedPools?: number;
+}
+
+/**
+ * 평점이 하나도 없는 후보 풀(예산 가드 강등 결과, 5곳 이상) 행을 지운다 — 작업지시서 2026-10-16 "#323 후에도 해외 코스 500" ①.
+ * 읽기 쪽(courseRecommend.usableCachedPool)이 이미 이런 풀을 만나면 예산이 풀린 경우 재조회/막힌 경우 게이트 통과로 처리하지만,
+ * 행 자체를 지워 두면 다음 요청이 곧바로 Enterprise 재조회를 한다. 워밍 크론이 purge 때 함께 부른다.
+ */
+export async function purgeDegradedCandidatePools(): Promise<number> {
+  const r = await pool.query(
+    `delete from place_candidate_cache
+      where (cache_key like 'overseas:%' or cache_key like 'landmark%')
+        and jsonb_typeof(payload) = 'array' and jsonb_array_length(payload) >= 5
+        and not exists (select 1 from jsonb_array_elements(payload) e where e->>'rating' is not null)`,
+  );
+  return r.rowCount ?? 0;
 }
 
 /**
@@ -43,5 +59,6 @@ export async function purgeExpiredPlacesCache(): Promise<PurgeResult> {
   await pool.query(`delete from spot_place_metrics where updated_at < now() - ($1 || ' milliseconds')::interval`, [String(PLACES_CONTENT_PURGE_MS)]).catch(() => undefined);
   // 방문 기록(course-visit)은 26시간 창으로만 쓰므로 7일 지난 것은 정리한다(Places 값은 없다).
   await pool.query(`delete from place_candidate_cache where created_at < now() - interval '7 days' and cache_key like 'course-visit:%'`);
-  return { content: content.rowCount ?? 0, latLng: latLng.rowCount ?? 0 };
+  const degradedPools = await purgeDegradedCandidatePools().catch(() => 0);
+  return { content: content.rowCount ?? 0, latLng: latLng.rowCount ?? 0, degradedPools };
 }

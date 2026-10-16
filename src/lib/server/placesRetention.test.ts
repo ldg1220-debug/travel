@@ -4,7 +4,7 @@ const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 vi.mock("@/lib/server/db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
-import { PLACES_CONTENT_PURGE_MS, PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS, purgeExpiredPlacesCache } from "./placesRetention";
+import { PLACES_CONTENT_PURGE_MS, PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS, purgeDegradedCandidatePools, purgeExpiredPlacesCache } from "./placesRetention";
 import { loadCourseMapInput } from "./courseBrief";
 
 // 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" §2 — 콘텐츠 26시간 · 좌표 30일.
@@ -21,7 +21,7 @@ describe("placesRetention", () => {
 
   it("purge: 콘텐츠 행(후보 풀·브리프·평점)과 좌표 행(지도 입력)만 지우고 사이트맵 기록·카운터는 건드리지 않는다", async () => {
     queryMock.mockResolvedValueOnce({ rowCount: 5 }).mockResolvedValueOnce({ rowCount: 2 }).mockResolvedValue({ rowCount: 0 });
-    expect(await purgeExpiredPlacesCache()).toEqual({ content: 5, latLng: 2 });
+    expect(await purgeExpiredPlacesCache()).toEqual({ content: 5, latLng: 2, degradedPools: 0 });
     const [contentSql, contentParams] = queryMock.mock.calls[0];
     expect(contentSql).toContain("content-brief:%");
     expect(contentSql).toContain("content-brief-rating:%");
@@ -32,6 +32,17 @@ describe("placesRetention", () => {
     const [latLngSql, latLngParams] = queryMock.mock.calls[1];
     expect(latLngSql).toContain("course-map-input:%");
     expect(latLngParams).toEqual([String(PLACES_LATLNG_TTL_MS)]);
+  });
+
+  it("purgeDegradedCandidatePools: 평점이 하나도 없는 5곳 이상 후보 풀(overseas·landmark)만 지운다", async () => {
+    queryMock.mockResolvedValueOnce({ rowCount: 4 });
+    expect(await purgeDegradedCandidatePools()).toBe(4);
+    const [sql] = queryMock.mock.calls[0];
+    expect(sql).toContain("overseas:%");
+    expect(sql).toContain("landmark%");
+    expect(sql).toContain("jsonb_array_length(payload) >= 5");
+    expect(sql).toContain("e->>'rating' is not null");
+    expect(sql).not.toContain("content-brief");
   });
 
   it("loadCourseMapInput: 30일 지난 좌표 행은 없는 것으로 본다", async () => {

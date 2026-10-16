@@ -8,6 +8,7 @@ import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/s
 import { decodePolyline, encodePolyline, haversineKm } from "@/lib/server/courseRoute";
 import {
   MODE_SPEED_KMH,
+  collectPoolStats,
   cuisineKeyword,
   fetchLandmarkCandidates,
   fetchSlotCandidates,
@@ -24,6 +25,7 @@ import {
   sameShop,
   stripBranchSuffix,
   type CourseTheme,
+  type PoolStats,
   type RecommendSlot,
   type TravelMode,
   type TravelRadius,
@@ -133,6 +135,8 @@ export interface CourseBrief {
    * 보지 않는다(옛 값을 쓰는 대신 평점 없이 보여주는 쪽 — 페이지가 월말까지 404 가 되지 않게). 평소엔 없다.
    */
   ratingsUnavailable?: boolean;
+  /** 이 코스를 만들 때의 후보 풀 출처 집계(cache|google|degraded 호출 수와 후보 수) — 장애 로그용. 캐시에서 읽은 브리프에도 그대로 남는다. */
+  poolStats?: PoolStats;
   region: string;
   days: CourseDays;
   totalDistanceKm: number;
@@ -4553,9 +4557,13 @@ export async function getCourseBrief(
   return dedupeInFlight(inFlightBriefBuilds, cacheKey, async () => {
     let hadCandidateFetchFailure = false;
     console.log(`[courseBrief] path=build-start key=${cacheKey}`);
-    const brief = await buildBrief(scope, region, days, cacheKey, enrichBudgetMs, () => {
-      hadCandidateFetchFailure = true;
-    });
+    const { result: brief, stats: poolStats } = await collectPoolStats(() =>
+      buildBrief(scope, region, days, cacheKey, enrichBudgetMs, () => {
+        hadCandidateFetchFailure = true;
+      }),
+    );
+    brief.poolStats = poolStats;
+    console.log(`[courseBrief] pool-stats key=${cacheKey} cache=${poolStats.cache} google=${poolStats.google} degraded=${poolStats.degraded} candidates=${poolStats.candidates} spots=${brief.spots.length}`);
     if (hadCandidateFetchFailure && !isCacheableBrief(brief.spots, style, days)) {
       console.log(`[courseBrief] path=transient-failure key=${cacheKey} spots=${brief.spots.length}`);
       throw new TransientApiFailureError(region, brief.spots.length);

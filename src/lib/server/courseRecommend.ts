@@ -1,4 +1,5 @@
-import { chooseGuardedMask, settleGuarded } from "./mapsBudget";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { chooseGuardedMask, isMapsThrottled, settleGuarded } from "./mapsBudget";
 import { PLACES_CONTENT_TTL_MS } from "./placesRetention";
 import { regionSelfNames } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
@@ -648,6 +649,57 @@ function candidateCacheKey(scope: "overseas" | "domestic", city: string, slot: R
   return `${scope}:${city.trim().toLowerCase()}:${slot.keyword}:${slot.category ?? ""}${extraQuery ? ":x2" : ""}`;
 }
 
+// ------------------------------------------------------------------------------------------------
+// 강등(평점 없음) 후보 풀 — 작업지시서 2026-10-16 "긴급(장애 계속): #323 후에도 해외 코스 500".
+// 예산 가드가 Pro 로 강등해 받은 후보(평점 없음)가 후보 풀 캐시(26시간)에 그대로 저장되면, #323 이전 코드가 쓴 행에는 ratingUnavailable 표시가 없어
+// 품질 게이트가 전부 떨어뜨리고 캐시가 살아 있는 동안 Google 재조회도 하지 않는다(count 0 → 422 → 500).
+
+/** 해외 풀이 "평점 없이 받은 풀"인가 — 표시(ratingUnavailable)가 모두 있거나, 구버전 캐시처럼 표시는 없지만 후보 5곳 이상이 전부 평점·리뷰 수가 없다(정상 풀에서는 일어나지 않는다). */
+export function isDegradedPool(places: Place[]): boolean {
+  if (places.length === 0) return false;
+  if (places.every((p) => p.ratingUnavailable === true)) return true;
+  return places.length >= 5 && places.every((p) => p.rating == null && p.reviewCount == null);
+}
+
+export type PoolSource = "cache" | "google" | "degraded";
+export interface PoolStats {
+  cache: number;
+  google: number;
+  degraded: number;
+  candidates: number;
+}
+const poolStatsContext = new AsyncLocalStorage<PoolStats>();
+/** fn 안에서 일어난 후보 풀 조회의 출처·후보 수를 모은다(코스 하나를 만드는 동안). 장애 로그 `[course-page] unavailable … pool=` 용. */
+export async function collectPoolStats<T>(fn: () => Promise<T>): Promise<{ result: T; stats: PoolStats }> {
+  const stats: PoolStats = { cache: 0, google: 0, degraded: 0, candidates: 0 };
+  const result = await poolStatsContext.run(stats, fn);
+  return { result, stats };
+}
+function recordPool(source: PoolSource, count: number): void {
+  const stats = poolStatsContext.getStore();
+  if (!stats) return;
+  stats[source]++;
+  stats.candidates += count;
+}
+
+/**
+ * 캐시에서 읽은 풀을 쓸 수 있는 형태로 돌려준다. 국내(Kakao)나 정상 풀은 그대로. 강등 풀이면:
+ *  - Enterprise 예산에 여유가 있으면 null(= 캐시를 무시하고 Enterprise 로 재조회해 덮어쓴다 — 작업지시서 2026-10-16 ②)
+ *  - 아직 막혀 있으면 모든 후보에 ratingUnavailable 을 달아 게이트를 통과시킨다(구버전 캐시 호환 — ③)
+ */
+async function usableCachedPool(scope: "overseas" | "domestic", cached: Place[]): Promise<Place[] | null> {
+  if (scope !== "overseas" || !isDegradedPool(cached)) {
+    recordPool("cache", cached.length);
+    return cached;
+  }
+  if (!(await isMapsThrottled("text-enterprise"))) {
+    console.log(`[courseRecommend] degraded pool in cache (${cached.length}곳, 평점 없음) — 예산 여유가 있어 Enterprise 로 재조회합니다`);
+    return null;
+  }
+  recordPool("degraded", cached.length);
+  return cached.map((p) => (p.ratingUnavailable ? p : { ...p, ratingUnavailable: true }));
+}
+
 async function readCandidateCache(key: string): Promise<Place[] | null> {
   try {
     const cutoff = new Date(Date.now() - CANDIDATE_CACHE_TTL_MS);
@@ -1068,13 +1120,19 @@ export async function fetchSlotCandidates(
   const qualityFilter = (places: Place[]) =>
     applyQualityGate(places, scope, slot.category).filter((p) => !isTravelAgency(p) && !isTransitFacility(p) && !isRegionItself(p, city));
 
-  const cached = await readCandidateCache(cacheKey);
+  const rawCached = await readCandidateCache(cacheKey);
+  const cached = rawCached ? await usableCachedPool(scope, rawCached) : null;
   // 캐시된 값도 isValidPlace로 걸러야 한다 — 이 검증이 추가되기 전에 이미
   // 써진 캐시 행이 TTL 동안 남아있을 수 있다.
-  if (cached) return qualityFilter(cached.filter(isValidPlace));
+  if (cached) {
+    const gatedCached = qualityFilter(cached.filter(isValidPlace));
+    if (scope === "overseas" && gatedCached.length === 0) console.warn(`[courseRecommend] pool source=cache slot=${slot.key} city=${city} raw=${cached.length} gated=0`);
+    return gatedCached;
+  }
 
   const liveResults = await fetchSlotCandidatesLive(scope, city, slot, extraQuery, onFailure);
   const fresh = liveResults.filter(isValidPlace);
+  recordPool(fresh.some((p) => p.ratingUnavailable) ? "degraded" : "google", fresh.length);
   // 빈 결과는 캐시하지 않는다 — 진짜 "이 검색은 결과가 없다"인지, API가
   // 일시적으로 실패해 빈 배열이 온 건지(googleTop/kakaoTop 둘 다 !res.ok면
   // 조용히 []을 반환) 구분할 수 없어, 다음 요청은 항상 다시 라이브로
@@ -1199,12 +1257,14 @@ export async function fetchLandmarkCandidates(
 
 /** 앵커 후보 검색 한 건(캐시 확인 → 없으면 Google 호출 → 결과가 있으면 캐시). 필터는 호출부가 한다 — 캐시에는 원본을 남긴다. */
 async function fetchLandmarkPool(cacheKey: string, query: string, includedType: string | undefined, onFailure?: (status: number) => void): Promise<Place[]> {
-  const cached = await readCandidateCache(cacheKey);
+  const rawCached = await readCandidateCache(cacheKey);
+  const cached = rawCached ? await usableCachedPool("overseas", rawCached) : null; // 랜드마크 풀은 해외(휴양·도시) 전용 게이트를 쓴다
   if (cached) return cached;
   const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (!apiKey) return [];
   const results = await googleTop(query, apiKey, includedType, undefined, onFailure);
   const places = results.map((p) => googleToPlace(p, CATEGORY_LABEL.attraction)).slice(0, LANDMARK_CANDIDATE_LIMIT);
+  recordPool(places.some((p) => p.ratingUnavailable) ? "degraded" : "google", places.length);
   if (places.length > 0) await writeCandidateCache(cacheKey, places);
   return places;
 }
@@ -1215,7 +1275,8 @@ const WIDEN_SYNONYM_CATEGORIES: ReadonlySet<string> = new Set(["restaurant"]);
 /** 슬롯의 동의어 질의 1회(캐시 키 `{기본키}:syn`, 26시간 TTL) — 기본 풀과 별개로 지역당 한 번만 부른다. */
 async function fetchSynonymPool(scope: "overseas" | "domestic", city: string, slot: RecommendSlot, onFailure?: (status: number) => void): Promise<Place[]> {
   const key = `${candidateCacheKey(scope, city, slot, false)}:syn`;
-  const cached = await readCandidateCache(key);
+  const rawCached = await readCandidateCache(key);
+  const cached = rawCached ? await usableCachedPool(scope, rawCached) : null;
   if (cached) return cached.filter(isValidPlace);
   const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (!apiKey) return [];
@@ -1223,6 +1284,7 @@ async function fetchSynonymPool(scope: "overseas" | "domestic", city: string, sl
   const synonym = slot.category ? CATEGORY_SYNONYM_LABEL[slot.category] : undefined;
   const results = await googleTop(`${city} ${slot.keyword}${synonym ? " " + synonym : ""}`, apiKey, type, undefined, onFailure);
   const places = results.map((p) => googleToPlace(p, slot.label)).filter(isValidPlace).slice(0, POOL_SIZE);
+  recordPool(places.some((p) => p.ratingUnavailable) ? "degraded" : "google", places.length);
   if (places.length > 0) await writeCandidateCache(key, places);
   return places;
 }

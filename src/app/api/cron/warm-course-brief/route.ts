@@ -135,7 +135,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     console.error("[warm-course-brief] places cache purge failed:", err);
     return null;
   });
-  if (purged) console.log(`[warm-course-brief] places cache purge: content=${purged.content} latLng=${purged.latLng}`);
+  if (purged) console.log(`[warm-course-brief] places cache purge: content=${purged.content} latLng=${purged.latLng} degradedPools=${purged.degradedPools ?? 0}`);
 
   return NextResponse.json({ ok: true, purged, totalTasks: WARM_TASKS.length, visited: visited.length, dailyMaxRegions: warmDailyMax(), regions: regionGroups.length, batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
 });
