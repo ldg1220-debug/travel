@@ -45,8 +45,32 @@ export function mapsBudgetLimit(sku: MapsSku): number {
   return Math.floor(MAPS_FREE_LIMITS[sku] * MAPS_BUDGET_RATIO);
 }
 
+// ------------------------------------------------------------------------------------------------
+// 날짜 기준 = America/Los_Angeles — Google 의 하루(콘솔 SearchTextRequest per day 등)는 태평양 시간 자정(KST 16:00, 서머타임이 끝나면 17:00)에 리셋된다.
+// 작업지시서 2026-10-16 "긴급(장애 원인 확정): 콘솔 하루 상한 100 소진 → 모든 Text Search 429" §2②. 일·월 카운터와 429 표시의 날짜가 모두 이 기준이다.
+const PT_DATE = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" });
+/** 태평양 시간 기준 날짜 `YYYY-MM-DD`. */
+export function ptDateString(now = new Date()): string {
+  return PT_DATE.format(now);
+}
+
+/** 다음 태평양 시간 자정(= 콘솔 일 상한 리셋) 시각. */
+export function nextQuotaResetAt(now = new Date()): Date {
+  const today = ptDateString(now);
+  let t = now.getTime();
+  // 1시간씩 올라가 날짜가 바뀌는 시간을 찾고, 그 직전 1시간 안에서 분 단위로 좁힌다.
+  for (let i = 0; i < 26 && ptDateString(new Date(t)) === today; i++) t += 3600_000;
+  t -= 3600_000;
+  for (let i = 0; i < 61 && ptDateString(new Date(t)) === today; i++) t += 60_000;
+  return new Date(t);
+}
+/** KST 표기 `YYYY-MM-DD HH:mm KST`. */
+export function formatKst(d: Date): string {
+  return `${new Date(d.getTime() + 9 * 3600_000).toISOString().slice(0, 16).replace("T", " ")} KST`;
+}
+
 export function mapsOpsKey(sku: MapsSku, now = new Date()): string {
-  return `maps-ops:${sku}:${now.toISOString().slice(0, 7)}`;
+  return `maps-ops:${sku}:${ptDateString(now).slice(0, 7)}`;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -71,17 +95,50 @@ export function currentMapsSource(): MapsCallSource {
   return sourceContext.getStore() ?? "user";
 }
 
-export function mapsDayKey(sku: MapsSku, now = new Date()): string {
-  return `maps-ops-day:${sku}:${now.toISOString().slice(0, 10)}`;
+// 콘솔 하루 상한 집계 — Text Search 는 SKU(Enterprise/Pro/IDs Only)와 상관없이 같은 `SearchTextRequest per day` 를, Place Details 는 `GetPlaceRequest per day` 를 나눠 쓴다.
+export type MapsDailyAgg = "text-search-all" | "get-place-all";
+const AGG_ENV: Record<MapsDailyAgg, string> = { "text-search-all": "GOOGLE_TEXT_SEARCH_DAILY_QUOTA", "get-place-all": "GOOGLE_GET_PLACE_DAILY_QUOTA" };
+const AGG_DEFAULT_QUOTA = 100; // 콘솔 값(2026-10-14 동근님이 100 으로 낮춤) — 콘솔을 바꾸면 환경 변수를 같이 바꾼다
+export function aggFor(sku: MapsSku): MapsDailyAgg | null {
+  if (sku === "text-enterprise" || sku === "text-pro") return "text-search-all";
+  if (sku === "details-enterprise" || sku === "details-pro") return "get-place-all";
+  return null;
 }
-export function mapsQuota429Key(sku: MapsSku, now = new Date()): string {
-  return `maps-429:${sku}:${now.toISOString().slice(0, 10)}`;
+export function aggForKind(kind: "text" | "details"): MapsDailyAgg {
+  return kind === "text" ? "text-search-all" : "get-place-all";
+}
+/** 콘솔 하루 상한(환경 변수, 기본 100). */
+export function aggQuota(agg: MapsDailyAgg): number {
+  const n = Number(process.env[AGG_ENV[agg]]);
+  return Number.isFinite(n) && n >= 0 && process.env[AGG_ENV[agg]] != null && process.env[AGG_ENV[agg]] !== "" ? Math.floor(n) : AGG_DEFAULT_QUOTA;
+}
+/** 가드 상한 = 콘솔 상한 × 0.9 (MAPS_BUDGET_OVERRIDE 로 덮어쓸 수 있다). */
+export function aggLimit(agg: MapsDailyAgg): number {
+  const raw = process.env.MAPS_BUDGET_OVERRIDE;
+  if (raw) {
+    try {
+      const override = (JSON.parse(raw) as Record<string, unknown>)[agg];
+      if (typeof override === "number" && Number.isFinite(override) && override >= 0) return Math.floor(override);
+    } catch {
+      // 잘못된 JSON 은 무시한다
+    }
+  }
+  return Math.floor(aggQuota(agg) * MAPS_BUDGET_RATIO);
 }
 
-/** 오늘을 포함해 이번 달(UTC)에 남은 날 수. */
+type CounterName = MapsSku | MapsDailyAgg;
+export function mapsDayKey(name: CounterName, now = new Date()): string {
+  return `maps-ops-day:${name}:${ptDateString(now)}`;
+}
+export function mapsQuota429Key(name: CounterName, now = new Date()): string {
+  return `maps-429:${name}:${ptDateString(now)}`;
+}
+
+/** 오늘을 포함해 이번 달(태평양 시간 달력)에 남은 날 수. */
 export function daysRemainingInMonth(now = new Date()): number {
-  const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
-  return last - now.getUTCDate() + 1;
+  const [y, m, d] = ptDateString(now).split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return last - d + 1;
 }
 
 /**
@@ -145,11 +202,15 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
     console.warn(`[mapsBudget] sku=${sku} count=0 limit=0 action=skip`);
     return { allowed: false, count: 0, limit };
   }
+  const agg = aggFor(sku);
+  let aggReserved = false;
   try {
-    if (((await readCounter(mapsQuota429Key(sku, now))) ?? 0) > 0) {
+    // ① 오늘 Google 이 429 로 거절했다 — Text Search/Get Place 는 SKU 와 무관하게 같은 콘솔 상한이라 집계 키로 표시한다
+    if (((await readCounter(mapsQuota429Key(agg ?? sku, now))) ?? 0) > 0) {
       console.warn(`[mapsBudget] sku=${sku} count=? limit=${limit} action=quota429`);
       return { allowed: false, count: null, limit };
     }
+    // ② Enterprise 일 단위 페이싱
     if (PACED_SKUS.has(sku)) {
       const [month, today] = await Promise.all([readMapsOps(sku, now), readMapsOpsToday(sku, now)]);
       if (month != null && today != null) {
@@ -161,6 +222,10 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
         }
       }
     }
+    // ③ 콘솔 하루 상한(SKU 합산) — 상한×0.9 에 닿으면 429 를 맞기 전에 멈춘다. 워밍은 그 절반까지만.
+    if (agg && !(await reserveAggregate(agg, now))) return { allowed: false, count: null, limit };
+    aggReserved = agg != null;
+    // ④ 월 한도
     const r = await pool.query<{ n: number }>(
       `insert into place_candidate_cache (cache_key, payload) values ($1, jsonb_build_object('count', 1))
        on conflict (cache_key) do update
@@ -173,6 +238,7 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
       await bump(mapsDayKey(sku, now), 1);
       return { allowed: true, count: r.rows[0].n, limit };
     }
+    if (aggReserved && agg) await bump(mapsDayKey(agg, now), -1); // 월 한도에서 막혔으니 집계 예약을 되돌린다
     const count = await readMapsOps(sku, now);
     console.warn(`[mapsBudget] sku=${sku} count=${count ?? "?"} limit=${limit} action=skip`);
     return { allowed: false, count, limit };
@@ -182,25 +248,61 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
   }
 }
 
+/**
+ * 콘솔 하루 상한 집계(text-search-all · get-place-all)를 예약한다 — 한도(상한×0.9, 워밍은 절반)에 닿았거나 오늘 429 표시가 있으면 false.
+ * IDs Only 호출도 같은 콘솔 상한을 쓰므로 SKU 가드를 거치지 않는 호출은 이 함수만 부른다.
+ */
+export async function reserveAggregate(agg: MapsDailyAgg, now = new Date()): Promise<boolean> {
+  const limit = aggLimit(agg);
+  if (limit <= 0) {
+    console.warn(`[mapsBudget] agg=${agg} count=0 limit=0 action=skip`);
+    return false;
+  }
+  try {
+    if (((await readCounter(mapsQuota429Key(agg, now))) ?? 0) > 0) {
+      console.warn(`[mapsBudget] agg=${agg} limit=${limit} action=quota429`);
+      return false;
+    }
+    const cap = sourceContext.getStore() === "warm" ? Math.floor(limit * WARM_SHARE_OF_DAILY) : limit;
+    const r = await pool.query<{ n: number }>(
+      `insert into place_candidate_cache (cache_key, payload) values ($1, jsonb_build_object('count', 1))
+       on conflict (cache_key) do update
+         set payload = jsonb_build_object('count', coalesce((place_candidate_cache.payload->>'count')::int, 0) + 1), created_at = now()
+         where coalesce((place_candidate_cache.payload->>'count')::int, 0) < $2
+       returning (payload->>'count')::int as n`,
+      [mapsDayKey(agg, now), Math.max(cap, 0)],
+    );
+    if (r.rows.length > 0 && cap > 0) return true;
+    console.warn(`[mapsBudget] agg=${agg} limit=${limit} cap=${cap} source=${sourceContext.getStore() ?? "user"} action=skip (콘솔 하루 상한 ${aggQuota(agg)} 의 90%)`);
+    return false;
+  } catch (err) {
+    console.error("[mapsBudget] reserveAggregate failed:", err);
+    return true;
+  }
+}
+
 /** 예약했지만 Google 이 처리하지 않은 호출(429/5xx/타임아웃)의 카운트를 되돌린다. */
 export async function releaseMapsOp(sku: MapsSku, now = new Date()): Promise<void> {
   try {
     await bump(mapsOpsKey(sku, now), -1);
     await bump(mapsDayKey(sku, now), -1);
+    const agg = aggFor(sku);
+    if (agg) await bump(mapsDayKey(agg, now), -1);
   } catch (err) {
     console.error("[mapsBudget] release failed:", err);
   }
 }
 
-/** Google 이 429 로 거절 = 콘솔 하루 상한 도달 → 오늘 남은 호출을 skip 하도록 표시한다. */
-export async function markQuota429(sku: MapsSku, now = new Date()): Promise<void> {
+/** Google 이 429 로 거절 = 콘솔 하루 상한 도달 → 오늘(태평양 시간) 남은 호출을 skip 하도록 표시한다. Text Search/Get Place 는 집계 키에 표시한다. */
+export async function markQuota429(target: MapsSku | MapsDailyAgg, now = new Date()): Promise<void> {
+  const name: CounterName = (target in AGG_ENV ? target : aggFor(target as MapsSku) ?? target) as CounterName;
   try {
     await pool.query(
       `insert into place_candidate_cache (cache_key, payload) values ($1, jsonb_build_object('count', 1))
        on conflict (cache_key) do update set created_at = now()`,
-      [mapsQuota429Key(sku, now)],
+      [mapsQuota429Key(name, now)],
     );
-    console.warn(`[mapsBudget] sku=${sku} action=quota429-mark (Google 429 RESOURCE_EXHAUSTED — 오늘 남은 호출 skip)`);
+    console.warn(`[mapsBudget] name=${name} action=quota429-mark (Google 429 RESOURCE_EXHAUSTED — 태평양 시간 자정(${formatKst(nextQuotaResetAt(now))})까지 남은 호출 skip)`);
   } catch (err) {
     console.error("[mapsBudget] mark429 failed:", err);
   }
@@ -209,13 +311,25 @@ export async function markQuota429(sku: MapsSku, now = new Date()): Promise<void
 /**
  * 가드를 통과한 호출의 결과를 정산한다 — status 가 200 대(처리됨)면 그대로 두고, 429 면 오늘 상한 도달로 표시하고 되돌리며,
  * 그 밖의 실패(5xx · 타임아웃 = null)는 되돌리기만 한다. 4xx(400/403/404)도 Google 이 과금하지 않으므로 되돌린다.
+ * IDs Only 호출(sku 없음, ids=true)은 콘솔 하루 상한 집계만 정산한다.
  */
-export async function settleGuarded(guarded: { sku?: MapsSku } | null, status: number | null, now = new Date()): Promise<void> {
-  const sku = guarded?.sku;
-  if (!sku) return;
+export async function settleGuarded(guarded: { sku?: MapsSku; ids?: boolean; kind?: PlacesCallKind } | null, status: number | null, now = new Date()): Promise<void> {
+  if (!guarded) return;
   if (status != null && status >= 200 && status < 300) return;
-  if (status === 429) await markQuota429(sku, now);
-  await releaseMapsOp(sku, now);
+  if (guarded.sku) {
+    if (status === 429) await markQuota429(guarded.sku, now);
+    await releaseMapsOp(guarded.sku, now);
+    return;
+  }
+  if (guarded.ids && guarded.kind) {
+    const agg = aggForKind(guarded.kind);
+    if (status === 429) await markQuota429(agg, now);
+    try {
+      await bump(mapsDayKey(agg, now), -1);
+    } catch (err) {
+      console.error("[mapsBudget] release failed:", err);
+    }
+  }
 }
 
 /**
@@ -226,7 +340,13 @@ export async function isMapsThrottled(sku: MapsSku, now = new Date()): Promise<b
   const limit = mapsBudgetLimit(sku);
   if (limit <= 0) return true;
   try {
-    if (((await readCounter(mapsQuota429Key(sku, now))) ?? 0) > 0) return true;
+    const agg = aggFor(sku);
+    if (((await readCounter(mapsQuota429Key(agg ?? sku, now))) ?? 0) > 0) return true;
+    if (agg) {
+      const aggToday = await readCounter(mapsDayKey(agg, now));
+      const aggCap = currentMapsSource() === "warm" ? Math.floor(aggLimit(agg) * WARM_SHARE_OF_DAILY) : aggLimit(agg);
+      if (aggToday != null && aggToday >= aggCap) return true;
+    }
     const month = await readMapsOps(sku, now);
     if (month != null && month >= limit) return true;
     if (PACED_SKUS.has(sku)) {
@@ -251,10 +371,35 @@ export async function isMapsBudgetExhausted(sku: MapsSku, now = new Date()): Pro
   return count != null && count >= limit;
 }
 
-/** SKU 별 이번 달 사용량·상한, (페이싱 SKU 는) 오늘 사용량·오늘 상한 — /api/health. */
-export async function getMapsUsage(now = new Date()): Promise<
-  Record<MapsSku, { count: number | null; limit: number; freeLimit: number; todayCount: number | null; todayLimit: number | null }>
-> {
+export interface MapsSkuUsage {
+  count: number | null;
+  limit: number;
+  freeLimit: number;
+  todayCount: number | null;
+  todayLimit: number | null;
+}
+export interface MapsDailyUsage {
+  todayCount: number | null;
+  /** 가드 상한(콘솔 상한 × 0.9) */
+  todayLimit: number;
+  /** 콘솔 하루 상한(환경 변수 GOOGLE_*_DAILY_QUOTA, 기본 100) */
+  quota: number;
+  /** 오늘 Google 이 429 로 거절했는가(켜지면 리셋까지 호출 skip) */
+  quota429: boolean;
+  /** 다음 리셋(태평양 시간 자정) — ISO, KST 표기 */
+  quotaResetAt: string;
+  quotaResetAtKst: string;
+}
+export type MapsUsage = Record<MapsSku, MapsSkuUsage> & { textSearchAll: MapsDailyUsage; getPlaceAll: MapsDailyUsage };
+
+async function dailyUsage(agg: MapsDailyAgg, now: Date): Promise<MapsDailyUsage> {
+  const [todayCount, flag] = await Promise.all([readCounter(mapsDayKey(agg, now)), readCounter(mapsQuota429Key(agg, now))]);
+  const reset = nextQuotaResetAt(now);
+  return { todayCount, todayLimit: aggLimit(agg), quota: aggQuota(agg), quota429: (flag ?? 0) > 0, quotaResetAt: reset.toISOString(), quotaResetAtKst: formatKst(reset) };
+}
+
+/** SKU 별 이번 달 사용량·상한, (페이싱 SKU 는) 오늘 사용량·오늘 상한, 콘솔 하루 상한 집계(textSearchAll · getPlaceAll) — /api/health. */
+export async function getMapsUsage(now = new Date()): Promise<MapsUsage> {
   const skus = Object.keys(MAPS_FREE_LIMITS) as MapsSku[];
   const rows = await Promise.all(
     skus.map(async (s) => {
@@ -262,7 +407,8 @@ export async function getMapsUsage(now = new Date()): Promise<
       return { count, limit: mapsBudgetLimit(s), freeLimit: MAPS_FREE_LIMITS[s], todayCount, todayLimit };
     }),
   );
-  return Object.fromEntries(skus.map((s, i) => [s, rows[i]])) as Record<MapsSku, { count: number | null; limit: number; freeLimit: number; todayCount: number | null; todayLimit: number | null }>;
+  const [textSearchAll, getPlaceAll] = await Promise.all([dailyUsage("text-search-all", now), dailyUsage("get-place-all", now)]);
+  return { ...(Object.fromEntries(skus.map((s, i) => [s, rows[i]])) as Record<MapsSku, MapsSkuUsage>), textSearchAll, getPlaceAll };
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -296,18 +442,23 @@ export function stripEnterpriseFields(mask: string): string {
  * Places 호출 한 건에 쓸 필드 마스크를 정한다 — 한도 안이면 요청한 마스크 그대로, Enterprise 한도에 닿았으면 평점 등을 뺀 Pro 마스크로
  * 강등, 그것도 한도에 닿았으면 null(호출하지 않는다). 반환의 `degraded` 가 true 면 평점 없이 받는 중이다.
  */
-export async function chooseGuardedMask(kind: PlacesCallKind, mask: string): Promise<{ mask: string; degraded: boolean; sku?: MapsSku } | null> {
+export async function chooseGuardedMask(
+  kind: PlacesCallKind,
+  mask: string,
+): Promise<{ mask: string; degraded: boolean; sku?: MapsSku; ids?: boolean; kind: PlacesCallKind } | null> {
   const tier = placesFieldTier(mask);
   const enterpriseSku: MapsSku = kind === "text" ? "text-enterprise" : "details-enterprise";
   const proSku: MapsSku = kind === "text" ? "text-pro" : "details-pro";
-  if (tier === "ids") return { mask, degraded: false };
+  // IDs Only 는 SKU 요금은 무료지만 콘솔 하루 상한(SearchTextRequest/GetPlaceRequest per day)은 똑같이 쓴다 — 집계 예약만 한다.
+  const idsChoice = async (m: string, degraded: boolean) => ((await reserveAggregate(aggForKind(kind))) ? { mask: m, degraded, ids: true, kind } : null);
+  if (tier === "ids") return idsChoice(mask, false);
   if (tier === "enterprise") {
-    if ((await reserveMapsOp(enterpriseSku)).allowed) return { mask, degraded: false, sku: enterpriseSku };
+    if ((await reserveMapsOp(enterpriseSku)).allowed) return { mask, degraded: false, sku: enterpriseSku, kind };
     const stripped = stripEnterpriseFields(mask);
     if (!stripped) return null;
     const strippedTier = placesFieldTier(stripped);
-    if (strippedTier === "ids") return { mask: stripped, degraded: true };
-    return (await reserveMapsOp(proSku)).allowed ? { mask: stripped, degraded: true, sku: proSku } : null;
+    if (strippedTier === "ids") return idsChoice(stripped, true);
+    return (await reserveMapsOp(proSku)).allowed ? { mask: stripped, degraded: true, sku: proSku, kind } : null;
   }
-  return (await reserveMapsOp(proSku)).allowed ? { mask, degraded: false, sku: proSku } : null;
+  return (await reserveMapsOp(proSku)).allowed ? { mask, degraded: false, sku: proSku, kind } : null;
 }

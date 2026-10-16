@@ -4,7 +4,12 @@ const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
 import {
+  aggLimit,
   chooseGuardedMask,
+  formatKst,
+  nextQuotaResetAt,
+  ptDateString,
+  reserveAggregate,
   dailyPacingLimit,
   daysRemainingInMonth,
   mapsBudgetLimit,
@@ -79,7 +84,7 @@ function fakeStore(initial: Record<string, number> = {}) {
   });
   return store;
 }
-const NOW = new Date("2026-10-15T06:00:00Z");
+const NOW = new Date("2026-10-15T15:00:00Z"); // 태평양 시간 10/15 08:00 (KST 10/16 00:00)
 
 describe("reserveMapsOp / chooseGuardedMask", () => {
   beforeEach(() => {
@@ -127,9 +132,11 @@ describe("reserveMapsOp / chooseGuardedMask", () => {
     expect(await chooseGuardedMask("text", FULL)).toBeNull();
     expect(queryMock).not.toHaveBeenCalled();
   });
-  it("IDs Only 는 무료·무제한이라 가드를 거치지 않는다", async () => {
-    expect(await chooseGuardedMask("text", "places.id")).toEqual({ mask: "places.id", degraded: false });
-    expect(queryMock).not.toHaveBeenCalled();
+  it("IDs Only 는 SKU 요금은 없지만 콘솔 하루 상한(SearchTextRequest per day)은 같이 쓰므로 집계만 예약한다", async () => {
+    const store = fakeStore();
+    expect(await chooseGuardedMask("text", "places.id")).toMatchObject({ mask: "places.id", degraded: false, ids: true, kind: "text" });
+    expect(store.get(mapsDayKey("text-search-all"))).toBe(1);
+    expect(store.get(mapsOpsKey("text-pro"))).toBeUndefined(); // 월 SKU 카운터는 올리지 않는다
   });
 });
 
@@ -192,10 +199,11 @@ describe("정산: Google 이 실제 처리한 호출만 센다 (429 = 오늘 상
     await reserveMapsOp(sku, NOW);
     await settleGuarded(guarded, 429, NOW);
     expect(store.get(mapsOpsKey(sku, NOW))).toBe(0);
-    expect(store.get(mapsQuota429Key(sku, NOW))).toBe(1);
+    expect(store.get(mapsQuota429Key("text-search-all", NOW))).toBe(1); // Text Search 는 SKU 와 무관하게 같은 콘솔 상한 — 집계 키에 표시
     expect((await reserveMapsOp(sku, NOW)).allowed).toBe(false);
+    expect((await reserveMapsOp("text-pro", NOW)).allowed).toBe(false); // Pro 도 같은 상한이라 함께 막힌다
     // 내일은 다시 시도한다
-    expect((await reserveMapsOp(sku, new Date("2026-10-16T06:00:00Z"))).allowed).toBe(true);
+    expect((await reserveMapsOp(sku, new Date("2026-10-16T15:00:00Z"))).allowed).toBe(true);
   });
   it("sku 가 없는 선택(IDs Only · 강등 IDs)은 정산하지 않는다", async () => {
     fakeStore();
@@ -212,5 +220,72 @@ describe("평점 없이 만든 코스는 얇은 콘텐츠로 보지 않는다", 
     expect(isCourseBriefThin(spots, 5)).toBe(true);
     expect(isCourseBriefThin(spots, 5, { ratingsUnavailable: true })).toBe(false);
     expect(isCourseBriefThin(spots.slice(0, 3), 5, { ratingsUnavailable: true })).toBe(true); // 스팟 수 기준은 그대로
+  });
+});
+
+// 작업지시서 2026-10-16 "긴급(장애 원인 확정): 콘솔 하루 상한 100 소진 → 모든 Text Search 429"
+describe("태평양 시간 날짜 · 콘솔 리셋", () => {
+  it("날짜 키는 America/Los_Angeles 기준 — UTC 10/16 03:00 은 태평양 10/15", () => {
+    expect(ptDateString(new Date("2026-10-16T03:00:00Z"))).toBe("2026-10-15");
+    expect(ptDateString(new Date("2026-10-16T08:00:00Z"))).toBe("2026-10-16"); // 서머타임(PDT=UTC-7) 자정 직후
+    expect(mapsDayKey("text-search-all", new Date("2026-10-16T03:00:00Z"))).toBe("maps-ops-day:text-search-all:2026-10-15");
+  });
+  it("리셋 시각은 다음 태평양 자정 = 서머타임 중 KST 16:00, 서머타임이 끝나면 17:00", () => {
+    expect(formatKst(nextQuotaResetAt(new Date("2026-10-15T15:00:00Z")))).toBe("2026-10-16 16:00 KST");
+    expect(formatKst(nextQuotaResetAt(new Date("2026-12-10T15:00:00Z")))).toBe("2026-12-11 17:00 KST");
+  });
+  it("남은 날 수·월 키도 태평양 달력", () => {
+    expect(daysRemainingInMonth(new Date("2026-11-01T05:00:00Z"))).toBe(1); // 태평양 10/31 22:00 → 10월의 마지막 날
+    expect(daysRemainingInMonth(new Date("2026-10-01T10:00:00Z"))).toBe(31); // 태평양 10/01 03:00
+    expect(mapsOpsKey("text-pro", new Date("2026-11-01T05:00:00Z"))).toBe("maps-ops:text-pro:2026-10"); // 월 키도 태평양 달력
+  });
+});
+
+describe("콘솔 하루 상한 집계 (text-search-all · get-place-all)", () => {
+  beforeEach(() => {
+    queryMock.mockReset();
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("기본 상한 = 콘솔 100 × 0.9 = 90, 환경 변수 GOOGLE_TEXT_SEARCH_DAILY_QUOTA 로 콘솔 값을 따라간다", () => {
+    expect(aggLimit("text-search-all")).toBe(90);
+    expect(aggLimit("get-place-all")).toBe(90);
+    vi.stubEnv("GOOGLE_TEXT_SEARCH_DAILY_QUOTA", "1000");
+    expect(aggLimit("text-search-all")).toBe(900);
+    expect(aggLimit("get-place-all")).toBe(90);
+  });
+
+  it("Enterprise · Pro · IDs Only 가 같은 집계를 나눠 쓰고, 상한에 닿으면 429 를 맞기 전에 멈춘다", async () => {
+    const store = fakeStore({ [mapsDayKey("text-search-all", NOW)]: 89 });
+    expect((await reserveMapsOp("text-enterprise", NOW)).allowed).toBe(true); // 90번째
+    expect(store.get(mapsDayKey("text-search-all", NOW))).toBe(90);
+    expect((await reserveMapsOp("text-pro", NOW)).allowed).toBe(false);
+    expect(await reserveAggregate("text-search-all", NOW)).toBe(false); // IDs Only 도 막힌다
+    // Place Details 는 별개 집계
+    expect(await reserveAggregate("get-place-all", NOW)).toBe(true);
+  });
+
+  it("집계에서 막힌 호출은 월 카운터를 올리지 않고, 월 한도에서 막히면 집계 예약을 되돌린다", async () => {
+    const store = fakeStore({ [mapsDayKey("text-search-all", NOW)]: 90 });
+    expect((await reserveMapsOp("text-pro", NOW)).allowed).toBe(false);
+    expect(store.get(mapsOpsKey("text-pro", NOW))).toBeUndefined();
+    const store2 = fakeStore({ [mapsOpsKey("text-pro", NOW)]: 4500, [mapsDayKey("text-search-all", NOW)]: 10 });
+    expect((await reserveMapsOp("text-pro", NOW)).allowed).toBe(false);
+    expect(store2.get(mapsDayKey("text-search-all", NOW))).toBe(10);
+  });
+
+  it("워밍 크론은 집계 상한의 절반(45)까지만", async () => {
+    fakeStore({ [mapsDayKey("text-search-all", NOW)]: 45 });
+    expect((await runWithMapsSource("warm", () => reserveMapsOp("text-pro", NOW))).allowed).toBe(false);
+    expect((await reserveMapsOp("text-pro", NOW)).allowed).toBe(true);
+  });
+
+  it("IDs Only 호출이 429 를 맞으면 집계에 표시하고 예약을 되돌린다", async () => {
+    const store = fakeStore();
+    const guarded = await chooseGuardedMask("text", "places.id");
+    await settleGuarded(guarded, 429, new Date());
+    expect(store.get(mapsQuota429Key("text-search-all"))).toBe(1);
+    expect(store.get(mapsDayKey("text-search-all"))).toBe(0);
+    expect(await chooseGuardedMask("text", "places.id")).toBeNull(); // 오늘 남은 IDs Only 호출도 skip
   });
 });

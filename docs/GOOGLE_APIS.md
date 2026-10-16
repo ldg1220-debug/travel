@@ -13,7 +13,7 @@
 | 〃 | Maps Static API | 2,366 | `GOOGLE_MAPS_SERVER_KEY` | 확인 필요 |
 | 〃 | Maps JavaScript API | 56 | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (브라우저 노출 — HTTP 리퍼러 제한) | 확인 필요 |
 | 〃 | Places API (legacy) | 7 | (아래 "legacy 7건" 참고) | — |
-| `TRAVEL` (splendid-flow-501212-p3) | Places API (New) — Text Search · Place Details · Photos | 244 | `GOOGLE_PLACES_API_KEY` (서버) | Text Search 100/일 · Place Details(GetPlace) 100/일 (2026-10-14 기준) · 결제 계정 연결됨 |
+| `TRAVEL` (splendid-flow-501212-p3) | Places API (New) — Text Search · Place Details · Photos | 244 | `GOOGLE_PLACES_API_KEY` (서버) | Text Search 100/일 · Place Details(GetPlace) 100/일 (2026-10-14 기준; SKU 와 무관하게 합산) · 결제 계정 연결됨 |
 | `TRAVEL` (travel-501212) · bom Project | 사용 없음 | 0 | — | — |
 
 - 로그인용 `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` 은 Google OAuth(로그인)이며 Maps Platform API 가 아니다 — 이 문서의 대상 밖.
@@ -27,6 +27,7 @@
 2026-10-15 보강(작업지시서 "평점 검색(Enterprise) 하루 만에 243/900"):
 - **일 단위 페이싱**(Enterprise 두 SKU): 오늘 상한 = `floor((월 상한 − 오늘 이전 사용) / 남은 날수)`, 최소 10(예: 10/15 → (900−243)/17 ≈ 38). 사용자 요청은 오늘 상한까지, **워밍 크론은 오늘 상한의 50%까지**. 로그 `[mapsBudget] … action=pacing`.
 - **Google 이 실제 처리한 호출(2xx)만 센다**: 429/5xx/타임아웃/4xx 는 예약을 되돌린다(`settleGuarded`). 429(RESOURCE_EXHAUSTED = 콘솔 하루 상한 도달)는 그 SKU 의 오늘 남은 호출을 건너뛰게 표시한다(`maps-429:{sku}:{날짜}`, 로그 `action=quota429`).
+- **콘솔 하루 상한 집계**(작업지시서 2026-10-16): Text Search 는 SKU(Enterprise/Pro/IDs Only)와 무관하게 콘솔의 `SearchTextRequest per day`, Place Details 는 `GetPlaceRequest per day` 를 나눠 쓴다. 가드는 이를 `text-search-all` / `get-place-all` 일 카운터(IDs Only 포함)로 합산해 **콘솔 상한(환경 변수 `GOOGLE_TEXT_SEARCH_DAILY_QUOTA` · `GOOGLE_GET_PLACE_DAILY_QUOTA`, 기본 100) × 0.9** 에 닿으면 Google 을 부르지 않는다(워밍은 그 절반까지). 콘솔 상한을 바꾸면 이 환경 변수를 같이 바꾼다. 일·월 카운터와 429 표시의 날짜는 **America/Los_Angeles** 기준이다 — Google 의 하루는 태평양 시간 자정(KST 16:00, 서머타임이 끝나면 17:00)에 리셋된다. `/api/health` `maps.textSearchAll` · `maps.getPlaceAll` 에 `todayCount/todayLimit/quota/quota429/quotaResetAt(Kst)`.
 - **후보 풀은 지역 단위 1벌**: 캐시 키에 일수가 없어 한 지역의 모든 일수 코스가 같은 풀을 쓴다(26시간). 한 지역 빌드의 Text Search ≈ 슬롯 7(휴양형 3) + 3일차 이후 식당 슬롯 동의어 2(휴양형 1) + 랜드마크 1(휴양형 3) ≈ 10회(예전 21~22회).
 - **워밍 크론**: 단위가 "조합 5개"에서 "지역 2개"(`WARM_DAILY_MAX`)로 — 최근 26시간 방문된 지역의 만료 임박 일수를 모두 같은 풀로 만든다.
 
