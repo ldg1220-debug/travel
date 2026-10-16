@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { pool } from "@/lib/server/db";
-import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, parseDays, resolveScope, TransientApiFailureError, UnsupportedRegionError, type CourseBriefSpot } from "@/lib/server/courseBrief";
+import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, isLiveGooglePlaceId, parseDays, resolveScope, TransientApiFailureError, UnsupportedRegionError, type CourseBriefSpot } from "@/lib/server/courseBrief";
 import { DEFAULT_DURATION_MINUTES, formatTime, shiftISODate, todayISODate } from "@/lib/timeline";
 import type { ItineraryItem, Region } from "@/lib/types";
 
@@ -98,6 +98,11 @@ export function splitByDay(spots: CourseBriefSpot[]): CourseBriefSpot[][] {
   return [...byDay.keys()].sort((a, b) => a - b).map((day) => byDay.get(day)!);
 }
 
+/** 시작 시각을 5분 단위로 올림 — 이동시간을 분 단위로 그대로 더하면 10:17·11:13 처럼 사람이 짜지 않는 시각이 나온다(작업지시서 2026-10-16 §2-④). */
+export function roundUpTo5(minutes: number): number {
+  return Math.ceil(minutes / 5) * 5;
+}
+
 /** 하루치 스팟을 09:00부터 순서대로 배치한 ItineraryItem[]로 변환한다. */
 export function scheduleDay(spots: CourseBriefSpot[], date: string, idPrefix: string): ItineraryItem[] {
   let clock = START_HOUR * 60;
@@ -105,21 +110,22 @@ export function scheduleDay(spots: CourseBriefSpot[], date: string, idPrefix: st
     const hour = Math.floor(clock / 60) % 24;
     const minute = clock % 60;
     const item: ItineraryItem = {
-      // Google/Kakao placeId가 아니라 이 계획 안에서만 쓰는 합성 id다 —
-      // course-brief 공개 계약엔 실제 placeId가 없다(스팟 목록·평점·좌표
-      // 등만 준다). PlannerBoard는 로컬 places 카탈로그에 없는 placeId를
-      // 만나면 item.coordinates로 마커를 다시 합성하므로(PlannerBoard.tsx
-      // "A viewer's local `places` catalog may not have every place…" 참고)
-      // 실제 Google placeId가 아니어도 지도·타임라인 모두 정상 동작한다.
+      // id 는 이 계획 안에서만 쓰는 합성 값이다. placeId 는 brief 스팟이 실제
+      // Google place id 를 갖고 있으면 그것을 쓴다(상세 시트가 런타임에 사진·
+      // 평점·주소를 조회하는 열쇠 — 작업지시서 2026-10-16 §2-①). 없으면(옛 캐시·
+      // 국내) 합성 id 로 두고, 상세 라우트가 이름+좌표로 한 번 풀어 준다(§2-⑤).
+      // PlannerBoard 는 로컬 places 카탈로그에 없는 placeId 를 만나면
+      // item.coordinates 로 마커를 다시 합성하므로 어느 쪽이든 지도는 동작한다.
       id: `${idPrefix}-${i}`,
-      placeId: `${idPrefix}-${i}`,
+      placeId: isLiveGooglePlaceId(spot.placeId) ? spot.placeId : `${idPrefix}-${i}`,
       name: spot.name,
       date,
       time: formatTime(hour, minute),
       durationMinutes: DEFAULT_DURATION_MINUTES,
       coordinates: { lat: spot.lat, lng: spot.lng },
+      ...(spot.category ? { category: spot.category } : {}),
     };
-    clock += DEFAULT_DURATION_MINUTES + (spot.toNextMinutes ?? 0);
+    clock = roundUpTo5(clock + DEFAULT_DURATION_MINUTES + (spot.toNextMinutes ?? 0));
     return item;
   });
 }

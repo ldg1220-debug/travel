@@ -15,6 +15,7 @@ import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { fetchPlaceDetails, fetchTraduleReviews, type PlaceDetails, type TraduleReview } from "@/lib/api";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { PlaceGlyph } from "./icons";
+import { GoogleAttribution } from "@/components/GoogleAttribution";
 import type { Place } from "@/lib/types";
 
 // Always client-only — see PlaceMiniMap.tsx / lib/maps/mapResize.ts.
@@ -55,6 +56,10 @@ interface PlaceDetailOverlayProps {
   onSave: (place: Place) => void;
   /** Present only when there's somewhere meaningful to schedule it (an activeDate) — renders a second "일정에 추가" action. */
   onSchedule?: (place: Place) => void;
+  /** 일정 카드에서 열린 경우에만 — 상세 아래에 기존 "일정 수정"(날짜·시간·예산·삭제)으로 넘어가는 버튼을 단다(작업지시서 2026-10-16 §2-②). */
+  onEdit?: () => void;
+  /** 상세 조회로 실제 Google place id 를 알아낸 경우(합성 id 항목) — 호출부가 항목의 placeId 를 한 번 채운다(§2-⑤). */
+  onResolvedPlaceId?: (place: Place, resolvedPlaceId: string) => void;
 }
 
 /**
@@ -64,7 +69,7 @@ interface PlaceDetailOverlayProps {
  * Mini map reuses the same MapProvider-loaded SDK as the main planner
  * map (no second script load).
  */
-export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: PlaceDetailOverlayProps) {
+export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule, onEdit, onResolvedPlaceId }: PlaceDetailOverlayProps) {
   const { isLoaded: googleLoaded } = useGoogleMapsStatus();
   const { isLoaded: kakaoLoaded } = useKakaoMapsStatus();
   const mapsLoaded = place ? (isDomesticCoordinate(place.lat, place.lng) ? kakaoLoaded : googleLoaded) : false;
@@ -88,6 +93,26 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
   // map is expanded, so back first collapses the map (this hook fires),
   // and only a second back-press closes the overlay (the parent's hook).
   useBackButtonClose(mapExpanded, () => setMapExpanded(false));
+
+  // Google reviews + photo gallery + 주소·지도 링크 — 헤더 사진과 폼이 같은 조회 결과를 쓰도록 오버레이에서 한 번만 가져온다. Kakao(국내)/큐레이션/
+  // 코스에서 저장된 합성 id 장소는 실제 Google id 가 아니라 name+좌표도 같이 보내 서버가 가장 가까운 실제 장소로 풀어낸다.
+  const [fetched, setFetched] = useState<{ key: string; data: PlaceDetails | null } | null>(null);
+  const detailsKey = place ? `${place.id}|${place.placeId}` : null;
+  useEffect(() => {
+    if (!place || !detailsKey) return;
+    let alive = true;
+    fetchPlaceDetails(place.placeId, { name: place.name, lat: place.lat, lng: place.lng }).then((d) => {
+      if (!alive) return;
+      setFetched({ key: detailsKey, data: d });
+      if (d?.resolvedPlaceId && d.resolvedPlaceId !== place.placeId) onResolvedPlaceId?.(place, d.resolvedPlaceId);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 장소가 바뀔 때만 다시 조회(onResolvedPlaceId 정체성은 무시)
+  }, [detailsKey]);
+  const details = fetched && fetched.key === detailsKey ? fetched.data : null;
+  const headerPhoto = place?.photoName ?? details?.photoNames?.[0];
 
   // Other 관심 장소 within a short walk/ride of the one being viewed — gives
   // the mini map actual geographic context ("what else is around here")
@@ -118,10 +143,10 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
             {/* header — 실제 업체 사진이 있으면 사진(위치 맥락은 뒤의 결과
                 지도가 담당), 없으면 기존 미니맵 */}
             <div className="relative h-40 w-full shrink-0 bg-[#eef2f4]">
-              {place.photoName ? (
+              {headerPhoto ? (
                 // eslint-disable-next-line @next/next/no-img-element -- served via our own /api/places/photo redirect proxy; see LivePlaceCard
                 <img
-                  src={`/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=800`}
+                  src={`/api/places/photo?name=${encodeURIComponent(headerPhoto)}&w=800`}
                   alt={place.name}
                   className="h-full w-full object-cover"
                 />
@@ -152,7 +177,7 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
             {/* Keyed on place.id so switching to a different place (without
                 the overlay ever fully closing) resets the form's local
                 state via remount, instead of syncing it from a prop effect. */}
-            <PlaceDetailForm key={place.id} place={place} onSave={onSave} onSchedule={onSchedule} />
+            <PlaceDetailForm key={place.id} place={place} details={details} onSave={onSave} onSchedule={onSchedule} onEdit={onEdit} />
           </motion.div>
 
           {/* 지도 크게 보기 — 미니맵을 탭하면 뜨는 전체화면 지도. 이 상태에서는
@@ -191,10 +216,12 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule }: Place
 interface PlaceDetailFormProps {
   place: Place;
   onSave: (place: Place) => void;
+  details: PlaceDetails | null;
   onSchedule?: (place: Place) => void;
+  onEdit?: () => void;
 }
 
-function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
+function PlaceDetailForm({ place: basePlace, details, onSave, onSchedule, onEdit }: PlaceDetailFormProps) {
   const router = useRouter();
   // 정보를 먼저 보여주고("view"), "관심 장소에 저장"을 눌러야만 폴더·메모
   // 입력("save")으로 넘어간다 — 작업지시서 2026-09-09 "장소 상세 화면
@@ -203,9 +230,9 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
   // 보였다). "일정에 추가"는 폴더·메모와 무관하니 view 단계에서 바로
   // 실행된다.
   const [step, setStep] = useState<"view" | "save">("view");
-  const [category, setCategory] = useState(place.category);
-  const [memo, setMemo] = useState(place.memo ?? "");
-  const [folderId, setFolderId] = useState(place.folderId);
+  const [category, setCategory] = useState(basePlace.category);
+  const [memo, setMemo] = useState(basePlace.memo ?? "");
+  const [folderId, setFolderId] = useState(basePlace.folderId);
   // Which gallery photo is open full-screen — null = lightbox closed.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // Review text is clamped to 4 lines by default; toggled open per-review
@@ -220,21 +247,20 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
       return next;
     });
 
-  // Google reviews + photo gallery — the in-app menu-tab substitute. A
-  // Kakao(국내)/큐레이션 장소 isn't a live Google id, so name+좌표 are also
-  // sent — the server resolves those to the nearest matching real Google
-  // place instead of just skipping the section for anything but a
-  // live-searched place.
-  const [details, setDetails] = useState<PlaceDetails | null>(null);
-  useEffect(() => {
-    let alive = true;
-    fetchPlaceDetails(place.placeId, { name: place.name, lat: place.lat, lng: place.lng }).then((d) => {
-      if (alive) setDetails(d);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [place]);
+  // 검색으로 담은 장소는 평점·주소가 이미 있고, 코스에서 저장된 일정은 이름·좌표뿐이라 런타임 조회 결과로 빈 칸을 채운다(저장하지 않는다).
+  const place: Place = {
+    ...basePlace,
+    rating: basePlace.rating ?? details?.rating ?? undefined,
+    reviewCount: basePlace.reviewCount ?? details?.reviewCount ?? undefined,
+    address: basePlace.address ?? details?.address ?? undefined,
+    googleMapsUri: basePlace.googleMapsUri ?? details?.googleMapsUri ?? undefined,
+  };
+  // 한도로 상세를 못 받은 경우에도 "지도에서 열기"는 좌표만으로 가능하다.
+  const mapsLink =
+    place.googleMapsUri ??
+    (Number.isFinite(place.lat) && (place.lat !== 0 || place.lng !== 0)
+      ? `https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lng}`
+      : undefined);
 
   // 트레쥴 회원들이 이 장소에 남긴 자체 리뷰 — placeId가 같은 걸로 매칭되므로
   // (구글로 재조회하지 않고 원래 저장된 id 그대로) 검색 경로와 무관하게 뜬다.
@@ -247,7 +273,7 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
     return () => {
       alive = false;
     };
-  }, [place]);
+  }, [place.placeId]);
 
   const gallery = details?.photoNames ?? (place.photoName ? [place.photoName] : []);
 
@@ -340,9 +366,9 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
             />
           )}
 
-          {place.googleMapsUri && (
+          {mapsLink && (
             <a
-              href={place.googleMapsUri}
+              href={mapsLink}
               target="_blank"
               rel="noreferrer"
               className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-success-50 px-3 py-1.5 text-[12px] font-semibold text-success-700 transition-colors hover:bg-success-100"
@@ -414,6 +440,11 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
             </div>
           )}
 
+          {/* 평점·리뷰 수·리뷰는 Google 값 — 표시할 때 출처를 밝힌다(작업지시서 2026-10-13 출처 표시). */}
+          {(place.rating != null || place.reviewCount != null || mergedReviews.some((r) => r.source === "google")) && (
+            <GoogleAttribution className="mt-3" />
+          )}
+
           <div className="mt-5 flex gap-2">
             {onSchedule && (
               <Button
@@ -432,6 +463,14 @@ function PlaceDetailForm({ place, onSave, onSchedule }: PlaceDetailFormProps) {
               관심 장소에 저장
             </Button>
           </div>
+          {onEdit && (
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">일정</p>
+              <Button onClick={onEdit} variant="outline" className="h-12 w-full rounded-2xl border-slate-300 text-sm font-semibold text-slate-700">
+                일정 수정 (날짜·시간·예산·삭제)
+              </Button>
+            </div>
+          )}
         </>
       ) : (
         <>

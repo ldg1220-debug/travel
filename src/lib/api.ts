@@ -81,6 +81,9 @@ export interface PlaceDetails {
   rating: number | null;
   reviewCount: number | null;
   openNow: boolean | null;
+  address?: string | null;
+  googleMapsUri?: string | null;
+  resolvedPlaceId?: string | null;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scheduleDay, splitByDay } from "./route";
+import { roundUpTo5, scheduleDay, splitByDay } from "./route";
 import { shiftISODate } from "@/lib/timeline";
 import type { CourseBriefSpot } from "@/lib/server/courseBrief";
 
@@ -73,5 +73,42 @@ describe("splitByDay + scheduleDay 통합 — 계획의 날짜 수가 실제 day
     const distinctDates = new Set(items.map((i) => i.date));
     expect(distinctDates.size).toBe(2); // 요청 days=2와 일치 — 빈 날짜가 추가로 붙지 않는다
     expect(items).toHaveLength(5);
+  });
+});
+
+// 작업지시서 2026-10-16 "코스 → 일정 저장 후 장소 정보가 안 보임" §2-①·④.
+describe("scheduleDay — 실제 placeId · 분류 · 5분 단위 시작 시각", () => {
+  const REAL_ID = "ChIJ0123456789abcdefghijk";
+
+  it("uses the brief's real Google placeId and keeps category/coordinates; falls back to a synthetic id otherwise", () => {
+    const withId = { ...spot(1, 1, 10), placeId: REAL_ID };
+    const withoutId = spot(1, 2, null);
+    const [a, b] = scheduleDay([withId, withoutId], "2026-10-16", "content-0");
+    expect(a.placeId).toBe(REAL_ID);
+    expect(a.id).toBe("content-0-0"); // 항목 id 는 계획 안 합성값 그대로
+    expect(a.category).toBe("관광");
+    expect(a.coordinates).toEqual({ lat: withId.lat, lng: withId.lng });
+    expect(b.placeId).toBe("content-0-1");
+  });
+
+  it("rejects a non-Google (Kakao-style) id", () => {
+    const [a] = scheduleDay([{ ...spot(1, 1, null), placeId: "12345678" }], "2026-10-16", "content-0");
+    expect(a.placeId).toBe("content-0-0");
+  });
+
+  it("rounds every start time up to a 5-minute step after adding travel time", () => {
+    const spots = [spot(1, 1, 17), spot(1, 2, 13), spot(1, 3, 36), spot(1, 4, 7), spot(1, 5, null)];
+    const items = scheduleDay(spots, "2026-10-16", "content-0");
+    for (const it of items) expect(Number(it.time.split(":")[1]) % 5).toBe(0);
+    // 09:00 + 60(체류) + 17 = 10:17 → 10:20, +60+13 = 11:33 → 11:35 ...
+    expect(items.map((i) => i.time).slice(0, 3)).toEqual(["09:00", "10:20", "11:35"]);
+  });
+});
+
+describe("roundUpTo5", () => {
+  it("rounds up and leaves multiples of 5 alone", () => {
+    expect(roundUpTo5(617)).toBe(620);
+    expect(roundUpTo5(620)).toBe(620);
+    expect(roundUpTo5(601)).toBe(605);
   });
 });

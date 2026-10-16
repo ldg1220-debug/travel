@@ -63,6 +63,11 @@ export type CourseDays = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export interface CourseBriefSpot {
   name: string;
+  /**
+   * Google place id(해외 후보만 — 국내 Kakao id 는 넣지 않는다). 작업지시서 2026-10-16 "코스 → 일정 저장 후 장소 정보가 안 보임" §2-①:
+   * 일정으로 저장될 때 상세(사진·평점·주소)를 런타임에 조회할 열쇠다. placeId 는 약관상 무기한 보관 가능 — 평점·사진·리뷰 수는 저장하지 않는다.
+   */
+  placeId?: string;
   category: string;
   rating: number | null;
   reviewCount: number | null;
@@ -2464,6 +2469,11 @@ export function stripKeywordStuffing(name: string): string {
  * 마찬가지로, 이 함수의 결과만으로도 완결된 코스 구조를 즉시 캐시에
  * 쓸 수 있어야 한다.
  */
+/** Google Places (New) place id 모양인가 — details 라우트의 looksLikeLiveGoogleId 와 같은 기준(Kakao id·큐레이션 시드 id 는 걸러낸다). */
+export function isLiveGooglePlaceId(id: string | undefined | null): id is string {
+  return typeof id === "string" && /^[A-Za-z0-9_-]{20,}$/.test(id);
+}
+
 export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], baseOrder: number, scope: CourseBriefScope, region: string, day: CourseDays): { spots: CourseBriefSpot[]; distanceKm: number; hadStraightFallback: boolean } {
   let distanceKm = 0;
   let hadStraightFallback = false;
@@ -2504,6 +2514,7 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
     const displayName = cleanDisplayName(stop.name);
     return {
       name: displayName,
+      ...(isLiveGooglePlaceId(stop.placeId) ? { placeId: stop.placeId } : {}),
       ...(displayName !== stop.name ? { originalName: stop.name } : {}),
       category: courseSpotCategory({ category: stop.category, name: stop.name, beach: isBeach(stop), reviewCount: stop.reviewCount }),
       ...(isBeach(stop) ? { beach: true as const } : {}),

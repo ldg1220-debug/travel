@@ -210,6 +210,8 @@ interface ItineraryState {
    */
   retimeItem: (id: string, startMinutes: number, durationMinutes: number) => void;
   removeItem: (id: string) => void;
+  /** 합성 id 로 저장된 항목(코스에서 저장·옛 데이터)의 placeId 를 상세 조회로 알아낸 실제 Google id 로 한 번 채운다 — 이미 실제 id 면 건드리지 않는다(작업지시서 2026-10-16 §2-⑤). */
+  fillItemPlaceId: (id: string, placeId: string) => void;
   clearDate: (date: string) => void;
   /** Clears every scheduled stop across all dates — the toolbar's 비우기 action, for starting a fresh plan. Leaves `places`/`savedPlaces` untouched. */
   clearAllItems: () => void;
@@ -547,6 +549,13 @@ export const useItineraryStore = create<ItineraryState>()(
         })),
 
       removeItem: (id) => set((state) => ({ items: state.items.filter((i) => i.id !== id) })),
+
+      fillItemPlaceId: (id, placeId) =>
+        set((state) => {
+          const target = state.items.find((i) => i.id === id);
+          if (!target || /^[A-Za-z0-9_-]{20,}$/.test(target.placeId) || target.placeId === placeId) return state;
+          return { items: state.items.map((i) => (i.id === id ? { ...i, placeId } : i)) };
+        }),
 
       setItems: (items) => set({ items }),
 
