@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { pool } from "@/lib/server/db";
-import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, isLiveGooglePlaceId, parseDays, resolveScope, TransientApiFailureError, UnsupportedRegionError, type CourseBriefSpot } from "@/lib/server/courseBrief";
+import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, isLiveGooglePlaceId, parseDays, peekBrief, resolveScope, TransientApiFailureError, UnsupportedRegionError, type CourseBriefSpot } from "@/lib/server/courseBrief";
 import { DEFAULT_DURATION_MINUTES, formatTime, shiftISODate, todayISODate } from "@/lib/timeline";
 import type { ItineraryItem, Region } from "@/lib/types";
 
@@ -98,13 +98,37 @@ export function splitByDay(spots: CourseBriefSpot[]): CourseBriefSpot[][] {
   return [...byDay.keys()].sort((a, b) => a - b).map((day) => byDay.get(day)!);
 }
 
+/** course-open 일정 스키마 버전 — 2: placeId·category·좌표 + 5분 단위 시각(#326). 올리면 기존 공유 일정이 다음 방문 때 교체 대상이 된다. */
+export const PLAN_SCHEMA_VERSION = 2;
+/** 공유 일정 재사용 기간 — 코스 브리프 26시간 캐시와 맞춘다(좌표 30일 보관 약관도 자연히 충족). */
+export const PLAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 이미 만들어진 공유 일정을 그대로 재사용해도 되는지의 반대 — 아래 중 하나면 교체 대상이다.
+ * 스키마 버전이 없거나 낮음 · 항목에 placeId/좌표가 없음 · 생성 후 24시간 경과(generatedAt 없음 포함).
+ */
+export function isStaleContentPlan(items: unknown, now: number = Date.now()): boolean {
+  if (!Array.isArray(items) || items.length === 0) return true;
+  for (const raw of items) {
+    const it = raw as Partial<ItineraryItem> | null;
+    if (!it || typeof it !== "object") return true;
+    if ((it.planSchemaVersion ?? 0) < PLAN_SCHEMA_VERSION) return true;
+    if (!it.placeId) return true;
+    const c = it.coordinates;
+    if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lng) || (c.lat === 0 && c.lng === 0)) return true;
+    const at = it.generatedAt ? Date.parse(it.generatedAt) : NaN;
+    if (!Number.isFinite(at) || now - at > PLAN_MAX_AGE_MS) return true;
+  }
+  return false;
+}
+
 /** 시작 시각을 5분 단위로 올림 — 이동시간을 분 단위로 그대로 더하면 10:17·11:13 처럼 사람이 짜지 않는 시각이 나온다(작업지시서 2026-10-16 §2-④). */
 export function roundUpTo5(minutes: number): number {
   return Math.ceil(minutes / 5) * 5;
 }
 
 /** 하루치 스팟을 09:00부터 순서대로 배치한 ItineraryItem[]로 변환한다. */
-export function scheduleDay(spots: CourseBriefSpot[], date: string, idPrefix: string): ItineraryItem[] {
+export function scheduleDay(spots: CourseBriefSpot[], date: string, idPrefix: string, generatedAt: string = new Date().toISOString()): ItineraryItem[] {
   let clock = START_HOUR * 60;
   return spots.map((spot, i) => {
     const hour = Math.floor(clock / 60) % 24;
@@ -124,6 +148,8 @@ export function scheduleDay(spots: CourseBriefSpot[], date: string, idPrefix: st
       durationMinutes: DEFAULT_DURATION_MINUTES,
       coordinates: { lat: spot.lat, lng: spot.lng },
       ...(spot.category ? { category: spot.category } : {}),
+      planSchemaVersion: PLAN_SCHEMA_VERSION,
+      generatedAt,
     };
     clock = roundUpTo5(clock + DEFAULT_DURATION_MINUTES + (spot.toNextMinutes ?? 0));
     return item;
@@ -142,10 +168,39 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "days exceeds this region's style limit", maxDays }, { status: 400 });
   }
 
+  // 작업지시서 2026-10-16 "#326 검증" §3 — 이미 만든 공유 일정이 있으면 먼저 본다. 신선하면 브리프 조회(Places 호출 가능성) 없이 그대로 재사용하고,
+  // 오래됐으면(스키마 버전 없음·placeId/좌표 없음·24시간 경과) 캐시된 브리프로만 새 일정을 만들어 교체한다. 캐시된 브리프가 없으면 기존 일정을 유지한다
+  // (추가 Places 호출 없음). 교체는 옛 행의 contentKey 를 비워 URL 은 살려 두고(그 링크를 가진 사람은 그대로 본다) 새 행을 만든다. "담아가기" 복사본
+  // (origin='copy')과 사용자 계획은 이 조회/UPDATE 의 대상이 아니다(origin='content' 로만 좁힘).
+  const contentKey = `${resolveScope(region)}:${region.trim().toLowerCase()}:${days}:v${COURSE_ALGO_VERSION}`;
+  const isPreview = request.nextUrl.searchParams.get("preview") === "1";
+  let retireId: number | null = null;
+  let reuseBrief: Awaited<ReturnType<typeof getCourseBrief>> | null = null;
+  if (!isPreview) {
+    const existing = await pool.query<{ id: number; shareToken: string; placesData: unknown }>(
+      `select id, "shareToken", "placesData" from itineraries where "contentKey" = $1 and origin = 'content'`,
+      [contentKey],
+    );
+    const row = existing.rows[0];
+    if (row) {
+      if (!isStaleContentPlan(row.placesData)) {
+        return NextResponse.redirect(`https://www.tradule.co.kr/planner/${row.shareToken}`, 302);
+      }
+      const cachedBrief = await peekBrief(region, days).catch(() => null);
+      if (!cachedBrief || cachedBrief.spots.length === 0) {
+        console.log(`[course-open] stale plan kept (no cached brief) key=${contentKey}`);
+        return NextResponse.redirect(`https://www.tradule.co.kr/planner/${row.shareToken}`, 302);
+      }
+      retireId = row.id;
+      reuseBrief = cachedBrief;
+      console.log(`[course-open] replacing stale plan id=${row.id} key=${contentKey}`);
+    }
+  }
+
   let brief;
   try {
     console.log(`[courseBrief] route=course-open region=${region} days=${days}`);
-    brief = await getCourseBrief(region, days);
+    brief = reuseBrief ?? (await getCourseBrief(region, days));
   } catch (err) {
     // 작업지시서 2026-09-14 §3 — 이 라우트는 blog CTA가 그대로 리다이렉트로
     // 여는 인증 없는 GET이라, course-brief처럼 raw JSON을 주는 대신 기존
@@ -184,8 +239,11 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
 
   const dayGroups = splitByDay(brief.spots);
   const startDate = todayISODate();
+  // 합성 id 는 계획마다 유일해야 한다 — 예전엔 `content-0-0` 이 모든 코스에서 같아서, 기기 카탈로그에 남은 다른 도시 코스의 같은 id 와 충돌했다.
+  const planTag = randomUUID().slice(0, 8);
+  const generatedAt = new Date().toISOString();
   const placesData: ItineraryItem[] = dayGroups.flatMap((dayStops, dayIndex) =>
-    scheduleDay(dayStops, shiftISODate(startDate, dayIndex), `content-${dayIndex}`),
+    scheduleDay(dayStops, shiftISODate(startDate, dayIndex), `content-${planTag}-${dayIndex}`, generatedAt),
   );
 
   const regionValue: Region = resolveScope(region) === "overseas" ? "international" : "domestic";
@@ -195,7 +253,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // 검증·테스트 목적의 호출이 실제 계획 행에 손대지 않도록, 아무것도
   // 저장하지 않고 결과만 돌려주는 경로를 둔다. 소유자 조회(위)까지는
   // 이미 끝났지만 그건 읽기 전용이라 문제 없다 — INSERT 직전에서 끊는다.
-  if (request.nextUrl.searchParams.get("preview") === "1") {
+  if (isPreview) {
     return NextResponse.json({ region: regionValue, days: brief.days, title, placesData });
   }
 
@@ -217,8 +275,10 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // 행은 항상 origin='content'로 표시해, 일반 사용자 계획(origin NULL)이나
   // "담아가기" 복사 계획(origin='copy')은 이 INSERT가 절대 대상으로
   // 고를 수 없다.
-  const contentKey = `${resolveScope(region)}:${region.trim().toLowerCase()}:${days}:v${COURSE_ALGO_VERSION}`;
   const shareToken = randomUUID();
+  if (retireId != null) {
+    await pool.query(`update itineraries set "contentKey" = null where id = $1 and origin = 'content'`, [retireId]);
+  }
   const result = await pool.query<{ shareToken: string }>(
     `insert into itineraries ("userId", title, region, "placesData", "shareToken", "isDraft", "contentKey", origin)
      values ($1, $2, $3, $4, $5, false, $6, 'content')

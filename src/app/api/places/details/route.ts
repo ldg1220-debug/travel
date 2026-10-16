@@ -18,7 +18,9 @@ interface GoogleReview {
   text?: { text?: string };
   originalText?: { text?: string };
   relativePublishTimeDescription?: string;
-  authorAttribution?: { displayName?: string };
+  authorAttribution?: { displayName?: string; uri?: string; photoUri?: string };
+  /** 이 리뷰의 원문 링크 */
+  googleMapsUri?: string;
 }
 
 export interface PlaceDetails {
@@ -28,6 +30,10 @@ export interface PlaceDetails {
     rating: number | null;
     text: string;
     when: string;
+    /** Places 정책: 리뷰는 작성자 이름 + 프로필 사진 + 원문 링크와 함께 보여야 한다(작업지시서 2026-10-16 §3④). */
+    authorPhotoUri?: string | null;
+    authorUri?: string | null;
+    googleMapsUri?: string | null;
   }[];
   rating: number | null;
   reviewCount: number | null;
@@ -136,6 +142,9 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
       rating: r.rating ?? null,
       text: (r.text?.text ?? r.originalText?.text ?? "").trim(),
       when: r.relativePublishTimeDescription ?? "",
+      authorPhotoUri: r.authorAttribution?.photoUri ?? null,
+      authorUri: r.authorAttribution?.uri ?? null,
+      googleMapsUri: r.googleMapsUri ?? null,
     })),
     rating: data.rating ?? null,
     reviewCount: data.userRatingCount ?? null,

@@ -98,6 +98,10 @@ export interface ItineraryItem {
   coordinates: { lat: number; lng: number };
   /** 코스에서 저장된 항목의 분류(식사·관광 등) — 상세 시트 아이콘/라벨용. 평점·사진은 저장하지 않는다(약관) — 열 때 런타임 조회. */
   category?: string;
+  /** course-open 이 만든 콘텐츠 일정의 스키마 버전 — 오래된 공유 일정을 새로 만들어 교체할지 판단한다(작업지시서 2026-10-16 "#326 검증" §3①). 사용자가 만든 일정엔 없다. */
+  planSchemaVersion?: number;
+  /** course-open 이 이 항목을 만든 시각(ISO) — 24시간(코스 브리프 캐시와 맞춤)이 지나면 교체 대상. */
+  generatedAt?: string;
   /** Estimated cost for this stop, denominated in `budgetCurrency`. */
   budget?: number;
   /** Which currency `budget` is in — defaults to "KRW" when a stop has a budget but no currency recorded yet (e.g. items saved before this field existed). */

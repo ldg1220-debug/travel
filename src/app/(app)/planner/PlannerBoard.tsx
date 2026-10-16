@@ -45,6 +45,7 @@ import { bookingProviders, hasAffiliateLink } from "@/lib/affiliates";
 import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { LoginModal } from "@/components/LoginModal";
+import { catalogPlaceFor } from "@/lib/catalogPlace";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus, useKakaoMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
@@ -314,7 +315,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // on this plan's itinerary (e.g. Kakao rendering for a Fukuoka plan
   // because more domestic spots had been heart-saved elsewhere than there
   // were scheduled Fukuoka stops).
-  const itemPlaces = items.map((it) => places.find((p) => p.id === it.placeId)).filter((p): p is Place => p != null);
+  const itemPlaces = items.map((it) => catalogPlaceFor(it, places)).filter((p): p is Place => p != null);
   const mapPlaces = pendingSearchPlace ? [...itemPlaces, pendingSearchPlace] : itemPlaces;
   const regionSample = mapPlaces.length > 0 ? mapPlaces : savedPlaces;
   const isDomestic =
@@ -1084,7 +1085,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // 일정 카드 클릭 → 장소 상세 시트를 먼저(검색으로 담은 장소와 같은 컴포넌트), 그 아래 버튼으로 기존 "일정 수정" 모달 — 작업지시서
   // 2026-10-16 §2-②. 코스에서 저장된 항목은 이름·좌표뿐이라 시트가 열 때 런타임으로 사진·평점·주소를 조회한다.
   const openEditModal = (item: ItineraryItem) => {
-    const known = places.find((p) => p.id === item.placeId);
+    const known = catalogPlaceFor(item, places);
     const base = known ?? fallbackDisplay(item.name);
     const place: Place = {
       ...base,
@@ -1903,7 +1904,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   };
 
   const dragItem = gridDragItemId ? items.find((i) => i.id === gridDragItemId) ?? null : null;
-  const dragItemPlace = dragItem ? places.find((p) => p.id === dragItem.placeId) ?? fallbackDisplay(dragItem.name) : null;
+  const dragItemPlace = dragItem ? catalogPlaceFor(dragItem, places) ?? fallbackDisplay(dragItem.name) : null;
 
   // 오늘(activeDate) 스케줄의 스톱 간 실제 경로 — 작업지시서 2026-09-11
   // "계획 탭 동선을 실제 경로로" §3. `item.coordinates`를 직접 쓴다(예전
@@ -1985,7 +1986,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const scheduleMapPlaces = useMemo(() => {
     const scheduled = mapStops
       .map((s) => {
-        const known = places.find((p) => p.id === s.placeId);
+        const known = catalogPlaceFor(s, places);
         if (known) return known;
         return { ...fallbackDisplay(s.name), lat: s.coordinates.lat, lng: s.coordinates.lng };
       })
@@ -2646,7 +2647,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                           />
                         ))}
                         {spillover && (() => {
-                          const spillPlace = places.find((p) => p.id === spillover.item.placeId) ?? fallbackDisplay(spillover.item.name);
+                          const spillPlace = catalogPlaceFor(spillover.item, places) ?? fallbackDisplay(spillover.item.name);
                           const spillHeight = (spillover.minutes / 60) * slotHeight;
                           return (
                             <button
@@ -2773,7 +2774,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         })}
 
                         {dayItems.map((item, index) => {
-                          const place = places.find((p) => p.id === item.placeId) ?? null;
+                          const place = catalogPlaceFor(item, places);
                           const display = place ?? fallbackDisplay(item.name);
                           const order = orderByDate[date]?.[item.placeId];
                           const startMinutes = minutesFromTime(item.time);
