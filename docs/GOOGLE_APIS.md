@@ -36,7 +36,7 @@
 | `lib/server/courseRecommend.ts` `googleTop` (후보 풀 · 평점 보강 · 랜드마크) | Places New Text Search | id, displayName, formattedAddress, location, **rating, userRatingCount**, primaryType, photos, googleMapsUri | **Enterprise** | `GOOGLE_PLACES_API_KEY` (폴백 `NEXT_PUBLIC_…`) | `text-enterprise` 900 | 평점 없이 Pro 필드로 강등 → Pro(`text-pro` 4,500)도 닿으면 검색 건너뜀 |
 | `app/api/places/search/route.ts` `rawGoogleSearch` · `fetchGooglePlacesPage` (사용자 장소 검색) | Places New Text Search | 위 + priceLevel (+ nextPageToken) | **Enterprise** | 〃 | `text-enterprise` 900 | 강등(평점 없이) → 건너뜀 |
 | 〃 `searchByPlaceId` (지도 POI 클릭) | Places New Place Details | id, displayName, …, rating, userRatingCount, priceLevel, photos, googleMapsUri | **Enterprise** | 〃 | `details-enterprise` 900 | 강등 → 빈 결과 |
-| `app/api/places/details/route.ts` (장소 상세) | Places New Place Details | photos, reviews, rating, userRatingCount, currentOpeningHours.openNow, formattedAddress, googleMapsUri | **Enterprise** | 〃 | `details-enterprise` 900 | 강등(사진만) → 빈 상세 |
+| `app/api/places/details/route.ts` (장소 상세) | Places New Place Details | photos, reviews(작성자 이름·프로필 사진 uri·원문 링크 포함), rating, userRatingCount, currentOpeningHours.openNow, formattedAddress, googleMapsUri | **Enterprise** | 〃 | `details-enterprise` 900 | 강등(사진만) → 빈 상세 |
 | 〃 `resolvePlaceId` | Places New Text Search | places.id | IDs Only(무료) | 〃 | 가드 없음 | — |
 | `app/api/discover/spot-photo/route.ts` 검색 | Places New Text Search | places.photos | Pro | 〃 | `text-pro` 4,500 | 사진 없음(플레이스홀더, 10분 캐시) |
 | 〃 · `app/api/places/photo/route.ts` | Places New Photos(media) | maxWidthPx | Photos(무료 1,000) | 〃 | `photos` 900 | 사진 없음(404) |

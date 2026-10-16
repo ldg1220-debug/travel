@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { roundUpTo5, scheduleDay, splitByDay } from "./route";
+import { isStaleContentPlan, roundUpTo5, scheduleDay, splitByDay } from "./route";
 import { shiftISODate } from "@/lib/timeline";
 import type { CourseBriefSpot } from "@/lib/server/courseBrief";
 
@@ -110,5 +110,28 @@ describe("roundUpTo5", () => {
     expect(roundUpTo5(617)).toBe(620);
     expect(roundUpTo5(620)).toBe(620);
     expect(roundUpTo5(601)).toBe(605);
+  });
+});
+
+// 작업지시서 2026-10-16 "#326 검증" §3① — 오래된 공유 일정은 교체 대상.
+describe("isStaleContentPlan", () => {
+  const now = Date.parse("2026-10-16T12:00:00Z");
+  const fresh = () => scheduleDay([spot(1, 1, 10), spot(1, 2, null)], "2026-10-16", "content-ab12cd34-0", "2026-10-16T08:00:00Z");
+
+  it("keeps a fresh schema-2 plan with placeId and coordinates", () => {
+    expect(isStaleContentPlan(fresh(), now)).toBe(false);
+  });
+  it("treats empty / pre-#326 (no schema version) plans as stale", () => {
+    expect(isStaleContentPlan([], now)).toBe(true);
+    const legacy = fresh().map(({ planSchemaVersion: _v, ...rest }) => { void _v; return rest; });
+    expect(isStaleContentPlan(legacy, now)).toBe(true);
+  });
+  it("treats a plan with a missing placeId or coordinates as stale", () => {
+    expect(isStaleContentPlan(fresh().map((i, n) => (n === 0 ? { ...i, placeId: "" } : i)), now)).toBe(true);
+    expect(isStaleContentPlan(fresh().map((i, n) => (n === 1 ? { ...i, coordinates: { lat: 0, lng: 0 } } : i)), now)).toBe(true);
+  });
+  it("treats a plan older than 24 hours as stale", () => {
+    const old = scheduleDay([spot(1, 1, null)], "2026-10-14", "content-x-0", "2026-10-15T11:00:00Z");
+    expect(isStaleContentPlan(old, now)).toBe(true);
   });
 });

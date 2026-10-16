@@ -77,7 +77,7 @@ export async function fetchLivePlaceSearch(
 
 export interface PlaceDetails {
   photoNames: string[];
-  reviews: { author: string; rating: number | null; text: string; when: string }[];
+  reviews: { author: string; rating: number | null; text: string; when: string; authorPhotoUri?: string | null; authorUri?: string | null; googleMapsUri?: string | null }[];
   rating: number | null;
   reviewCount: number | null;
   openNow: boolean | null;

@@ -413,6 +413,20 @@ export async function readPreviousVersionBrief(scope: CourseBriefScope, region: 
   return null;
 }
 
+/**
+ * 캐시에 있는 브리프만 읽는다(없으면 null) — 외부 호출을 하지 않는다. 현재 버전 캐시가 우선이고, 없으면 직전 버전(26시간 이내). course-open 이
+ * 오래된 공유 일정을 교체할 때 Places 추가 호출 없이 쓰려는 용도다(작업지시서 2026-10-16 "#326 검증" §3①).
+ */
+export async function peekBrief(rawRegion: string, days: CourseDays): Promise<CourseBrief | null> {
+  const region = resolveRegionAlias(rawRegion);
+  if (!isSupportedRegion(region)) return null;
+  const scope = resolveScope(region);
+  const current = await readBriefCache(briefCacheKey(scope, region, days)).catch(() => null);
+  if (current) return current;
+  const previous = await readPreviousVersionBrief(scope, region, days).catch(() => null);
+  return previous?.brief ?? null;
+}
+
 export async function readBriefCache(key: string): Promise<CourseBrief | null> {
   const result = await pool.query<{ payload: CourseBrief; created_at: string }>(
     `select payload, created_at from place_candidate_cache where cache_key = $1`,

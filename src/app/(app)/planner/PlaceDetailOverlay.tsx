@@ -290,6 +290,9 @@ function PlaceDetailForm({ place: basePlace, details, onSave, onSchedule, onEdit
       when: relativeTime(r.createdAt),
       images: r.images,
       tripPostId: r.tripPostId as number | undefined,
+      authorPhotoUri: null as string | null,
+      authorUri: null as string | null,
+      googleMapsUri: null as string | null,
     })),
     ...(details?.reviews ?? []).map((r, i) => ({
       key: `g-${i}`,
@@ -301,6 +304,9 @@ function PlaceDetailForm({ place: basePlace, details, onSave, onSchedule, onEdit
       when: r.when,
       images: [] as string[],
       tripPostId: undefined as number | undefined,
+      authorPhotoUri: r.authorPhotoUri ?? null,
+      authorUri: r.authorUri ?? null,
+      googleMapsUri: r.googleMapsUri ?? null,
     })),
   ];
 
@@ -393,7 +399,17 @@ function PlaceDetailForm({ place: basePlace, details, onSave, onSchedule, onEdit
                         >
                           {r.source === "tradule" ? "트레쥴" : "구글"}
                         </span>
-                        <span className="truncate text-[12px] font-semibold text-slate-700">{r.author}</span>
+                        {r.source === "google" && r.authorPhotoUri && (
+                          // eslint-disable-next-line @next/next/no-img-element -- Google 리뷰 작성자 프로필 사진(정책상 표시 필수), googleusercontent 원본 URL
+                          <img src={r.authorPhotoUri} alt="" referrerPolicy="no-referrer" loading="lazy" className="h-5 w-5 shrink-0 rounded-full object-cover" />
+                        )}
+                        {r.source === "google" && r.authorUri ? (
+                          <a href={r.authorUri} target="_blank" rel="noreferrer" className="truncate text-[12px] font-semibold text-slate-700 hover:underline">
+                            {r.author}
+                          </a>
+                        ) : (
+                          <span className="truncate text-[12px] font-semibold text-slate-700">{r.author}</span>
+                        )}
                       </span>
                       <span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
                         {r.rating != null && <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />}
@@ -417,6 +433,11 @@ function PlaceDetailForm({ place: basePlace, details, onSave, onSchedule, onEdit
                           </button>
                         )}
                       </>
+                    )}
+                    {r.source === "google" && r.googleMapsUri && (
+                      <a href={r.googleMapsUri} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[11px] font-semibold text-slate-500 hover:underline">
+                        Google Maps에서 원문 보기
+                      </a>
                     )}
                     {r.images.length > 0 && (
                       <div className="mt-2 flex gap-1.5">
