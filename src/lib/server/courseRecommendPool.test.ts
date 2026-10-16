@@ -14,12 +14,15 @@ vi.mock("./db", () => ({
     }),
   },
 }));
+const throttled = { value: false };
 vi.mock("./mapsBudget", () => ({
   chooseGuardedMask: async (_kind: string, mask: string) => ({ mask, degraded: false }),
   settleGuarded: async () => undefined,
+  isMapsThrottled: async () => throttled.value,
 }));
 
-import { THEME_SLOTS, fetchSlotCandidates } from "./courseRecommend";
+import { THEME_SLOTS, collectPoolStats, fetchSlotCandidates, isDegradedPool } from "./courseRecommend";
+import type { Place } from "@/lib/types";
 
 const lunch = THEME_SLOTS.balanced.find((s) => s.key === "lunch")!;
 const amSight = THEME_SLOTS.balanced.find((s) => s.key === "am-sight")!;
@@ -28,6 +31,7 @@ describe("후보 풀 공유", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     cache.clear();
+    throttled.value = false;
     vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key");
     let n = 0;
     fetchMock = vi.fn(async (_url: string, init: { body: string }) => {
@@ -77,5 +81,78 @@ describe("후보 풀 공유", () => {
       for (const slot of THEME_SLOTS.balanced) await fetchSlotCandidates("overseas", "오사카", slot, widen);
     }
     expect(fetchMock.mock.calls.length).toBe(THEME_SLOTS.balanced.length + 2);
+  });
+});
+
+// 작업지시서 2026-10-16 "긴급(장애 계속): #323 후에도 해외 코스 500" — 강등(평점 없음) 풀이 캐시에 남아 품질 게이트가 전부 떨어뜨리던 문제.
+describe("강등 후보 풀 캐시", () => {
+  const unrated = (n: number, flagged = false): Place[] =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `old${i}`,
+      placeId: `old${i}`,
+      name: `옛 후보 ${i}`,
+      category: "restaurant",
+      color: "#000",
+      icon: "pin",
+      lat: 34.69 + i * 0.001,
+      lng: 135.5,
+      ...(flagged ? { ratingUnavailable: true } : {}),
+    })) as Place[];
+
+  let fetchMock: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    cache.clear();
+    throttled.value = false;
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key");
+    fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ places: Array.from({ length: 6 }, (_, i) => ({ id: `new${i}`, displayName: { text: `새 후보 ${i}` }, location: { latitude: 34.7 + i * 0.001, longitude: 135.5 }, rating: 4.5, userRatingCount: 800, primaryType: "restaurant" })) }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("isDegradedPool: 표시가 모두 있거나, 표시 없는 구버전 풀은 5곳 이상 전부 평점·리뷰 수가 없을 때", () => {
+    expect(isDegradedPool([])).toBe(false);
+    expect(isDegradedPool(unrated(6, true))).toBe(true);
+    expect(isDegradedPool(unrated(6))).toBe(true);
+    expect(isDegradedPool(unrated(3))).toBe(false); // 작은 풀은 정상일 수 있다
+    expect(isDegradedPool([{ ...unrated(1)[0], rating: 4.2, reviewCount: 50 }, ...unrated(5)])).toBe(false);
+  });
+
+  it("구버전 강등 풀이 캐시에 있고 예산 여유가 있으면 캐시를 무시하고 Enterprise 로 재조회해 덮어쓴다", async () => {
+    cache.set("overseas:오사카:맛집:restaurant", unrated(8));
+    const lunch = THEME_SLOTS.balanced.find((s) => s.key === "lunch")!;
+    const result = await fetchSlotCandidates("overseas", "오사카", lunch, false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.every((p) => p.rating != null)).toBe(true);
+    expect((cache.get("overseas:오사카:맛집:restaurant") as Place[])[0].id).toBe("new0");
+  });
+
+  it("예산이 아직 막혀 있으면 재조회 없이 그 풀을 평점 없는 후보로 게이트 통과시킨다(count 0 이 되지 않는다)", async () => {
+    throttled.value = true;
+    cache.set("overseas:오사카:맛집:restaurant", unrated(8));
+    const lunch = THEME_SLOTS.balanced.find((s) => s.key === "lunch")!;
+    const result = await fetchSlotCandidates("overseas", "오사카", lunch, false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toHaveLength(8);
+    expect(result.every((p) => p.ratingUnavailable === true)).toBe(true);
+  });
+
+  it("collectPoolStats: 캐시 · google · degraded 출처와 후보 수를 집계한다", async () => {
+    cache.set("overseas:오사카:맛집:restaurant", Array.from({ length: 6 }, (_, i) => ({ ...unrated(1)[0], id: `ok${i}`, rating: 4.4, reviewCount: 500 })));
+    const lunch = THEME_SLOTS.balanced.find((s) => s.key === "lunch")!;
+    const amSight = THEME_SLOTS.balanced.find((s) => s.key === "am-sight")!;
+    const { stats } = await collectPoolStats(async () => {
+      await fetchSlotCandidates("overseas", "오사카", lunch, false); // 캐시
+      await fetchSlotCandidates("overseas", "오사카", amSight, false); // google
+    });
+    expect(stats).toMatchObject({ cache: 1, google: 1, degraded: 0 });
+    expect(stats.candidates).toBeGreaterThan(0);
   });
 });

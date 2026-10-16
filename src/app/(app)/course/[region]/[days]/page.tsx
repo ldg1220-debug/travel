@@ -126,7 +126,9 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
   const rejected = judgeCourseBrief(brief, route.region, route.days);
   if (rejected) {
     console.warn(`[course-page] brief rejected: region=${route.region} days=${route.days} reason=${rejected}`);
-    return { kind: "missing", reason: rejected, permanent: false };
+    // 작업지시서 2026-10-16 ⑤ — 후보 풀 출처(cache|google|degraded)와 후보 수를 사유에 함께 남긴다.
+    const pool = brief.poolStats ? ` pool=cache:${brief.poolStats.cache}/google:${brief.poolStats.google}/degraded:${brief.poolStats.degraded} candidates=${brief.poolStats.candidates}` : "";
+    return { kind: "missing", reason: `${rejected}${pool}`, permanent: false };
   }
   return { kind: "ok", brief, region: route.region, days: route.days };
 });
