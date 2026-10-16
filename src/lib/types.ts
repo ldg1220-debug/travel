@@ -96,6 +96,8 @@ export interface ItineraryItem {
   /** Length of this stop, in minutes — resizable in 15-minute steps via the timeline's drag handle. */
   durationMinutes: number;
   coordinates: { lat: number; lng: number };
+  /** 코스에서 저장된 항목의 분류(식사·관광 등) — 상세 시트 아이콘/라벨용. 평점·사진은 저장하지 않는다(약관) — 열 때 런타임 조회. */
+  category?: string;
   /** Estimated cost for this stop, denominated in `budgetCurrency`. */
   budget?: number;
   /** Which currency `budget` is in — defaults to "KRW" when a stop has a budget but no currency recorded yet (e.g. items saved before this field existed). */

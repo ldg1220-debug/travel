@@ -338,6 +338,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // "딥 다이브" detail overlay — opened from a saved-list row, a search
   // selection, or a trend card tap while on the 관심 장소 tab.
   const [detailPlace, setDetailPlace] = useState<Place | null>(null);
+  // 일정 카드에서 상세 시트를 연 경우 그 항목 — 시트 아래 "일정 수정" 버튼과 placeId 채우기에 쓴다.
+  const [detailScheduleItem, setDetailScheduleItem] = useState<ItineraryItem | null>(null);
   // Opens via local state, not a route change — without this, the Android
   // back button skips past the overlay straight to whatever page was open
   // before /planner.
@@ -1079,9 +1081,22 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
   const openCreateModal = (place: Place) => setScheduleTarget({ mode: "create", place });
 
+  // 일정 카드 클릭 → 장소 상세 시트를 먼저(검색으로 담은 장소와 같은 컴포넌트), 그 아래 버튼으로 기존 "일정 수정" 모달 — 작업지시서
+  // 2026-10-16 §2-②. 코스에서 저장된 항목은 이름·좌표뿐이라 시트가 열 때 런타임으로 사진·평점·주소를 조회한다.
   const openEditModal = (item: ItineraryItem) => {
-    const place = places.find((p) => p.id === item.placeId) ?? fallbackDisplay(item.name);
-    setScheduleTarget({ mode: "edit", place, item });
+    const known = places.find((p) => p.id === item.placeId);
+    const base = known ?? fallbackDisplay(item.name);
+    const place: Place = {
+      ...base,
+      id: item.placeId,
+      placeId: base.placeId || item.placeId,
+      name: base.name || item.name,
+      category: base.category || item.category || "",
+      lat: known ? known.lat : item.coordinates.lat,
+      lng: known ? known.lng : item.coordinates.lng,
+    };
+    setDetailScheduleItem(item);
+    setDetailPlace(place);
   };
 
   const cancelPress = () => {
@@ -1959,16 +1974,28 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // previously-searched place (even from an unrelated city) permanently
   // pinned on the map. Also naturally limits the pins/route to the active
   // day — switching days shows only that day's stops, not every day at once.
+  // 작업지시서 2026-10-16 §2-③ — (a) 로컬 카탈로그에 없는 항목(코스에서 저장된 공유 계획 등)은 항목 자신의 좌표로 핀을 만든다(예전엔
+  // fallbackDisplay 의 (0,0) 이라 핀이 엉뚱한 곳에 찍히거나 사라졌다). (b) 선택한 날에 일정이 없으면(만든 날짜가 지나 오늘로 보정된 경우 등)
+  // 일정이 있는 가장 이른 날을 지도에 보여 준다 — 빈 지도가 기본 위치(다른 도시)로 남지 않게.
+  const mapStops = useMemo(() => {
+    if (schedule.length > 0 || items.length === 0) return schedule;
+    const firstDate = items.reduce((min, i) => (i.date < min ? i.date : min), items[0].date);
+    return items.filter((i) => i.date === firstDate);
+  }, [schedule, items]);
   const scheduleMapPlaces = useMemo(() => {
-    const scheduled = schedule
-      .map((s) => places.find((p) => p.id === s.placeId) ?? fallbackDisplay(s.name))
-      .map((p, i) => ({ ...p, id: schedule[i].placeId }));
+    const scheduled = mapStops
+      .map((s) => {
+        const known = places.find((p) => p.id === s.placeId);
+        if (known) return known;
+        return { ...fallbackDisplay(s.name), lat: s.coordinates.lat, lng: s.coordinates.lng };
+      })
+      .map((p, i) => ({ ...p, id: mapStops[i].placeId }));
     const scheduledIds = new Set(scheduled.map((p) => p.id));
     if (pendingSearchPlace && !scheduledIds.has(pendingSearchPlace.id)) {
       return [...scheduled, pendingSearchPlace];
     }
     return scheduled;
-  }, [schedule, places, pendingSearchPlace]);
+  }, [mapStops, places, pendingSearchPlace]);
 
   const selectedSavedPlace = selectedSavedId ? savedPlaces.find((p) => p.id === selectedSavedId) ?? null : null;
 
@@ -3100,9 +3127,28 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
 
         <PlaceDetailOverlay
           place={detailPlace}
-          onClose={() => setDetailPlace(null)}
+          onClose={() => {
+            setDetailPlace(null);
+            setDetailScheduleItem(null);
+          }}
           onSave={handleSaveDetailPlace}
-          onSchedule={handleScheduleFromDetail}
+          onSchedule={detailScheduleItem ? undefined : handleScheduleFromDetail}
+          onEdit={
+            detailScheduleItem && !isViewerMode
+              ? () => {
+                  const item = detailScheduleItem;
+                  const place = detailPlace;
+                  setDetailPlace(null);
+                  setDetailScheduleItem(null);
+                  if (place) setScheduleTarget({ mode: "edit", place, item });
+                }
+              : undefined
+          }
+          onResolvedPlaceId={
+            detailScheduleItem && !isViewerMode
+              ? (_place, resolved) => useItineraryStore.getState().fillItemPlaceId(detailScheduleItem.id, resolved)
+              : undefined
+          }
         />
 
         {saveModalOpen && (

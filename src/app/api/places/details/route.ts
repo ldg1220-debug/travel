@@ -33,6 +33,11 @@ export interface PlaceDetails {
   reviewCount: number | null;
   /** e.g. "영업 중" / "영업 종료" when Google provides it. */
   openNow: boolean | null;
+  /** 런타임 표시용 주소·지도 링크(저장 금지 — 26시간 캐시만). 한도 강등/빈 응답에선 없을 수 있다. */
+  address?: string | null;
+  googleMapsUri?: string | null;
+  /** 이름+좌표로 풀어낸 실제 Google place id(입력이 이미 실제 id 였다면 그대로) — 클라이언트가 합성 id 항목의 placeId 를 한 번 채우는 데 쓴다. */
+  resolvedPlaceId?: string | null;
 }
 
 const EMPTY_DETAILS: PlaceDetails = { photoNames: [], reviews: [], rating: null, reviewCount: null, openNow: null };
@@ -99,7 +104,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   }
 
   // 작업지시서 2026-10-14 "Places 호출 비용" §2 — 평점 · 리뷰 · 영업시간은 Enterprise. 한도에 닿으면 사진만 받고(평점/리뷰 없음), Pro 한도도 닿으면 빈 상세.
-  const guarded = await chooseGuardedMask("details", "photos,reviews,rating,userRatingCount,currentOpeningHours.openNow");
+  const guarded = await chooseGuardedMask("details", "photos,reviews,rating,userRatingCount,currentOpeningHours.openNow,formattedAddress,googleMapsUri");
   if (!guarded) return NextResponse.json(EMPTY_DETAILS);
   const res = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
     headers: {
@@ -120,6 +125,8 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     rating?: number;
     userRatingCount?: number;
     currentOpeningHours?: { openNow?: boolean };
+    formattedAddress?: string;
+    googleMapsUri?: string;
   };
 
   const details: PlaceDetails = {
@@ -133,6 +140,9 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     rating: data.rating ?? null,
     reviewCount: data.userRatingCount ?? null,
     openNow: data.currentOpeningHours?.openNow ?? null,
+    address: data.formattedAddress ?? null,
+    googleMapsUri: data.googleMapsUri ?? null,
+    resolvedPlaceId: placeId,
   };
 
   return NextResponse.json(details, {

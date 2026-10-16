@@ -84,3 +84,16 @@ describe("viewerModeActive 가드", () => {
     expect(planA?.items.map((i) => i.id)).toEqual(["a-edited"]);
   });
 });
+
+// 작업지시서 2026-10-16 §2-⑤ — 합성 id 항목의 placeId 를 상세 조회 결과로 한 번만 채운다.
+describe("fillItemPlaceId", () => {
+  const REAL = "ChIJ0123456789abcdefghijk";
+  it("fills a synthetic placeId but never overwrites a real Google id", () => {
+    useItineraryStore.setState({ items: [item("content-0-0"), { ...item("b"), placeId: REAL }] });
+    useItineraryStore.getState().fillItemPlaceId("content-0-0", REAL);
+    useItineraryStore.getState().fillItemPlaceId("b", "ChIJzzzzzzzzzzzzzzzzzzzzzz");
+    const items = useItineraryStore.getState().items;
+    expect(items.find((i) => i.id === "content-0-0")?.placeId).toBe(REAL);
+    expect(items.find((i) => i.id === "b")?.placeId).toBe(REAL);
+  });
+});
