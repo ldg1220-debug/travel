@@ -613,6 +613,8 @@ export interface SharedItinerary {
   authorName: string;
   /** True when the current viewer is this plan's own author — lets the client hide "내 계획으로 담아가기" from the author. */
   isOwner: boolean;
+  /** course-open 이 만든 콘텐츠 일정(날짜는 만든 날일 뿐) — 화면이 날짜 대신 "N일차"로 보여 준다. */
+  isContentPlan?: boolean;
 }
 
 /** A shared link is a read-only snapshot as of when it was created/last re-shared — nothing pushes edits back to it automatically. */
@@ -628,8 +630,19 @@ export async function fetchSharedItinerary(shareToken: string): Promise<SharedIt
  * 링크에도 담아가기 (유입 루프)" §2. 로그인이 필요하다(401이면 호출부가
  * 로그인 유도).
  */
-export async function copySharedItineraryToPlan(shareToken: string): Promise<{ shareToken: string } | null> {
-  const res = await fetch(`/api/itineraries/${shareToken}/copy`, { method: "POST" });
+export interface CopyPlanChoice {
+  /** 선택한 여행 시작일(YYYY-MM-DD) — 모든 항목이 이 날짜 기준으로 이동한다. */
+  startDate?: string;
+  /** true 면 날짜 없이 1일차·2일차…로 저장(나중에 지정). */
+  undated?: boolean;
+}
+
+export async function copySharedItineraryToPlan(shareToken: string, choice: CopyPlanChoice = {}): Promise<{ shareToken: string } | null> {
+  const res = await fetch(`/api/itineraries/${shareToken}/copy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(choice),
+  });
   if (!res.ok) return null;
   return res.json();
 }

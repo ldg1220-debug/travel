@@ -65,6 +65,8 @@ import {
   minutesFromTime,
   rangesOverlap,
   formatDateLabelShort,
+  courseSpanLabel,
+  shiftItemsToStart,
   todayISODate,
   dateWindow,
   shiftISODate,
@@ -80,7 +82,8 @@ import {
 } from "@/lib/timeline";
 import { styleForCategory } from "@/lib/placeStyle";
 import { calculateTransits, type TransitBlock } from "@/lib/transit";
-import { copySharedItineraryToPlan, fetchSharedItinerary, logLodgingCtaEvent, type RouteLegResult } from "@/lib/api";
+import { copySharedItineraryToPlan, fetchSharedItinerary, logLodgingCtaEvent, type CopyPlanChoice, type RouteLegResult } from "@/lib/api";
+import { TripStartDateSheet } from "@/components/TripStartDateSheet";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
 import { syncPlanToServer } from "@/lib/planSync";
 import { shareToKakao } from "@/lib/kakaoShare";
@@ -1007,15 +1010,28 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // TripPostClient.tsx의 runCopy와 같은 이유로 useCallback으로 감싸지
   // 않는다 — 이 렌더의 sharedData/shareToken을 그대로 참조하는 평범한
   // 클로저일 뿐이고, 아래 effect에서만 한 번 호출된다.
-  const runCopyShared = async (token: string) => {
+  // 담아가기 시트 — 작업지시서 2026-10-19: 누르면 바로 담지 않고 "언제 떠나세요?" 시트부터 연다. "assign"은 날짜 미정으로 담은 내 계획에 나중에 날짜를 정하는 같은 시트.
+  const [dateSheet, setDateSheet] = useState<"copy" | "assign" | null>(null);
+  const sharedSpanDays = (() => {
+    const dates = (sharedData?.placesData ?? []).map((i) => i.date).sort();
+    return dates.length === 0 ? 1 : daysBetweenInclusive(dates[0], dates[dates.length - 1]);
+  })();
+  const runCopyShared = async (token: string, choice: CopyPlanChoice = {}) => {
     setCopyingShared(true);
-    const result = await copySharedItineraryToPlan(token).catch(() => null);
+    const result = await copySharedItineraryToPlan(token, choice).catch(() => null);
     if (!result) {
       showToast("담아가지 못했어요");
       setCopyingShared(false);
       return;
     }
     trackFeatureEvent("plan_copy_completed", "planner", { source: "itinerary" });
+    // 작업지시서 2026-10-19 §1⑤ — copy_plan { region, days, startOffsetDays, undated }
+    trackFeatureEvent("copy_plan", "planner", {
+      region: sharedData?.region ?? "",
+      days: sharedSpanDays,
+      startOffsetDays: choice.startDate ? daysBetweenInclusive(todayISODate(), choice.startDate) - 1 : 0,
+      undated: Boolean(choice.undated),
+    });
     // 작업지시서 §7 "담아온 계획에 출처 표시" — 새 계획 페이지로 넘어가면
     // 이 컴포넌트가 언마운트돼 토스트가 안 보이므로, 잠깐 보여준 뒤 넘어간다.
     showToast(`${sharedData?.authorName ?? "여행자"}님의 계획을 담았어요`);
@@ -1024,9 +1040,15 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const handleCopySharedItinerary = () => {
     if (!shareToken) return;
     trackFeatureEvent("plan_copy_click", "planner", { source: "itinerary" });
+    setDateSheet("copy");
+  };
+  // 시트에서 날짜(또는 미정)를 고른 뒤 — 비로그인이면 선택값을 함께 남기고 로그인시킨다(날짜 선택 → 로그인 → 담기 순서에서 선택값 유지, §1④).
+  const handleCopyChoice = (choice: CopyPlanChoice) => {
+    if (!shareToken) return;
+    setDateSheet(null);
     if (!session?.user) {
       try {
-        sessionStorage.setItem(PENDING_SHARED_COPY_KEY, shareToken);
+        sessionStorage.setItem(PENDING_SHARED_COPY_KEY, JSON.stringify({ token: shareToken, ...choice }));
       } catch {
         // 프라이빗 모드 등으로 sessionStorage를 못 쓰면 그냥 매번 다시
         // 눌러야 할 뿐 — 로그인 자체는 계속 진행한다.
@@ -1035,26 +1057,43 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
       setLoginOpen(true);
       return;
     }
-    void runCopyShared(shareToken);
+    void runCopyShared(shareToken, choice);
   };
   useEffect(() => {
     if (!shareToken || !session?.user) return;
-    let pending: string | null = null;
+    let pending: { token: string; startDate?: string; undated?: boolean } | null = null;
     try {
-      pending = sessionStorage.getItem(PENDING_SHARED_COPY_KEY);
+      const raw = sessionStorage.getItem(PENDING_SHARED_COPY_KEY);
+      if (raw) {
+        // 옛 형식(토큰 문자열만)과 새 형식(JSON: 토큰 + 선택한 날짜/미정)을 모두 받는다.
+        pending = raw.startsWith("{") ? JSON.parse(raw) : { token: raw };
+      }
     } catch {
       return;
     }
-    if (pending !== shareToken) return;
+    if (!pending || pending.token !== shareToken) return;
+    const choice: CopyPlanChoice = { startDate: pending.startDate, undated: pending.undated };
     sessionStorage.removeItem(PENDING_SHARED_COPY_KEY);
     // 마이크로태스크로 미룬다 — runCopyShared가 곧바로 setCopyingShared(true)를
     // 부르는데, 이펙트 본문에서 동기적으로 setState를 부르면 안 된다는
     // 규칙(react-hooks/set-state-in-effect) 때문이다.
     queueMicrotask(() => {
-      void runCopyShared(shareToken);
+      void runCopyShared(shareToken, choice);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runCopyShared는 이 렌더의 shareToken을 그대로 참조하는 안정적인 클로저일 뿐이라, 의존성에 넣으면 매 렌더 재실행된다.
   }, [shareToken, session?.user]);
+
+  // 날짜 미정으로 담은 내 계획(항목에 dayNumber)이거나, 보고 있는 게 콘텐츠 공유 일정(날짜가 "만든 날"일 뿐)이면 날짜 대신 "N일차"로 보여 준다.
+  const showDayNumbers = (isViewerMode && sharedData?.isContentPlan === true) || items.some((i) => i.dayNumber != null);
+  const dayNumberFor = (date: string): number | null => {
+    if (!showDayNumbers) return null;
+    const fromItem = items.find((i) => i.date === date && i.dayNumber != null)?.dayNumber;
+    if (fromItem != null) return fromItem;
+    const dates = [...new Set(items.map((i) => i.date))].sort();
+    const idx = dates.indexOf(date);
+    return idx >= 0 ? idx + 1 : null;
+  };
+  const hasUndatedItems = !isViewerMode && items.some((i) => i.dayNumber != null);
 
   const searchParams = useSearchParams();
   const openDetailId = searchParams.get("openDetail");
@@ -2137,6 +2176,22 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             </button>
           </div>
         )}
+        {shareToken && sharedData && !sharedData.isOwner && sharedData.isContentPlan && (
+          <p className="shrink-0 border-b border-slate-100 bg-white px-4 py-1.5 text-[12px] text-slate-500">
+            {courseSpanLabel(sharedSpanDays)} 코스 · 날짜는 담을 때 정해요
+          </p>
+        )}
+        {hasUndatedItems && (
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 bg-amber-50 px-4 py-2">
+            <p className="min-w-0 truncate text-[12.5px] text-slate-700">날짜 미정 계획이에요</p>
+            <button
+              onClick={() => setDateSheet("assign")}
+              className="h-8 shrink-0 rounded-full bg-slate-900 px-3 text-[12.5px] font-semibold text-white"
+            >
+              날짜 정하기
+            </button>
+          </div>
+        )}
         {/* ── MAP AREA — real Google Maps, auto-fit to every visible place ── */}
         {/* min-h is a safety floor: h-[45%] depends on the flex ancestor
             chain resolving before the Maps SDK measures the container (it
@@ -2565,7 +2620,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       className="min-w-0 flex-1 cursor-pointer px-1 pb-2 text-center"
                     >
                       <div className={`text-[12px] font-semibold ${isFirst ? "text-slate-900" : "text-slate-500"}`}>
-                        {formatDateLabelShort(date)}
+                        {dayNumberFor(date) != null ? `${dayNumberFor(date)}일차` : formatDateLabelShort(date)}
                       </div>
                       <div className="text-[10px] text-slate-400 tabular-nums">
                         {count}개 장소
@@ -3125,6 +3180,28 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {dateSheet && (
+          <TripStartDateSheet
+            mode={dateSheet}
+            days={dateSheet === "copy" ? sharedSpanDays : Math.max(1, new Set(items.map((i) => i.date)).size)}
+            busy={copyingShared}
+            onClose={() => setDateSheet(null)}
+            onConfirm={(startDate) => {
+              if (dateSheet === "copy") {
+                handleCopyChoice({ startDate });
+              } else {
+                // 날짜 미정 계획에 날짜를 정한다 — 일차 간격·시각은 그대로, 임시 표기(dayNumber)는 걷어 낸다.
+                setItems(shiftItemsToStart(items, startDate).map(({ dayNumber: _d, ...rest }) => (void _d, rest)));
+                setActiveDate(startDate);
+                setWindowStart(startDate);
+                setDateSheet(null);
+                showToast("날짜를 정했어요");
+              }
+            }}
+            onUndated={dateSheet === "copy" ? () => handleCopyChoice({ undated: true }) : undefined}
+          />
+        )}
 
         <PlaceDetailOverlay
           place={detailPlace}

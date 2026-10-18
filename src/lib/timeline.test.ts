@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dateWindow, formatTime, hourFromTime, minutesFromTime, pad2, rangesOverlap, rescheduleItemsToToday, shiftISODate } from "./timeline";
+import { courseSpanLabel, dateWindow, formatTime, hourFromTime, minutesFromTime, nextSaturday, pad2, rangesOverlap, rescheduleItemsToToday, shiftISODate, shiftItemsToStart } from "./timeline";
 
 describe("pad2", () => {
   it("pads single digits with a leading zero", () => {
@@ -94,5 +94,29 @@ describe("rescheduleItemsToToday", () => {
   it("is a no-op for a single-day course when `today` matches", () => {
     const items = [{ date: "2026-01-01" }, { date: "2026-01-01" }];
     expect(rescheduleItemsToToday(items, "2026-01-01")).toEqual(items);
+  });
+});
+
+// 작업지시서 2026-10-19 "담아갈 때 여행 시작일 고르기"
+describe("nextSaturday", () => {
+  it("returns the coming Saturday on Sun–Thu", () => {
+    expect(nextSaturday("2026-10-18")).toBe("2026-10-24"); // 일
+    expect(nextSaturday("2026-10-19")).toBe("2026-10-24"); // 월
+    expect(nextSaturday("2026-10-22")).toBe("2026-10-24"); // 목
+  });
+  it("skips to the Saturday of the following week on Fri/Sat", () => {
+    expect(nextSaturday("2026-10-23")).toBe("2026-10-31"); // 금
+    expect(nextSaturday("2026-10-24")).toBe("2026-10-31"); // 토
+  });
+});
+
+describe("shiftItemsToStart / courseSpanLabel", () => {
+  it("moves the earliest date to the chosen start and keeps day gaps", () => {
+    const items = [{ date: "2026-10-18" }, { date: "2026-10-19" }, { date: "2026-10-20" }];
+    expect(shiftItemsToStart(items, "2026-10-24").map((i) => i.date)).toEqual(["2026-10-24", "2026-10-25", "2026-10-26"]);
+  });
+  it("formats the span", () => {
+    expect(courseSpanLabel(3)).toBe("2박3일");
+    expect(courseSpanLabel(1)).toBe("당일치기");
   });
 });

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { rescheduleItemsToToday } from "@/lib/timeline";
+import { nextSaturday, rescheduleItemsToToday, shiftISODate, daysBetweenInclusive } from "@/lib/timeline";
 import type { ItineraryItem, Region } from "@/lib/types";
 
 /**
@@ -28,7 +28,7 @@ import type { ItineraryItem, Region } from "@/lib/types";
  * 편집 반영이 아니라 최초 로드 시점 고정) 원본이 그 뒤에 어떻게
  * 바뀌든 이 복사본엔 영향이 없다.
  */
-export const POST = withApiErrorHandling(async (_request: NextRequest, { params }: { params: Promise<{ shareToken: string }> }) => {
+export const POST = withApiErrorHandling(async (request: NextRequest, { params }: { params: Promise<{ shareToken: string }> }) => {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -48,9 +48,26 @@ export const POST = withApiErrorHandling(async (_request: NextRequest, { params 
     return NextResponse.json({ error: "이 계획엔 담아갈 일정이 없어요" }, { status: 400 });
   }
 
-  // 날짜만 오늘 기준으로 재배치 — 시각·체류시간은 원본 그대로
-  // (trip-posts copy와 같은 정책, src/lib/timeline.ts).
-  const placesData = rescheduleItemsToToday(row.placesData);
+  // 작업지시서 2026-10-19 "담아갈 때 여행 시작일 고르기" — 본문에 시작일(startDate) 또는 날짜 미정(undated)이 오면 그에 맞춰 옮긴다. 시각·체류시간·일차 간격은
+  // 그대로. 본문이 없으면(옛 호출) 예전처럼 오늘 기준. 서버 시계는 UTC 라 하루 어긋날 수 있어 과거 검사는 어제까지 허용한다.
+  const body = (await request.json().catch(() => ({}))) as { startDate?: unknown; undated?: unknown };
+  const startDate = typeof body.startDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.startDate) ? body.startDate : null;
+  if (startDate && startDate < shiftISODate(new Date().toISOString().slice(0, 10), -1)) {
+    return NextResponse.json({ error: "지난 날짜는 고를 수 없어요" }, { status: 400 });
+  }
+  let placesData: ItineraryItem[];
+  if (body.undated === true) {
+    // 날짜 필드는 정렬·렌더링용 임시 값(다음 토요일부터) — dayNumber 가 있으면 화면은 "N일차"로 표시하고, "날짜 정하기"로 나중에 지정한다.
+    const base = rescheduleItemsToToday(row.placesData, nextSaturday());
+    const minDate = [...base].map((i) => i.date).sort()[0];
+    placesData = base.map((i) => ({ ...i, dayNumber: daysBetweenInclusive(minDate, i.date) }));
+  } else {
+    // 날짜만 기준일(선택한 시작일, 없으면 오늘)로 재배치 — 시각·체류시간은 원본 그대로 (trip-posts copy와 같은 정책, src/lib/timeline.ts).
+    placesData = rescheduleItemsToToday(row.placesData, startDate ?? undefined).map(({ dayNumber: _d, ...rest }) => {
+      void _d;
+      return rest;
+    });
+  }
   const newShareToken = randomUUID();
   const title = `${row.title} (복사)`;
 
