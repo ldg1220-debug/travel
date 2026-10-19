@@ -7,6 +7,8 @@ import { CordixIcon } from "@/components/icons/CordixIcon";
 import { PlaceGlyph } from "@/app/(app)/planner/icons";
 import { Input } from "@/components/ui/input";
 import { MonthCalendar } from "@/components/MonthCalendar";
+import { useItineraryStore } from "@/store/itineraryStore";
+import { formatPlanDay } from "@/lib/planDay";
 import { CURRENCY_OPTIONS, currencySymbol, type CurrencyCode, type Place } from "@/lib/types";
 import {
   MINUTE_STEPS,
@@ -16,7 +18,6 @@ import {
   MIN_DURATION_MINUTES,
   MAX_DURATION_MINUTES,
   DAY_MINUTES,
-  formatDateLabelShort,
   pad2,
 } from "@/lib/timeline";
 
@@ -135,6 +136,9 @@ export function ScheduleModal({
   onDelete,
 }: ScheduleModalProps) {
   const [date, setDate] = useState(initialDate);
+  // 날짜 미정 계획·콘텐츠 일정은 날짜 대신 "N일차"(작업지시서 2026-10-19 #328 검증 §2③) — 공용 규칙은 lib/planDay.
+  const planItems = useItineraryStore((st) => st.items);
+  const viewerContentPlan = useItineraryStore((st) => st.viewerContentPlan);
   const [hour, setHour] = useState<number>(() => {
     if (initialHour != null) return initialHour;
     const free = TIMELINE_HOURS.find((h) => !isHourTaken(initialDate, h));
@@ -375,7 +379,7 @@ export function ScheduleModal({
             <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
               <span className="text-xs text-slate-500">일정</span>
               <span className="text-base font-semibold tabular-nums text-slate-900">
-                {formatDateLabelShort(date)}
+                {formatPlanDay(date, planItems, viewerContentPlan)}
                 {dateTouched ? ` · ${pad2(hour)}:${pad2(minute)}` : ""}
                 {dateTouched && showDuration ? ` · ${DURATION_OPTIONS.find((d) => d.minutes === duration)?.label ?? `${duration}분`}` : ""}
               </span>
