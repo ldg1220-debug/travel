@@ -932,7 +932,20 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // 다시 구독하지 않고 여기서 같은 조건을 그대로 계산한다("계획 저장"/
   // "카카오톡 공유"/"비우기" 버튼을 비활성화하는 용도일 뿐 — 실제 방어는
   // 이 값과 무관하게 이미 걸려 있다).
-  const isViewerMode = Boolean(shareToken) && sharedData != null && !sharedData.isOwner;
+  // 이 화면의 내용이 "내 현재 계획"의 것인가 — 소유자라도 지금 열린 계획(activePlanId, 없으면 진행 중 초안)의 shareToken 이 이 URL 의 토큰과 다르면 items 는 빌려온 내용이다.
+  // 작업지시서 2026-10-19 "담아간 계획의 상단 제목": 그때 헤더가 이전에 열려 있던 다른 여행("0711 오사카")의 제목을 보였고, 스위처로 계획을 바꾸면 빌려온 내용이
+  // 그 계획에 흘러들 수 있었다 → 일치하지 않으면 뷰어 모드(제목은 이 계획의 실제 제목, 저장/스냅샷 차단)로 취급한다.
+  const ownerMatchesOpenPlan = useItineraryStore((st) => {
+    if (!shareToken) return false;
+    const open = st.activePlanId ? st.savedPlans.find((p) => p.id === st.activePlanId) : st.draft;
+    return open?.shareToken === shareToken;
+  });
+  const isViewerMode = Boolean(shareToken) && sharedData != null && (!sharedData.isOwner || !ownerMatchesOpenPlan);
+
+  useEffect(() => {
+    if (!sharedData) return;
+    setViewerModeActive(!sharedData.isOwner || !ownerMatchesOpenPlan, sharedData.title, sharedData.isContentPlan === true);
+  }, [sharedData, ownerMatchesOpenPlan, setViewerModeActive]);
 
   useEffect(() => {
     if (!sharedData) return;
@@ -943,7 +956,6 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     // 작업지시서 2026-09-16 "남은 작업 + 데이터 안전장치" §5: 상단 헤더가
     // 뷰어 모드에서도 activePlanId가 가리키는 내 계획 제목을 그대로
     // 보여줬다 — 지금 보고 있는 계획(sharedData)의 실제 제목을 넘긴다.
-    setViewerModeActive(!sharedData.isOwner, sharedData.title, sharedData.isContentPlan === true);
     setRegion(sharedData.region);
     setItems(sharedData.placesData);
 
@@ -1036,6 +1048,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     // 작업지시서 §7 "담아온 계획에 출처 표시" — 새 계획 페이지로 넘어가면
     // 이 컴포넌트가 언마운트돼 토스트가 안 보이므로, 잠깐 보여준 뒤 넘어간다.
     showToast(`${sharedData?.authorName ?? "여행자"}님의 계획을 담았어요`);
+    // 방금 만든 복사본을 현재 계획으로 전환한다 — 안 그러면 헤더가 이전에 열려 있던 다른 여행의 제목을 보이고 자동 저장도 그쪽을 향한다(작업지시서 2026-10-19 §4②).
+    // 저장 한도(10개)에 걸려 전환하지 못하면 위 ownerMatchesOpenPlan 가 뷰어 모드로 취급해 제목은 복사본 것으로 나오고 아무것도 덮어쓰지 않는다.
+    useItineraryStore.getState().adoptRemotePlan({ id: result.id, title: result.title, region: result.region, placesData: result.placesData, shareToken: result.shareToken });
     setTimeout(() => router.push(`/planner/${result.shareToken}`), 700);
   };
   const handleCopySharedItinerary = () => {

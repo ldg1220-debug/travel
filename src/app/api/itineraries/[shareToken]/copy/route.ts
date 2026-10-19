@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { nextSaturday, rescheduleItemsToToday, shiftISODate, daysBetweenInclusive } from "@/lib/timeline";
+import { courseSpanLabel, nextSaturday, rescheduleItemsToToday, shiftISODate, daysBetweenInclusive } from "@/lib/timeline";
 import type { ItineraryItem, Region } from "@/lib/types";
 
 /**
@@ -36,8 +36,8 @@ export const POST = withApiErrorHandling(async (request: NextRequest, { params }
   const { shareToken } = await params;
   const viewerId = Number(session.user.id);
 
-  const result = await pool.query<{ id: number; title: string; region: Region; placesData: ItineraryItem[] }>(
-    `select id, title, region, "placesData" from itineraries where "shareToken" = $1`,
+  const result = await pool.query<{ id: number; title: string; region: Region; placesData: ItineraryItem[]; origin: string | null }>(
+    `select id, title, region, "placesData", origin from itineraries where "shareToken" = $1`,
     [shareToken],
   );
   if (result.rowCount === 0) {
@@ -69,7 +69,9 @@ export const POST = withApiErrorHandling(async (request: NextRequest, { params }
     });
   }
   const newShareToken = randomUUID();
-  const title = `${row.title} (복사)`;
+  // 원본이 course-open 콘텐츠 일정("하노이 여행 코스")이면 "하노이 2박3일"처럼 짧고 날짜 없는 제목으로 — 작업지시서 2026-10-19 "담아간 계획의 상단 제목" §4④.
+  const contentBase = row.origin === "content" && row.title.endsWith(" 여행 코스") ? row.title.slice(0, -" 여행 코스".length) : null;
+  const title = contentBase ? `${contentBase} ${courseSpanLabel(new Set(placesData.map((i) => i.date)).size)}` : `${row.title} (복사)`;
 
   const inserted = await pool.query<{ id: number; shareToken: string }>(
     `insert into itineraries ("userId", title, region, "placesData", "shareToken", "isDraft", origin, "sourceItineraryId")
@@ -78,5 +80,6 @@ export const POST = withApiErrorHandling(async (request: NextRequest, { params }
     [viewerId, title, row.region, JSON.stringify(placesData), newShareToken, row.id],
   );
 
-  return NextResponse.json({ id: inserted.rows[0].id, shareToken: inserted.rows[0].shareToken });
+  // 클라이언트가 방금 만든 복사본을 현재 계획으로 바로 전환할 수 있게 내용도 돌려준다(작업지시서 2026-10-19 §4②).
+  return NextResponse.json({ id: inserted.rows[0].id, shareToken: inserted.rows[0].shareToken, title, region: row.region, placesData });
 });

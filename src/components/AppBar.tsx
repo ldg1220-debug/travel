@@ -326,7 +326,7 @@ export function AppBar() {
             <>
               <span className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
                 {planHeaderDateLabel(activeDate, items, viewerContentPlan)}
-                {isShared && " · 공유됨"}
+                {isShared && viewerModeActive && " · 공유됨"}
               </span>
               <span className="text-[15px] font-bold leading-tight text-slate-900 dark:text-slate-100">{plannerHeaderTitle}</span>
             </>
