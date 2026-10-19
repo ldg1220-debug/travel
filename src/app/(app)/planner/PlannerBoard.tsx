@@ -46,6 +46,7 @@ import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { LoginModal } from "@/components/LoginModal";
 import { catalogPlaceFor } from "@/lib/catalogPlace";
+import { formatPlanDay } from "@/lib/planDay";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { MapProvider, useGoogleMapsStatus, useKakaoMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
@@ -942,7 +943,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     // 작업지시서 2026-09-16 "남은 작업 + 데이터 안전장치" §5: 상단 헤더가
     // 뷰어 모드에서도 activePlanId가 가리키는 내 계획 제목을 그대로
     // 보여줬다 — 지금 보고 있는 계획(sharedData)의 실제 제목을 넘긴다.
-    setViewerModeActive(!sharedData.isOwner, sharedData.title);
+    setViewerModeActive(!sharedData.isOwner, sharedData.title, sharedData.isContentPlan === true);
     setRegion(sharedData.region);
     setItems(sharedData.placesData);
 
@@ -1084,15 +1085,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   }, [shareToken, session?.user]);
 
   // 날짜 미정으로 담은 내 계획(항목에 dayNumber)이거나, 보고 있는 게 콘텐츠 공유 일정(날짜가 "만든 날"일 뿐)이면 날짜 대신 "N일차"로 보여 준다.
-  const showDayNumbers = (isViewerMode && sharedData?.isContentPlan === true) || items.some((i) => i.dayNumber != null);
-  const dayNumberFor = (date: string): number | null => {
-    if (!showDayNumbers) return null;
-    const fromItem = items.find((i) => i.date === date && i.dayNumber != null)?.dayNumber;
-    if (fromItem != null) return fromItem;
-    const dates = [...new Set(items.map((i) => i.date))].sort();
-    const idx = dates.indexOf(date);
-    return idx >= 0 ? idx + 1 : null;
-  };
+  const viewerContentPlan = useItineraryStore((st) => st.viewerContentPlan);
+  // 공용 규칙(src/lib/planDay.ts) — 컬럼 헤더·토스트·예산 팝업·숙소 배너 모두 이걸로 날짜 또는 "N일차"를 정한다.
+  const dayLabel = (date: string) => formatPlanDay(date, items, viewerContentPlan);
   const hasUndatedItems = !isViewerMode && items.some((i) => i.dayNumber != null);
 
   const searchParams = useSearchParams();
@@ -1485,7 +1480,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     addPlaces([place]);
     registerAt(place, date, Math.floor(startMinutes / 60), startMinutes % 60, undefined, durationMinutes);
     setRangeSelectTarget(null);
-    showToast(`${place.name} · ${formatDateLabelShort(date)} ${pad2(Math.floor(startMinutes / 60))}:${pad2(startMinutes % 60)}`);
+    showToast(`${place.name} · ${dayLabel(date)} ${pad2(Math.floor(startMinutes / 60))}:${pad2(startMinutes % 60)}`);
   };
 
   // Search result / trend-sheet selection adapter target: both land here as
@@ -1767,7 +1762,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             registerAt(place, dropped.date, dropped.hour, 0);
             if (place.id === pendingSearchPlace?.id) setPendingSearchPlace(null);
           }
-          showToast(`${place.name} · ${formatDateLabelShort(dropped.date)} ${pad2(dropped.hour)}:00`);
+          showToast(`${place.name} · ${dayLabel(dropped.date)} ${pad2(dropped.hour)}:00`);
         }
       }
       setDrag(null);
@@ -1924,7 +1919,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         budget: item.budget,
         durationMinutes: item.durationMinutes,
       });
-      showToast(`${item.name} 복제됨 · ${formatDateLabelShort(dropDate)} ${pad2(dropHour)}:${pad2(dropMinute)}`);
+      showToast(`${item.name} 복제됨 · ${dayLabel(dropDate)} ${pad2(dropHour)}:${pad2(dropMinute)}`);
       return;
     }
 
@@ -1938,7 +1933,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     );
     moveItem(itemId, dropDate, dropHour, dropMinute);
     showToast(
-      occupant ? "일정이 서로 교체되었습니다" : `${item.name} · ${formatDateLabelShort(dropDate)} ${pad2(dropHour)}:${pad2(dropMinute)}`,
+      occupant ? "일정이 서로 교체되었습니다" : `${item.name} · ${dayLabel(dropDate)} ${pad2(dropHour)}:${pad2(dropMinute)}`,
     );
   };
 
@@ -2245,7 +2240,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   if (schedule.length === 0) return;
                   const snapshot = items;
                   clearDate(activeDate);
-                  showUndoToast(`${formatDateLabelShort(activeDate)} 일정을 비웠어요`, () => setItems(snapshot));
+                  showUndoToast(`${dayLabel(activeDate)} 일정을 비웠어요`, () => setItems(snapshot));
                 }}
                 disabled={schedule.length === 0 || isViewerMode}
                 aria-label="오늘 일정 비우기"
@@ -2574,7 +2569,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13px] font-bold text-brand-800">
-                        {formatDateLabelShort(activeDate)} 일정 근처 숙소 보기
+                        {dayLabel(activeDate)} 일정 근처 숙소 보기
                       </span>
                       <span className="block text-[11.5px] text-brand-700/80">{currentCity}에서 예약 가능한 숙소를 확인해보세요</span>
                     </span>
@@ -2620,7 +2615,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       className="min-w-0 flex-1 cursor-pointer px-1 pb-2 text-center"
                     >
                       <div className={`text-[12px] font-semibold ${isFirst ? "text-slate-900" : "text-slate-500"}`}>
-                        {dayNumberFor(date) != null ? `${dayNumberFor(date)}일차` : formatDateLabelShort(date)}
+                        {dayLabel(date)}
                       </div>
                       <div className="text-[10px] text-slate-400 tabular-nums">
                         {count}개 장소
@@ -2966,7 +2961,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 moveItem(scheduleTarget.item.id, date, hour, minute, budget, currency);
                 if (duration != null) resizeItem(scheduleTarget.item.id, duration);
               }
-              showToast(`${scheduleTarget.place.name} · ${formatDateLabelShort(date)} ${pad2(hour)}:${pad2(minute)}`);
+              showToast(`${scheduleTarget.place.name} · ${dayLabel(date)} ${pad2(hour)}:${pad2(minute)}`);
               setScheduleTarget(null);
             }}
             onDelete={
@@ -3015,7 +3010,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="flex items-center gap-1.5 text-[15px] font-bold text-slate-900">
                   <Wallet size={16} className="text-success-600" />
-                  {budgetBreakdownScope === "all" ? "전체 예산 내역" : `${formatDateLabelShort(budgetBreakdownScope)} 예산 내역`}
+                  {budgetBreakdownScope === "all" ? "전체 예산 내역" : `${dayLabel(budgetBreakdownScope)} 예산 내역`}
                 </h3>
                 <button
                   onClick={() => setBudgetBreakdownScope(null)}
@@ -3036,7 +3031,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[13.5px] font-semibold text-slate-800">{i.name}</p>
                           <p className="text-[11.5px] text-slate-400">
-                            {budgetBreakdownScope === "all" ? `${formatDateLabelShort(i.date)} · ` : ""}
+                            {budgetBreakdownScope === "all" ? `${dayLabel(i.date)} · ` : ""}
                             {i.time}
                           </p>
                         </div>

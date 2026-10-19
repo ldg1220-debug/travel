@@ -20,6 +20,7 @@ import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { fetchUserItineraries, reviveAccount } from "@/lib/api";
 import { syncPlanToServer } from "@/lib/planSync";
 import { formatDateLabel } from "@/lib/timeline";
+import { planHeaderDateLabel } from "@/lib/planDay";
 import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 import { NAV_TABS } from "@/lib/navTabs";
 import type { SavedPlan } from "@/lib/types";
@@ -91,6 +92,7 @@ export function AppBar() {
   const activeDate = useItineraryStore((s) => s.activeDate);
   const region = useItineraryStore((s) => s.region);
   const items = useItineraryStore((s) => s.items);
+  const viewerContentPlan = useItineraryStore((s) => s.viewerContentPlan);
   const currentCity = useItineraryStore((s) => s.currentCity);
   const savedPlans = useItineraryStore((s) => s.savedPlans);
   const activePlanId = useItineraryStore((s) => s.activePlanId);
@@ -323,7 +325,7 @@ export function AppBar() {
           {isPlanner ? (
             <>
               <span className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
-                {formatDateLabel(activeDate)}
+                {planHeaderDateLabel(activeDate, items, viewerContentPlan)}
                 {isShared && " · 공유됨"}
               </span>
               <span className="text-[15px] font-bold leading-tight text-slate-900 dark:text-slate-100">{plannerHeaderTitle}</span>

@@ -352,7 +352,9 @@ interface ItineraryState {
    * 있는다. viewerModeActive가 꺼지면 항상 null로 같이 정리된다.
    */
   viewerPlanTitle: string | null;
-  setViewerModeActive: (active: boolean, title?: string) => void;
+  /** 지금 보고 있는 게 course-open 콘텐츠 일정(날짜는 "만든 날"일 뿐)인가 — 화면 어디서든 날짜 대신 "N일차"로 보여 주는 기준(작업지시서 2026-10-19). 뷰어 모드가 꺼지면 false. */
+  viewerContentPlan: boolean;
+  setViewerModeActive: (active: boolean, title?: string, contentPlan?: boolean) => void;
 }
 
 export const useItineraryStore = create<ItineraryState>()(
@@ -373,7 +375,9 @@ export const useItineraryStore = create<ItineraryState>()(
       draft: null,
       viewerModeActive: false,
       viewerPlanTitle: null,
-      setViewerModeActive: (active, title) => set({ viewerModeActive: active, viewerPlanTitle: active ? (title ?? null) : null }),
+      viewerContentPlan: false,
+      setViewerModeActive: (active, title, contentPlan) =>
+        set({ viewerModeActive: active, viewerPlanTitle: active ? (title ?? null) : null, viewerContentPlan: active && contentPlan === true }),
       setCurrentCity: (city) => set({ currentCity: city }),
 
       setActiveDate: (date) => set({ activeDate: date }),
@@ -683,6 +687,7 @@ export const useItineraryStore = create<ItineraryState>()(
           // plan을 향해도 안전하다.
           viewerModeActive: false,
           viewerPlanTitle: null,
+          viewerContentPlan: false,
         });
       },
 
@@ -801,6 +806,7 @@ export const useItineraryStore = create<ItineraryState>()(
           activePlanId: null,
           viewerModeActive: false, // loadPlan과 같은 이유 — 이제 진짜 초안 내용이다.
           viewerPlanTitle: null,
+          viewerContentPlan: false,
         });
       },
 
@@ -816,6 +822,7 @@ export const useItineraryStore = create<ItineraryState>()(
           activePlanId: null,
           viewerModeActive: false, // loadPlan과 같은 이유 — 빈 새 계획이니 더는 빌려온 내용이 아니다.
           viewerPlanTitle: null,
+          viewerContentPlan: false,
         });
       },
 
