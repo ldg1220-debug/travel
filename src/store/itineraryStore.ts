@@ -252,6 +252,8 @@ interface ItineraryState {
   promoteDraftToPlan: (name: string) => string | null;
   /** Replaces the working itinerary with a saved plan's snapshot. */
   loadPlan: (id: string) => void;
+  /** 방금 서버에 만든 복사본(담아가기)을 이 기기의 저장된 계획으로 넣고 현재 계획으로 전환한다 — 헤더 제목·자동 저장이 새 복사본을 향하게(작업지시서 2026-10-19). 이미 같은 shareToken 의 계획이 있으면 그것으로 전환. 저장 한도(10개)에 걸리면 null. */
+  adoptRemotePlan: (remote: { id: number; title: string; region: Region; placesData: ItineraryItem[]; shareToken: string }) => string | null;
   deletePlan: (id: string) => void;
   /** Attaches a plan's server-side identity after a successful sync, so re-saving/re-sharing it later reuses that same row/link instead of creating a new one. */
   setPlanRemoteInfo: (id: string, remoteId: number, shareToken: string) => void;
@@ -689,6 +691,43 @@ export const useItineraryStore = create<ItineraryState>()(
           viewerPlanTitle: null,
           viewerContentPlan: false,
         });
+      },
+
+      adoptRemotePlan: (remote) => {
+        const state = get();
+        const existing = state.savedPlans.find((p) => p.shareToken === remote.shareToken || p.remoteId === remote.id);
+        if (existing) {
+          get().loadPlan(existing.id);
+          return existing.id;
+        }
+        if (state.savedPlans.length >= MAX_SAVED_PLANS) return null;
+        const plan: SavedPlan = {
+          id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: remote.title,
+          savedAt: Date.now(),
+          items: remote.placesData,
+          places: placesFromItems(remote.placesData),
+          activeDate: remote.placesData[0]?.date ?? todayISODate(),
+          currentCity: "",
+          region: remote.region,
+          remoteId: remote.id,
+          shareToken: remote.shareToken,
+        };
+        const flushed = flushLiveState(state);
+        set({
+          savedPlans: [plan, ...flushed.savedPlans],
+          draft: flushed.draft,
+          items: plan.items,
+          places: plan.places,
+          activeDate: plan.activeDate,
+          currentCity: plan.currentCity,
+          region: plan.region,
+          activePlanId: plan.id,
+          viewerModeActive: false,
+          viewerPlanTitle: null,
+          viewerContentPlan: false,
+        });
+        return plan.id;
       },
 
       deletePlan: (id) => {

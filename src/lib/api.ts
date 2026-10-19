@@ -637,7 +637,15 @@ export interface CopyPlanChoice {
   undated?: boolean;
 }
 
-export async function copySharedItineraryToPlan(shareToken: string, choice: CopyPlanChoice = {}): Promise<{ shareToken: string } | null> {
+export interface CopiedPlan {
+  id: number;
+  shareToken: string;
+  title: string;
+  region: Region;
+  placesData: ItineraryItem[];
+}
+
+export async function copySharedItineraryToPlan(shareToken: string, choice: CopyPlanChoice = {}): Promise<CopiedPlan | null> {
   const res = await fetch(`/api/itineraries/${shareToken}/copy`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

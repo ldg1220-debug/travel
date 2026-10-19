@@ -97,3 +97,28 @@ describe("fillItemPlaceId", () => {
     expect(items.find((i) => i.id === "b")?.placeId).toBe(REAL);
   });
 });
+
+// 작업지시서 2026-10-19 "담아간 계획의 상단 제목" §4② — 담아간 복사본이 현재 계획으로 전환된다.
+describe("adoptRemotePlan", () => {
+  const remote = { id: 9, title: "하노이 2박3일", region: "international" as const, placesData: [item("h1", "2026-10-24")], shareToken: "tok-new" };
+
+  it("adds the copy as a saved plan, makes it the active plan, and leaves the previously open plan untouched", () => {
+    const other = { id: "plan-old", name: "0711 오사카", savedAt: 1, items: [item("o1")], places: [], activeDate: "2026-07-11", currentCity: "오사카", region: "international" as const };
+    useItineraryStore.setState({ savedPlans: [other], activePlanId: "plan-old", items: [item("o1")] });
+    const id = useItineraryStore.getState().adoptRemotePlan(remote);
+    const s = useItineraryStore.getState();
+    expect(id).not.toBeNull();
+    expect(s.activePlanId).toBe(id);
+    expect(s.savedPlans.find((p) => p.id === id)?.name).toBe("하노이 2박3일");
+    expect(s.savedPlans.find((p) => p.id === id)?.shareToken).toBe("tok-new");
+    expect(s.savedPlans.find((p) => p.id === "plan-old")?.items.map((i) => i.id)).toEqual(["o1"]);
+    expect(s.items.map((i) => i.id)).toEqual(["h1"]);
+  });
+
+  it("switches to the existing plan instead of duplicating when adopted twice", () => {
+    const a = useItineraryStore.getState().adoptRemotePlan(remote);
+    const b = useItineraryStore.getState().adoptRemotePlan(remote);
+    expect(b).toBe(a);
+    expect(useItineraryStore.getState().savedPlans.filter((p) => p.shareToken === "tok-new")).toHaveLength(1);
+  });
+});

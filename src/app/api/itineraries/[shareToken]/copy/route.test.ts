@@ -50,3 +50,23 @@ describe("POST /api/itineraries/[shareToken]/copy — 시작일 선택", () => {
     expect(savedItems().some((i) => i.dayNumber != null)).toBe(false);
   });
 });
+
+// 작업지시서 2026-10-19 "담아간 계획의 상단 제목" §4②④
+describe("POST copy — 제목과 응답", () => {
+  it("names a copy of a course-open plan like '하노이 2박3일' and returns the content for adoption", async () => {
+    query.mockReset();
+    query.mockResolvedValueOnce({ rowCount: 1, rows: [{ id: 1, title: "하노이 여행 코스", region: "international", origin: "content", placesData: [...items, { ...items[1], id: "c", date: "2026-10-20" }] }] });
+    query.mockResolvedValueOnce({ rows: [{ id: 2, shareToken: "new" }] });
+    const res = await call({ startDate: "2099-10-24" });
+    const body = await res.json();
+    expect(body.title).toBe("하노이 2박3일");
+    expect(body.shareToken).toBe("new");
+    expect(body.placesData).toHaveLength(3);
+    expect(body.region).toBe("international");
+  });
+
+  it("keeps '(복사)' for an ordinary plan", async () => {
+    const res = await call({});
+    expect((await res.json()).title).toBe("t (복사)");
+  });
+});
