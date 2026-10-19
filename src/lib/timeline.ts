@@ -107,3 +107,24 @@ export function rescheduleItemsToToday<T extends { date: string }>(items: T[], t
     return { ...item, date: shiftISODate(today, offset) };
   });
 }
+
+/**
+ * 담아가기 기본 출발일 — 다음 토요일. 오늘이 금·토면 그다음 주 토요일(금: +8, 토: +7)이다 — 작업지시서 2026-10-19
+ * "내 계획으로 담아가기 때 여행 시작일 고르기" §1①.
+ */
+export function nextSaturday(today: string = todayISODate()): string {
+  const [y, m, d] = today.split("-").map(Number);
+  const dow = new Date(y, m - 1, d).getDay(); // 0=일 … 5=금 6=토
+  const add = dow === 6 ? 7 : dow === 5 ? 8 : 6 - dow;
+  return shiftISODate(today, add);
+}
+
+/** 항목들의 가장 이른 날짜가 `startDate`가 되도록 모두 이동한다 — 일차 간 간격·시각·순서는 그대로. */
+export function shiftItemsToStart<T extends { date: string }>(items: T[], startDate: string): T[] {
+  return rescheduleItemsToToday(items, startDate);
+}
+
+/** "2박3일" 형태의 일수 표기(1일이면 "당일치기"). */
+export function courseSpanLabel(days: number): string {
+  return days <= 1 ? "당일치기" : `${days - 1}박${days}일`;
+}

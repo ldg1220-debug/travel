@@ -27,7 +27,7 @@ export const GET = withApiErrorHandling(async (_request: NextRequest, { params }
   const viewerId = session?.user?.id != null ? Number(session.user.id) : null;
 
   const result = await pool.query(
-    `select i.title, i.region, i."placesData", i.updated_at, i."userId" as "authorId", coalesce(u.nickname, '여행자') as "authorName"
+    `select i.title, i.region, i."placesData", i.updated_at, i."userId" as "authorId", i.origin, coalesce(u.nickname, '여행자') as "authorName"
      from itineraries i
      join users u on u.id = i."userId"
      where i."shareToken" = $1`,
@@ -43,6 +43,8 @@ export const GET = withApiErrorHandling(async (_request: NextRequest, { params }
     placesData: row.placesData,
     updatedAt: row.updated_at,
     authorName: row.authorName,
+    // course-open 이 만든 콘텐츠 일정이면 날짜가 "만든 날"이라 의미가 없다 — 화면은 날짜 대신 일차로 보여 준다(작업지시서 2026-10-19 §1③).
+    isContentPlan: row.origin === "content",
     isOwner: viewerId != null && viewerId === Number(row.authorId),
   });
 });
