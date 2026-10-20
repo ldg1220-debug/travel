@@ -84,10 +84,10 @@ describe("버전 무관 사이트맵 기록", () => {
 
   it("recordConfirmedCoursePage: API·페이지 기준을 통과한 브리프만 버전 무관 키로 기록하고, 얇으면 기록하지 않는다", async () => {
     queryMock.mockResolvedValue({ rows: [] });
-    const brief = (n: number, rating: number | null = 4.4) => ({
+    const brief = (n: number) => ({
       region: "오사카",
       days: 3 as const,
-      spots: Array.from({ length: n }, (_, i) => ({ name: `s${i}`, category: "관광지", rating, reviewCount: 100, lat: 0, lng: 0, order: i + 1, day: 1 as const, toNextMinutes: 5, toNextMode: "walk" as const })),
+      spots: Array.from({ length: n }, (_, i) => ({ name: `s${i}`, category: "관광지", lat: 0, lng: 0, order: i + 1, day: 1 as const, toNextMinutes: 5, toNextMode: "walk" as const })),
     });
     await recordConfirmedCoursePage(brief(12), "city", 3);
     expect(queryMock).toHaveBeenCalledTimes(1);
@@ -95,7 +95,6 @@ describe("버전 무관 사이트맵 기록", () => {
     expect(queryMock.mock.calls[0][1][0]).not.toContain("v"); // 버전 없음
     queryMock.mockClear();
     await recordConfirmedCoursePage(brief(5), "city", 3); // 스팟 부족
-    await recordConfirmedCoursePage(brief(12, null), "city", 3); // 평점 절반 이상 없음
     expect(queryMock).not.toHaveBeenCalled();
   });
 });

@@ -213,13 +213,12 @@ describe("정산: Google 이 실제 처리한 호출만 센다 (429 = 오늘 상
   });
 });
 
-describe("평점 없이 만든 코스는 얇은 콘텐츠로 보지 않는다", () => {
-  const spot = (i: number): CourseBriefSpot => ({ name: `s${i}`, category: "관광지", rating: null, reviewCount: null, lat: 0, lng: 0, order: i, day: 1, toNextMinutes: null, toNextMode: "walk" });
+describe("코스는 평점이 아니라 스팟 수로만 얇은지 본다 (작업지시서 2026-10-20)", () => {
+  const spot = (i: number): CourseBriefSpot => ({ name: `s${i}`, category: "관광지", lat: 0, lng: 0, order: i, day: 1, toNextMinutes: null, toNextMode: "walk" });
   const spots = Array.from({ length: 8 }, (_, i) => spot(i + 1));
-  it("평소엔 평점 없는 스팟이 절반 이상이면 얇다 · 월 한도 때문에 평점이 없으면(ratingsUnavailable) 아니다", () => {
-    expect(isCourseBriefThin(spots, 5)).toBe(true);
-    expect(isCourseBriefThin(spots, 5, { ratingsUnavailable: true })).toBe(false);
-    expect(isCourseBriefThin(spots.slice(0, 3), 5, { ratingsUnavailable: true })).toBe(true); // 스팟 수 기준은 그대로
+  it("스팟 수가 기준 이상이면 얇지 않고, 모자라면 얇다", () => {
+    expect(isCourseBriefThin(spots, 5)).toBe(false);
+    expect(isCourseBriefThin(spots.slice(0, 3), 5)).toBe(true);
   });
 });
 

@@ -52,7 +52,6 @@ function toPlace(resolved: ResolvedPlace, post: RawSnsPost): Place {
     color,
     lat: resolved.lat,
     lng: resolved.lng,
-    rating: resolved.rating,
     icon,
   };
 }

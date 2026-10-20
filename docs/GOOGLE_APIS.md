@@ -24,6 +24,8 @@
 
 월 무료 한도·가드는 `src/lib/server/mapsBudget.ts`(DB 카운터 `maps-ops:{sku}:YYYY-MM`, 호출 직전 +1, 상한 = 무료 한도의 90%). 현재 사용량은 `GET /api/health` 의 `maps`(SKU 별 `count/limit/freeLimit`, Enterprise 는 `todayCount/todayLimit` 포함). 가드 시험은 환경 변수 `MAPS_BUDGET_OVERRIDE='{"text-enterprise":0}'`.
 
+2026-10-20 변경(작업지시서 "평점은 장소를 눌렀을 때만"): **코스(목록·페이지·course-brief)는 평점을 쓰지 않는다.** 코스 후보 검색(`googleTop`·파이프라인)은 Pro 필드만 받아 Enterprise(`text-enterprise`) 호출이 사라졌고, /discover 카드 지표 갱신(`refreshStaleSpotMetrics`, Place Details Enterprise)도 없앴다. 평점·사진·리뷰는 사용자가 장소를 눌렀을 때 `app/api/places/details/route.ts` 한 곳(`details-enterprise`, 클릭당 1회)에서만 받는다. `text-enterprise` 는 사용자 장소 검색(`app/api/places/search/route.ts`)만 남는다.
+
 2026-10-15 보강(작업지시서 "평점 검색(Enterprise) 하루 만에 243/900"):
 - **일 단위 페이싱**(Enterprise 두 SKU): 오늘 상한 = `floor((월 상한 − 오늘 이전 사용) / 남은 날수)`, 최소 10(예: 10/15 → (900−243)/17 ≈ 38). 사용자 요청은 오늘 상한까지, **워밍 크론은 오늘 상한의 50%까지**. 로그 `[mapsBudget] … action=pacing`.
 - **Google 이 실제 처리한 호출(2xx)만 센다**: 429/5xx/타임아웃/4xx 는 예약을 되돌린다(`settleGuarded`). 429(RESOURCE_EXHAUSTED = 콘솔 하루 상한 도달)는 그 SKU 의 오늘 남은 호출을 건너뛰게 표시한다(`maps-429:{sku}:{날짜}`, 로그 `action=quota429`).
@@ -33,15 +35,14 @@
 
 | 호출 지점 (파일 · 함수) | API | 필드 마스크 / 요청 | SKU | 키(환경 변수) | mapsBudget 상한(무료×0.9) | 한도 시 동작 |
 |---|---|---|---|---|---|---|
-| `lib/server/courseRecommend.ts` `googleTop` (후보 풀 · 평점 보강 · 랜드마크) | Places New Text Search | id, displayName, formattedAddress, location, **rating, userRatingCount**, primaryType, photos, googleMapsUri | **Enterprise** | `GOOGLE_PLACES_API_KEY` (폴백 `NEXT_PUBLIC_…`) | `text-enterprise` 900 | 평점 없이 Pro 필드로 강등 → Pro(`text-pro` 4,500)도 닿으면 검색 건너뜀 |
+| `lib/server/courseRecommend.ts` `googleTop` (코스 후보 풀 · 랜드마크 · 동의어 풀) | Places New Text Search | id, displayName, formattedAddress, location, primaryType, types, businessStatus, photos, googleMapsUri (**평점 필드 없음** — 2026-10-20 "평점은 장소를 눌렀을 때만") | **Pro** | `GOOGLE_PLACES_API_KEY` (폴백 `NEXT_PUBLIC_…`) | `text-pro` 4,500 (+ 콘솔 하루 상한 `text-search-all`) | Pro 한도에 닿으면 검색 건너뜀(캐시된 풀·직전 버전 브리프로 서빙) |
 | `app/api/places/search/route.ts` `rawGoogleSearch` · `fetchGooglePlacesPage` (사용자 장소 검색) | Places New Text Search | 위 + priceLevel (+ nextPageToken) | **Enterprise** | 〃 | `text-enterprise` 900 | 강등(평점 없이) → 건너뜀 |
 | 〃 `searchByPlaceId` (지도 POI 클릭) | Places New Place Details | id, displayName, …, rating, userRatingCount, priceLevel, photos, googleMapsUri | **Enterprise** | 〃 | `details-enterprise` 900 | 강등 → 빈 결과 |
 | `app/api/places/details/route.ts` (장소 상세) | Places New Place Details | photos, reviews(작성자 이름·프로필 사진 uri·원문 링크 포함), rating, userRatingCount, currentOpeningHours.openNow, formattedAddress, googleMapsUri | **Enterprise** | 〃 | `details-enterprise` 900 | 강등(사진만) → 빈 상세 |
 | 〃 `resolvePlaceId` | Places New Text Search | places.id | IDs Only(무료) | 〃 | 가드 없음 | — |
 | `app/api/discover/spot-photo/route.ts` 검색 | Places New Text Search | places.photos | Pro | 〃 | `text-pro` 4,500 | 사진 없음(플레이스홀더, 10분 캐시) |
 | 〃 · `app/api/places/photo/route.ts` | Places New Photos(media) | maxWidthPx | Photos(무료 1,000) | 〃 | `photos` 900 | 사진 없음(404) |
-| `lib/server/getSpotMetrics.ts` `refreshStaleSpotMetrics` (/discover 카드 지표) | Places New Place Details | rating, userRatingCount, priceLevel | **Enterprise** | `GOOGLE_PLACES_API_KEY` | `details-enterprise` 900 | 지표 갱신 안 함(카드는 평점 없음) |
-| `server/pipeline/placesMapping.ts` | Places New Text Search | places.id, displayName, location, rating | **Enterprise** | `GOOGLE_PLACES_API_KEY` | `text-enterprise` 900 | 강등 → 해석 실패(null) |
+| `server/pipeline/placesMapping.ts` | Places New Text Search | places.id, displayName, location (평점 없음) | **Pro** | `GOOGLE_PLACES_API_KEY` | `text-pro` 4,500 | 해석 실패(null) |
 | `scripts/match-spot-place-ids.ts` (오프라인 스크립트) | Places New Text Search | (스크립트 내부) | Pro 이상 | `GOOGLE_PLACES_API_KEY` | 가드 없음(수동 실행) | — |
 | `lib/server/courseBrief.ts` `fetchGoogleDirectionsRoute` (해외 도보·대중교통 구간) | Directions API (legacy) | origin · destination · mode | Routes(무료 10,000) | `GOOGLE_MAPS_SERVER_KEY` | `routes` 9,000 | 직선 추정으로 폴백 |
 | `lib/server/courseBrief.ts` `renderCourseMapPng` (`/api/content/course-map`, CDN 미스 때만) | Maps Static | markers · path · center/zoom | Static(무료 10,000) | `GOOGLE_MAPS_SERVER_KEY` | `static` 9,000 | 지도 없음(imageUrl null · 렌더 502) |

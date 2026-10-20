@@ -111,7 +111,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
         }
         try {
           const brief = await getCourseBrief(region, days, PER_REGION_ENRICH_BUDGET_MS);
-          out.push({ region, days, ok: true, spots: brief.spots.length, rated: brief.spots.filter((s) => s.rating != null).length });
+          out.push({ region, days, ok: true, spots: brief.spots.length });
         } catch (err) {
           console.error(`[warm-course-brief] ${region}(${days}일) 실패:`, err);
           out.push({ region, days, ok: false });

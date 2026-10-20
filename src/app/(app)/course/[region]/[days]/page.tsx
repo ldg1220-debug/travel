@@ -27,7 +27,7 @@ import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript"
 /**
  * `/course/{지역}/{일수}` — 작업지시서 2026-09-18 "트레쥴이 구글에
  * 7페이지만 올라가 있습니다" §4: course-brief가 이미 갖고 있는 실제
- * 코스(장소명·평점·리뷰수·구간 이동시간·지도)에 검색엔진이 색인할 수
+ * 코스(장소명·구간 이동시간·지도)에 검색엔진이 색인할 수
  * 있는 주소를 준다. /discover가 클라이언트에서 그려 봇이 빈 페이지를
  * 보는 것과 정반대로, 이 페이지는 순수 서버 컴포넌트("use client" 없음)
  * 라 course-brief 데이터가 그대로 최초 HTML 응답에 담긴다.
@@ -126,8 +126,8 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
   const rejected = judgeCourseBrief(brief, route.region, route.days);
   if (rejected) {
     console.warn(`[course-page] brief rejected: region=${route.region} days=${route.days} reason=${rejected}`);
-    // 작업지시서 2026-10-16 ⑤ — 후보 풀 출처(cache|google|degraded)와 후보 수를 사유에 함께 남긴다.
-    const pool = brief.poolStats ? ` pool=cache:${brief.poolStats.cache}/google:${brief.poolStats.google}/degraded:${brief.poolStats.degraded} candidates=${brief.poolStats.candidates}` : "";
+    // 작업지시서 2026-10-16 ⑤ — 후보 풀 출처(cache|google)와 후보 수를 사유에 함께 남긴다.
+    const pool = brief.poolStats ? ` pool=cache:${brief.poolStats.cache}/google:${brief.poolStats.google} candidates=${brief.poolStats.candidates}` : "";
     return { kind: "missing", reason: `${rejected}${pool}`, permanent: false };
   }
   return { kind: "ok", brief, region: route.region, days: route.days };
@@ -221,7 +221,7 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
         이 코스로 내 일정 만들기
       </CourseCtaLink>
 
-      {/* 일자별 카드 — 장소 · 종류 · 평점 · 다음 이동을 텍스트로 렌더한다(이미지만 X, 블로그 일자 카드와 같은 데이터). */}
+      {/* 일자별 카드 — 장소 · 종류 · 다음 이동을 텍스트로 렌더한다(이미지만 X, 블로그 일자 카드와 같은 데이터). */}
       <div className="mt-6 space-y-5">
         {dayGroups.map((group) => (
           <section key={group.day} aria-labelledby={`day-${group.day}`} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
@@ -246,7 +246,8 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
           </section>
         ))}
       </div>
-      {brief.spots.some((s) => s.rating != null) && <GoogleAttribution className="mt-3" />}
+      {/* 평점은 코스에 없다 — 이름·위치가 Google 콘텐츠라 출처만 밝힌다(작업지시서 2026-10-20). */}
+      <GoogleAttribution variant="place" className="mt-3" />
 
       {(related.sameRegion.length > 0 || related.sameCountry.length > 0) && (
         <nav aria-label="관련 코스" className="mt-8 border-t border-slate-100 pt-4 dark:border-slate-800">

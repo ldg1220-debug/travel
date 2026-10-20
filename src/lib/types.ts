@@ -63,6 +63,8 @@ export interface Place {
   rating?: number;
   /** 월 무료 한도(Places 예산 가드)로 평점 없이 받은 후보 — 평점·리뷰 수 품질 게이트를 적용하지 않는다(작업지시서 2026-10-15 장애 대응). */
   ratingUnavailable?: boolean;
+  /** Google/Kakao 검색 응답 안에서의 순서(0부터) — 코스 후보는 평점 대신 이 순위를 인기 신호로 쓴다(작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만"). */
+  searchRank?: number;
   /** Number of Google reviews backing `rating` — only present on live Google results. */
   reviewCount?: number;
   /** Coarse Google price tier, 0 (free) – 4 (very expensive). A proxy for cost (Places has no real nightly rate) — used for the 가격대순 sort on lodging results. Undefined when Google didn't provide one. */

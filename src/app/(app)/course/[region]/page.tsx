@@ -37,7 +37,7 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   const first = daysToLabel(pages[0].days);
   const last = daysToLabel(pages[pages.length - 1].days);
   const title = `${region} 여행 코스 — ${pages.length === 1 ? first : `${first}~${last}`} 일자별 동선 | 트레쥴`;
-  const description = `${region} 여행 코스 ${pages.length}개(${pages.map((p) => daysToLabel(p.days)).join("·")}): 일자별 동선 지도 · 이동 시간 · 평점 정리.`;
+  const description = `${region} 여행 코스 ${pages.length}개(${pages.map((p) => daysToLabel(p.days)).join("·")}): 일자별 동선 지도 · 이동 시간 정리.`;
   return { title: { absolute: title }, description, alternates: { canonical: courseRegionHubPath(region) }, openGraph: { title, description, type: "website", url: courseRegionHubPath(region) } };
 }
 

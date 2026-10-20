@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getSpotMetrics, refreshStaleSpotMetrics } from "@/lib/server/getSpotMetrics";
+import { getSpotMetrics } from "@/lib/server/getSpotMetrics";
 
 export const dynamic = "force-dynamic";
 
@@ -11,11 +11,9 @@ export const dynamic = "force-dynamic";
  * 데이터라 여기서 직접 Postgres를 조회할 수 없어서(브라우저에 DB 접근을
  * 노출하게 됨) 이 라우트를 하나 두고 클라이언트가 병합한다.
  *
- * 작업지시서 2026-10-14 "Places 호출 비용" §2④ — 월 배치가 아니라 요청 시 조회다: 오래된(26시간) 지표 몇 개를 월 예산 가드 안에서 새로 조회하고,
- * 26시간 안에 갱신된 지표만 돌려준다(한도에 닿으면 지표 없음 — 카드는 평점 없이 보인다). 응답은 CDN 이 1시간 캐시해 반복 마운트가 DB·Places 를 치지 않는다.
+ * 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — /discover 카드는 더 이상 이 라우트를 부르지 않고, Places 갱신(Enterprise)도 없앴다. 남은 행 중 26시간 안의 것만 읽어 돌려준다.
  */
 export const GET = withApiErrorHandling(async () => {
-  await refreshStaleSpotMetrics();
   const metrics = await getSpotMetrics();
   return NextResponse.json(
     { metrics },

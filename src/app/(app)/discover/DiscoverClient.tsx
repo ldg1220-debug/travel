@@ -2,7 +2,7 @@
 
 import { GoogleAttribution } from "@/components/GoogleAttribution";
 import { pushSafely } from "@/lib/documentNavigation";
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -51,7 +51,7 @@ import { FolderChips } from "@/components/FolderChips";
 import { SchedulePlanPickerModal, type SchedulePlanTarget } from "@/components/SchedulePlanPickerModal";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
-import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch, fetchSpotMetrics, logLodgingCtaEvent, type SpotMetrics } from "@/lib/api";
+import { fetchDiscoverBundle, fetchDiscoverSearch, fetchLivePlaceSearch, logLodgingCtaEvent } from "@/lib/api";
 import { useUserLocation } from "@/lib/useUserLocation";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
@@ -245,15 +245,7 @@ function spotToPlace(spot: DiscoverSpot): Place {
     lat: spot.lat,
     lng: spot.lng,
     icon: SPOT_ICON_TO_PLACE_ICON[spot.iconKey] ?? "pin",
-    // 큐레이션 스팟도 discoverData.ts에 실제 rating/reviewCount를 갖고 있고
-    // SpotCard 자체는 이미 이 값을 보여준다(spot.rating ?? metrics?.rating,
-    // 위 SpotCard 참고) — 그런데 카드를 눌러 여는 PlaceDetailOverlay엔 이
-    // 값이 안 넘어가 "카드엔 4.6·리뷰 46.7k가 보이는데 상세엔 평점 자체가
-    // 없음"이 되는 실제 버그였다(마케팅 스크린샷 준비 중 발견). 라이브
-    // Google 결과만 rating을 갖는다는 Place 타입 주석은 이제 정확하지
-    // 않다 — 큐레이션 스팟도 실측 rating을 갖는다.
-    rating: spot.rating,
-    reviewCount: spot.reviewCount,
+    // 평점·리뷰 수는 넘기지 않는다 — 카드 목록에서 빼고(작업지시서 2026-10-20) 상세 시트가 열릴 때 런타임으로 조회한다.
   };
 }
 
@@ -411,7 +403,6 @@ function RegionDrilldown({
 // 전달하는 대신 Context로 두면 그 호출부들은 안 건드려도 된다. 값이
 // 없는 spot.id는 키가 아예 없다 — placeId 미확정/편집 개념 카드/아직
 // 갱신 배치가 안 돈 스팟.
-const SpotMetricsContext = createContext<Record<string, SpotMetrics>>({});
 
 // ─────────────────────────────────────────────────────────────
 // The global App Bar (hamburger + title + Sheet nav) already lives in
@@ -495,14 +486,7 @@ export function DiscoverPage() {
     enabled: activeQuery.trim().length === 0,
   });
 
-  // 큐레이션 스팟의 실제 Google 지표 — scope/필터와 무관하게 딱 한 번만
-  // 불러서 SpotMetricsContext로 흘려보낸다. 월 1회 배치로만 갱신되는
-  // 데이터라 staleTime을 길게 잡아 세션 안에서 재요청하지 않는다.
-  const { data: spotMetrics } = useQuery({
-    queryKey: ["discover-spot-metrics"],
-    queryFn: fetchSpotMetrics,
-    staleTime: 60 * 60 * 1000,
-  });
+  // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" §1⑤ — 카드 목록에서 평점·리뷰 수·가격대 지표를 내려받지 않는다(예전 spot-metrics 배치 = Enterprise). 카드를 눌러 여는 상세 시트가 런타임에 조회한다.
 
   const isSearching = activeQuery.trim().length > 0;
   const bundle = browseData?.bundle;
@@ -720,7 +704,7 @@ export function DiscoverPage() {
   const routesCompact = bundle?.routes.slice(0, COMPACT_ROUTE_COUNT) ?? [];
 
   return (
-    <SpotMetricsContext.Provider value={spotMetrics ?? {}}>
+    <>
     <div className="min-h-full bg-slate-50 font-sans text-slate-900">
       <div className="mx-auto max-w-6xl px-4 pb-24 pt-8 sm:px-6">
         {/* ── SEARCH + SEGMENTED TOGGLE ── */}
@@ -1074,7 +1058,7 @@ export function DiscoverPage() {
           </AnimatePresence>
         )}
         {/* Google Places 평점·리뷰 출처 표기 — 공용 컴포넌트(Places 정책 스타일, 2026-10-14). 지표가 보일 때만 렌더한다. */}
-        {!isSearching && (Object.keys(spotMetrics ?? {}).length > 0 || browseData?.notice === "live") && <GoogleAttribution className="mt-8 text-center" />}
+        {!isSearching && <GoogleAttribution variant="place" className="mt-8 text-center" />}
       </div>
 
       {/* "+" 퀵 버튼 — 일정에 추가할지 관심 장소(찜)에 추가할지 물어보는
@@ -1204,7 +1188,7 @@ export function DiscoverPage() {
         </div>
       )}
     </div>
-    </SpotMetricsContext.Provider>
+    </>
   );
 }
 
@@ -1868,13 +1852,6 @@ function SpotCard({
   // /api/discover/spot-photo) — 404/no-key/no-match just falls back to
   // the curated gradient, so the card never shows a broken image.
   const [photoFailed, setPhotoFailed] = useState(false);
-  const metrics = useContext(SpotMetricsContext)[spot.id];
-  // 라이브 스팟(#166, discoverLiveBrowse.ts)은 spot_place_metrics 배치를
-  // 거치지 않고 rating/reviewCount를 자기 객체에 직접 들고 있다 — Context만
-  // 보면 이 값이 항상 비어 해외 라이브 카드에 평점이 안 뜨는 버그였다
-  // (#166 후속). 큐레이션 스팟은 spot 자체에 없으므로 Context로 폴백.
-  const rating = spot.rating ?? metrics?.rating;
-  const reviewCount = spot.reviewCount ?? metrics?.reviewCount;
   // discoverLiveBrowse.ts가 라이브 스팟에 매기는 id 접두사 — 큐레이션
   // 스팟과 구분해서 배지 문구를 다르게 준다(확정사항 A, #173 후속 검증).
   const isLive = spot.id.startsWith("live:");
@@ -1924,33 +1901,12 @@ function SpotCard({
           <CordixIcon name="pin" size={11} /> {spot.region}
         </p>
         <div className="mt-2 flex items-center">
-          {/* 지표(⭐평점 · 리뷰수)는 실제 Google 데이터가 있을 때만 —
-              placeId 미확정/편집 개념 카드/갱신 배치 전이면 이 자리를
-              통째로 렌더하지 않는다(빈 별점·0건 표시는 있는 것보다 나쁘다).
-              favorite/trending 아이콘 단독 표시로 자리를 채우지 않는 것도
-              같은 이유 — "N명 저장"이 가짜 지표였던 것과 마찬가지로,
-              근거 없는 인기 신호를 남겨두지 않는다. */}
-          {rating != null ? (
-            <span className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-slate-600">
-              <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" className="shrink-0" />
-              {rating.toFixed(1)}
-              {reviewCount != null && <span className="truncate font-normal text-slate-400">· 리뷰 {fmt(reviewCount)}</span>}
-              {metrics?.priceLevel != null && metrics.priceLevel > 0 && (
-                <span className="shrink-0 font-semibold text-success-600">· {"₩".repeat(metrics.priceLevel)}</span>
-              )}
+          {/* 작업지시서 2026-10-20 — 카드 목록에는 평점·리뷰 수를 보이지 않는다(눌러서 여는 상세에서만). 큐레이션 스팟은 "트레쥴 큐레이션" 배지, 라이브 스팟은 비운다. */}
+          {!isLive && (
+            <span className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-brand-600">
+              <CordixIcon name="star" size={11} stroke="currentColor" accent="currentColor" className="shrink-0" />
+              트레쥴 큐레이션
             </span>
-          ) : (
-            // 평점이 없을 때의 빈자리 — 큐레이션 스팟은 "트레쥴 큐레이션"
-            // 배지로 채운다(확정사항 A: 평점 대신 큐레이션 자체의 가치를
-            // 강조). 국내 라이브 스팟(Kakao, 평점 미제공)은 "트레쥴이 고른"이
-            // 아니라 실시간 검색 결과라 배지를 붙이면 부정확하므로, 카테고리·
-            // 지역만 있는 채로 둔다(위에 이미 표시 중).
-            !isLive && (
-              <span className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-brand-600">
-                <CordixIcon name="star" size={11} stroke="currentColor" accent="currentColor" className="shrink-0" />
-                트레쥴 큐레이션
-              </span>
-            )
           )}
           <button
             onClick={(e) => {
