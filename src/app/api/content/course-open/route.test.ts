@@ -11,8 +11,6 @@ function spot(day: 1 | 2 | 3, order: number, toNextMinutes: number | null): Cour
   return {
     name: `spot-${day}-${order}`,
     category: "관광",
-    rating: null,
-    reviewCount: null,
     lat: 35 + order * 0.001,
     lng: 129 + order * 0.001,
     order,

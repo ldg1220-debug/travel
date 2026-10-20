@@ -7,7 +7,9 @@ vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }
 import { COURSE_ALGO_VERSION, briefCacheKey, readPreviousVersionBrief, type CourseBrief, type CourseBriefSpot } from "./courseBrief";
 
 // 작업지시서 2026-10-15 "긴급(장애): #322 이후 코스 페이지 전부 404" §2·§3④ — 버전이 바뀌어도 직전 버전 캐시(26시간 이내)를 계속 서빙한다.
-const spot = (i: number): CourseBriefSpot => ({ name: `s${i}`, category: "관광지", rating: 4.5, reviewCount: 300, lat: 35.8 + i * 0.001, lng: 129.2, order: i, day: (((i - 1) % 3) + 1) as 1 | 2 | 3, toNextMinutes: 5, toNextMode: "walk" });
+// 직전 버전 캐시는 평점 정책(2026-10-20) 이전 형식이다 — spots 에 rating·reviewCount, 최상위에 ratingSource. 읽을 때 새 계약으로 바뀌어야 한다.
+const spot = (i: number): CourseBriefSpot =>
+  ({ name: `s${i}`, category: "관광지", rating: 4.5, reviewCount: 300, lat: 35.8 + i * 0.001, lng: 129.2, order: i, day: (((i - 1) % 3) + 1) as 1 | 2 | 3, toNextMinutes: 5, toNextMode: "walk" }) as unknown as CourseBriefSpot;
 const brief = (count: number): CourseBrief => ({
   region: "경주",
   days: 3,
@@ -16,10 +18,11 @@ const brief = (count: number): CourseBrief => ({
   imageUrl: null,
   appUrl: "https://example.com",
   ratingSource: "google",
+  ratingsUnavailable: true,
   distanceSource: "route",
   dayTotals: [],
   dayImageUrls: [],
-});
+} as unknown as CourseBrief);
 
 describe("readPreviousVersionBrief", () => {
   beforeEach(() => queryMock.mockReset());
@@ -29,6 +32,12 @@ describe("readPreviousVersionBrief", () => {
     const prev = await readPreviousVersionBrief("domestic", "경주", 3);
     expect(prev?.version).toBe("39");
     expect(prev?.brief.spots).toHaveLength(12);
+    // 평점 정책 이전 형식 → 새 계약: spots 의 rating·reviewCount, ratingSource·ratingsUnavailable 가 사라지고 ratingPolicy 가 붙는다.
+    expect(prev?.brief.ratingPolicy).toBe("on-click");
+    expect(prev?.brief.spots[0]).not.toHaveProperty("rating");
+    expect(prev?.brief.spots[0]).not.toHaveProperty("reviewCount");
+    expect(prev?.brief).not.toHaveProperty("ratingSource");
+    expect(prev?.brief).not.toHaveProperty("ratingsUnavailable");
     const [sql, params] = queryMock.mock.calls[0];
     expect(sql).toContain("left(cache_key, $1) = $2");
     expect(params[2]).toBe(briefCacheKey("domestic", "경주", 3)); // 현재 버전 키는 제외

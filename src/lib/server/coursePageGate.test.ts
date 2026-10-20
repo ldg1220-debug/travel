@@ -6,7 +6,7 @@ import type { CourseBriefSpot } from "./courseBrief";
 // 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §1 — 입구는 허용목록이 아니라 (지원 지역 × 일수 범위).
 
 function spot(over: Partial<CourseBriefSpot> = {}): CourseBriefSpot {
-  return { name: "x", category: "관광지", rating: 4.5, reviewCount: 100, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: 5, toNextMode: "walk", ...over };
+  return { name: "x", category: "관광지", lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: 5, toNextMode: "walk", ...over };
 }
 
 describe("resolveCoursePageRoute", () => {
@@ -49,11 +49,10 @@ describe("resolveCoursePageRoute", () => {
 });
 
 describe("judgeCourseBrief — API(422)·사이트맵과 같은 기준", () => {
-  it("충분하고 평점이 있으면 통과, 스팟 부족·평점 절반 미만·휴양형 해변 없음이면 사유를 돌려준다", () => {
+  it("스팟이 충분하면 통과(평점 무관), 스팟 부족·휴양형 해변 없음이면 사유를 돌려준다", () => {
     const spots = (n: number, over: Partial<CourseBriefSpot> = {}) => Array.from({ length: n }, (_, i) => spot({ order: i + 1, ...over }));
     expect(judgeCourseBrief({ spots: spots(9) }, "서울", 3)).toBeNull();
     expect(judgeCourseBrief({ spots: spots(8) }, "서울", 3)).toContain("thin");
-    expect(judgeCourseBrief({ spots: spots(9, { rating: null }) }, "서울", 3)).toContain("thin");
     expect(judgeCourseBrief({ spots: spots(14) }, "세부", 7)).toBe("no-beach");
     expect(judgeCourseBrief({ spots: [...spots(13), spot({ beach: true })] }, "세부", 7)).toBeNull();
   });

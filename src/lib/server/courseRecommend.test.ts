@@ -150,62 +150,36 @@ describe("sameShop", () => {
   });
 });
 
+// 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" §1② — 품질 게이트에서 평점·리뷰 수 조건을 뺐다. 관광과 무관한 시설 유형만 거른다.
 describe("passesQualityGate", () => {
   it("always passes domestic (Kakao Local never provides rating/reviews)", () => {
     expect(passesQualityGate(place({ rating: undefined, reviewCount: undefined }), "domestic")).toBe(true);
     expect(passesQualityGate(place({ rating: undefined, reviewCount: undefined }), "domestic", "restaurant")).toBe(true);
   });
 
-  it("rejects an overseas place with no rating/review data at all — the 오사카 실측 '형경' case (no rating shown in the UI)", () => {
-    expect(passesQualityGate(place({ rating: undefined, reviewCount: undefined }), "overseas")).toBe(false);
+  it("평점·리뷰 수가 없어도 해외 후보를 떨어뜨리지 않는다(코스 후보는 평점을 받지 않는다)", () => {
+    expect(passesQualityGate(place({ rating: undefined, reviewCount: undefined }), "overseas")).toBe(true);
+    expect(passesQualityGate(place({ rating: undefined, reviewCount: undefined, category: "restaurant" }), "overseas", "restaurant")).toBe(true);
+    expect(passesQualityGate(place({ rating: 3.1, reviewCount: 1, category: "attraction" }), "overseas", "attraction")).toBe(true); // 값이 있어도 보지 않는다
   });
 
-  it("rejects an overseas place below its category's minimum review count", () => {
-    expect(passesQualityGate(place({ rating: 4.5, reviewCount: 1, category: "restaurant" }), "overseas", "restaurant")).toBe(false);
-  });
-
-  it("accepts an overseas place meeting its category's minimum review count", () => {
-    expect(passesQualityGate(place({ rating: 4.5, reviewCount: 12, category: "restaurant" }), "overseas", "restaurant")).toBe(true);
-  });
-
-  // 3차 실측 — 하한을 처음엔(2차 수정) 명소 100까지 올렸는데, 그게 아래
-  // applyQualityGate의 옛 "부족하면 미달로 채우기" 폴백과 상쇄돼(하한이
-  // 높을수록 통과 후보가 부족해져 폴백이 더 자주 발동) "형경"이 재등장하는
-  // 회귀가 났다. 폴백을 없앤 지금은 하한을 현실적인 수준(40)으로
-  // 낮췄다 — 여전히 restaurant/cafe(12/10)보다는 훨씬 높다.
-  it("uses a higher bar for attractions than restaurants/cafes, but not so high that it starves normal cities", () => {
-    expect(passesQualityGate(place({ rating: 4.2, reviewCount: 30 }), "overseas", "attraction")).toBe(false);
-    expect(passesQualityGate(place({ rating: 4.2, reviewCount: 50 }), "overseas", "attraction")).toBe(true);
-    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 15 }), "overseas", "restaurant")).toBe(true);
-  });
-
-  it("falls back to the default threshold when no slot category is given", () => {
-    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 15 }), "overseas")).toBe(true);
-    expect(passesQualityGate(place({ rating: 4.0, reviewCount: 2 }), "overseas")).toBe(false);
+  it("관광과 무관한 시설 유형(은행·주유소·병원·학교 등)은 해외에서 뺀다", () => {
+    for (const category of ["bank", "gas_station", "hospital", "school", "parking", "atm"]) {
+      expect(passesQualityGate(place({ category }), "overseas")).toBe(false);
+    }
+    expect(passesQualityGate(place({ category: "tourist_attraction" }), "overseas", "attraction")).toBe(true);
+    expect(passesQualityGate(place({ category: "restaurant" }), "overseas", "restaurant")).toBe(true);
   });
 });
 
 describe("applyQualityGate", () => {
-  it("returns only gate-passing candidates", () => {
+  it("관광과 무관한 시설만 걸러내고 나머지는 순서 그대로 둔다", () => {
     const mixed = [
-      place({ id: "a", rating: 4.5, reviewCount: 50000, category: "attraction" }),
-      place({ id: "b", rating: 4.3, reviewCount: 20000, category: "attraction" }),
-      place({ id: "low-review", rating: 4.2, reviewCount: 5, category: "attraction" }),
+      place({ id: "a", category: "tourist_attraction" }),
+      place({ id: "bank", category: "bank" }),
+      place({ id: "b", category: "museum" }),
     ];
     expect(applyQualityGate(mixed, "overseas", "attraction").map((p) => p.id)).toEqual(["a", "b"]);
-  });
-
-  // 3차 실측에서 확인된 회귀의 재발 방지 테스트 — 이전엔 통과 후보가
-  // 부족하면 하한 미달 후보로 채웠는데, 그 폴백이 하한 인상과 상쇄돼
-  // "형경"류가 다시 새어 나왔다(요약: PR #155 논의 참고). 폴백을 완전히
-  // 없앴으니 통과 후보가 하나도 없으면(또는 적으면) 슬롯은 그냥 비어야
-  // 하고, 미달 후보가 섞여 들어가면 안 된다.
-  it("never backfills with under-threshold candidates, even when that leaves very few (or zero) results", () => {
-    const thin = [
-      place({ id: "weak-1", rating: 4.1, reviewCount: 5, category: "attraction" }),
-      place({ id: "weak-2", rating: 4.9, reviewCount: 30, category: "attraction" }), // 평점 높아도 하한(40) 미달
-    ];
-    expect(applyQualityGate(thin, "overseas", "attraction")).toEqual([]);
   });
 
   it("never filters domestic candidates (no rating signal to gate on)", () => {
@@ -410,7 +384,7 @@ describe("googleTop — 실패 시 원인을 로그로 남긴다 (작업지시�
       vi.fn().mockResolvedValue({ ok: true, json: async () => ({ places: [{ id: "p1", displayName: { text: "오사카성" } }] }) }),
     );
     const result = await googleTop("오사카 관광지", "test-key");
-    expect(result).toEqual([{ id: "p1", displayName: { text: "오사카성" } }]);
+    expect(result).toEqual([{ id: "p1", displayName: { text: "오사카성" }, searchRank: 0 }]);
   });
 });
 
@@ -793,35 +767,33 @@ describe("isLargeFacility — 캐리비안 베이 (2026-10-13 §4)", () => {
   });
 });
 
-// 작업지시서 2026-10-15 장애 — 예산 가드로 평점 없이 받은 후보는 품질 게이트에서 떨어지지 않는다(안 그러면 강등 결과 전부가 걸러져 422 → 404).
-describe("예산 가드 강등 후보 (ratingUnavailable)", () => {
+// 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색은 항상 Pro 필드(평점 없음), 영업 중이 아닌 곳은 빼고 응답 순서를 순위로 단다.
+describe("googleTop — Pro 필드 · 영업 상태 · 순위", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
 
-  it("passesQualityGate: 해외에서 평점·리뷰 수가 없으면 떨어지지만 ratingUnavailable 이면 통과", () => {
-    const bare = place({ id: "x", name: "후보", rating: undefined, reviewCount: undefined });
-    expect(passesQualityGate(bare, "overseas", "attraction")).toBe(false);
-    expect(passesQualityGate({ ...bare, ratingUnavailable: true }, "overseas", "attraction")).toBe(true);
-  });
-
-  it("googleTop: Enterprise 한도 0 이면 평점 필드 없이 요청하고 후보에 ratingsSkipped 를 단다", async () => {
+  it("평점 필드(rating · userRatingCount · priceLevel)를 요청하지 않는다 — Enterprise 한도와 무관하게", async () => {
     vi.stubEnv("MAPS_BUDGET_OVERRIDE", '{"text-enterprise":0}');
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ places: [{ id: "p1", displayName: { text: "오사카성" } }] }) });
     vi.stubGlobal("fetch", fetchMock);
     const result = await googleTop("오사카 관광지", "test-key");
     const mask = (fetchMock.mock.calls[0][1] as { headers: Record<string, string> }).headers["X-Goog-FieldMask"];
-    expect(mask).not.toContain("rating");
-    expect(mask).not.toContain("userRatingCount");
-    expect(result).toEqual([{ id: "p1", displayName: { text: "오사카성" }, ratingsSkipped: true }]);
+    expect(mask).not.toMatch(/rating|userRatingCount|priceLevel/i);
+    expect(mask).toContain("places.businessStatus");
+    expect(result).toEqual([{ id: "p1", displayName: { text: "오사카성" }, searchRank: 0 }]);
   });
 
-  it("googleTop: 평소(한도 안)에는 평점 필드를 요청하고 표시를 달지 않는다", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ places: [{ id: "p1" }] }) });
-    vi.stubGlobal("fetch", fetchMock);
+  it("OPERATIONAL 이 아닌 후보는 빼고(상태가 없으면 둔다), 순위는 응답 안의 원래 위치다", async () => {
+    const places = [
+      { id: "a", businessStatus: "OPERATIONAL" },
+      { id: "closed", businessStatus: "CLOSED_PERMANENTLY" },
+      { id: "temp", businessStatus: "CLOSED_TEMPORARILY" },
+      { id: "nostatus" },
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ places }) }));
     const result = await googleTop("오사카 관광지", "test-key");
-    expect((fetchMock.mock.calls[0][1] as { headers: Record<string, string> }).headers["X-Goog-FieldMask"]).toContain("places.rating");
-    expect(result).toEqual([{ id: "p1" }]);
+    expect(result.map((p) => [p.id, p.searchRank])).toEqual([["a", 0], ["nostatus", 3]]);
   });
 });

@@ -1,9 +1,9 @@
 import { chooseGuardedMask, settleGuarded } from "@/lib/server/mapsBudget";
 import type { ResolvedPlace } from "./types";
 
-// Minimal field mask — only what the app renders (id, name, coords, rating).
-// Keeping this narrow is what keeps Places API calls in the cheapest SKU.
-const FIELD_MASK = "places.id,places.displayName,places.location,places.rating";
+// Minimal field mask — only what the app stores (id, name, coords). 평점(rating)은 Enterprise 필드라 받지 않는다 —
+// 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만": 평점은 사용자가 장소를 눌렀을 때 상세 시트에서만 조회한다.
+const FIELD_MASK = "places.id,places.displayName,places.location";
 
 /**
  * Step 4 — Place mapping.
@@ -17,7 +17,7 @@ export async function resolvePlace(nameGuess: string): Promise<ResolvedPlace | n
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return OFFLINE_FIXTURES[nameGuess] ?? null;
 
-  const guarded = await chooseGuardedMask("text", FIELD_MASK); // 작업지시서 2026-10-14 "Places 호출 비용" §2 — rating 은 Enterprise
+  const guarded = await chooseGuardedMask("text", FIELD_MASK); // Pro 필드만
   if (!guarded) return null;
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
@@ -36,7 +36,6 @@ export async function resolvePlace(nameGuess: string): Promise<ResolvedPlace | n
       id: string;
       displayName?: { text?: string };
       location?: { latitude: number; longitude: number };
-      rating?: number;
     }>;
   };
   const place = data.places?.[0];
@@ -47,7 +46,6 @@ export async function resolvePlace(nameGuess: string): Promise<ResolvedPlace | n
     name: place.displayName?.text ?? nameGuess,
     lat: place.location.latitude,
     lng: place.location.longitude,
-    rating: place.rating,
   };
 }
 

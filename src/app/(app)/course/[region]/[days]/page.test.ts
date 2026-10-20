@@ -51,8 +51,6 @@ function spot(overrides: Partial<CourseBriefSpot> = {}): CourseBriefSpot {
   return {
     name: "황리단길",
     category: "상권",
-    rating: 4.5,
-    reviewCount: 1200,
     lat: 35.83,
     lng: 129.21,
     order: 1,
@@ -71,7 +69,7 @@ function thickBrief(overrides: Partial<CourseBrief> = {}): CourseBrief {
     spots: Array.from({ length: 12 }, (_, i) => spot({ order: i + 1, day: ((i % 3) + 1) as 1 | 2 | 3 })),
     imageUrl: null,
     appUrl: "https://www.tradule.co.kr/api/content/course-open?region=%EA%B2%BD%EC%A3%BC&days=3",
-    ratingSource: "google",
+    ratingPolicy: "on-click",
     distanceSource: "route",
     dayTotals: [],
     dayImageUrls: [],
@@ -170,13 +168,12 @@ describe("generateMetadata와 CoursePage가 같은 입력에 대해 항상 일�
     await expect(CoursePage({ params })).rejects.toThrow("course-page-unavailable");
   });
 
-  it("평점 없이 만든 코스(ratingsUnavailable — 예산 가드)는 평점이 비어도 200 이다 · 평점 없는 코스가 아니면 얇다 (작업지시서 2026-10-15 장애 §2②, §3⑥)", async () => {
-    const unrated = Array.from({ length: 12 }, (_, i) => spot({ order: i + 1, day: ((i % 3) + 1) as 1 | 2 | 3, rating: null, reviewCount: null }));
+  it("평점이 없는 코스도 스팟 수만 충분하면 200 이다 · 스팟이 모자라면 얇다 (작업지시서 2026-10-20 평점은 장소를 눌렀을 때만 §1②)", async () => {
     const { default: CoursePage } = await import("./page");
     const params = Promise.resolve({ region: "경주", days: "2박3일" });
-    getCourseBriefMock.mockResolvedValue(thickBrief({ spots: unrated, ratingsUnavailable: true }));
+    getCourseBriefMock.mockResolvedValue(thickBrief());
     await expect(CoursePage({ params })).resolves.toBeTruthy();
-    getCourseBriefMock.mockResolvedValue(thickBrief({ spots: unrated }));
+    getCourseBriefMock.mockResolvedValue(thickBrief({ spots: Array.from({ length: 3 }, (_, i) => spot({ order: i + 1 })) }));
     await expect(CoursePage({ params })).rejects.toThrow("course-page-unavailable");
   });
 
@@ -262,7 +259,7 @@ describe("코스 상세 JSON-LD (리뷰 스니펫 오류 방지)", () => {
     getCourseBriefMock.mockReset();
   });
 
-  it("aggregateRating 이 0개이고, JSON-LD 블록은 TouristTrip · BreadcrumbList 둘뿐이며 평점 표기는 화면에 그대로 있다", async () => {
+  it("aggregateRating 이 0개이고, JSON-LD 블록은 TouristTrip · BreadcrumbList 둘뿐이며 화면에도 평점 표기가 없다", async () => {
     getCourseBriefMock.mockResolvedValue(thickBrief());
     const { default: CoursePage } = await import("./page");
     const { renderToStaticMarkup } = await import("react-dom/server");
@@ -271,23 +268,24 @@ describe("코스 상세 JSON-LD (리뷰 스니펫 오류 방지)", () => {
     expect(html).not.toContain("AggregateRating");
     const blocks = [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/g)].map((m) => JSON.parse(m[1].replace(/&quot;/g, '"')) as { "@type": string });
     expect(blocks.map((b) => b["@type"]).sort()).toEqual(["BreadcrumbList", "TouristTrip"]);
-    expect(html).toContain("4.5"); // 화면 평점 표기는 유지
+    expect(html).not.toContain("평점"); // 작업지시서 2026-10-20 — 코스 화면에는 평점 표기가 없다(눌러서 여는 상세에서만)
   });
 });
 
-// 작업지시서 2026-10-13 "PR #316 후속: Google 출처 표시" A-1 — 평점이 보이는 코스 페이지 본문에 Google 출처 표시.
+// 작업지시서 2026-10-13 "PR #316 후속: Google 출처 표시" A-1 → 2026-10-20: 평점이 없으므로 "장소 정보 제공: Google Maps"(이름·위치도 Google 콘텐츠).
 describe("코스 상세 페이지 Google 출처 표시", () => {
   beforeEach(() => {
     getCourseBriefMock.mockReset();
   });
 
-  it("평점이 있는 스팟이 있으면 목록 아래에 'Google Maps' 출처가 한 번", async () => {
+  it("목록 아래에 '장소 정보 제공: Google Maps' 출처가 한 번", async () => {
     const { default: CoursePage } = await import("./page");
     const { renderToStaticMarkup } = await import("react-dom/server");
     getCourseBriefMock.mockResolvedValue(thickBrief());
     const html = renderToStaticMarkup(await CoursePage({ params: Promise.resolve({ region: "경주", days: "2박3일" }) }));
     expect(html.match(/Google Maps/g)).toHaveLength(1);
-    expect(html).toContain("평점·리뷰 정보 제공:");
+    expect(html).toContain("장소 정보 제공:");
+    expect(html).not.toContain("평점·리뷰 정보 제공:");
     expect(html).toMatch(/<span[^>]*translate="no"[^>]*>Google Maps<\/span>/);
   });
 });

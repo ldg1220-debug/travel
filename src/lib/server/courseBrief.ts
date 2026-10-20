@@ -1,6 +1,6 @@
 import { regionCoords } from "@/lib/regionTypicalDays";
 import { PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS } from "@/lib/server/placesRetention";
-import { currentMapsSource, isMapsBudgetExhausted, isMapsThrottled, reserveMapsOp } from "@/lib/server/mapsBudget";
+import { currentMapsSource, isMapsBudgetExhausted, reserveMapsOp } from "@/lib/server/mapsBudget";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
@@ -12,7 +12,6 @@ import {
   cuisineKeyword,
   fetchLandmarkCandidates,
   fetchSlotCandidates,
-  googleTop,
   isBeach,
   isIsland,
   isJetty,
@@ -22,6 +21,7 @@ import {
   isNonAttractionVenue,
   isPier,
   isSpa,
+  popularityOf,
   sameShop,
   stripBranchSuffix,
   type CourseTheme,
@@ -33,7 +33,7 @@ import {
 import { liveCategoryBucket } from "@/lib/liveCategoryBucket";
 import { isCourseBriefThin } from "@/lib/coursePages";
 import { courseSpotCategory } from "./courseSpotCategory";
-import { allSpots, DOMESTIC_LOCALITY_NAMES, OVERSEAS_LOCALITY_NAMES, resolveRegionAlias, styleForRegion, type RegionStyle } from "@/lib/discoverData";
+import { DOMESTIC_LOCALITY_NAMES, OVERSEAS_LOCALITY_NAMES, resolveRegionAlias, styleForRegion, type RegionStyle } from "@/lib/discoverData";
 import { isDomesticCoordinate } from "@/lib/maps/regionForCoords";
 import { routeLegColorStaticParam } from "@/lib/mapRouteColors";
 
@@ -69,8 +69,6 @@ export interface CourseBriefSpot {
    */
   placeId?: string;
   category: string;
-  rating: number | null;
-  reviewCount: number | null;
   lat: number;
   lng: number;
   order: number;
@@ -135,11 +133,6 @@ export interface CourseBriefSpot {
 }
 
 export interface CourseBrief {
-  /**
-   * 작업지시서 2026-10-14 "Places 호출 비용" §2① — 월 무료 한도(Enterprise)에 닿아 평점 없이 만든 코스. true 면 "평점 없는 스팟이 절반 이상"이어도 얇은 콘텐츠로
-   * 보지 않는다(옛 값을 쓰는 대신 평점 없이 보여주는 쪽 — 페이지가 월말까지 404 가 되지 않게). 평소엔 없다.
-   */
-  ratingsUnavailable?: boolean;
   /** 이 코스를 만들 때의 후보 풀 출처 집계(cache|google|degraded 호출 수와 후보 수) — 장애 로그용. 캐시에서 읽은 브리프에도 그대로 남는다. */
   poolStats?: PoolStats;
   region: string;
@@ -148,14 +141,11 @@ export interface CourseBrief {
   spots: CourseBriefSpot[];
   imageUrl: string | null;
   appUrl: string;
-  // spot.rating/reviewCount의 출처 — 작업지시서 2026-09-05 "AutoPipeline
-  // 통합" §B-4가 표기 의무 확인을 요청해 추가했다. courseRecommendV2가
-  // 직접 주는 값(해외, googleToPlace)도, catalogRatingFor의 카탈로그
-  // 매칭값(scripts/match-spot-place-ids.ts로 Google Place Details를
-  // 확정한 값)도, liveDomesticRatingFor의 라이브 조회값(Google Places
-  // Text Search)도 전부 Google이 출처다 — Kakao는 rating 필드 자체를
-  // 안 준다(kakaoToPlace 참고). 그래서 조건 분기 없이 항상 상수.
-  ratingSource: "google";
+  /**
+   * 평점 정책 — 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만". 코스(spots)에는 평점·리뷰 수가 없다: 평점·사진·리뷰는 사용자가 장소를 눌렀을 때 상세 시트(Place Details)에서만
+   * 보여 준다. 예전 spots[].rating · reviewCount · ratingSource 는 사라졌다 — AutoPipeline 은 이 필드로 계약 변경을 감지한다. placeId 는 계속 있다(무기한 보관 허용).
+   */
+  ratingPolicy: "on-click";
   /**
    * totalDistanceKm/toNextMinutes가 실제 경로(route) 기준인지, 하나라도
    * 실제 경로를 못 구해 직선거리(straight)로 대체됐는지 — 작업지시서
@@ -357,7 +347,7 @@ const BRIEF_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS; // 하루 1회 워밍 + 다음
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 40; // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 41; // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -371,7 +361,8 @@ export function briefCacheKey(scope: CourseBriefScope, region: string, days: num
 // 전에 캐시된 옛 payload였을 뿐). 새 필드를 추가할 때마다 이 목록에
 // 검증을 더한다 — 필수 필드가 없는 캐시는 캐시 미스로 취급해 새로 만든다.
 export function isFreshBriefPayload(payload: CourseBrief): boolean {
-  if (typeof payload.ratingSource !== "string") return false;
+  // 새 형식(ratingPolicy) 또는 평점 정책 이전 형식(ratingSource)만 쓸 수 있다 — 옛 형식은 normalizeBriefPayload 가 읽을 때 새 형식으로 바꾼다.
+  if (payload.ratingPolicy !== "on-click" && typeof (payload as { ratingSource?: unknown }).ratingSource !== "string") return false;
   if (typeof payload.distanceSource !== "string") return false;
   if (!Array.isArray(payload.spots)) return false;
   if (!Array.isArray(payload.dayTotals)) return false; // 작업지시서 2026-09-15 §4 — 이 필드가 생기기 전 캐시는 미스로 취급한다.
@@ -395,6 +386,28 @@ export function isFreshBriefPayload(payload: CourseBrief): boolean {
 }
 
 /**
+ * 평점 정책(2026-10-20) 이전에 저장된 브리프를 새 계약으로 바꾼다 — spots 의 rating · reviewCount 와 ratingSource · ratingsUnavailable 을 걷어 내고 ratingPolicy 를 단다.
+ * 이미 새 형식이면 그대로 돌려준다. 읽기 경로(readBriefCache · readPreviousVersionBrief)에서 항상 거치므로, 캐시에 옛 형식이 남아 있어도 응답은 새 계약이다.
+ */
+export function normalizeBriefPayload(payload: CourseBrief): CourseBrief {
+  const legacy = payload as CourseBrief & { ratingSource?: string; ratingsUnavailable?: boolean };
+  if (payload.ratingPolicy === "on-click" && legacy.ratingSource === undefined && legacy.ratingsUnavailable === undefined) return payload;
+  const { ratingSource: _s, ratingsUnavailable: _u, ...rest } = legacy;
+  void _s;
+  void _u;
+  return {
+    ...rest,
+    ratingPolicy: "on-click",
+    spots: payload.spots.map((spot) => {
+      const { rating: _r, reviewCount: _c, ...clean } = spot as CourseBriefSpot & { rating?: unknown; reviewCount?: unknown };
+      void _r;
+      void _c;
+      return clean;
+    }),
+  };
+}
+
+/**
  * 같은 (scope, region, days)의 *다른 버전* 최종 브리프 중 가장 최근 것 — 26시간(PLACES_CONTENT_TTL_MS) 이내이고 현재 기준(isFreshBriefPayload)을 통과하는 것만.
  * 키 접두(`content-brief:{scope}:{region}:{days}:v`)를 SQL 의 left()로 비교한다(지역명의 LIKE 와일드카드 문자와 무관).
  */
@@ -408,7 +421,7 @@ export async function readPreviousVersionBrief(scope: CourseBriefScope, region: 
     [prefix.length, prefix, current, String(PLACES_CONTENT_TTL_MS)],
   );
   for (const row of result.rows) {
-    if (isFreshBriefPayload(row.payload)) return { brief: row.payload, version: row.cache_key.slice(prefix.length) };
+    if (isFreshBriefPayload(row.payload)) return { brief: normalizeBriefPayload(row.payload), version: row.cache_key.slice(prefix.length) };
   }
   return null;
 }
@@ -436,7 +449,7 @@ export async function readBriefCache(key: string): Promise<CourseBrief | null> {
   if (!row) return null;
   if (Date.now() - new Date(row.created_at).getTime() > BRIEF_CACHE_TTL_MS) return null;
   if (!isFreshBriefPayload(row.payload)) return null;
-  return row.payload;
+  return normalizeBriefPayload(row.payload);
 }
 
 /**
@@ -450,9 +463,9 @@ export function courseSitemapKey(region: string, days: number): string {
   return `course-sitemap:${normalizeForMatch(region)}:${days}`;
 }
 
-export async function recordConfirmedCoursePage(brief: Pick<CourseBrief, "region" | "days" | "spots" | "ratingsUnavailable">, style: RegionStyle, days: CourseDays): Promise<void> {
+export async function recordConfirmedCoursePage(brief: Pick<CourseBrief, "region" | "days" | "spots">, style: RegionStyle, days: CourseDays): Promise<void> {
   if (!isCacheableBrief(brief.spots, style, days)) return;
-  if (isCourseBriefThin(brief.spots, minViableSpots(style, days), { ratingsUnavailable: brief.ratingsUnavailable })) return;
+  if (isCourseBriefThin(brief.spots, minViableSpots(style, days))) return;
   try {
     await pool.query(
       `insert into place_candidate_cache (cache_key, payload) values ($1, $2)
@@ -1107,54 +1120,11 @@ function stripRegionPrefix(name: string, region: string): string {
   return rest || name;
 }
 
-// 리뷰 수가 너무 적으면(예: 2건) rating이 통계적으로 의미가 없어 블로그
-// 문구에 인용하기 부적절하다(작업지시서 2026-09-01 "평점품질" §1). 출처가
-// courseRecommendV2 원본이든 카탈로그 조인이든 라이브 조회든 상관없이,
-// 최종적으로 스팟에 매겨지기 직전에 한 곳에서 일괄 적용한다.
-const MIN_TRUSTED_REVIEW_COUNT = 30;
-function qualityGate(rating: number | null, reviewCount: number | null): { rating: number | null; reviewCount: number | null } {
-  if (rating != null && reviewCount != null && reviewCount < MIN_TRUSTED_REVIEW_COUNT) {
-    return { rating: null, reviewCount: null };
-  }
-  return { rating, reviewCount };
-}
-
-// 국내 평점 카탈로그 조인(작업지시서 2026-09-01 §2 — 국내는 Kakao 결과라
-// rating이 애초에 없다). discoverData.ts의 큐레이션 카탈로그(allSpots)는
-// scripts/match-spot-place-ids.ts로 좌표까지 확인해 채운 실측 rating을
-// 이미 들고 있으므로, 여기서 새로 Google을 조회하지 않고 그 값을 조인만
-// 한다. 매칭 없으면 null을 유지한다(추정값 금지).
-//
-// 매칭 기준은 오탐(다른 곳의 rating을 잘못 붙이는 것)을 우선 피하도록
-// 보수적으로 잡았다: 1km 밖은 아예 후보에서 제외하고, 그 안에서도
-// (지역명 접두사를 뗀) 이름이 courseRecommend.ts의 sameShop()(같은 브랜드
-// 판정)으로 맞거나 완전히 같을 때만, 혹은 좌표가 60m 이내로 사실상 같은
-// 자리일 때만 인정한다. 여러 후보가 걸리면 가장 가까운 쪽을 쓴다.
-const CATALOG_EXACT_MAX_KM = 1;
-const CATALOG_COORD_ONLY_MAX_KM = 0.06;
-function catalogRatingFor(scope: CourseBriefScope, region: string, stop: FinalStop): { rating: number; reviewCount: number | null } | null {
-  const strippedName = stripRegionPrefix(stop.name, region);
-  let best: { rating: number; reviewCount: number | null } | null = null;
-  let bestDistKm = Infinity;
-  for (const spot of allSpots(scope)) {
-    if (spot.rating == null) continue;
-    const distKm = haversineKm({ lat: spot.lat, lng: spot.lng }, { lat: stop.lat, lng: stop.lng });
-    if (distKm > CATALOG_EXACT_MAX_KM) continue;
-    const nameMatches = normalizeForMatch(spot.name) === normalizeForMatch(strippedName) || sameShop(spot.name, strippedName);
-    const coordMatches = distKm <= CATALOG_COORD_ONLY_MAX_KM;
-    if (!nameMatches && !coordMatches) continue;
-    if (distKm < bestDistKm) {
-      bestDistKm = distKm;
-      best = { rating: spot.rating, reviewCount: spot.reviewCount ?? null };
-    }
-  }
-  return best;
-}
-
-/** 이 스톱이 최종적으로 rating을 갖게 될 가능성이 높은지(courseRecommendV2 원본 또는 카탈로그 매칭) — 중복 제거 시 "평점 있는 쪽을 남긴다" 판단에만 쓰는 가벼운 힌트다. */
-function hasRatingHint(scope: CourseBriefScope, region: string, stop: FinalStop): boolean {
-  if (stop.rating != null) return true;
-  return catalogRatingFor(scope, region, stop) != null;
+// 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 평점 품질 게이트(qualityGate)·카탈로그 평점 조인(catalogRatingFor)을 없앴다. 코스 스팟은 평점·리뷰 수를 갖지 않는다.
+// 아래 힌트는 예전 "평점 있는 쪽을 남긴다/하루를 평점 있는 곳으로 시작한다" 판단을 "Google 검색 상위(유명한 곳)" 기준으로 옮긴 것이다.
+const POPULAR_RANK_MAX = 10;
+function hasRatingHint(_scope: CourseBriefScope, _region: string, stop: FinalStop): boolean {
+  return stop.searchRank != null && stop.searchRank < POPULAR_RANK_MAX;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1325,15 +1295,6 @@ export function pairJettiesBeforeIslands(stops: FinalStop[]): FinalStop[] {
     out.splice(out.indexOf(island), 0, pick.s);
   }
   return out.every((s, k) => s === stops[k]) ? stops : out;
-}
-
-/** 1번 자리 맞바꿈(0 ↔ j)의 전후 경로 길이(km)와, 허용치(+10% · +0.3km)를 넘어 길어지는지. */
-export function ratedFirstSwapKm(daySlice: readonly GeoPoint[], j: number): { beforeKm: number; afterKm: number; tooLong: boolean } {
-  const preview = [...daySlice];
-  [preview[0], preview[j]] = [preview[j], preview[0]];
-  const beforeKm = pathKm(daySlice);
-  const afterKm = pathKm(preview);
-  return { beforeKm, afterKm, tooLong: afterKm > beforeKm * DAY_ORDER_PREFER_FIRST_TOLERANCE + DAY_ORDER_PREFER_FIRST_SLACK_KM };
 }
 
 /** 하루별 순서 재계산 + 로그 `path=day-order day=N before=[…] after=[…] km a→b` — 바뀐 날만 남긴다. */
@@ -1735,7 +1696,7 @@ const PROXIMITY_DEDUPE_SOFT_KM = 0.3; // 이 안이면서 카테고리(liveCateg
  * 안쪽은 카테고리 무관하게 사실상 같은 자리로 본다. 남길 쪽은 리뷰
  * 수가 더 많은 쪽(더 신뢰할 수 있는 데이터).
  */
-export function dedupeByProximity<T extends GeoPoint & { category: string; reviewCount?: number | null }>(stops: T[]): T[] {
+export function dedupeByProximity<T extends GeoPoint & { category: string; searchRank?: number }>(stops: T[]): T[] {
   const kept: T[] = [];
   for (const stop of stops) {
     const dupIndex = kept.findIndex((k) => {
@@ -1748,7 +1709,7 @@ export function dedupeByProximity<T extends GeoPoint & { category: string; revie
       kept.push(stop);
       continue;
     }
-    if ((stop.reviewCount ?? 0) > (kept[dupIndex].reviewCount ?? 0)) kept[dupIndex] = stop;
+    if (popularityOf(stop) > popularityOf(kept[dupIndex])) kept[dupIndex] = stop;
   }
   return kept;
 }
@@ -1797,10 +1758,10 @@ function courseWideBrandKey(name: string): string {
  * (여러 날에 걸쳐서도)에서 같은 브랜드 키는 하나만 남기고, 평점×
  * 리뷰수가 더 높은 지점을 남긴다.
  */
-export function dedupeByBrand<T extends { name: string; rating?: number | null; reviewCount?: number | null }>(stops: T[]): T[] {
+export function dedupeByBrand<T extends { name: string; searchRank?: number }>(stops: T[]): T[] {
   const kept: T[] = [];
   const indexByBrandKey = new Map<string, number>();
-  const score = (s: T) => (s.rating ?? 0) * (s.reviewCount ?? 0);
+  const score = (s: T) => popularityOf(s);
   for (const stop of stops) {
     const key = courseWideBrandKey(stop.name);
     const existingIndex = key ? indexByBrandKey.get(key) : undefined;
@@ -2104,10 +2065,10 @@ export function dropExcessFacilities(allStops: FinalStop[], dayCount: number): {
 }
 
 /** 넘치는 스팟을 평점×리뷰수 오름차순(낮은 것부터)으로 제거해 capacity 이내로 줄인다. 평점/리뷰수가 없으면 0으로 취급해 가장 먼저 빠진다. */
-function trimToCapacity<T extends { rating?: number; reviewCount?: number }>(stops: T[], capacity: number): T[] {
+function trimToCapacity<T extends { searchRank?: number }>(stops: T[], capacity: number): T[] {
   const overflow = stops.length - capacity;
   if (overflow <= 0) return stops;
-  const score = (s: T) => (s.rating ?? 0) * (s.reviewCount ?? 0);
+  const score = (s: T) => popularityOf(s);
   const drop = new Set(
     [...stops]
       .sort((a, b) => score(a) - score(b))
@@ -2266,106 +2227,6 @@ export function reallocateStopsByDay(dayStops: FinalStop[][]): FinalStop[][] {
   return reassigned.map((group) => orderByNearestNeighbor(group));
 }
 
-// 카탈로그에도 없는 국내(Kakao) 결과의 마지막 보강 — place_candidate_cache를
-// 그대로 재사용해 (지역, 이름) 단위로 Google Text Search 결과를 캐시한다.
-// TTL은 spot_place_metrics가 이미 지키는 Google ToS 콘텐츠 보관 한도(30일)와
-// 맞췄다. "찾았지만 없음"(진짜 매칭 실패)은 캐시하지만, 타임아웃/API키
-// 부재처럼 이 장소 자체에 대한 판단이 아닌 경우는 캐시하지 않는다 —
-// 그런 걸 캐시해버리면 나중에 조건이 나아져도(키 설정, 서버 응답 빨라짐)
-// 30일 동안 영영 재시도가 안 된다.
-// 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" — 평점·리뷰 수는 Places 콘텐츠라 26시간(원래 30일). 만료 행은 placesRetention 이 지운다.
-const RATING_ENRICH_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS;
-// 같은 물리적 장소로 볼 수 있는 한계 — Kakao/Google 좌표는 같은 곳이면
-// 보통 수십~수백m 안쪽으로 겹치므로, 지역명까지 넣은 검색어의 상위 결과
-// 중 이 거리 안에서 이름까지 맞는 것만 신뢰한다(다른 지역 동명 업체
-// 오매칭 방지).
-const LIVE_MATCH_MAX_KM = 3;
-// 스팟 하나당 Google 호출 1건에 거는 상한 — 이게 없으면 fetch 하나가
-// 응답 없이 매달릴 때 Promise.all 전체가, 나아가 이 라우트 전체가
-// 같이 멈춘다(작업지시서 2026-09-01 "응답 시간" §1의 핵심 원인).
-const PER_CALL_TIMEOUT_MS = 3000;
-
-function ratingEnrichCacheKey(region: string, name: string): string {
-  return `content-brief-rating:${normalizeForMatch(region)}:${normalizeForMatch(name)}`;
-}
-
-interface RatingEnrichPayload {
-  rating: number | null;
-  reviewCount: number | null;
-}
-
-async function readRatingEnrichCache(key: string): Promise<RatingEnrichPayload | null> {
-  try {
-    const result = await pool.query<{ payload: RatingEnrichPayload; created_at: string }>(
-      `select payload, created_at from place_candidate_cache where cache_key = $1`,
-      [key],
-    );
-    const row = result.rows[0];
-    if (!row) return null;
-    if (Date.now() - new Date(row.created_at).getTime() > RATING_ENRICH_CACHE_TTL_MS) return null;
-    return row.payload;
-  } catch (err) {
-    console.error("[courseBrief] rating-enrich cache read failed:", err);
-    return null;
-  }
-}
-
-async function writeRatingEnrichCache(key: string, payload: RatingEnrichPayload): Promise<void> {
-  try {
-    await pool.query(
-      `insert into place_candidate_cache (cache_key, payload) values ($1, $2)
-       on conflict (cache_key) do update set payload = excluded.payload, created_at = now()`,
-      [key, JSON.stringify(payload)],
-    );
-  } catch (err) {
-    console.error("[courseBrief] rating-enrich cache write failed:", err);
-  }
-}
-
-/**
- * 캐시 미스일 때만 실제로 Google Places Text Search 1건을 태운다. 호출
- * 하나에 PER_CALL_TIMEOUT_MS 상한을 걸고, 그 시간 안에 못 끝내면(타임아웃)
- * 결과를 캐시하지 않고 null로 돌려준다 — "이 장소는 평점이 없다"는
- * 결론이 아니라 "이번엔 시간이 부족했다"는 뜻이라 다음 요청이 다시
- * 시도할 수 있어야 한다.
- */
-async function liveDomesticRatingFor(region: string, stop: { name: string; lat: number; lng: number }): Promise<RatingEnrichPayload> {
-  const strippedName = stripRegionPrefix(stop.name, region);
-  const key = ratingEnrichCacheKey(region, strippedName);
-  const cached = await readRatingEnrichCache(key);
-  if (cached) return cached;
-
-  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  if (!apiKey) return { rating: null, reviewCount: null }; // 설정 문제일 뿐 이 장소에 대한 결론이 아니므로 캐시하지 않는다
-
-  let result: RatingEnrichPayload = { rating: null, reviewCount: null };
-  let cacheable = true;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PER_CALL_TIMEOUT_MS);
-  try {
-    const candidates = await googleTop(`${region} ${strippedName}`, apiKey, undefined, controller.signal);
-    const match = candidates.find((c) => {
-      if (c.rating == null || !c.location) return false;
-      const distKm = haversineKm({ lat: c.location.latitude, lng: c.location.longitude }, { lat: stop.lat, lng: stop.lng });
-      if (distKm > LIVE_MATCH_MAX_KM) return false;
-      const name = c.displayName?.text ?? "";
-      return normalizeForMatch(name) === normalizeForMatch(strippedName) || sameShop(name, strippedName);
-    });
-    if (match) {
-      result = { rating: match.rating ?? null, reviewCount: match.userRatingCount ?? null };
-    }
-  } catch (err) {
-    cacheable = false; // 타임아웃/네트워크 오류 — 실제 "매칭 실패"가 아니므로 캐시에 남기지 않는다
-    console.error("[courseBrief] live google rating lookup failed:", err);
-  } finally {
-    clearTimeout(timer);
-  }
-  // 예산 가드로 평점 없이 받았거나 건너뛴 결과(null)는 "진짜 매칭 실패"가 아니므로 캐시하지 않는다(작업지시서 2026-10-15 장애 대응).
-  if (cacheable && result.rating == null && (await isMapsThrottled("text-enterprise"))) cacheable = false;
-  if (cacheable) await writeRatingEnrichCache(key, result);
-  return result;
-}
-
 /** 배열을 최대 limit개씩 동시에 처리한다 — Promise.all의 무제한 동시성 대신 쓴다(작업지시서 §2-3, 동시성 3~5 권장). 워밍 크론(warm-course-brief)도 지역 배치를 이 함수로 병렬 처리한다. */
 export async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
@@ -2379,65 +2240,6 @@ export async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (i
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
   return results;
-}
-
-const LIVE_ENRICH_CONCURRENCY = 4;
-
-/**
- * 라이브 평점 보강 — 이미 rating이 채워진 스팟(courseRecommendV2 원본 또는
- * 카탈로그 매칭)은 건드리지 않고, 국내 스코프에서 아직 비어 있는 스팟만
- * 대상으로 한다(해외는 이미 Google 결과라 이 단계가 필요 없다). 전체
- * 호출에 deadline(공유 시간 예산)을 두고, 그걸 넘기면 남은 스팟은 그냥
- * null로 남긴 채 반환한다 — "평점 몇 개가 비는 건 감당되지만, 무응답은
- * 안 된다"(작업지시서 2026-09-01 §2-1). 이 예산은 호출부(사용자 요청 vs
- * 워밍 크론)마다 다르게 준다 — buildBrief의 enrichBudgetMs 참고.
- */
-async function liveEnrichSpots(spots: CourseBriefSpot[], scope: CourseBriefScope, region: string, deadline: number): Promise<CourseBriefSpot[]> {
-  if (scope !== "domestic") return spots;
-  const pendingIndexes = spots.reduce<number[]>((acc, s, i) => {
-    if (s.rating == null) acc.push(i);
-    return acc;
-  }, []);
-  if (pendingIndexes.length === 0) return spots;
-
-  const next = [...spots];
-  await mapWithConcurrency(pendingIndexes, LIVE_ENRICH_CONCURRENCY, async (i) => {
-    if (Date.now() > deadline) return; // 예산 초과 — 이 스팟은 이번엔 건너뛰고 null 유지, 다음 호출이 재시도
-    const spot = spots[i];
-    const live = await liveDomesticRatingFor(region, spot);
-    const gated = qualityGate(live.rating, live.reviewCount);
-    next[i] = { ...spot, rating: gated.rating, reviewCount: gated.reviewCount };
-  });
-  return next;
-}
-
-/**
- * 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §3 —
- * preferRatedFirstStop(라우팅 이전)은 카탈로그 매칭까지만 평점 신호로
- * 본다. 국내 스코프에서 카탈로그에 없는 스팟은 바로 위 liveEnrichSpots
- * (Google Places 라이브 조회)를 거쳐야 비로소 평점이 생긴다 — 그래서
- * 하루의 스팟이 전부 카탈로그 미매칭이면 preferRatedFirstStop 시점엔
- * "평점 있는 곳이 하나도 없다"로 보여 순서를 못 바꾼다(실측: 경주 d1 —
- * 경주중앙시장·경주원조콩국·테라로사 경주점·경주보문관광단지 넷 다
- * 카탈로그 미매칭. 테라로사(★4.5)·보문관광단지(★4.3)는 라이브 조회로만
- * 평점이 생겼다).
- *
- * liveEnrichSpots 이후 최종 평점을 알게 된 지금, 하루치 스팟(day
- * 슬라이스, order 순서)에 같은 규칙을 한 번 더 적용해 1번 자리와 맞바꿀
- * 상대 위치(슬라이스 내 인덱스)를 판단만 한다(네트워크 없는 순수 함수 —
- * 실제 구간 재조회·교체는 buildBrief가 이 결과로 수행한다).
- */
-export function findRatedFirstStopSwapIndex(daySpots: readonly CourseBriefSpot[]): number | null {
-  if (daySpots.length < 2 || daySpots[0].rating != null) return null;
-  // 배 구간(선착장 → 배 → 섬)의 양 끝은 맞바꾸지 않는다 — 맞바꾸면 그
-  // 구간이 다시 조회돼 자동차 구간으로 바뀌고, 식당에서 배를 타던 문제가
-  // 되살아난다(작업지시서 2026-09-29 "#283 검증" §2).
-  const touchesBoat = (i: number) => daySpots[i].toNextMode === "boat" || (i > 0 && daySpots[i - 1].toNextMode === "boat");
-  if (touchesBoat(0) || daySpots[0].lodging) return null;
-  // 숙소는 그날 마지막 순서로 고정한다 — 평점 있는 스팟이라고 1번 자리로 끌어오지 않는다
-  // (작업지시서 2026-10-06 "#294 검증" §4).
-  const j = daySpots.findIndex((s, i) => i > 0 && s.rating != null && !s.lodging && !touchesBoat(i));
-  return j === -1 ? null : j;
 }
 
 /**
@@ -2517,25 +2319,15 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
       if (seg.mode !== "boat" && !(seg.mode === "walk" && scope === "domestic") && seg.points == null) hadStraightFallback = true;
     }
 
-    let { rating, reviewCount } = qualityGate(stop.rating ?? null, stop.reviewCount ?? null);
-    if (rating == null) {
-      const catalogMatch = catalogRatingFor(scope, region, stop);
-      if (catalogMatch) {
-        ({ rating, reviewCount } = qualityGate(catalogMatch.rating, catalogMatch.reviewCount));
-      }
-    }
-
     const displayName = cleanDisplayName(stop.name);
     return {
       name: displayName,
       ...(isLiveGooglePlaceId(stop.placeId) ? { placeId: stop.placeId } : {}),
       ...(displayName !== stop.name ? { originalName: stop.name } : {}),
-      category: courseSpotCategory({ category: stop.category, name: stop.name, beach: isBeach(stop), reviewCount: stop.reviewCount }),
+      category: courseSpotCategory({ category: stop.category, name: stop.name, beach: isBeach(stop) }),
       ...(isBeach(stop) ? { beach: true as const } : {}),
       ...(isDayFacility(stop) ? { facilityDay: true as const } : {}),
       ...(isLodging(stop) ? { lodging: true as const } : {}),
-      rating,
-      reviewCount,
       lat: stop.lat,
       lng: stop.lng,
       order: baseOrder + i,
@@ -3078,8 +2870,8 @@ function isBoatTripStop(s: FinalStop): boolean {
   return s.slotKey === "jetty" || isJetty(s) || isIsland(s);
 }
 
-function popularity(s: { rating?: number; reviewCount?: number }): number {
-  return (s.rating ?? 0) * (s.reviewCount ?? 0);
+function popularity(s: { searchRank?: number }): number {
+  return popularityOf(s);
 }
 
 /**
@@ -3246,7 +3038,7 @@ async function ensureResortLandmarkAnchors(
   // 로그만으로 가른다.
   const top = rankAnchorCandidates(candidates, flat, RESORT_ANCHOR_MAX_DISTANCE_KM)
     .slice(0, 8)
-    .map((p) => `${p.name}(${p.reviewCount ?? 0}${isAlreadyInCourse(p, flat) ? ",in-course" : ""}${isIsland(p) ? ",island" : ""})`)
+    .map((p) => `${p.name}(#${p.searchRank ?? "-"}${isAlreadyInCourse(p, flat) ? ",in-course" : ""}${isIsland(p) ? ",island" : ""})`)
     .join(" | ");
   console.log(`[courseBrief] ensureResortLandmarkAnchors ${label}: candidates=${candidates.length} needyDays=${needyDays} top=[${top}] anchors=${anchors.map((a) => a.name).join(", ") || "none"}`);
   if (anchors.length === 0) return dayStops;
@@ -3647,7 +3439,6 @@ function capDaySizes(dayGroups: FinalStop[][], minTotal: number, opts: DayCapOpt
   const result = dayGroups.map((d) => [...d]);
   const trimmed: FinalStop[] = [];
   const capOf = (day: FinalStop[]) => (day.some(isDayFacility) ? opts.facilityDayMax : opts.dayMax);
-  const reviews = (s: FinalStop) => s.reviewCount ?? 0;
   for (;;) {
     if (result.flat().length <= minTotal) break;
     const beachCount = result.flat().filter(isBeach).length;
@@ -3659,9 +3450,9 @@ function capDaySizes(dayGroups: FinalStop[][], minTotal: number, opts: DayCapOpt
       const lodging = all.filter((i) => isLodging(day[i]));
       if (lodging.length > 0) return lowest(lodging, popularity);
       const meals = all.filter((i) => day[i].meal);
-      if (meals.length >= 2) return lowest(meals, reviews);
+      if (meals.length >= 2) return lowest(meals, popularity);
       const cafes = all.filter((i) => !day[i].meal && isCafeStop(day[i]));
-      if (cafes.length > 0) return lowest(cafes, reviews);
+      if (cafes.length > 0) return lowest(cafes, popularity);
       const regular = all.filter((i) => !day[i].meal);
       const keep = new Set([...regular].sort((a, b) => popularity(day[b]) - popularity(day[a])).slice(0, 2));
       return lowest(regular.filter((i) => !keep.has(i)), popularity);
@@ -4009,8 +3800,8 @@ function rankAnchorCandidates(candidates: Place[], existingStops: FinalStop[], m
   // 기존 날에 끼워 넣는 것이라, 테마파크가 앵커로 들어오면 시설 날 상한(코스 일수의 절반)·동반 규칙을
   // 거치지 않고 일반 날을 시설 날로 만든다(오사카 d2·d3에서 시설 날이 2일이 된 경로로 의심).
   return candidates
-    .filter((p) => p.rating != null && !isLargeFacility(p) && (!center || haversineKm(center, p) <= maxDistanceKm))
-    .sort((a, b) => (b.reviewCount ?? 0) - (a.reviewCount ?? 0));
+    .filter((p) => !isLargeFacility(p) && (!center || haversineKm(center, p) <= maxDistanceKm))
+    .sort((a, b) => popularityOf(b) - popularityOf(a)); // 평점이 없으니 Google 검색 순위가 높은(유명한) 순 — 작업지시서 2026-10-20
 }
 
 /**
@@ -4309,7 +4100,7 @@ export async function buildBrief(
     spots: allSpots,
     imageUrl: null,
     appUrl,
-    ratingSource: "google",
+    ratingPolicy: "on-click",
     distanceSource: initialDistanceSource,
     dayTotals,
     dayImageUrls: [],
@@ -4342,91 +4133,10 @@ export async function buildBrief(
     });
   }
 
-  const deadline = Date.now() + enrichBudgetMs;
-  const enrichedSpots = await liveEnrichSpots(brief.spots, scope, region, deadline);
-
-  // 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §3 — 위
-  // liveEnrichSpots로 최종 평점이 확정된 지금, findRatedFirstStopSwapIndex로
-  // 하루씩 다시 확인한다. 스팟을 옮기거나 빼지 않는다 — 자리(order/day)는
-  // 그대로 두고 1번 자리와 상대 위치의 "내용"(이름·카테고리·평점·좌표)만
-  // 맞바꾼다. 좌표가 바뀌는 구간(최대 3개: (0,1)·(j-1,j)·(j,j+1) — j가
-  // 1이면 앞의 둘이 같은 구간이라 실제로는 최대 2개)만 실제 경로를 다시
-  // 조회해 이동시간·거리·지도 경로를 갱신한다. 이미 라우팅이 확정한
-  // 나머지 구간은 좌표가 안 바뀌었으니 다시 조회하지 않는다. 새 구간 중
-  // 하나라도 "no-route"면 그 날은 통째로 되돌린다(원래 1번 유지) —
-  // preferRatedFirstStop과 같은 보수적 원칙. enrichBudgetMs를 넘겼으면
-  // resolveRouteSegment 자체가 조용히 직선 추정으로 폴백한다(기존 규칙
-  // 그대로) — 여기서 별도로 예산을 늘리지 않는다.
-  let finalSpots = enrichedSpots;
+  // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 평점 라이브 보강(liveEnrichSpots)과 "평점 있는 곳을 1번 자리로" 후처리를 없앴다. 코스는 평점을 쓰지 않는다.
+  void enrichBudgetMs; // 호출부(워밍 크론·라우트) 시그니처 호환 — 더는 쓰지 않는다
+  const finalSpots = brief.spots;
   const finalMapPaths = [...mapPaths];
-  let dayOffset = 0;
-  let mapPathOffset = 0;
-  for (let d = 0; d < routedDays.length; d++) {
-    const dayLen = routedDays[d].stops.length;
-    const start = dayOffset;
-    const daySlice = finalSpots.slice(start, start + dayLen);
-    let j = findRatedFirstStopSwapIndex(daySlice);
-    // 작업지시서 2026-10-12 "#304 검증" §2 — 1번 자리 맞바꿈은 하루 순서 최적화(optimizeDayOrder) 뒤에 순서를 다시 흐트러뜨렸다
-    // (서울 d3 2일차 창덕궁 → 북한산 → 결 → 경복궁, 37.7km). 맞바꾼 경로가 현재보다 10%(+0.3km)를 넘게 길어지면 맞바꾸지 않는다 —
-    // 첫 스팟이 평점 없이 남는 쪽이 동선이 왕복하는 것보다 낫다(optimizeDayOrder의 preferFirst와 같은 허용치).
-    if (j != null) {
-      const { beforeKm, afterKm, tooLong } = ratedFirstSwapKm(daySlice, j);
-      if (tooLong) {
-        console.log(`[courseBrief] path=rated-first-swap-skipped ${scope}/${region} day=${d + 1} 맞바꾸면 동선이 길어져 건너뜀 km ${beforeKm.toFixed(1)}→${afterKm.toFixed(1)}`);
-        j = null;
-      }
-    }
-    if (j != null) {
-      const globalJ = start + j;
-      const affectedLocalEdges = new Set<number>([0]);
-      if (j - 1 > 0) affectedLocalEdges.add(j - 1);
-      if (j + 1 < dayLen) affectedLocalEdges.add(j);
-
-      const swappedSlice = [...daySlice];
-      [swappedSlice[0], swappedSlice[j]] = [swappedSlice[j], swappedSlice[0]];
-
-      const newSegByLocalEdge = new Map<number, RouteResult>();
-      let aborted = false;
-      for (const localEdge of affectedLocalEdges) {
-        const outcome = await resolveRouteSegment(scope, swappedSlice[localEdge], swappedSlice[localEdge + 1], deadline);
-        if (outcome === "no-route") {
-          aborted = true;
-          break;
-        }
-        newSegByLocalEdge.set(localEdge, outcome);
-      }
-
-      if (!aborted) {
-        const startSpot = daySlice[0];
-        const jSpot = daySlice[j];
-        const nextArr = [...finalSpots];
-        nextArr[start] = { ...jSpot, order: startSpot.order, day: startSpot.day, toNextMinutes: startSpot.toNextMinutes, toNextMode: startSpot.toNextMode, toNextEstimated: startSpot.toNextEstimated, toNextSource: startSpot.toNextSource, toNextFallback: startSpot.toNextFallback };
-        nextArr[globalJ] = { ...startSpot, order: jSpot.order, day: jSpot.day, toNextMinutes: jSpot.toNextMinutes, toNextMode: jSpot.toNextMode, toNextEstimated: jSpot.toNextEstimated, toNextSource: jSpot.toNextSource, toNextFallback: jSpot.toNextFallback };
-
-        let dayDeltaKm = 0;
-        for (const [localEdge, seg] of newSegByLocalEdge) {
-          const globalEdgeIdx = start + localEdge;
-          const oldDistanceKm = routedDays[d].segments[localEdge].distanceKm;
-          nextArr[globalEdgeIdx] = {
-            ...nextArr[globalEdgeIdx],
-            toNextMinutes: seg.mode === "boat" ? null : seg.durationMinutes,
-            toNextMode: seg.mode,
-            toNextEstimated: isEstimatedLeg(seg, scope) ? true : undefined,
-            toNextSource: isEstimatedLeg(seg, scope) ? "straight" : "route",
-            toNextFallback: seg.fallback,
-          };
-          dayDeltaKm += seg.distanceKm - oldDistanceKm;
-          const globalMapPathIdx = mapPathOffset + localEdge;
-          finalMapPaths[globalMapPathIdx] = seg.points == null ? recolorMapPathAsEstimated(seg.mapPath) : recolorMapPathForDay(seg.mapPath, d);
-        }
-        finalSpots = nextArr;
-        totalDistanceKm += dayDeltaKm;
-        dayTotals[d] = { ...dayTotals[d], distanceKm: round1(dayTotals[d].distanceKm + dayDeltaKm) };
-      }
-    }
-    dayOffset += dayLen;
-    mapPathOffset += Math.max(0, dayLen - 1);
-  }
 
   // 전체 지도와 일자별 지도를 병렬로 만든다(작업지시서 2026-09-29 §1) —
   // 각 호출이 독립이고 개별 타임아웃(MAP_CALL_TIMEOUT_MS)이 있어, 직렬로
@@ -4445,12 +4155,8 @@ export async function buildBrief(
       routedDays.map((d) => d.stops.length),
     ));
   }
-  // 평점이 절반 넘게 비었고 Enterprise 한도(가드)에 닿아 있으면 "평점 없이 만든 코스"로 표시한다(작업지시서 2026-10-14 §2①).
-  const unratedShare = finalSpots.length > 0 ? finalSpots.filter((s) => s.rating == null).length / finalSpots.length : 0;
-  const ratingsUnavailable = unratedShare >= 0.5 && (await isMapsThrottled("text-enterprise"));
   brief = {
     ...brief,
-    ...(ratingsUnavailable ? { ratingsUnavailable: true } : {}),
     spots: finalSpots,
     imageUrl,
     dayImageUrls,
@@ -4588,7 +4294,7 @@ export async function getCourseBrief(
       }),
     );
     brief.poolStats = poolStats;
-    console.log(`[courseBrief] pool-stats key=${cacheKey} cache=${poolStats.cache} google=${poolStats.google} degraded=${poolStats.degraded} candidates=${poolStats.candidates} spots=${brief.spots.length}`);
+    console.log(`[courseBrief] pool-stats key=${cacheKey} cache=${poolStats.cache} google=${poolStats.google} candidates=${poolStats.candidates} spots=${brief.spots.length}`);
     if (hadCandidateFetchFailure && !isCacheableBrief(brief.spots, style, days)) {
       console.log(`[courseBrief] path=transient-failure key=${cacheKey} spots=${brief.spots.length}`);
       throw new TransientApiFailureError(region, brief.spots.length);

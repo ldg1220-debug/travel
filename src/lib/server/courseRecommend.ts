@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { chooseGuardedMask, isMapsThrottled, settleGuarded } from "./mapsBudget";
+import { chooseGuardedMask, settleGuarded } from "./mapsBudget";
 import { PLACES_CONTENT_TTL_MS } from "./placesRetention";
 import { regionSelfNames } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
@@ -415,16 +415,32 @@ export interface GooglePlace {
   rating?: number;
   userRatingCount?: number;
   primaryType?: string;
+  types?: string[];
+  /** OPERATIONAL / CLOSED_TEMPORARILY / CLOSED_PERMANENTLY — OPERATIONAL 이 아니면 후보에서 뺀다. */
+  businessStatus?: string;
   photos?: { name: string }[];
   googleMapsUri?: string;
-  /** 예산 가드 강등(평점 필드 없이 받음)으로 rating 이 비어 있다 — 품질 게이트가 이 후보를 떨어뜨리지 않게 표시한다. */
-  ratingsSkipped?: boolean;
+  /** Google 응답 안에서의 순서(0부터, 관련도·인지도 순) — 평점 대신 인기 신호로 쓴다. */
+  searchRank?: number;
 }
 
 /** rating weighted by log(review count) — favors well-reviewed AND well-rated places over a 5.0 with 3 reviews. */
 function score(rating?: number, reviews?: number): number {
   if (rating == null) return 0;
   return rating * Math.log10((reviews ?? 0) + 10);
+}
+
+/**
+ * 평점이 없을 때(작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만") Google 응답 순서가 인기 신호다 — 1위 13점에서 순위당 0.4점씩 내려가는, 예전 평점×log(리뷰) 점수와 같은 스케일.
+ * 순위를 모르면(null) 0 — 거리 감점만 남는다.
+ */
+export function rankScore(searchRank?: number): number {
+  return searchRank == null ? 0 : Math.max(13 - searchRank * 0.4, 1);
+}
+
+/** 후보의 인기도(높을수록 유명) — 중복 정리·일자 상한 같은 "누구를 남길까" 판단용. 평점 없이 Google 응답 순서만으로 매긴다. */
+export function popularityOf(p: { searchRank?: number }): number {
+  return p.searchRank == null ? 0 : 100 - Math.min(p.searchRank, 50) * 2;
 }
 
 /** Haversine distance in km. */
@@ -442,8 +458,8 @@ function distKm(aLat: number, aLng: number, bLat: number, bLng: number): number 
  * lower-rated café 500m away beats a top-rated one across town). ~0.35점 per
  * km, capped so a genuinely famous far-away spot can still win.
  */
-export function proximityScore(rating: number | undefined, reviews: number | undefined, lat: number, lng: number, anchor: { lat: number; lng: number } | null): number {
-  const base = score(rating, reviews);
+export function proximityScore(rating: number | undefined, reviews: number | undefined, lat: number, lng: number, anchor: { lat: number; lng: number } | null, searchRank?: number): number {
+  const base = rating != null ? score(rating, reviews) : rankScore(searchRank);
   if (!anchor || !lat || !lng) return base;
   return base - Math.min(distKm(anchor.lat, anchor.lng, lat, lng) * 0.35, 4);
 }
@@ -523,8 +539,10 @@ export function sameShop(a: string, b: string): boolean {
 // 재사용한다 — 검색 요청 자체는 여기 있는 로직 그대로 쓰고, 호출부에서
 // 캐시하는 방식(courseRecommend.ts 자체의 place_candidate_cache와 같은
 // 패턴)으로 쿼터를 지킨다.
+// 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" §1① — 후보 검색은 Pro(월 무료 5,000) 필드로 고정한다. rating · userRatingCount · priceLevel 같은 Enterprise
+// 필드를 받지 않는다(평점·사진·리뷰는 사용자가 장소를 눌렀을 때 상세 시트에서 /api/places/details 로만 받는다).
 const GOOGLE_TOP_FIELD_MASK =
-  "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.primaryType,places.photos,places.googleMapsUri";
+  "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.businessStatus,places.photos,places.googleMapsUri";
 export async function googleTop(
   query: string,
   apiKey: string,
@@ -532,8 +550,7 @@ export async function googleTop(
   signal?: AbortSignal,
   onFailure?: (status: number) => void,
 ): Promise<GooglePlace[]> {
-  // 작업지시서 2026-10-14 "Places 호출 비용" §2①② — rating · userRatingCount 를 받으면 Enterprise 라 월 무료 1,000회다. 한도(90%)에 닿으면 평점 없이 Pro 필드로
-  // 강등하고(코스는 평점 없이 만들어진다), Pro 한도도 닿으면 이 검색을 건너뛴다.
+  // Pro 필드만 쓰므로 Pro 한도(월 무료 5,000의 90%)와 하루 상한(text-search-all)만 지킨다 — 한도에 닿으면 이 검색을 건너뛴다.
   const guarded = await chooseGuardedMask("text", GOOGLE_TOP_FIELD_MASK);
   if (!guarded) return [];
   let res: Response;
@@ -574,8 +591,8 @@ export async function googleTop(
     return [];
   }
   const data = (await res.json()) as { places?: GooglePlace[] };
-  const places = data.places ?? [];
-  return guarded.degraded ? places.map((p) => ({ ...p, ratingsSkipped: true })) : places;
+  // 영업 중이 아닌 곳(폐업·임시휴업)은 뺀다. businessStatus 가 없으면(필드 미제공) 그대로 둔다. 순서는 Google 응답 그대로 — 순위(searchRank)는 필터 전 위치로 매긴다.
+  return (data.places ?? []).map((p, i) => ({ ...p, searchRank: i })).filter((p) => p.businessStatus == null || p.businessStatus === "OPERATIONAL");
 }
 
 interface KakaoDoc {
@@ -609,9 +626,7 @@ function googleToPlace(p: GooglePlace, fallbackCategory: string): Place {
     color: colorForId(p.id),
     lat: p.location?.latitude ?? 0,
     lng: p.location?.longitude ?? 0,
-    rating: p.rating,
-    reviewCount: p.userRatingCount,
-    ...(p.ratingsSkipped ? { ratingUnavailable: true } : {}),
+    searchRank: p.searchRank,
     address: p.formattedAddress,
     photoName: p.photos?.[0]?.name,
     googleMapsUri: p.googleMapsUri,
@@ -619,8 +634,9 @@ function googleToPlace(p: GooglePlace, fallbackCategory: string): Place {
   };
 }
 
-function kakaoToPlace(d: KakaoDoc, fallbackCategory: string): Place {
+function kakaoToPlace(d: KakaoDoc, fallbackCategory: string, searchRank?: number): Place {
   return {
+    ...(searchRank != null ? { searchRank } : {}),
     id: d.id,
     placeId: d.id,
     name: d.place_name,
@@ -650,28 +666,19 @@ function candidateCacheKey(scope: "overseas" | "domestic", city: string, slot: R
 }
 
 // ------------------------------------------------------------------------------------------------
-// 강등(평점 없음) 후보 풀 — 작업지시서 2026-10-16 "긴급(장애 계속): #323 후에도 해외 코스 500".
-// 예산 가드가 Pro 로 강등해 받은 후보(평점 없음)가 후보 풀 캐시(26시간)에 그대로 저장되면, #323 이전 코드가 쓴 행에는 ratingUnavailable 표시가 없어
-// 품질 게이트가 전부 떨어뜨리고 캐시가 살아 있는 동안 Google 재조회도 하지 않는다(count 0 → 422 → 500).
+// 후보 풀 캐시 호환 — 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만". 26시간 TTL 안에 평점이 들어 있는(구버전 코드가 쓴) 풀이 남아 있을 수 있다. 읽을 때 평점·리뷰 수를 걷어
+// 내고(코스는 평점을 쓰지 않는다) 응답 순서를 순위(searchRank)로 채워 새 풀과 똑같이 다룬다.
 
-/** 해외 풀이 "평점 없이 받은 풀"인가 — 표시(ratingUnavailable)가 모두 있거나, 구버전 캐시처럼 표시는 없지만 후보 5곳 이상이 전부 평점·리뷰 수가 없다(정상 풀에서는 일어나지 않는다). */
-export function isDegradedPool(places: Place[]): boolean {
-  if (places.length === 0) return false;
-  if (places.every((p) => p.ratingUnavailable === true)) return true;
-  return places.length >= 5 && places.every((p) => p.rating == null && p.reviewCount == null);
-}
-
-export type PoolSource = "cache" | "google" | "degraded";
+export type PoolSource = "cache" | "google";
 export interface PoolStats {
   cache: number;
   google: number;
-  degraded: number;
   candidates: number;
 }
 const poolStatsContext = new AsyncLocalStorage<PoolStats>();
 /** fn 안에서 일어난 후보 풀 조회의 출처·후보 수를 모은다(코스 하나를 만드는 동안). 장애 로그 `[course-page] unavailable … pool=` 용. */
 export async function collectPoolStats<T>(fn: () => Promise<T>): Promise<{ result: T; stats: PoolStats }> {
-  const stats: PoolStats = { cache: 0, google: 0, degraded: 0, candidates: 0 };
+  const stats: PoolStats = { cache: 0, google: 0, candidates: 0 };
   const result = await poolStatsContext.run(stats, fn);
   return { result, stats };
 }
@@ -682,22 +689,20 @@ function recordPool(source: PoolSource, count: number): void {
   stats.candidates += count;
 }
 
-/**
- * 캐시에서 읽은 풀을 쓸 수 있는 형태로 돌려준다. 국내(Kakao)나 정상 풀은 그대로. 강등 풀이면:
- *  - Enterprise 예산에 여유가 있으면 null(= 캐시를 무시하고 Enterprise 로 재조회해 덮어쓴다 — 작업지시서 2026-10-16 ②)
- *  - 아직 막혀 있으면 모든 후보에 ratingUnavailable 을 달아 게이트를 통과시킨다(구버전 캐시 호환 — ③)
- */
-async function usableCachedPool(scope: "overseas" | "domestic", cached: Place[]): Promise<Place[] | null> {
-  if (scope !== "overseas" || !isDegradedPool(cached)) {
-    recordPool("cache", cached.length);
-    return cached;
-  }
-  if (!(await isMapsThrottled("text-enterprise"))) {
-    console.log(`[courseRecommend] degraded pool in cache (${cached.length}곳, 평점 없음) — 예산 여유가 있어 Enterprise 로 재조회합니다`);
-    return null;
-  }
-  recordPool("degraded", cached.length);
-  return cached.map((p) => (p.ratingUnavailable ? p : { ...p, ratingUnavailable: true }));
+/** 캐시에서 읽은 풀을 새 풀과 같은 형태로 — 옛 평점·리뷰 수는 버리고, 순위가 없으면 저장된 순서로 채운다. */
+export function normalizeCachedPool(cached: Place[]): Place[] {
+  return cached.map((p, i) => {
+    const { rating: _r, reviewCount: _c, ratingUnavailable: _u, ...rest } = p;
+    void _r;
+    void _c;
+    void _u;
+    return { ...rest, searchRank: p.searchRank ?? i };
+  });
+}
+
+async function usableCachedPool(_scope: "overseas" | "domestic", cached: Place[]): Promise<Place[] | null> {
+  recordPool("cache", cached.length);
+  return normalizeCachedPool(cached);
 }
 
 async function readCandidateCache(key: string): Promise<Place[] | null> {
@@ -973,42 +978,25 @@ export function isKoreanRestaurant(p: Place): boolean {
   return HANGUL_PATTERN.test(p.name) && (category === "restaurant" || category === "food");
 }
 
-// 슬롯 카테고리별 최소 리뷰 수. 2차 실측(오사카 3박4일)에서 "성합지"
-// (4.2)/"구치나와자카"(4.1) 같은 항목이 평점 유무 게이트는 통과해
-// "리뷰 수 절대량" 기준으로 바꿨는데, 처음엔 실측 정상 스팟(오사카 성
-// 9만+, 도톤보리 8.5만)에 맞춰 크게(명소 100) 올렸었다. 3차 실측에서
-// 그 하한이 아래 applyQualityGate의 "부족하면 미달로 채우기" 폴백과
-// 정면으로 상쇄돼(하한이 높을수록 통과 후보가 3개 미만이 되기 쉬워
-// 폴백이 더 자주 발동 → 결국 미달 항목이 오히려 자주 되살아남) "형경"이
-// 재등장하는 회귀가 났다 — 그래서 폴백은 아예 없앴고(아래), 하한은
-// 여기서 현실적인 수준으로 낮춘다. 필터를 느슨하게 해서 슬롯이 비는
-// 걸 막는 게 아니라, POOL_SIZE를 키워(위 주석 참고) 원본 후보 자체를
-// 늘리는 쪽으로 대응한다.
-const MIN_REVIEWS_BY_CATEGORY: Partial<Record<NonNullable<RecommendSlot["category"]>, number>> = {
-  restaurant: 12,
-  cafe: 10,
-  attraction: 40,
-  lodging: 8,
-};
-const DEFAULT_MIN_REVIEWS = 12;
+// 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" §1② — 품질 게이트에서 평점·리뷰 수 조건을 뺀다. 코스 후보는 평점을 받지 않는다(Enterprise 필드). 대신:
+// 영업 중(businessStatus OPERATIONAL — googleTop 이 걸러 둔다) · 관광과 무관한 시설 유형 제외 · 이후 단계의 중복/체인/지역 반경/랜드마크 우선 규칙을 그대로 쓴다.
+const NON_TOURISM_TYPES: ReadonlySet<string> = new Set([
+  "atm", "bank", "gas_station", "electric_vehicle_charging_station", "parking", "car_dealer", "car_rental", "car_repair", "car_wash",
+  "post_office", "courthouse", "local_government_office", "police", "fire_station", "embassy", "city_hall",
+  "hospital", "doctor", "dentist", "pharmacy", "drugstore", "physiotherapist", "veterinary_care",
+  "school", "primary_school", "secondary_school", "university", "preschool",
+  "real_estate_agency", "insurance_agency", "lawyer", "accounting", "storage", "moving_company", "funeral_home", "cemetery", "laundry",
+]);
 
 /**
- * 평점/리뷰 수 기준 최소 품질 하한. 국내(Kakao Local)는 평점 자체를 안
- * 주므로(courseTaste.ts의 deterministicTaste 주석 참고 — 검색 순위를
- * 대신 신호로 씀) 이 검증 대상이 아니다 — 전부 걸러지는 회귀를 막기 위해
- * 항상 통과시킨다. 해외(Google)는 실제 존재하는 업체엔 거의 항상 리뷰가
- * 붙어 있어, 평점·리뷰가 아예 없거나 하한 미만인 항목은 저품질/관광
- * 관련성이 낮은 장소일 가능성이 높다고 보고 슬롯 카테고리별 하한으로
- * 거른다.
+ * 후보 품질 하한. 국내(Kakao Local)는 애초에 평점을 안 주므로 항상 통과(전부 걸러지는 회귀 방지). 해외(Google)는 관광과 무관한 시설 유형(은행·주유소·병원 등)만 뺀다 —
+ * 예전엔 평점·리뷰 수 하한이었지만 평점은 더 이상 받지 않는다.
  */
 export function passesQualityGate(p: Place, scope: "overseas" | "domestic", slotCategory?: RecommendSlot["category"]): boolean {
+  void slotCategory; // 슬롯 카테고리별 하한은 평점 조건과 함께 없어졌다 — 호출부 시그니처만 유지
   if (scope === "domestic") return true;
-  // 작업지시서 2026-10-15 장애(#322 이후 코스 페이지 404) — 예산 가드로 평점 없이 받은 후보는 게이트에서 떨어뜨리지 않는다. 안 그러면 강등 검색 결과 전부가
-  // 평점 없음으로 걸러져 스팟이 임계 미만(count 8 < 9)이 되고 422 → 404 가 된다.
-  if (p.ratingUnavailable) return true;
-  if (p.rating == null || p.reviewCount == null) return false;
-  const min = slotCategory ? (MIN_REVIEWS_BY_CATEGORY[slotCategory] ?? DEFAULT_MIN_REVIEWS) : DEFAULT_MIN_REVIEWS;
-  return p.reviewCount >= min;
+  const type = p.category?.toLowerCase();
+  return !(type && NON_TOURISM_TYPES.has(type));
 }
 
 /**
@@ -1132,7 +1120,7 @@ export async function fetchSlotCandidates(
 
   const liveResults = await fetchSlotCandidatesLive(scope, city, slot, extraQuery, onFailure);
   const fresh = liveResults.filter(isValidPlace);
-  recordPool(fresh.some((p) => p.ratingUnavailable) ? "degraded" : "google", fresh.length);
+  recordPool("google", fresh.length);
   // 빈 결과는 캐시하지 않는다 — 진짜 "이 검색은 결과가 없다"인지, API가
   // 일시적으로 실패해 빈 배열이 온 건지(googleTop/kakaoTop 둘 다 !res.ok면
   // 조용히 []을 반환) 구분할 수 없어, 다음 요청은 항상 다시 라이브로
@@ -1264,7 +1252,7 @@ async function fetchLandmarkPool(cacheKey: string, query: string, includedType: 
   if (!apiKey) return [];
   const results = await googleTop(query, apiKey, includedType, undefined, onFailure);
   const places = results.map((p) => googleToPlace(p, CATEGORY_LABEL.attraction)).slice(0, LANDMARK_CANDIDATE_LIMIT);
-  recordPool(places.some((p) => p.ratingUnavailable) ? "degraded" : "google", places.length);
+  recordPool("google", places.length);
   if (places.length > 0) await writeCandidateCache(cacheKey, places);
   return places;
 }
@@ -1284,7 +1272,7 @@ async function fetchSynonymPool(scope: "overseas" | "domestic", city: string, sl
   const synonym = slot.category ? CATEGORY_SYNONYM_LABEL[slot.category] : undefined;
   const results = await googleTop(`${city} ${slot.keyword}${synonym ? " " + synonym : ""}`, apiKey, type, undefined, onFailure);
   const places = results.map((p) => googleToPlace(p, slot.label)).filter(isValidPlace).slice(0, POOL_SIZE);
-  recordPool(places.some((p) => p.ratingUnavailable) ? "degraded" : "google", places.length);
+  recordPool("google", places.length);
   if (places.length > 0) await writeCandidateCache(key, places);
   return places;
 }
@@ -1328,7 +1316,7 @@ async function fetchSlotCandidatesLive(
     const seenIds = new Set(results.map((d) => d.id));
     results = [...results, ...extra.filter((d) => !seenIds.has(d.id))];
   }
-  return results.map((d) => kakaoToPlace(d, slot.label)).slice(0, extraQuery ? POOL_SIZE * 2 : POOL_SIZE);
+  return results.map((d, i) => kakaoToPlace(d, slot.label, i)).slice(0, extraQuery ? POOL_SIZE * 2 : POOL_SIZE);
 }
 
 /** Candidates left after the exclude filters, further narrowed to `maxDistanceKm` of `anchor` when that doesn't empty the pool entirely — a sparse area (rural/overseas leg) with nothing that close just falls back to the unfiltered set rather than breaking course generation. */
@@ -1360,7 +1348,7 @@ export function pickDeterministic(
   maxDistanceKm: number | null = null,
 ): Place | undefined {
   const pool = eligiblePool(candidates, excludeIds, excludeNames, anchor, maxDistanceKm)
-    .sort((a, b) => proximityScore(b.rating, b.reviewCount, b.lat, b.lng, anchor) - proximityScore(a.rating, a.reviewCount, a.lat, a.lng, anchor))
+    .sort((a, b) => proximityScore(b.rating, b.reviewCount, b.lat, b.lng, anchor, b.searchRank) - proximityScore(a.rating, a.reviewCount, a.lat, a.lng, anchor, a.searchRank))
     .slice(0, 3);
   return pool[Math.floor(Math.random() * pool.length)];
 }

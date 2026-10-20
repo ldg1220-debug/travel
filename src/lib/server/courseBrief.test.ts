@@ -39,7 +39,6 @@ import {
   fetchGoogleDirectionsRoute,
   fetchKakaoDrivingRoute,
   fetchLegRoute,
-  findRatedFirstStopSwapIndex,
   insertBeforeDinner,
   isCacheableBrief,
   moveLodgingLast,
@@ -58,7 +57,6 @@ import {
   optimizeDayOrder,
   orderByNearestNeighbor,
   pathKm,
-  ratedFirstSwapKm,
   parseDays,
   pickBeachCandidate,
   pickBetterDayResult,
@@ -162,36 +160,37 @@ interface TestSpot {
   lat: number;
   lng: number;
   category: string;
-  reviewCount?: number | null;
+  searchRank?: number;
 }
-function spot(lat: number, lng: number, category: string, reviewCount: number | null = null): TestSpot {
-  return { lat, lng, category, reviewCount };
+// 마지막 인자는 검색 순위(낮을수록 유명) — 작업지시서 2026-10-20: 평점·리뷰 수 대신 Google 응답 순서가 인기 신호다.
+function spot(lat: number, lng: number, category: string, searchRank?: number): TestSpot {
+  return { lat, lng, category, searchRank };
 }
 
 describe("dedupeByProximity", () => {
   it("removes a same-category pair 30m apart even though names would never match (하루카스300/아베노하루카스)", () => {
-    const a = spot(34.6459, 135.5135, "tourist_attraction", 100);
-    const b = { ...spot(34.646, 135.5136, "tourist_attraction", 9000) }; // ~30m away, more reviews
+    const a = spot(34.6459, 135.5135, "tourist_attraction", 20);
+    const b = { ...spot(34.646, 135.5136, "tourist_attraction", 1) }; // ~30m away, ranked higher (more popular)
     const result = dedupeByProximity([a, b]);
     expect(result).toHaveLength(1);
-    expect(result[0].reviewCount).toBe(9000); // 리뷰 수 많은 쪽을 남긴다
+    expect(result[0].searchRank).toBe(1); // 검색 순위가 높은(인기 있는) 쪽을 남긴다
   });
 
   it("removes a same-category pair ~155m apart via the soft (same-category) tier (쓰텐카쿠/신세카이 case)", () => {
-    const a = spot(34.6524, 135.5063, "tourist_attraction", 5000);
-    const b = spot(34.6538, 135.5063, "tourist_attraction", 6000); // ~155m north — beyond the 100m hard tier, within the 300m soft tier
+    const a = spot(34.6524, 135.5063, "tourist_attraction", 2);
+    const b = spot(34.6538, 135.5063, "tourist_attraction", 1); // ~155m north — beyond the 100m hard tier, within the 300m soft tier
     expect(dedupeByProximity([a, b])).toHaveLength(1);
   });
 
   it("keeps a close pair (~200m) when categories differ", () => {
-    const restaurant = spot(34.6687, 135.5013, "restaurant", 500);
-    const attraction = spot(34.6705, 135.5013, "tourist_attraction", 500); // ~200m away
+    const restaurant = spot(34.6687, 135.5013, "restaurant", 3);
+    const attraction = spot(34.6705, 135.5013, "tourist_attraction", 3); // ~200m away
     expect(dedupeByProximity([restaurant, attraction])).toHaveLength(2);
   });
 
   it("keeps two same-category spots far apart (300m+)", () => {
-    const a = spot(34.6, 135.5, "cafe", 100);
-    const b = spot(34.605, 135.5, "cafe", 100); // ~550m away
+    const a = spot(34.6, 135.5, "cafe", 4);
+    const b = spot(34.605, 135.5, "cafe", 4); // ~550m away
     expect(dedupeByProximity([a, b])).toHaveLength(2);
   });
 });
@@ -415,14 +414,13 @@ describe("reassignByCentroid — 캡·재균형 이후에도 소속이 안 맞�
 describe("dedupeByBrand — 코스 전체에서 같은 체인은 하나만 (작업지시서 2026-09-07 'PR #237 프로덕션 검증' §3)", () => {
   interface NamedSpot {
     name: string;
-    rating?: number | null;
-    reviewCount?: number | null;
+    searchRank?: number;
   }
 
-  it("collapses three branches of the same chain (모츠나베 라쿠텐치 case) into the one with the best rating×reviews, even far apart and across days", () => {
-    const branch1: NamedSpot = { name: "모츠나베 라쿠텐치 이마이즈미 총본점", rating: 4.1, reviewCount: 500 };
-    const branch2: NamedSpot = { name: "원조 모츠나베 라쿠텐치 텐진본점", rating: 4.3, reviewCount: 900 }; // 가장 높은 점수 — 이게 남아야 함
-    const branch3: NamedSpot = { name: "원조모츠나베 라쿠텐치 니시나카스점", rating: 4.0, reviewCount: 300 }; // 텐진본점과 364m — 거리 조건 없이도 잡혀야 함
+  it("collapses three branches of the same chain (모츠나베 라쿠텐치 case) into the most popular one (lowest searchRank), even far apart and across days", () => {
+    const branch1: NamedSpot = { name: "모츠나베 라쿠텐치 이마이즈미 총본점", searchRank: 13 };
+    const branch2: NamedSpot = { name: "원조 모츠나베 라쿠텐치 텐진본점", searchRank: 10 }; // 가장 높은 점수 — 이게 남아야 함
+    const branch3: NamedSpot = { name: "원조모츠나베 라쿠텐치 니시나카스점", searchRank: 15 }; // 텐진본점과 364m — 거리 조건 없이도 잡혀야 함
 
     const result = dedupeByBrand([branch1, branch2, branch3]);
 
@@ -431,8 +429,8 @@ describe("dedupeByBrand — 코스 전체에서 같은 체인은 하나만 (작�
   });
 
   it("collapses branches whose word order differs (모토무라 규카츠 case, 작업지시서 2026-09-08 'PR #238 프로덕션 검증' §4)", () => {
-    const a: NamedSpot = { name: "모토무라 규카츠", rating: 4.0, reviewCount: 400 };
-    const b: NamedSpot = { name: "규카츠 모토무라 후쿠오카 파르코점", rating: 4.2, reviewCount: 800 }; // 지점 표기 제거 방식만으로는 어순이 달라 못 잡혔던 사례
+    const a: NamedSpot = { name: "모토무라 규카츠", searchRank: 14 };
+    const b: NamedSpot = { name: "규카츠 모토무라 후쿠오카 파르코점", searchRank: 11 }; // 지점 표기 제거 방식만으로는 어순이 달라 못 잡혔던 사례
 
     const result = dedupeByBrand([a, b]);
 
@@ -441,8 +439,8 @@ describe("dedupeByBrand — 코스 전체에서 같은 체인은 하나만 (작�
   });
 
   it("keeps genuinely different brands untouched", () => {
-    const a: NamedSpot = { name: "스시로 텐진점", rating: 4.2, reviewCount: 1000 };
-    const b: NamedSpot = { name: "이치란 라멘 하카타점", rating: 4.4, reviewCount: 2000 };
+    const a: NamedSpot = { name: "스시로 텐진점", searchRank: 10 };
+    const b: NamedSpot = { name: "이치란 라멘 하카타점", searchRank: 7 };
     expect(dedupeByBrand([a, b])).toHaveLength(2);
   });
 });
@@ -640,12 +638,12 @@ describe("reallocateStopsByDay — 전체 파이프라인 통합 (작업지시�
       });
   });
 
-  it("trims the lowest rating×reviewCount stops when the total exceeds the day-count's 상한 그릇 (작업지시서 2026-09-08 'PR #238 프로덕션 검증' §2)", () => {
-    const day1 = cluster("a", p(34.7, 135.49), 6).map((s) => ({ ...s, rating: 4.5, reviewCount: 500 }));
-    const day2 = cluster("b", p(34.665, 135.501), 6).map((s) => ({ ...s, rating: 4.5, reviewCount: 500 }));
+  it("trims the least popular (highest searchRank) stops when the total exceeds the day-count's 상한 그릇 (작업지시서 2026-09-08 'PR #238 프로덕션 검증' §2)", () => {
+    const day1 = cluster("a", p(34.7, 135.49), 6).map((s) => ({ ...s, searchRank: 13 }));
+    const day2 = cluster("b", p(34.665, 135.501), 6).map((s) => ({ ...s, searchRank: 13 }));
     // c0·c1만 평점·리뷰수가 낮다 — 시설 없이 3일 × 상한 6곳 = 18곳 그릇에서
     // 20곳 중 이 둘이 잘려야 한다.
-    const day3 = cluster("c", p(34.647, 135.514), 8).map((s, i) => ({ ...s, rating: i < 2 ? 3.0 : 4.5, reviewCount: i < 2 ? 10 : 500 }));
+    const day3 = cluster("c", p(34.647, 135.514), 8).map((s, i) => ({ ...s, searchRank: i < 2 ? 30 : 13 }));
 
     const result = reallocateStopsByDay([day1, day2, day3]);
 
@@ -1119,7 +1117,7 @@ describe("assembleDaySpots — distanceSource용 hadStraightFallback 판정", ()
 
 describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미스로 취급", () => {
   function spotAt(order: number): CourseBrief["spots"][number] {
-    return { name: `spot-${order}`, category: "관광지", rating: null, reviewCount: null, lat: 0, lng: 0, order, day: 1, toNextMinutes: null, toNextMode: "car" };
+    return { name: `spot-${order}`, category: "관광지", lat: 0, lng: 0, order, day: 1, toNextMinutes: null, toNextMode: "car" };
   }
 
   // 작업지시서 2026-09-28 "새 기준선이 멀쩡한 도시를 떨어뜨립니다" §2 —
@@ -1133,7 +1131,7 @@ describe("isFreshBriefPayload — distanceSource 필드가 없는 캐시는 미�
       spots: [spotAt(1), spotAt(2), spotAt(3)],
       imageUrl: null,
       appUrl: "https://example.com",
-      ratingSource: "google",
+      ratingPolicy: "on-click",
       distanceSource: "route",
       dayTotals: [{ day: 1, distanceKm: 10, spotCount: 3 }],
       dayImageUrls: [],
@@ -1534,15 +1532,15 @@ describe("dedupeInFlight — 같은 key의 동시 라이브 생성을 하나로 
   });
 });
 
-describe("preferRatedFirstStop — 하루의 첫 스팟이 평점 신호 없이 시작하지 않게 순서만 바꾼다 (작업지시서 2026-09-23 §3-b)", () => {
+describe("preferRatedFirstStop — 하루의 첫 스팟이 유명한 곳(검색 순위 상위)이 아니면 순서만 바꾼다 (작업지시서 2026-09-23 §3-b, 2026-10-20 평점→검색 순위)", () => {
   it("moves the first later rated stop to position 0 when the current first stop has no rating", () => {
-    const stops = [stop("a", 35.8, 129.2), stop("b", 35.81, 129.21, { rating: 4.5 }), stop("c", 35.82, 129.22)];
+    const stops = [stop("a", 35.8, 129.2), stop("b", 35.81, 129.21, { searchRank: 4 }), stop("c", 35.82, 129.22)];
     const result = preferRatedFirstStop("domestic", "경주", stops);
     expect(result.map((s) => s.id)).toEqual(["b", "a", "c"]);
   });
 
   it("leaves the order untouched when the first stop already has a rating", () => {
-    const stops = [stop("a", 35.8, 129.2, { rating: 4.0 }), stop("b", 35.81, 129.21, { rating: 4.5 })];
+    const stops = [stop("a", 35.8, 129.2, { searchRank: 8 }), stop("b", 35.81, 129.21, { searchRank: 4 })];
     const result = preferRatedFirstStop("domestic", "경주", stops);
     expect(result.map((s) => s.id)).toEqual(["a", "b"]);
   });
@@ -1554,7 +1552,7 @@ describe("preferRatedFirstStop — 하루의 첫 스팟이 평점 신호 없이 
   });
 
   it("doesn't remove any stop — only reorders", () => {
-    const stops = [stop("a", 35.8, 129.2), stop("b", 35.81, 129.21, { rating: 4.5 }), stop("c", 35.82, 129.22)];
+    const stops = [stop("a", 35.8, 129.2), stop("b", 35.81, 129.21, { searchRank: 4 }), stop("c", 35.82, 129.22)];
     const result = preferRatedFirstStop("domestic", "경주", stops);
     expect(result).toHaveLength(3);
     expect(new Set(result.map((s) => s.id))).toEqual(new Set(["a", "b", "c"]));
@@ -1567,35 +1565,9 @@ describe("preferRatedFirstStop — 하루의 첫 스팟이 평점 신호 없이 
   });
 });
 
-describe("findRatedFirstStopSwapIndex — liveEnrichSpots 이후 최종 평점으로 1번 자리를 다시 확인한다 (작업지시서 2026-09-23 '코스 페이지가 열립니다 + 남은 4건' §3)", () => {
-  function briefSpot(overrides: Partial<CourseBriefSpot> = {}): CourseBriefSpot {
-    return { name: "x", category: "x", rating: null, reviewCount: null, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: null, toNextMode: "walk", ...overrides };
-  }
-
-  it("returns the index of the first later spot with a rating when position 0 has none (실측: 경주 d1 — 테라로사가 라이브 조회로만 평점이 생긴 경우)", () => {
-    const day = [briefSpot({ name: "경주중앙시장" }), briefSpot({ name: "경주원조콩국" }), briefSpot({ name: "테라로사 경주점", rating: 4.5 }), briefSpot({ name: "경주보문관광단지", rating: 4.3 })];
-    expect(findRatedFirstStopSwapIndex(day)).toBe(2);
-  });
-
-  it("returns null when position 0 already has a rating", () => {
-    const day = [briefSpot({ rating: 4.2 }), briefSpot({ rating: 4.5 })];
-    expect(findRatedFirstStopSwapIndex(day)).toBeNull();
-  });
-
-  it("returns null when no spot in the day has a rating (preferRatedFirstStop과 같은 결론)", () => {
-    const day = [briefSpot(), briefSpot()];
-    expect(findRatedFirstStopSwapIndex(day)).toBeNull();
-  });
-
-  it("returns null for a single-stop or empty day", () => {
-    expect(findRatedFirstStopSwapIndex([briefSpot()])).toBeNull();
-    expect(findRatedFirstStopSwapIndex([])).toBeNull();
-  });
-});
-
 describe("isCacheableBrief — 스팟이 너무 적은 실패 결과는 캐시하지 않는다 (작업지시서 2026-09-23 '#266 검증' §3)", () => {
   function courseBriefSpot(): CourseBriefSpot {
-    return { name: "x", category: "x", rating: null, reviewCount: null, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: null, toNextMode: "walk" };
+    return { name: "x", category: "x", lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: null, toNextMode: "walk" };
   }
 
   it("refuses to cache a result below MIN_VIABLE_SPOTS (실측: 고베 d2가 insufficient_spots를 26시간 캐시했다)", () => {
@@ -1667,8 +1639,8 @@ describe("capResortSpaSpotsTotal — 휴양형 스파 코스 전체 ⌈days/2⌉
   it("does NOT cap a single day with more than one spa — that's capResortSpaSpotsPerDay's job now", () => {
     const days = [
       [
-        stop("d1-spa-weak", 10, 120, { name: "Cheeva Spa", category: "spa", rating: 4.0, reviewCount: 20 }),
-        stop("d1-spa-strong", 10, 120, { name: "Thai Royale Spa", category: "spa", rating: 4.8, reviewCount: 500 }),
+        stop("d1-spa-weak", 10, 120, { name: "Cheeva Spa", category: "spa", searchRank: 27 }),
+        stop("d1-spa-strong", 10, 120, { name: "Thai Royale Spa", category: "spa", searchRank: 13 }),
         stop("d1-food", 10, 120, { name: "House of Lechon", category: "restaurant" }),
       ],
     ];
@@ -1680,7 +1652,7 @@ describe("capResortSpaSpotsTotal — 휴양형 스파 코스 전체 ⌈days/2⌉
   });
 
   it("does not touch a day with zero or one spa when already within the total cap", () => {
-    const days = [[stop("d1-spa", 10, 120, { name: "Cheeva Spa", category: "spa", rating: 4.5, reviewCount: 100 }), stop("d1-food", 10, 120, { category: "restaurant" })]];
+    const days = [[stop("d1-spa", 10, 120, { name: "Cheeva Spa", category: "spa", searchRank: 20 }), stop("d1-food", 10, 120, { category: "restaurant" })]];
     expect(capResortSpaSpotsTotal(days, 1)).toEqual(days);
   });
 
@@ -1703,8 +1675,8 @@ describe("capResortSpaSpotsPerDay — 하루 1곳 상한, reallocateStopsByDay �
   it("keeps only the most popular spa when a single (already-final) day has more than one", () => {
     const days = [
       [
-        stop("d1-spa-weak", 10, 120, { name: "Cheeva Spa", category: "spa", rating: 4.0, reviewCount: 20 }),
-        stop("d1-spa-strong", 10, 120, { name: "Thai Royale Spa", category: "spa", rating: 4.8, reviewCount: 500 }),
+        stop("d1-spa-weak", 10, 120, { name: "Cheeva Spa", category: "spa", searchRank: 27 }),
+        stop("d1-spa-strong", 10, 120, { name: "Thai Royale Spa", category: "spa", searchRank: 13 }),
         stop("d1-food", 10, 120, { name: "House of Lechon", category: "restaurant" }),
       ],
     ];
@@ -1713,14 +1685,14 @@ describe("capResortSpaSpotsPerDay — 하루 1곳 상한, reallocateStopsByDay �
   });
 
   it("does not touch a day with zero or one spa", () => {
-    const days = [[stop("d1-spa", 10, 120, { name: "Cheeva Spa", category: "spa", rating: 4.5, reviewCount: 100 }), stop("d1-food", 10, 120, { category: "restaurant" })]];
+    const days = [[stop("d1-spa", 10, 120, { name: "Cheeva Spa", category: "spa", searchRank: 20 }), stop("d1-food", 10, 120, { category: "restaurant" })]];
     expect(capResortSpaSpotsPerDay(days)).toEqual(days);
   });
 
   it("caps each day independently — a different day can still have its own single spa", () => {
     const days = [
-      [stop("d1-spa-a", 10, 120, { category: "spa", rating: 4.0, reviewCount: 50 }), stop("d1-spa-b", 10, 120, { category: "spa", rating: 4.9, reviewCount: 900 })],
-      [stop("d2-spa", 10, 120, { category: "spa", rating: 4.2, reviewCount: 60 })],
+      [stop("d1-spa-a", 10, 120, { category: "spa", searchRank: 23 }), stop("d1-spa-b", 10, 120, { category: "spa", searchRank: 10 })],
+      [stop("d2-spa", 10, 120, { category: "spa", searchRank: 22 })],
     ];
     const result = capResortSpaSpotsPerDay(days);
     expect(result[0].map((s) => s.id)).toEqual(["d1-spa-b"]);
@@ -1736,8 +1708,8 @@ describe("capOverseasKoreanRestaurants — 해외 코스 한식당 코스 전체
   it("keeps only the most popular Korean restaurant when there is more than one", () => {
     const days = [
       [
-        stop("d1-kr-weak", 10, 120, { name: "88식당 88 korean restaurant", category: "korean_restaurant", rating: 4.0, reviewCount: 30 }),
-        stop("d1-kr-strong", 10, 120, { name: "Da-In Korean Restaurant", category: "korean_restaurant", rating: 4.6, reviewCount: 300 }),
+        stop("d1-kr-weak", 10, 120, { name: "88식당 88 korean restaurant", category: "korean_restaurant", searchRank: 25 }),
+        stop("d1-kr-strong", 10, 120, { name: "Da-In Korean Restaurant", category: "korean_restaurant", searchRank: 15 }),
         stop("d1-local", 10, 120, { name: "House of Lechon", category: "restaurant" }),
       ],
     ];
@@ -1746,7 +1718,7 @@ describe("capOverseasKoreanRestaurants — 해외 코스 한식당 코스 전체
   });
 
   it("does not touch a course with zero or one Korean restaurant", () => {
-    const days = [[stop("d1-kr", 10, 120, { category: "korean_restaurant", rating: 4.5, reviewCount: 100 }), stop("d1-local", 10, 120, { category: "restaurant" })]];
+    const days = [[stop("d1-kr", 10, 120, { category: "korean_restaurant", searchRank: 20 }), stop("d1-local", 10, 120, { category: "restaurant" })]];
     expect(capOverseasKoreanRestaurants(days)).toEqual(days);
   });
 });
@@ -1757,8 +1729,8 @@ describe("capOverseasKoreanRestaurants — 해외 코스 한식당 코스 전체
 describe("capLodgingToOne — 휴양형 숙소는 코스 전체 1곳(리조트 앵커) (작업지시서 2026-09-29 '#277 검증' §3-②)", () => {
   it("keeps only the most popular lodging when there is more than one", () => {
     const days = [
-      [stop("d2-anchor", 10, 120, { name: "샹그릴라 막탄 세부", category: "lodging", rating: 4.7, reviewCount: 5000 })],
-      [stop("d5-extra", 10, 120, { name: "웰컴 호텔", category: "hotel", rating: 3.9, reviewCount: 40 }), stop("d5-food", 10, 120, { category: "restaurant" })],
+      [stop("d2-anchor", 10, 120, { name: "샹그릴라 막탄 세부", category: "lodging", searchRank: 3 })],
+      [stop("d5-extra", 10, 120, { name: "웰컴 호텔", category: "hotel", searchRank: 24 }), stop("d5-food", 10, 120, { category: "restaurant" })],
     ];
     const result = capLodgingToOne(days);
     expect(result[0].map((s) => s.id)).toEqual(["d2-anchor"]);
@@ -1766,7 +1738,7 @@ describe("capLodgingToOne — 휴양형 숙소는 코스 전체 1곳(리조트 �
   });
 
   it("does not touch a course with zero or one lodging", () => {
-    const days = [[stop("d1-lodging", 10, 120, { category: "lodging", rating: 4.5, reviewCount: 100 }), stop("d1-food", 10, 120, { category: "restaurant" })]];
+    const days = [[stop("d1-lodging", 10, 120, { category: "lodging", searchRank: 20 }), stop("d1-food", 10, 120, { category: "restaurant" })]];
     expect(capLodgingToOne(days)).toEqual(days);
   });
 });
@@ -1782,10 +1754,10 @@ describe("redistributeThinResortDays — 휴양형도 하루 최소 2곳 (작업
       [stop("d3-a", 10, 120), stop("d3-b", 10, 120)],
       [stop("d4-a", 10, 120), stop("d4-b", 10, 120)],
       [
-        stop("d5-a", 10, 120, { rating: 4.0, reviewCount: 10 }),
-        stop("d5-b", 10, 120, { rating: 4.8, reviewCount: 900 }),
-        stop("d5-c", 10, 120, { rating: 4.2, reviewCount: 50 }),
-        stop("d5-d", 10, 120, { rating: 3.5, reviewCount: 5 }), // 가장 인기 낮음 — 옮겨질 후보
+        stop("d5-a", 10, 120, { searchRank: 30 }),
+        stop("d5-b", 10, 120, { searchRank: 10 }),
+        stop("d5-c", 10, 120, { searchRank: 23 }),
+        stop("d5-d", 10, 120, { searchRank: 32 }), // 가장 인기 낮음 — 옮겨질 후보
       ],
       [stop("d6-spa", 10, 120, { category: "spa" })],
       [stop("d7-zoo", 10, 120)],
@@ -1805,9 +1777,9 @@ describe("redistributeThinResortDays — 휴양형도 하루 최소 2곳 (작업
   it("does not move a meal (dinner) slot even if it's the donor day's least popular spot", () => {
     const days = [
       [
-        stop("d1-a", 10, 120, { rating: 3.0, reviewCount: 5, meal: true }), // 인기 최저지만 meal:true라 옮기면 안 됨
-        stop("d1-b", 10, 120, { rating: 4.5, reviewCount: 200 }),
-        stop("d1-c", 10, 120, { rating: 4.0, reviewCount: 80 }),
+        stop("d1-a", 10, 120, { searchRank: 32, meal: true }), // 인기 최저지만 meal:true라 옮기면 안 됨
+        stop("d1-b", 10, 120, { searchRank: 17 }),
+        stop("d1-c", 10, 120, { searchRank: 21 }),
       ],
       [stop("d2-thin", 10, 120)],
     ];
@@ -1834,26 +1806,26 @@ describe("redistributeThinResortDays — 휴양형도 하루 최소 2곳 (작업
 // 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
 // 없습니다" §2·§3 — 실측: 경주 2박3일에 대표 명소가 하나도 없었다.
 // 리뷰 수 상위 N곳을, 평점 있는 것만, 이미 코스에 없는 것만 뽑는다.
-describe("pickLandmarkAnchors — 리뷰 수 상위 N곳 · 평점 있는 곳만 (작업지시서 2026-09-29 '경주 대표 명소' §2·§3)", () => {
+describe("pickLandmarkAnchors — 검색 순위 상위 N곳 (작업지시서 2026-09-29 '경주 대표 명소' §2·§3, 2026-10-20 평점 제거)", () => {
   it("picks the top-N candidates by review count", () => {
     const candidates = [
-      place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 }),
-      place("seokguram", { name: "석굴암", rating: 4.6, reviewCount: 15000 }),
-      place("cafe-x", { name: "동네 카페", rating: 4.2, reviewCount: 50 }),
-      place("daereungwon", { name: "대릉원", rating: 4.4, reviewCount: 20000 }),
+      place("bulguksa", { name: "불국사", searchRank: 0 }),
+      place("seokguram", { name: "석굴암", searchRank: 2 }),
+      place("cafe-x", { name: "동네 카페", searchRank: 20 }),
+      place("daereungwon", { name: "대릉원", searchRank: 1 }),
     ];
     const anchors = pickLandmarkAnchors(candidates, [], 3);
     expect(anchors.map((a) => a.name)).toEqual(["불국사", "대릉원", "석굴암"]);
   });
 
-  it("excludes candidates with no rating (§3 — unrated spots can't be anchors)", () => {
-    const candidates = [place("no-rating", { name: "평점 없는 곳", rating: undefined, reviewCount: 99999 }), place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 })];
+  it("평점은 앵커 자격과 무관하다 — 순위(searchRank)만 본다 (작업지시서 2026-10-20: 코스 후보는 평점을 받지 않는다)", () => {
+    const candidates = [place("second", { name: "두 번째 명소", searchRank: 5 }), place("bulguksa", { name: "불국사", searchRank: 0 })];
     const anchors = pickLandmarkAnchors(candidates, [], 3);
-    expect(anchors.map((a) => a.name)).toEqual(["불국사"]);
+    expect(anchors.map((a) => a.name)).toEqual(["불국사", "두 번째 명소"]);
   });
 
   it("excludes a candidate already in the course (by id or by brand/sameShop)", () => {
-    const candidates = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 })];
+    const candidates = [place("bulguksa", { name: "불국사", searchRank: 0 })];
     const existing = [stop("already-there", 10, 120, { name: "불국사" })];
     expect(pickLandmarkAnchors(candidates, existing, 3)).toEqual([]);
   });
@@ -1861,21 +1833,21 @@ describe("pickLandmarkAnchors — 리뷰 수 상위 N곳 · 평점 있는 곳만
   // 작업지시서 2026-09-29 "#279가 경주에서 효과 없음" §2 — "리뷰 수 정렬
   // 상위 5 → 여기서 앵커 3곳 선정", "반경 15~20km".
   it("only considers the top-5 by review count, then takes up to N not already in the course", () => {
-    const candidates = [1, 2, 3, 4, 5, 6].map((n) => place(`p${n}`, { name: `명소${n}`, rating: 4.5, reviewCount: 1000 * (7 - n) }));
+    const candidates = [1, 2, 3, 4, 5, 6].map((n) => place(`p${n}`, { name: `명소${n}`, searchRank: n }));
     // 상위 5(명소1~5) 중 명소1·2가 이미 코스에 있으면 남은 3곳(3·4·5)만 앵커 — 6위는 풀 밖이라 안 뽑힌다.
     const existing = [stop("e1", 10, 120, { name: "명소1" }), stop("e2", 10, 120, { name: "명소2" })];
     expect(pickLandmarkAnchors(candidates, existing, 3, 5).map((a) => a.name)).toEqual(["명소3", "명소4", "명소5"]);
   });
 
   it("excludes candidates farther than the radius from the course's spots (default 20km)", () => {
-    const near = place("near", { name: "가까운 명소", rating: 4.5, reviewCount: 100, lat: 10.1, lng: 120 }); // 약 11km
-    const far = place("far", { name: "먼 명소", rating: 4.9, reviewCount: 999999, lat: 10.5, lng: 120 }); // 약 55km
+    const near = place("near", { name: "가까운 명소", searchRank: 20, lat: 10.1, lng: 120 }); // 약 11km
+    const far = place("far", { name: "먼 명소", searchRank: 0, lat: 10.5, lng: 120 }); // 약 55km
     const existing = [stop("e1", 10, 120)];
     expect(pickLandmarkAnchors([far, near], existing, 3).map((a) => a.name)).toEqual(["가까운 명소"]);
   });
 
   it("returns fewer than N when there aren't enough qualifying candidates", () => {
-    const candidates = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 })];
+    const candidates = [place("bulguksa", { name: "불국사", searchRank: 0 })];
     expect(pickLandmarkAnchors(candidates, [], 3)).toHaveLength(1);
   });
 });
@@ -1883,10 +1855,10 @@ describe("pickLandmarkAnchors — 리뷰 수 상위 N곳 · 평점 있는 곳만
 describe("placeLandmarkAnchors — 앵커를 서로 다른 날에 분산 배치 (작업지시서 2026-09-29 '경주 대표 명소' §2)", () => {
   it("places each anchor on a different day, replacing that day's least popular non-meal spot", () => {
     const days = [
-      [stop("d1-weak", 10, 120, { rating: 3.5, reviewCount: 10 }), stop("d1-lunch", 10, 120, { meal: true, rating: 4.5, reviewCount: 5000 })],
-      [stop("d2-weak", 10, 120, { rating: 3.8, reviewCount: 20 }), stop("d2-strong", 10, 120, { rating: 4.5, reviewCount: 3000 })],
+      [stop("d1-weak", 10, 120, { searchRank: 30 }), stop("d1-lunch", 10, 120, { meal: true, searchRank: 3 })],
+      [stop("d2-weak", 10, 120, { searchRank: 27 }), stop("d2-strong", 10, 120, { searchRank: 5 })],
     ];
-    const anchors = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 }), place("seokguram", { name: "석굴암", rating: 4.6, reviewCount: 15000 })];
+    const anchors = [place("bulguksa", { name: "불국사", searchRank: 0 }), place("seokguram", { name: "석굴암", searchRank: 0 })];
     const result = placeLandmarkAnchors(days, anchors);
     // 각 날의 가장 인기 낮은(식사 아닌) 스팟이 앵커로 교체되고, 하루 스팟 수는 그대로다.
     expect(result[0].map((s) => s.name)).toEqual(["불국사", "d1-lunch"]);
@@ -1894,8 +1866,8 @@ describe("placeLandmarkAnchors — 앵커를 서로 다른 날에 분산 배치 
   });
 
   it("never places two anchors on the same day", () => {
-    const days = [[stop("d1-a", 10, 120, { rating: 3.0, reviewCount: 5 }), stop("d1-b", 10, 120, { rating: 3.2, reviewCount: 8 })]];
-    const anchors = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 }), place("seokguram", { name: "석굴암", rating: 4.6, reviewCount: 15000 })];
+    const days = [[stop("d1-a", 10, 120, { searchRank: 32 }), stop("d1-b", 10, 120, { searchRank: 30 })]];
+    const anchors = [place("bulguksa", { name: "불국사", searchRank: 0 }), place("seokguram", { name: "석굴암", searchRank: 0 })];
     const result = placeLandmarkAnchors(days, anchors);
     // 하루뿐이라 두 번째 앵커는 넣을 자리가 없다 — 억지로 만들어내지 않는다.
     expect(result[0].map((s) => s.name)).toContain("불국사");
@@ -1904,8 +1876,8 @@ describe("placeLandmarkAnchors — 앵커를 서로 다른 날에 분산 배치 
   });
 
   it("does not replace a meal slot even if it's the day's least popular spot", () => {
-    const days = [[stop("d1-lunch", 10, 120, { meal: true, rating: 3.0, reviewCount: 5 }), stop("d1-sight", 10, 120, { rating: 4.0, reviewCount: 500 })]];
-    const anchors = [place("bulguksa", { name: "불국사", rating: 4.5, reviewCount: 30000 })];
+    const days = [[stop("d1-lunch", 10, 120, { meal: true, searchRank: 32 }), stop("d1-sight", 10, 120, { searchRank: 13 })]];
+    const anchors = [place("bulguksa", { name: "불국사", searchRank: 0 })];
     const result = placeLandmarkAnchors(days, anchors);
     expect(result[0].map((s) => s.name)).toEqual(["d1-lunch", "불국사"]);
   });
@@ -1968,7 +1940,7 @@ describe("insertBeforeDinner — 새 스팟을 저녁 식사 앞에 (작업지�
 });
 
 describe("placeResortAnchors — 휴양형은 교체가 아니라 추가, 얇은 날부터 (작업지시서 2026-09-29 '#281 검증' §2②)", () => {
-  const anchors = [place("island", { name: "마누칸 섬", rating: 4.6, reviewCount: 9000 }), place("mosque", { name: "사바 주립 모스크", rating: 4.5, reviewCount: 8000 })];
+  const anchors = [place("island", { name: "마누칸 섬", searchRank: 0 }), place("mosque", { name: "사바 주립 모스크", searchRank: 1 })];
 
   it("adds each anchor to a different day, thinnest day first, without removing any spot", () => {
     const days = [
@@ -2048,14 +2020,14 @@ describe("isEstimatedLeg — 추정 구간 판정 (작업지시서 2026-09-29 '#
 // 세부 섬이 또 빠졌습니다" §3 — 휴양형 앵커 2곳 중 1곳은 섬으로 예약.
 describe("pickResortAnchors — 앵커 2곳 중 1곳은 섬 (작업지시서 2026-09-29 '#283 검증' §3)", () => {
   const attractions = [
-    place("magellan", { name: "마젤란의 십자가", rating: 4.5, reviewCount: 50000 }),
-    place("leah", { name: "레아신전", rating: 4.6, reviewCount: 40000 }),
-    place("fort", { name: "산 페드로 요새", rating: 4.4, reviewCount: 30000 }),
+    place("magellan", { name: "마젤란의 십자가", searchRank: 0 }),
+    place("leah", { name: "레아신전", searchRank: 0 }),
+    place("fort", { name: "산 페드로 요새", searchRank: 0 }),
   ];
-  const caohagan = place("caohagan", { name: "Caohagan Island", category: "island", rating: 4.7, reviewCount: 800 }); // 리뷰 순위는 낮다
+  const caohagan = place("caohagan", { name: "Caohagan Island", category: "island", searchRank: 11 }); // 리뷰 순위는 낮다
 
   it("reserves one anchor for the island even when it ranks outside the top 5 (섬 1 + 명소 1)", () => {
-    const candidates = [...attractions, ...[1, 2, 3].map((n) => place(`x${n}`, { name: `명소${n}`, rating: 4.3, reviewCount: 20000 - n })), caohagan];
+    const candidates = [...attractions, ...[1, 2, 3].map((n) => place(`x${n}`, { name: `명소${n}`, searchRank: n })), caohagan];
     const anchors = pickResortAnchors(candidates, [stop("e", 10, 120)], 2, 5);
     expect(anchors.map((a) => a.name)).toEqual(["Caohagan Island", "마젤란의 십자가"]);
   });
@@ -2072,7 +2044,7 @@ describe("pickResortAnchors — 앵커 2곳 중 1곳은 섬 (작업지시서 202
   });
 
   it("never picks two islands", () => {
-    const second = place("gaya", { name: "Pulau Gaya", category: "island", rating: 4.6, reviewCount: 700 });
+    const second = place("gaya", { name: "Pulau Gaya", category: "island", searchRank: 12 });
     const anchors = pickResortAnchors([caohagan, second, ...attractions], [stop("e", 10, 120)], 2, 5);
     expect(anchors.filter((a) => a.category === "island")).toHaveLength(1);
   });
@@ -2116,10 +2088,10 @@ describe("선착장·섬은 다른 단계가 떼어놓지 않는다 (작업지�
   it("redistributeThinResortDays never moves an island or a jetty to another day", () => {
     const days = [
       [
-        stop("jetty", 0, 0, { slotKey: "jetty", rating: 3, reviewCount: 1 }), // 가장 인기 낮아도 옮기지 않는다
-        stop("isl", 0, 0, { name: "Sapi Island", category: "island", rating: 3, reviewCount: 1 }),
+        stop("jetty", 0, 0, { slotKey: "jetty", searchRank: 37 }), // 가장 인기 낮아도 옮기지 않는다
+        stop("isl", 0, 0, { name: "Sapi Island", category: "island", searchRank: 37 }),
         stop("food", 0, 0, { meal: true }),
-        stop("movable", 0, 0, { rating: 4.5, reviewCount: 500 }),
+        stop("movable", 0, 0, { searchRank: 13 }),
       ],
       [stop("thin", 0, 0)],
     ];
@@ -2129,26 +2101,6 @@ describe("선착장·섬은 다른 단계가 떼어놓지 않는다 (작업지�
     expect(result[1].map((s) => s.id)).toContain("movable"); // 옮겨진 건 일반 스팟뿐
   });
 
-  it("findRatedFirstStopSwapIndex skips a spot that sits at either end of a boat leg", () => {
-    const base = { category: "관광지", lat: 0, lng: 0, day: 1 as const, toNextMinutes: 10, toNextMode: "car" as const };
-    const spots: CourseBriefSpot[] = [
-      { ...base, name: "a", rating: null, reviewCount: null, order: 1 },
-      { ...base, name: "pier", rating: 4.5, reviewCount: 10, order: 2, toNextMode: "boat", toNextMinutes: null }, // 배 구간의 출발
-      { ...base, name: "island", rating: 4.6, reviewCount: 10, order: 3 }, // 배 구간의 도착
-      { ...base, name: "market", rating: 4.4, reviewCount: 10, order: 4 },
-    ];
-    expect(findRatedFirstStopSwapIndex(spots)).toBe(3); // 평점 있는 1·2번(배 구간 양 끝)을 건너뛰고 market
-  });
-
-  it("findRatedFirstStopSwapIndex does nothing when the first spot itself starts a boat leg", () => {
-    const base = { category: "관광지", lat: 0, lng: 0, day: 1 as const, toNextMinutes: 10, toNextMode: "car" as const };
-    const spots: CourseBriefSpot[] = [
-      { ...base, name: "pier", rating: null, reviewCount: null, order: 1, toNextMode: "boat", toNextMinutes: null },
-      { ...base, name: "island", rating: null, reviewCount: null, order: 2 },
-      { ...base, name: "other", rating: 4.5, reviewCount: 10, order: 3 },
-    ];
-    expect(findRatedFirstStopSwapIndex(spots)).toBeNull();
-  });
 });
 
 // 작업지시서 2026-09-29 "#284 검증: 선착장 → 배 → 섬 됐습니다. 섬 없는
@@ -2235,7 +2187,7 @@ describe("placeJettiesBeforeIslands — 섬에서 섬으로는 선착장을 또 
 });
 
 describe("isSightStop / balanceSightsAcrossDays — 하루 볼거리 최소 1곳 (작업지시서 2026-09-29 '#284 검증' §3)", () => {
-  const sight = (id: string, rating = 4.5, reviewCount = 100) => stop(id, 0, 0, { category: "tourist_attraction", rating, reviewCount });
+  const sight = (id: string, searchRank = 5) => stop(id, 0, 0, { category: "tourist_attraction", searchRank });
   const spa = (id: string) => stop(id, 0, 0, { name: "Poin Reflexology Spa", category: "spa" });
   const food = (id: string) => stop(id, 0, 0, { name: "KK Garden Seafood", category: "seafood_restaurant" });
 
@@ -2250,7 +2202,7 @@ describe("isSightStop / balanceSightsAcrossDays — 하루 볼거리 최소 1곳
 
   it("moves the least popular sight from a day with 2+ sights to a day with none", () => {
     const days = [
-      [sight("s-best", 4.8, 9000), sight("s-weak", 4.0, 20), food("f1")],
+      [sight("s-best", 0), sight("s-weak", 30), food("f1")],
       [spa("sp"), food("f2"), food("f3")], // 볼거리 0
     ];
     const result = balanceSightsAcrossDays(days);
@@ -2267,9 +2219,9 @@ describe("isSightStop / balanceSightsAcrossDays — 하루 볼거리 최소 1곳
 
 describe("redistributeThinResortDays — 그날의 유일한 볼거리는 옮기지 않는다 (작업지시서 2026-09-29 '#284 검증' §3)", () => {
   it("keeps a donor's only sight even when it is the least popular non-meal spot", () => {
-    const food = (id: string) => stop(id, 0, 0, { name: "식당", category: "seafood_restaurant", rating: 4.5, reviewCount: 900 });
+    const food = (id: string) => stop(id, 0, 0, { name: "식당", category: "seafood_restaurant", searchRank: 10 });
     const days = [
-      [stop("only-sight", 0, 0, { category: "tourist_attraction", rating: 3.0, reviewCount: 5 }), food("f1"), food("f2")], // 인기 최저는 유일한 볼거리
+      [stop("only-sight", 0, 0, { category: "tourist_attraction", searchRank: 32 }), food("f1"), food("f2")], // 인기 최저는 유일한 볼거리
       [stop("thin", 0, 0)],
     ];
     const result = redistributeThinResortDays(days);
@@ -2284,7 +2236,7 @@ describe("placeResortAnchors — 볼거리 없는 날을 먼저 채운다 (작�
       [stop("sight", 0, 0)], // 1곳(볼거리 있음)
       [stop("sp", 0, 0, { name: "Spa", category: "spa" }), stop("f", 0, 0, { name: "식당", category: "seafood_restaurant" }), stop("f2", 0, 0, { name: "식당2", category: "restaurant" })], // 3곳, 볼거리 없음
     ];
-    const result = placeResortAnchors(days, [place("anchor", { name: "시그널 힐 전망대", rating: 4.5, reviewCount: 9000 })]);
+    const result = placeResortAnchors(days, [place("anchor", { name: "시그널 힐 전망대", searchRank: 0 })]);
     expect(result[1].map((s) => s.name)).toContain("시그널 힐 전망대"); // 스팟이 더 많아도 볼거리 없는 날이 먼저
     expect(result[0]).toHaveLength(1);
   });
@@ -2360,7 +2312,7 @@ describe("pickBetterDayResult — 1일차 LLM 큐레이션이 너무 적으면 s
 describe("얇은 날 보충 — 첫 기증일에 옮길 게 없어도 다음 기증일을 본다 (작업지시서 2026-09-29 '#286 검증' §2)", () => {
   const kkDays = () => [
     [
-      stop("beach", 0, 0, { name: "탄중 리팟 해변", category: "beach", rating: 4.6, reviewCount: 3000 }),
+      stop("beach", 0, 0, { name: "탄중 리팟 해변", category: "beach", searchRank: 5 }),
       stop("woori", 0, 0, { name: "WOORI BBQ", category: "korean_restaurant", meal: true, reviewCount: 500 }),
       stop("guan", 0, 0, { name: "Guan's Kopitiam", category: "restaurant", meal: true, reviewCount: 4000 }),
     ],
@@ -2369,7 +2321,7 @@ describe("얇은 날 보충 — 첫 기증일에 옮길 게 없어도 다음 기
       stop("seafood", 0, 0, { name: "KK Garden Seafood", category: "seafood_restaurant", meal: true, reviewCount: 2000 }),
       stop("safi", 0, 0, { name: "사피 섬", category: "island", reviewCount: 6000 }),
     ],
-    [stop("aru", 0, 0, { name: "탄중 아루", category: "beach", rating: 4.5, reviewCount: 9000 })],
+    [stop("aru", 0, 0, { name: "탄중 아루", category: "beach", searchRank: 0 })],
   ];
 
   it("redistributeThinResortDays: 가장 큰 날(식사+해변만)이 못 주면 그 다음 날에서 가져온다", () => {
@@ -2379,10 +2331,10 @@ describe("얇은 날 보충 — 첫 기증일에 옮길 게 없어도 다음 기
   });
 
   it("balanceSightsAcrossDays: 볼거리 2곳 이상인 다른 날이 있으면 첫 후보가 막혀도 옮긴다", () => {
-    const sight = (id: string, rc: number) => stop(id, 0, 0, { category: "tourist_attraction", rating: 4.5, reviewCount: rc });
+    const sight = (id: string, searchRank: number) => stop(id, 0, 0, { category: "tourist_attraction", searchRank });
     const days = [
       [stop("isl", 0, 0, { name: "사피 섬", category: "island" }), stop("j", 0, 0, { name: "제셀톤 선착장", category: "ferry_terminal", slotKey: "jetty" })],
-      [sight("a", 9000), sight("b", 10)],
+      [sight("a", 0), sight("b", 30)],
       [stop("f", 0, 0, { name: "식당", category: "restaurant", meal: true }), stop("sp", 0, 0, { name: "스파", category: "spa" })],
     ];
     const result = balanceSightsAcrossDays(days);
@@ -2392,11 +2344,11 @@ describe("얇은 날 보충 — 첫 기증일에 옮길 게 없어도 다음 기
 
 describe("composeResortDays — 코타키나발루 회귀 (작업지시서 2026-09-29 '#286 검증' §2, 모델링한 후보 fixture)", () => {
   const P = (id: string, name: string, lat: number, lng: number, extra: Partial<Place> = {}): Place =>
-    place(id, { name, lat, lng, rating: 4.4, reviewCount: 1000, ...extra });
+    place(id, { name, lat, lng, searchRank: 10, ...extra });
   const fs = (id: string, name: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name, ...extra });
   const kk = () => [
     [
-      fs("beach", "탄중 리팟 해변", 5.9, 116.05, { category: "beach", rating: 4.6, reviewCount: 3000 }),
+      fs("beach", "탄중 리팟 해변", 5.9, 116.05, { category: "beach", searchRank: 5 }),
       fs("woori", "WOORI BBQ", 5.98, 116.07, { category: "korean_restaurant", meal: true }),
       fs("guan", "Guan's Kopitiam Gaya Street", 5.98, 116.07, { category: "restaurant", meal: true }),
     ],
@@ -2405,7 +2357,7 @@ describe("composeResortDays — 코타키나발루 회귀 (작업지시서 2026-
       fs("seafood", "KK Garden Seafood Restaurant • Sedco", 5.98, 116.07, { category: "seafood_restaurant", meal: true }),
       fs("safi", "사피 섬", 5.97, 116.0, { category: "island", reviewCount: 6000 }),
     ],
-    [fs("aru", "탄중 아루", 5.95, 116.04, { category: "beach", rating: 4.5, reviewCount: 9000 })],
+    [fs("aru", "탄중 아루", 5.95, 116.04, { category: "beach", searchRank: 0 })],
   ];
   const landmarks = [
     P("sig", "Signal Hill Observatory Tower", 5.99, 116.08, { reviewCount: 8000 }),
@@ -2526,9 +2478,9 @@ describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 202
 
   it("서울형 [6,6] → 하루 최대 5곳: 외딴 랜드마크가 아니라 식사부터 뺀다 (경복궁 보호)", () => {
     const meal = (id: string, rc: number) => spotAt(id, 0.2, 0.1, { meal: true, category: "restaurant", rating: 4.2, reviewCount: rc });
-    const palace = spotAt("gyeongbokgung", 60, 40, { category: "tourist_attraction", rating: 4.6, reviewCount: 90000 }); // 식당 묶음에서 한참 떨어진 대표 명소
+    const palace = spotAt("gyeongbokgung", 60, 40, { category: "tourist_attraction", searchRank: 0 }); // 식당 묶음에서 한참 떨어진 대표 명소
     const day1 = [palace, meal("m-low", 50), meal("m-high", 5000), ...normals("a", 3, 0)];
-    const { days, trimmed } = capCityDaySizes([day1, normals("b", 6, 3).map((s) => ({ ...s, rating: 4.4, reviewCount: 800 }))], 6);
+    const { days, trimmed } = capCityDaySizes([day1, normals("b", 6, 3).map((s) => ({ ...s, searchRank: 11 }))], 6);
     expect(days[0].map((s) => s.id)).toContain("gyeongbokgung");
     expect(trimmed.map((s) => s.id)).toContain("m-low"); // 식사 2곳 이상이면 리뷰 적은 쪽
     expect(days.every((d) => d.length <= 5)).toBe(true);
@@ -2536,7 +2488,7 @@ describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 202
 
   it("식사가 1곳뿐이면 카페를 먼저, 그다음 일반 스팟은 그날 인기 상위 2곳을 지키고 가장 낮은 것을 뺀다", () => {
     const sight = (id: string, rc: number) => spotAt(id, 0, 0, { category: "tourist_attraction", rating: 4.5, reviewCount: rc });
-    const cafe = spotAt("cafe", 0, 0, { category: "cafe", rating: 4.5, reviewCount: 10000 });
+    const cafe = spotAt("cafe", 0, 0, { category: "cafe", searchRank: 0 });
     const withCafe = capCityDaySizes([[sight("s1", 9000), sight("s2", 8000), sight("s3", 100), sight("s4", 200), sight("s5", 300), cafe], normals("b", 2, 5)], 3);
     expect(withCafe.trimmed.map((s) => s.id)).toEqual(["cafe"]);
     const noCafe = capCityDaySizes([[sight("s1", 9000), sight("s2", 8000), sight("s3", 100), sight("s4", 200), sight("s5", 300), sight("s6", 400)], normals("b", 2, 5)], 3);
@@ -2544,7 +2496,7 @@ describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 202
   });
 
   it("대표 명소 앵커·선착장·섬·종일시설은 절대 빼지 않는다 — 뺄 게 없으면 상한을 넘긴 채 둔다", () => {
-    const anchor = (id: string) => spotAt(id, 0, 0, { slotKey: "landmark-anchor", category: "tourist_attraction", rating: 4.5, reviewCount: 100 });
+    const anchor = (id: string) => spotAt(id, 0, 0, { slotKey: "landmark-anchor", category: "tourist_attraction", searchRank: 20 });
     const protectedDay = [anchor("a1"), anchor("a2"), anchor("a3"), spotAt("jetty", 0, 0, { slotKey: "jetty", name: "제셀톤 선착장", category: "ferry_terminal" }), spotAt("isl", 0, 0, { name: "사피 섬", category: "island" }), spotAt("zoo", 0, 0, { category: "amusement_park", reviewCount: 50000 })];
     const { days, trimmed } = capCityDaySizes([protectedDay, normals("b", 2, 5)], 3);
     expect(trimmed).toHaveLength(0);
@@ -2567,7 +2519,7 @@ describe("capCityDaySizes / 시드니 3·4일 총합 불변 (작업지시서 202
 
 describe("재배치가 스팟을 버리지 않는다 — 시드니 d3 · 오사카 d2 (작업지시서 2026-10-01 'Vercel 로그 판독 결과' 원인 A)", () => {
   const sights = (prefix: string, n: number, base: P) =>
-    cluster(prefix, base, n).map((s, i) => ({ ...s, category: "tourist_attraction", rating: 4.4, reviewCount: 500 + i }));
+    cluster(prefix, base, n).map((s, i) => ({ ...s, category: "tourist_attraction", searchRank: 13 + i }));
   const fac = (id: string, category: string, at: P, reviewCount: number) => stop(id, at.lat, at.lng, { category, name: id, rating: 4.5, reviewCount });
 
   it("maxFacilityDays: 코스 일수의 절반 이하 (2→1, 3→1, 4→2, 5→2)", () => {
@@ -2602,7 +2554,7 @@ describe("재배치가 스팟을 버리지 않는다 — 시드니 d3 · 오사�
 });
 
 describe("도시형 전체 흐름 — 오사카 2일 · 앵커 보충 (작업지시서 2026-10-01 'Vercel 로그 판독 결과' ③)", () => {
-  const sights = (prefix: string, n: number, base: P) => cluster(prefix, base, n).map((s, i) => ({ ...s, category: "tourist_attraction", rating: 4.4, reviewCount: 500 + i }));
+  const sights = (prefix: string, n: number, base: P) => cluster(prefix, base, n).map((s, i) => ({ ...s, category: "tourist_attraction", searchRank: 13 + i }));
   const fac = (id: string, category: string, at: P, reviewCount: number) => stop(id, at.lat, at.lng, { category, name: id, rating: 4.5, reviewCount });
 
   it("오사카 2일(시설 2곳): 재배치 → 재배분 → 정리까지 거치고도 도시형 최소 6곳 이상, 하루 2곳 이상", () => {
@@ -2619,7 +2571,7 @@ describe("도시형 전체 흐름 — 오사카 2일 · 앵커 보충 (작업지
 
   it("placeCityAnchors: 총량이 모자라면(deficit) 앵커를 '추가'하고, 0이면 기존대로 '교체'한다", () => {
     const base = [[stop("a", 10, 120), stop("b", 10, 120)], [stop("c", 10, 120)]];
-    const anchors = [place("n1", { name: "오사카성", rating: 4.6, reviewCount: 90000 }), place("n2", { name: "도톤보리", rating: 4.5, reviewCount: 80000 })];
+    const anchors = [place("n1", { name: "오사카성", searchRank: 0 }), place("n2", { name: "도톤보리", searchRank: 0 })];
     const added = placeCityAnchors(base, anchors, 2);
     expect(added.flat()).toHaveLength(5); // 3 + 2 추가
     expect(added.flat().filter((s) => s.slotKey === "landmark-anchor")).toHaveLength(2);
@@ -2664,7 +2616,7 @@ describe("balanceSightsAcrossDays — 종일시설·앵커는 옮기지 않는�
   it("볼거리 없는 날에는 시설·앵커가 아닌 가장 덜 인기 있는 볼거리를 옮긴다", () => {
     const sight = (id: string, rc: number, extra: Partial<FinalStop> = {}) => stop(id, 0, 0, { category: "tourist_attraction", rating: 4.5, reviewCount: rc, ...extra });
     const days = [
-      [stop("zoo", 0, 0, { category: "amusement_park", rating: 4.8, reviewCount: 50000 }), sight("anchor", 5, { slotKey: "landmark-anchor" }), sight("plain", 700), sight("big", 9000)],
+      [stop("zoo", 0, 0, { category: "amusement_park", searchRank: 0 }), sight("anchor", 5, { slotKey: "landmark-anchor" }), sight("plain", 700), sight("big", 9000)],
       [stop("m", 0, 0, { meal: true, category: "restaurant" }), stop("cafe", 0, 0, { category: "cafe" })],
     ];
     const result = balanceSightsAcrossDays(days);
@@ -2678,12 +2630,12 @@ describe("휴양형 하루 최대 5곳·숙소 우선 제외·원거리 스팟 (
 
   it("세부 d6 모양: 6곳(숙소 포함) → 숙소가 먼저 빠져 5곳, 나머지는 유지", () => {
     const day6 = [
-      at("Cheeva Spa", 10.31, 123.9, { category: "spa", rating: 4.8, reviewCount: 900 }),
-      at("트리쉐이드", 10.31, 123.9, { category: "tourist_attraction", rating: 4.5, reviewCount: 800 }),
-      at("레아신전", 10.34, 123.89, { category: "tourist_attraction", rating: 4.6, reviewCount: 5000 }),
-      at("La Parisienne Cebu", 10.31, 123.9, { category: "cafe", rating: 4.4, reviewCount: 300 }),
-      at("웰컴 호텔", 10.31, 123.9, { category: "hotel", rating: 4.0, reviewCount: 1200 }),
-      at("House of Lechon", 10.31, 123.9, { category: "restaurant", meal: true, rating: 4.4, reviewCount: 2500 }),
+      at("Cheeva Spa", 10.31, 123.9, { category: "spa", searchRank: 10 }),
+      at("트리쉐이드", 10.31, 123.9, { category: "tourist_attraction", searchRank: 11 }),
+      at("레아신전", 10.34, 123.89, { category: "tourist_attraction", searchRank: 3 }),
+      at("La Parisienne Cebu", 10.31, 123.9, { category: "cafe", searchRank: 15 }),
+      at("웰컴 호텔", 10.31, 123.9, { category: "hotel", searchRank: 9 }),
+      at("House of Lechon", 10.31, 123.9, { category: "restaurant", meal: true, searchRank: 6 }),
     ];
     const { days, trimmed } = capResortDaySizes([day6, [at("x", 10, 123, { category: "tourist_attraction" }), at("y", 10, 123, { category: "tourist_attraction" })]], 4);
     expect(trimmed.map((s) => s.id)).toEqual(["웰컴 호텔"]);
@@ -2766,9 +2718,9 @@ describe("종일시설 날 동반 조건 — 시설 5km 이내 · 시설/대형 
 
   it("앵커는 시설 날에 들어가지 않고(placeLandmarkAnchors·placeCityAnchors), rebalanceCityDays도 먼 스팟을 시설 날로 옮기지 않는다", () => {
     const base = [[usj()], [stop("n1", 34.7, 135.5), stop("n2", 34.69, 135.51)]];
-    const replaced = placeLandmarkAnchors(base, [place("castle", { name: "오사카 성", rating: 4.6, reviewCount: 90000 })]);
+    const replaced = placeLandmarkAnchors(base, [place("castle", { name: "오사카 성", searchRank: 0 })]);
     expect(replaced[0].map((s) => s.id)).toEqual(["usj"]);
-    const added = placeCityAnchors(base, [place("castle", { name: "오사카 성", rating: 4.6, reviewCount: 90000 })], 1);
+    const added = placeCityAnchors(base, [place("castle", { name: "오사카 성", searchRank: 0 })], 1);
     expect(added[0].map((s) => s.id)).toEqual(["usj"]);
     expect(added[1]).toHaveLength(3);
     const moved = rebalanceCityDays([[usj()], [stop("n1", 34.7, 135.5), stop("n2", 34.69, 135.51), stop("n3", 34.68, 135.52), stop("n4", 34.7, 135.49)]]);
@@ -2804,23 +2756,15 @@ describe("숙소는 그날 마지막 · facilityDay/lodging 표시 (작업지시
     const { spots } = assembleDaySpots([at("shiroi", { category: "amusement_park", name: "시로이코이비토 파크", reviewCount: 16000 })], [], 1, "overseas", "삿포로", 1);
     expect(spots[0].facilityDay).toBeUndefined();
   });
-
-  it("findRatedFirstStopSwapIndex: 평점 있는 숙소라도 1번 자리로 끌어오지 않는다", () => {
-    const sp = (extra: Partial<CourseBriefSpot>): CourseBriefSpot => ({ name: "x", category: "관광지", rating: null, reviewCount: null, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: 5, toNextMode: "car", ...extra });
-    const day = [sp({ name: "a" }), sp({ name: "hotel", rating: 4.5, lodging: true })];
-    expect(findRatedFirstStopSwapIndex(day)).toBeNull();
-    const withOther = [sp({ name: "a" }), sp({ name: "hotel", rating: 4.5, lodging: true }), sp({ name: "b", rating: 4.0 })];
-    expect(findRatedFirstStopSwapIndex(withOther)).toBe(2);
-  });
 });
 
 describe("capOverseasKoreanRestaurants — 한글 이름 일반 음식점도 한식 (작업지시서 2026-10-06 '#294 검증' §3)", () => {
   it("세부 1일차: 풍류정(korean_restaurant) + Unclejack 엉클잭하우스(restaurant) 중 인기 있는 1곳만 남기고 Cabana(seafood)는 유지", () => {
     const at = (id: string, extra: Partial<FinalStop>) => stop(id, 10, 120, { name: id, meal: true, ...extra });
     const day = [
-      at("Unclejack 엉클잭하우스", { category: "restaurant", rating: 4.3, reviewCount: 800 }),
-      at("풍류정", { category: "korean_restaurant", rating: 4.5, reviewCount: 2500 }),
-      at("Cabana Restaurant", { category: "seafood_restaurant", rating: 4.2, reviewCount: 600 }),
+      at("Unclejack 엉클잭하우스", { category: "restaurant", searchRank: 11 }),
+      at("풍류정", { category: "korean_restaurant", searchRank: 6 }),
+      at("Cabana Restaurant", { category: "seafood_restaurant", searchRank: 12 }),
     ];
     const result = capOverseasKoreanRestaurants([day])[0].map((s) => s.id);
     expect(result).toEqual(["풍류정", "Cabana Restaurant"]);
@@ -2829,7 +2773,7 @@ describe("capOverseasKoreanRestaurants — 한글 이름 일반 음식점도 한
 
 describe("dropExcessFacilities — 상한을 넘는 종일시설은 코스에서 제외 (작업지시서 2026-10-06 '#295 검증' §2, 도쿄 디즈니씨)", () => {
   const park = (id: string, name: string, reviewCount: number) => stop(id, 35.6, 139.8, { name, category: "amusement_park", rating: 4.6, reviewCount });
-  const sight = (id: string) => stop(id, 35.7, 139.8, { name: id, category: "tourist_attraction", rating: 4.4, reviewCount: 900 });
+  const sight = (id: string) => stop(id, 35.7, 139.8, { name: id, category: "tourist_attraction", searchRank: 10 });
 
   it("도쿄 3일: 디즈니랜드·디즈니씨 중 인기 높은 랜드만 남고 씨는 어느 날에도 들어가지 않는다", () => {
     const land = park("land", "도쿄 디즈니랜드", 120000);
@@ -2843,7 +2787,7 @@ describe("dropExcessFacilities — 상한을 넘는 종일시설은 코스에서
   it("전체 흐름: reallocateStopsByDay 후 디즈니씨는 일반 날에도 시설 날에도 없다", () => {
     const land = park("land", "도쿄 디즈니랜드", 120000);
     const sea = park("sea", "도쿄 디즈니씨", 90000);
-    const day = (prefix: string, base: P) => cluster(prefix, base, 4).map((s, i) => ({ ...s, category: "tourist_attraction", rating: 4.4, reviewCount: 500 + i }));
+    const day = (prefix: string, base: P) => cluster(prefix, base, 4).map((s, i) => ({ ...s, category: "tourist_attraction", searchRank: 13 + i }));
     const result = reallocateStopsByDay([[land, ...day("a", p(35.71, 139.8))], [sea, ...day("b", p(35.68, 139.7))], day("c", p(35.69, 139.75))]);
     expect(result.flat().some((s) => s.id === "sea")).toBe(false);
     const landDay = result.find((d) => d.some((s) => s.id === "land"))!;
@@ -2886,9 +2830,9 @@ describe("종일시설은 테마파크만 · 판정 함수 단일화 (작업지�
   });
 
   it("오사카 2일(USJ + 해유관): 해유관은 일반 명소로 남고 시설 날은 USJ 하나뿐이다", () => {
-    const usj = stop("usj", 34.665, 135.433, { category: "amusement_park", name: "유니버설 스튜디오 재팬", reviewCount: 90000, rating: 4.6 });
-    const kaiyukan = stop("kaiyukan", 34.654, 135.429, { category: "aquarium", name: "오사카 해유관", reviewCount: 70000, rating: 4.5 });
-    const sights = (prefix: string, base: P) => cluster(prefix, base, 5).map((x, i) => ({ ...x, category: "tourist_attraction", rating: 4.4, reviewCount: 500 + i }));
+    const usj = stop("usj", 34.665, 135.433, { category: "amusement_park", name: "유니버설 스튜디오 재팬", searchRank: 0 });
+    const kaiyukan = stop("kaiyukan", 34.654, 135.429, { category: "aquarium", name: "오사카 해유관", searchRank: 1 });
+    const sights = (prefix: string, base: P) => cluster(prefix, base, 5).map((x, i) => ({ ...x, category: "tourist_attraction", searchRank: 13 + i }));
     const result = reallocateStopsByDay([[usj, ...sights("a", p(34.7, 135.49))], [kaiyukan, ...sights("b", p(34.665, 135.5))]]);
     expect(result.flat().some((s) => s.id === "kaiyukan")).toBe(true);
     expect(result.filter((d) => d.some(isDayFacility))).toHaveLength(1);
@@ -2900,8 +2844,8 @@ describe("종일시설은 테마파크만 · 판정 함수 단일화 (작업지�
     const existing = [stop("a", 34.66, 135.43)];
     const picked = pickLandmarkAnchors(
       [
-        place("usj", { name: "유니버설 스튜디오 재팬", category: "amusement_park", rating: 4.6, reviewCount: 100000, lat: 34.665, lng: 135.433 }),
-        place("kaiyukan", { name: "오사카 해유관", category: "aquarium", rating: 4.5, reviewCount: 70000, lat: 34.654, lng: 135.429 }),
+        place("usj", { name: "유니버설 스튜디오 재팬", category: "amusement_park", searchRank: 0, lat: 34.665, lng: 135.433 }),
+        place("kaiyukan", { name: "오사카 해유관", category: "aquarium", searchRank: 0, lat: 34.654, lng: 135.429 }),
       ],
       existing,
       2,
@@ -2940,7 +2884,7 @@ describe("구간별 경로 출처 · distanceSource mixed (작업지시서 2026-
 
   it("computeDistanceSource: 전부 실제 경로면 route · 전부 직선이면 straight · 섞이면 mixed · 배편·구간 없음은 세지 않는다", () => {
     const spot = (toNextMode: CourseBriefSpot["toNextMode"], toNextSource?: "route" | "straight"): CourseBriefSpot => ({
-      name: "x", category: "관광지", rating: null, reviewCount: null, lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: 5, toNextMode, ...(toNextSource ? { toNextSource } : {}),
+      name: "x", category: "관광지", lat: 0, lng: 0, order: 1, day: 1, toNextMinutes: 5, toNextMode, ...(toNextSource ? { toNextSource } : {}),
     });
     expect(computeDistanceSource([spot("car", "route"), spot("walk", "route"), spot(null)])).toBe("route");
     expect(computeDistanceSource([spot("car", "straight"), spot("walk", "straight"), spot(null)])).toBe("straight");
@@ -3075,12 +3019,12 @@ describe("하루 안 순서 재계산 — optimizeDayOrder (작업지시서 2026
     expect(pathKm(result)).toBeCloseTo(0.09 * 111.2, 0); // 일직선 순서의 길이
   });
 
-  it("평점 있는 스팟을 1번으로 두는 선호는 최적과 거의 같은 길이일 때만 반영한다", () => {
-    const rated = (s: FinalStop) => s.rating != null;
-    const day = [at("a", 35.0, 135), at("b", 35.01, 135, { rating: 4.5 }), at("c", 35.02, 135)];
+  it("유명한(검색 순위 상위) 스팟을 1번으로 두는 선호는 최적과 거의 같은 길이일 때만 반영한다", () => {
+    const rated = (s: FinalStop) => s.searchRank != null;
+    const day = [at("a", 35.0, 135), at("b", 35.01, 135, { searchRank: 4 }), at("c", 35.02, 135)];
     // 최적 순서는 a-b-c(또는 c-b-a) — 1번이 평점 있는 b가 되면 a-b 뒤 c로 가는 길이가 훨씬 길다 → 선호 무시
     expect(ids(optimizeDayOrder([day[1], day[0], day[2]], { preferFirst: rated }))[0]).not.toBe("b");
-    const close = [at("a", 35.0, 135), at("b", 35.0005, 135, { rating: 4.5 }), at("c", 35.001, 135)];
+    const close = [at("a", 35.0, 135), at("b", 35.0005, 135, { searchRank: 4 }), at("c", 35.001, 135)];
     expect(ids(optimizeDayOrder([close[0], close[2], close[1]], { preferFirst: rated }))[0]).toBe("b");
   });
 });
@@ -3093,13 +3037,13 @@ describe("앵커의 날 선택 — 스팟 중심과 가장 가까운 날 (작업
   ];
 
   it("placeLandmarkAnchors(교체): 남쪽 앵커는 스팟이 더 많아도 남쪽 날에 들어간다", () => {
-    const result = placeLandmarkAnchors(days(), [place("anchor", { name: "남쪽 명소", lat: 34.605, lng: 135.505, rating: 4.5, reviewCount: 9000 })]);
+    const result = placeLandmarkAnchors(days(), [place("anchor", { name: "남쪽 명소", lat: 34.605, lng: 135.505, searchRank: 0 })]);
     expect(result[1].some((s) => s.id === "anchor")).toBe(true);
     expect(result[0].some((s) => s.id === "anchor")).toBe(false);
   });
 
   it("placeCityAnchors(추가): 빈자리가 많은 날이 아니라 중심이 가장 가까운 날에 붙는다", () => {
-    const result = placeCityAnchors(days(), [place("anchor", { name: "남쪽 명소", lat: 34.605, lng: 135.505, rating: 4.5, reviewCount: 9000 })], 1);
+    const result = placeCityAnchors(days(), [place("anchor", { name: "남쪽 명소", lat: 34.605, lng: 135.505, searchRank: 0 })], 1);
     expect(result[1].some((s) => s.id === "anchor")).toBe(true);
     expect(result[0]).toHaveLength(2);
   });
@@ -3139,26 +3083,6 @@ describe("routeDayStops — 이상치 대중교통 구간(직선 3km 이하 · 5
     expect(kept.durationMinutes).toBe(55);
     vi.stubGlobal("fetch", bySec({ transit: 30 * 60, walking: 5 * 60 }));
     expect((await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0].mode).toBe("transit");
-  });
-});
-
-describe("평점 보강 1번 자리 맞바꿈 — 동선이 길어지면 건너뛴다 (작업지시서 2026-10-12 '#304 검증' §2, 서울 d3 2일차)", () => {
-  it("[북한산 → 결 → 경복궁 → 창덕궁] 형태에서 0↔1 맞바꿈은 북한산을 가운데로 보내 왕복이 되므로 tooLong", () => {
-    // 북한산(북쪽 외곽)이 한 끝, 창덕궁·경복궁·결이 시내에 모여 있다 — 북한산을 가운데로 보내는 맞바꿈은 왕복이 된다.
-    const day = [
-      { lat: 37.66, lng: 126.98 }, // 북한산둘레길
-      { lat: 37.585, lng: 126.98 }, // 결(카페)
-      { lat: 37.5796, lng: 126.977 }, // 경복궁
-      { lat: 37.5794, lng: 126.991 }, // 창덕궁
-    ];
-    const swap = ratedFirstSwapKm(day, 1);
-    expect(swap.afterKm).toBeGreaterThan(swap.beforeKm);
-    expect(swap.tooLong).toBe(true);
-  });
-
-  it("거의 같은 길이면(가까운 두 곳 교환) 맞바꿈을 허용한다", () => {
-    const day = [{ lat: 37.5796, lng: 126.977 }, { lat: 37.5797, lng: 126.9772 }, { lat: 37.58, lng: 126.978 }];
-    expect(ratedFirstSwapKm(day, 1).tooLong).toBe(false);
   });
 });
 
@@ -3213,7 +3137,7 @@ describe("새 대표 일수 코스 점검 (2026-10-13)", () => {
 
 // 작업지시서 2026-10-13 "#312 검증" §2·§3
 describe("#312 검증 — 도시형 원거리 근교 날 · 섬 복귀 순서", () => {
-  const at = (id: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name: id, rating: 4.5, reviewCount: 500, ...extra });
+  const at = (id: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name: id, searchRank: 13, ...extra });
   const cm = { lat: 18.7883, lng: 98.9853 }; // 치앙마이
 
   it("separateRemoteCityStops: 4일 코스는 가장 인기 있는 원거리 스팟으로 근교 날을 만들고, 시내 스팟은 옆 날로 옮기며, 다른 방향 원거리는 제외한다", () => {

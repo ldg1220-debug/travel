@@ -20,7 +20,7 @@ vi.mock("@/lib/server/courseBrief", async (importOriginal) => {
 import { GET } from "./route";
 
 function spot(order: number, overrides: Partial<CourseBriefSpot> = {}): CourseBriefSpot {
-  return { name: `spot-${order}`, category: "관광지", rating: 4.5, reviewCount: 500, lat: 6, lng: 116, order, day: 1, toNextMinutes: 10, toNextMode: "car", ...overrides };
+  return { name: `spot-${order}`, category: "관광지", lat: 6, lng: 116, order, day: 1, toNextMinutes: 10, toNextMode: "car", ...overrides };
 }
 
 function briefWith(spots: CourseBriefSpot[]): CourseBrief {
@@ -31,7 +31,7 @@ function briefWith(spots: CourseBriefSpot[]): CourseBrief {
     spots,
     imageUrl: null,
     appUrl: "https://example.com",
-    ratingSource: "google",
+    ratingPolicy: "on-click",
     distanceSource: "route",
     dayTotals: [],
     dayImageUrls: [],

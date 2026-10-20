@@ -29,8 +29,6 @@ function spot(overrides: Partial<CourseBriefSpot> = {}): CourseBriefSpot {
   return {
     name: "오호리공원",
     category: "공원",
-    rating: 4.5,
-    reviewCount: 1200,
     lat: 33.59,
     lng: 130.4,
     order: 1,
@@ -141,14 +139,8 @@ describe("isCourseBriefThin — 얇은 콘텐츠 판정 (§5)", () => {
     expect(isCourseBriefThin([spot(), spot(), spot()], 5)).toBe(true);
   });
 
-  it("flags a course where half or more spots have no rating", () => {
-    const spots = [spot(), spot(), spot({ rating: null }), spot({ rating: null }), spot({ rating: null })];
-    expect(isCourseBriefThin(spots, 5)).toBe(true);
-  });
-
-  it("does not flag a healthy course at or above the given minimum, mostly-rated", () => {
-    const spots = [spot(), spot(), spot(), spot(), spot(), spot({ rating: null })];
-    expect(isCourseBriefThin(spots, 5)).toBe(false);
+  it("평점이 없어도(코스에는 평점이 없다) 스팟 수가 기준 이상이면 얇지 않다 — 작업지시서 2026-10-20", () => {
+    expect(isCourseBriefThin([spot(), spot(), spot(), spot(), spot()], 5)).toBe(false);
   });
 
   it("respects a lower minimum (e.g. resort-style days=1) — a 3-spot course isn't flagged as thin", () => {
@@ -157,22 +149,22 @@ describe("isCourseBriefThin — 얇은 콘텐츠 판정 (§5)", () => {
 });
 
 describe("buildCourseIntro — 지역마다 실제로 달라지는 소개 문장 (§5 템플릿 회피)", () => {
-  it("mentions the actual top-rated spot's name, rating and review count", () => {
+  it("지역·일수·스팟 수·거리와 첫 대표 명소를 담고, 평점·리뷰 수는 쓰지 않는다 (작업지시서 2026-10-20)", () => {
     const intro = buildCourseIntro({
       region: "경주",
       days: 3,
       totalDistanceKm: 24.3,
-      spots: [spot({ name: "황리단길", rating: 4.8, reviewCount: 5000 }), spot({ name: "대릉원", rating: 4.2, reviewCount: 900 })],
+      spots: [spot({ name: "황리단길", order: 1 }), spot({ name: "대릉원", order: 2 })],
     });
     expect(intro).toContain("경주");
     expect(intro).toContain("2박3일");
+    expect(intro).toContain("2곳");
     expect(intro).toContain("황리단길");
-    expect(intro).toContain("4.8");
-    expect(intro).toContain("5,000");
+    expect(intro).not.toMatch(/평점 \d|점\(리뷰|리뷰 \d/);
   });
 
-  it("still returns a sane sentence when no spot has a rating", () => {
-    const intro = buildCourseIntro({ region: "안동", days: 3, totalDistanceKm: 10, spots: [spot({ rating: null, reviewCount: null })] });
+  it("대표 명소가 없어도(식당뿐) 말이 되는 문장을 낸다", () => {
+    const intro = buildCourseIntro({ region: "안동", days: 3, totalDistanceKm: 10, spots: [spot({ category: "음식점" })] });
     expect(intro).toContain("안동");
     expect(intro).not.toContain("undefined");
   });
@@ -180,23 +172,22 @@ describe("buildCourseIntro — 지역마다 실제로 달라지는 소개 문장
   // 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §5 — "향미사을(를)
   // 포함해"처럼 받침 유무와 무관하게 "을(를)"을 그대로 찍고 있었다.
   it("받침 있는 스팟명엔 '을'을 붙인다 (예: 황리단길)", () => {
-    const intro = buildCourseIntro({ region: "경주", days: 3, totalDistanceKm: 10, spots: [spot({ name: "황리단길", rating: 4.8, reviewCount: 100 })] });
-    expect(intro).toContain("황리단길을 포함해");
+    const intro = buildCourseIntro({ region: "경주", days: 3, totalDistanceKm: 10, spots: [spot({ name: "황리단길" })] });
+    expect(intro).toContain("황리단길을 포함한");
     expect(intro).not.toContain("을(를)");
   });
 
   it("받침 없는 스팟명엔 '를'을 붙인다 (예: 향미사)", () => {
-    const intro = buildCourseIntro({ region: "부산", days: 1, totalDistanceKm: 5, spots: [spot({ name: "향미사", rating: 4.7, reviewCount: 185 })] });
-    expect(intro).toContain("향미사를 포함해");
+    const intro = buildCourseIntro({ region: "부산", days: 1, totalDistanceKm: 5, spots: [spot({ name: "향미사" })] });
+    expect(intro).toContain("향미사를 포함한");
     expect(intro).not.toContain("을(를)");
   });
 });
 
 describe("buildSpotDescription", () => {
-  it("includes rating, review count, and next-leg travel info", () => {
+  it("다음 구간 이동 정보를 담고 평점·리뷰 수는 없다 (작업지시서 2026-10-20)", () => {
     const desc = buildSpotDescription(spot({ toNextMinutes: 8, toNextMode: "walk" }));
-    expect(desc).toContain("4.5");
-    expect(desc).toContain("1,200");
+    expect(desc).not.toMatch(/평점|리뷰/);
     expect(desc).toContain("도보");
     expect(desc).toContain("8분");
   });
@@ -207,11 +198,6 @@ describe("buildSpotDescription", () => {
     expect(desc).toContain("배로 이동");
     expect(desc).not.toContain("차량");
     expect(desc).not.toMatch(/\d+분/);
-  });
-
-  it("says rating is unavailable rather than showing a blank", () => {
-    const desc = buildSpotDescription(spot({ rating: null, reviewCount: null }));
-    expect(desc).toContain("평점 정보 없음");
   });
 });
 
@@ -228,7 +214,7 @@ describe("JSON-LD builders (§4)", () => {
   });
 
   it("never emits aggregateRating (Google Places 평점은 리뷰 스니펫 대상이 아니다 — 2026-10-13 Search Console 심각 오류) · 좌표만 싣는다", () => {
-    const jsonLd = buildCourseItemListJsonLd({ spots: [spot({ rating: 4.5, reviewCount: 20824 }), spot({ rating: null, reviewCount: null, order: 2 })] }) as {
+    const jsonLd = buildCourseItemListJsonLd({ spots: [spot(), spot({ order: 2 })] }) as {
       itemListElement: { item: Record<string, unknown> }[];
     };
     for (const el of jsonLd.itemListElement) {
@@ -259,23 +245,23 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
       { day: 2 as const, distanceKm: 3.0, spotCount: 2, facilityDay: true as const },
     ],
     spots: [
-      spot({ name: "오사카 성", category: "관광지", rating: 4.6, reviewCount: 90000, order: 1, day: 1 }),
-      spot({ name: "이치란 도톤보리", category: "음식점", rating: 4.5, reviewCount: 95000, order: 2, day: 1 }),
-      spot({ name: "도톤보리", category: "관광지", rating: 4.5, reviewCount: 85000, order: 3, day: 2 }),
-      spot({ name: "유니버설 스튜디오 재팬", category: "테마파크", rating: 4.6, reviewCount: 60000, order: 4, day: 2 }),
-      spot({ name: "쓰텐카쿠", category: "관광지", rating: 4.2, reviewCount: 40000, order: 5, day: 3 }),
-      spot({ name: "웰컴 호텔", category: "숙소", rating: 4.9, reviewCount: 99999, order: 6, day: 3, lodging: true }),
+      spot({ name: "오사카 성", category: "관광지", order: 1, day: 1 }),
+      spot({ name: "이치란 도톤보리", category: "음식점", order: 2, day: 1 }),
+      spot({ name: "도톤보리", category: "관광지", order: 3, day: 2 }),
+      spot({ name: "유니버설 스튜디오 재팬", category: "테마파크", order: 4, day: 2 }),
+      spot({ name: "쓰텐카쿠", category: "관광지", order: 5, day: 3 }),
+      spot({ name: "웰컴 호텔", category: "숙소", order: 6, day: 3, lodging: true }),
     ],
   };
 
-  it("대표 명소는 식당·카페·숙소·선착장을 빼고 평점×리뷰 순으로 뽑는다", () => {
+  it("대표 명소는 식당·카페·숙소·선착장을 빼고 코스 순서대로 뽑는다", () => {
     expect(pickRepresentativeSpots(brief.spots, 3)).toEqual(["오사카 성", "도톤보리", "유니버설 스튜디오 재팬"]);
     expect(pickRepresentativeSpots([spot({ name: "제셀톤 선착장", category: "관광지" }), spot({ name: "Poin Spa", category: "기타" })], 2)).toEqual([]);
   });
 
   it("title: '{지역} {일수} 코스 — {N}곳 · {대표1}·{대표2} | 트레쥴', description: 대표 3곳 + 고정 문구", () => {
     expect(buildCourseTitle(brief)).toBe("오사카 2박3일 코스 — 6곳 · 오사카 성·도톤보리 | 트레쥴");
-    expect(buildCourseDescription(brief)).toBe("오사카 2박3일 코스: 오사카 성, 도톤보리, 유니버설 스튜디오 재팬. 일자별 동선 지도 · 이동 시간 · 평점 정리.");
+    expect(buildCourseDescription(brief)).toBe("오사카 2박3일 코스: 오사카 성, 도톤보리, 유니버설 스튜디오 재팬. 일자별 동선 지도 · 이동 시간 정리.");
     // 6·7일은 URL 라벨과 같은 "5박6일"·"5박7일"
     expect(buildCourseTitle({ ...brief, region: "세부", days: 7 })).toContain("세부 5박7일 코스");
   });

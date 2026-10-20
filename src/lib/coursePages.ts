@@ -4,7 +4,7 @@ import type { CourseBrief, CourseBriefSpot, CourseDays } from "./server/courseBr
 /**
  * `/course/{지역}/{일수}` 공개 SSR 페이지 — 작업지시서 2026-09-18
  * "트레쥴이 구글에 7페이지만 올라가 있습니다" §4: course-brief가 이미
- * 갖고 있는 실제 코스(장소명·평점·리뷰수·구간 이동시간·지도)를 검색
+ * 갖고 있는 실제 코스(장소명·구간 이동시간·지도)를 검색
  * 엔진이 색인할 수 있는 주소로 내보낸다. 순수 로직(일수 URL 라벨,
  * 1단계 공개 지역 허용목록, 얇은 콘텐츠 판정, 설명문 생성)을 여기
  * 모아 페이지 컴포넌트 없이 단위 테스트한다.
@@ -168,11 +168,9 @@ export function matchEnabledCourseRegion(title: string): string | null {
 // 자체는 호출부(page.tsx, 서버 컴포넌트)가 minViableSpots(style, days)로
 // 계산해 여기엔 숫자로만 넘긴다 — 이 함수는 여전히 courseBrief.ts를
 // 몰라도 되는 순수 함수로 남는다.
-export function isCourseBriefThin(spots: CourseBriefSpot[], minSpots: number, opts: { ratingsUnavailable?: boolean } = {}): boolean {
-  if (spots.length < minSpots) return true;
-  if (opts.ratingsUnavailable) return false; // 월 한도로 평점 없이 만든 코스 — 작업지시서 2026-10-14 "Places 호출 비용" §2①
-  const unrated = spots.filter((s) => s.rating == null).length;
-  return unrated / spots.length >= 0.5;
+export function isCourseBriefThin(spots: CourseBriefSpot[], minSpots: number): boolean {
+  // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" §2② — 평점 없는 스팟 비율 조건을 없앴다. 코스에는 평점이 없으니 "스팟 수"만 본다.
+  return spots.length < minSpots;
 }
 
 // 작업지시서 2026-09-23 "코스 페이지가 열립니다 + 남은 4건" §5 — "향미사을(를)
@@ -205,24 +203,22 @@ function pickJosa(word: string, withBatchim: string, withoutBatchim: string): st
  */
 export function buildCourseIntro(brief: Pick<CourseBrief, "region" | "days" | "totalDistanceKm" | "spots">): string {
   const daysLabel = dayDisplayLabel(brief.region, brief.days);
+  // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 코스 설명에 평점·리뷰 수를 쓰지 않는다. 지역별로 달라지는 값(스팟 수·총 거리)과 대표 명소만 조합한다.
   const stats = `${brief.region} ${daysLabel} 코스 — ${brief.spots.length}곳 · 총 이동 ${brief.totalDistanceKm.toFixed(1)}km`;
-  const rated = brief.spots.filter((s): s is CourseBriefSpot & { rating: number } => s.rating != null);
-  if (rated.length === 0) return `${stats}.`;
-  const top = rated.reduce((best, s) => (s.rating > best.rating ? s : best));
-  const reviewPart = top.reviewCount != null ? `(리뷰 ${top.reviewCount.toLocaleString()}개)` : "";
-  const josa = pickJosa(top.name, "을", "를");
-  return `${stats}. 방문자 평점 ${top.rating.toFixed(1)}점${reviewPart}인 ${top.name}${josa} 포함해 실제 평점·리뷰 기준으로 짰습니다.`;
+  const [top] = pickRepresentativeSpots(brief.spots, 1);
+  if (!top) return `${stats}.`;
+  const josa = pickJosa(top, "을", "를");
+  return `${stats}. ${top}${josa} 포함한 일자별 동선이에요. 사진·후기 같은 자세한 정보는 장소를 눌러 확인하세요.`;
 }
 
 /** 스팟 하나를 소개하는 짧은 문장 — 다음 스팟까지 이동시간이 있으면 그 정보도 붙인다. */
 export function buildSpotDescription(spot: CourseBriefSpot): string {
-  const ratingPart = spot.rating != null ? `평점 ${spot.rating.toFixed(1)}${spot.reviewCount != null ? `(리뷰 ${spot.reviewCount.toLocaleString()}개)` : ""}` : "평점 정보 없음";
   // 작업지시서 2026-09-29 "#282 검증" §2 — 섬이 낀 구간은 배다. 배편
   // 시간은 모르므로 분을 지어내지 않고 이동수단만 정직하게 쓴다.
   // 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §3 — 직선 추정·차량 폴백 구간은 그 사실을 같이 적는다(정직한 표기).
   const estimateNote = spot.toNextFallback === "driving" ? " (대중교통 정보가 없어 차량 기준 참고값)" : spot.toNextSource === "straight" ? " (직선거리 추정)" : "";
   const nextPart = spot.toNextMode === "boat" ? " 다음 장소까지는 배로 이동합니다." : spot.toNextMinutes != null ? ` 다음 장소까지 ${spot.toNextMode === "walk" ? "도보" : spot.toNextMode === "transit" ? "대중교통" : "차량"}로 약 ${spot.toNextMinutes}분${estimateNote}.` : "";
-  return `${spot.category} · ${ratingPart}.${nextPart}`;
+  return `${spot.category}.${nextPart}`;
 }
 
 /**
@@ -242,7 +238,7 @@ export function buildCourseItemListJsonLd(brief: Pick<CourseBrief, "spots">): Re
         name: spot.name,
         // 작업지시서 2026-10-13 Search Console "리뷰 스니펫" 심각 오류 — aggregateRating 을 넣지 않는다. TouristAttraction 은 리뷰 스니펫 상위 유형이 아니고,
         // 이 평점은 Google Places 에서 가져온 남의 평점이라 "사용자에게서 직접 수집한 평점만" 마크업하라는 지침에도 어긋난다(유형을 LocalBusiness 로 바꿔도 마찬가지).
-        // 화면에 보이는 평점 표기는 그대로 둔다. 좌표만 싣는다.
+        // (2026-10-20 이후 코스 화면에는 평점 자체가 없다.) 좌표만 싣는다.
         ...(Number.isFinite(spot.lat) && Number.isFinite(spot.lng) ? { geo: { "@type": "GeoCoordinates", latitude: spot.lat, longitude: spot.lng } } : {}),
       },
     })),
@@ -277,13 +273,12 @@ export function courseCanonicalPath(region: string, days: CourseDays): string {
   return `/course/${encodeURIComponent(region)}/${encodeURIComponent(daysToLabel(days))}`;
 }
 
-/** 리뷰가 많고 평점이 높은 순(평점×리뷰 수)의 대표 명소 이름 n곳 — 식사·카페·숙소·선착장·스파는 뺀다. 같은 이름은 한 번만. */
+/** 코스 순서(order)상 앞선 대표 명소 이름 n곳 — 식사·카페·숙소·선착장·스파는 뺀다. 같은 이름은 한 번만. (평점이 없으므로 평점순이 아니다 — 작업지시서 2026-10-20) */
 export function pickRepresentativeSpots(spots: readonly CourseBriefSpot[], n: number): string[] {
-  const score = (s: CourseBriefSpot) => (s.rating ?? 0) * (s.reviewCount ?? 0);
   const seen = new Set<string>();
-  return spots
+  return [...spots]
     .filter((s) => !NON_LANDMARK_BUCKETS.has(s.category) && !NON_LANDMARK_NAME.test(s.name) && !s.lodging)
-    .sort((a, b) => score(b) - score(a))
+    .sort((a, b) => a.order - b.order)
     .filter((s) => (seen.has(s.name) ? false : (seen.add(s.name), true)))
     .slice(0, n)
     .map((s) => s.name);
@@ -300,7 +295,7 @@ export function buildCourseTitle(brief: Pick<CourseBrief, "region" | "days" | "s
 export function buildCourseDescription(brief: Pick<CourseBrief, "region" | "days" | "spots">): string {
   const reps = pickRepresentativeSpots(brief.spots, 3);
   const repPart = reps.length > 0 ? `: ${reps.join(", ")}` : "";
-  return `${brief.region} ${dayDisplayLabel(brief.region, brief.days)} 코스${repPart}. 일자별 동선 지도 · 이동 시간 · 평점 정리.`;
+  return `${brief.region} ${dayDisplayLabel(brief.region, brief.days)} 코스${repPart}. 일자별 동선 지도 · 이동 시간 정리.`;
 }
 
 /** 일자별 스팟 묶음 — spot.day 기준(1일차부터), 비어 있는 날은 건너뛴다. */
@@ -345,7 +340,7 @@ export function buildCourseHubTitle(regionCount: number): string {
 }
 
 export function buildCourseHubDescription(regionCount: number, pageCount: number): string {
-  return `${regionCount}개 도시, ${pageCount}개 여행 코스를 한눈에. 일정별(당일치기·1박2일·2박3일…) 일자별 동선 지도 · 이동 시간 · 평점을 정리했어요.`;
+  return `${regionCount}개 도시, ${pageCount}개 여행 코스를 한눈에. 일정별(당일치기·1박2일·2박3일…) 일자별 동선 지도 · 이동 시간을 정리했어요.`;
 }
 
 /** 허브 JSON-LD — CollectionPage + 코스 페이지 ItemList + BreadcrumbList. */
