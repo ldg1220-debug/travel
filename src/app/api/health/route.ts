@@ -7,7 +7,10 @@ import { BLOB_ADVANCED_MONTHLY_LIMIT, getBlobAdvancedOps, isBlobLimitError } fro
 /**
  * 상태 점검 — 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" §3⑤. Cowork 이 주기적으로 부른다.
  * blob 은 읽기 1회(없는 경로의 get — Simple Operation 이고 null 이면 정상)로 한도·정지 오류를 감지하고, 우리가 센 이번 달 Advanced 사용량 추정치를 함께 낸다.
- * 비밀 값은 싣지 않는다. 하나라도 실패하면 503.
+ * 비밀 값은 싣지 않는다.
+ *
+ * 작업지시서 2026-10-20 "v42가 적용되지 않습니다" A-2 — `ok`(와 HTTP 503)는 DB 기준이다. Blob 한도·오류는 `blob.status` 와 `warnings` 로만 알린다: 지금은 지도 계열을 Blob 에 쓰지 않고
+ * (후기 사진 업로드만 put), 기존 이미지는 한도 중에도 열리는데 Blob 한 가지 때문에 서비스 전체 상태를 503 으로 보는 건 과하다.
  */
 export const dynamic = "force-dynamic";
 export const maxDuration = 15;
@@ -37,10 +40,13 @@ async function checkDb(): Promise<{ status: "ok" | "error"; message?: string }> 
 
 export async function GET() {
   const [blob, db, maps] = await Promise.all([checkBlob(), checkDb(), getMapsUsage()]);
-  const ok = db.status === "ok" && (blob.status === "ok" || blob.status === "unconfigured");
+  const ok = db.status === "ok";
+  const warnings: string[] = [];
+  if (blob.status === "limit" || blob.status === "error") warnings.push(`blob ${blob.status}: ${blob.message ?? ""}`.trim());
   return NextResponse.json(
     {
       ok,
+      warnings,
       db,
       blob,
       staticMapsKey: Boolean(process.env.GOOGLE_MAPS_SERVER_KEY),
