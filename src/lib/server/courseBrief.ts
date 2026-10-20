@@ -1,7 +1,8 @@
 import { regionCoords } from "@/lib/regionTypicalDays";
 import { PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS } from "@/lib/server/placesRetention";
-import { currentMapsSource, isMapsBudgetExhausted, reserveMapsOp } from "@/lib/server/mapsBudget";
+import { currentMapsSource, isMapsBudgetExhausted, reserveMapsOp, runWithMapsSource } from "@/lib/server/mapsBudget";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { after } from "next/server";
 import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
@@ -4262,6 +4263,51 @@ export function dedupeInFlight<T>(inFlight: Map<string, Promise<T>>, key: string
 
 const inFlightBriefBuilds = new Map<string, Promise<CourseBrief>>();
 
+/** 같은 조합의 백그라운드 재생성을 10분에 한 번으로 묶는 DB 잠금(place_candidate_cache 행). 얻으면 true. 잠금 조회가 실패하면 시도하지 않는다(재생성은 어디까지나 최적화). */
+const REBUILD_LOCK_MINUTES = 10;
+export async function acquireRebuildLock(cacheKey: string): Promise<boolean> {
+  try {
+    const r = await pool.query(
+      `insert into place_candidate_cache (cache_key, payload) values ($1, '{}'::jsonb)
+       on conflict (cache_key) do update set payload = '{}'::jsonb, created_at = now()
+         where place_candidate_cache.created_at < now() - ($2 || ' minutes')::interval
+       returning cache_key`,
+      [`rebuild-lock:${cacheKey}`, String(REBUILD_LOCK_MINUTES)],
+    );
+    return (r.rowCount ?? 0) > 0;
+  } catch (err) {
+    console.error("[courseBrief] rebuild lock failed:", err);
+    return false;
+  }
+}
+
+/**
+ * 직전 버전 캐시를 서빙한 요청이 응답을 보낸 뒤 새 버전을 만든다 — Next.js `after()`(Vercel 에선 waitUntil)로 감싸 응답 직후 잘리지 않게 한다.
+ * 워밍과 같은 출처("warm")로 돌려 Places 사용량이 워밍 몫(오늘 상한의 50%) 안에 머물고, 사용자 직접 요청·검색의 몫을 먹지 않는다. 로그:
+ * `path=rebuild-start|rebuild-done|rebuild-fail reason=…|rebuild-skip reason=lock`. 요청 스코프 밖(테스트·스크립트)이면 `after` 가 던지므로 그냥 백그라운드로 띄운다.
+ */
+export function scheduleBackgroundRebuild(rawRegion: string, days: CourseDays, cacheKey: string): void {
+  const run = async () => {
+    try {
+      if (!(await acquireRebuildLock(cacheKey))) {
+        console.log(`[courseBrief] path=rebuild-skip key=${cacheKey} reason=lock`);
+        return;
+      }
+      console.log(`[courseBrief] path=rebuild-start key=${cacheKey}`);
+      const brief = await runWithMapsSource("warm", () => getCourseBrief(rawRegion, days));
+      console.log(`[courseBrief] path=rebuild-done key=${cacheKey} spots=${brief.spots.length} dayCounts=[${(brief.dayTotals ?? []).map((d) => d.spotCount).join(",")}]`);
+    } catch (err) {
+      const reason = err instanceof TransientApiFailureError ? `transient(spots=${err.spotCount})` : err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160);
+      console.warn(`[courseBrief] path=rebuild-fail key=${cacheKey} reason=${reason}`);
+    }
+  };
+  try {
+    after(run);
+  } catch {
+    void run(); // 요청 스코프 밖 — 기다리지 않고 띄운다
+  }
+}
+
 /**
  * GET /api/content/course-brief와 워밍 크론이 공통으로 쓰는 진입점 —
  * 별칭 정규화 → 캐시 확인 → 미스 시 buildBrief(같은 key는
@@ -4317,6 +4363,9 @@ export async function getCourseBrief(
     });
     if (previous) {
       console.log(`[courseBrief] path=stale-while-rebuild key=${cacheKey} from=v${previous.version} spots=${previous.brief.spots.length}`);
+      // 작업지시서 2026-10-20 "v42가 적용되지 않습니다" A-1 — 직전 버전을 내보내고 끝내면 새 버전은 워밍 크론(하루 지역 2개)만 만들어 사실상 멈춰 있었다. 응답을 보낸 뒤(`after`)
+      // 새 버전을 한 번 만든다 — 방문된 조합만, 워밍과 같은 몫(50%)의 페이싱 안에서, 같은 조합은 10분에 한 번만.
+      scheduleBackgroundRebuild(rawRegion, days, cacheKey);
       return previous.brief;
     }
   }
