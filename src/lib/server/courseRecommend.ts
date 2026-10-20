@@ -552,7 +552,12 @@ export async function googleTop(
 ): Promise<GooglePlace[]> {
   // Pro 필드만 쓰므로 Pro 한도(월 무료 5,000의 90%)와 하루 상한(text-search-all)만 지킨다 — 한도에 닿으면 이 검색을 건너뛴다.
   const guarded = await chooseGuardedMask("text", GOOGLE_TOP_FIELD_MASK);
-  if (!guarded) return [];
+  if (!guarded) {
+    // 작업지시서 2026-10-20 "#331 검증" §2② — 한도(일 페이싱 · 월 · 콘솔 하루 상한)로 건너뛴 것도 "이번 생성 중 후보 조회가 실패했다"로 알린다. 그래야 결과가 얇을 때 422(영구 미지원)가 아니라
+    // 503(일시 장애)·페이지 5xx 로 나가고 404 로 색인되지 않는다(#323 규칙). 사용자 요청은 그 전에 직전 버전 캐시(stale-while-rebuild)를 먼저 서빙한다.
+    onFailure?.(503);
+    return [];
+  }
   let res: Response;
   try {
     res = await fetch("https://places.googleapis.com/v1/places:searchText", {
@@ -980,6 +985,10 @@ export function isKoreanRestaurant(p: Place): boolean {
 
 // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" §1② — 품질 게이트에서 평점·리뷰 수 조건을 뺀다. 코스 후보는 평점을 받지 않는다(Enterprise 필드). 대신:
 // 영업 중(businessStatus OPERATIONAL — googleTop 이 걸러 둔다) · 관광과 무관한 시설 유형 제외 · 이후 단계의 중복/체인/지역 반경/랜드마크 우선 규칙을 그대로 쓴다.
+const EATING_TYPES: ReadonlySet<string> = new Set([
+  "cafe", "coffee_shop", "restaurant", "bakery", "bar", "pub", "wine_bar", "cafeteria", "food_court", "fast_food_restaurant", "meal_takeaway", "meal_delivery",
+  "ice_cream_shop", "dessert_shop", "dessert_restaurant", "tea_house", "juice_shop", "candy_store", "night_club", "food",
+]);
 const NON_TOURISM_TYPES: ReadonlySet<string> = new Set([
   "atm", "bank", "gas_station", "electric_vehicle_charging_station", "parking", "car_dealer", "car_rental", "car_repair", "car_wash",
   "post_office", "courthouse", "local_government_office", "police", "fire_station", "embassy", "city_hall",
@@ -993,10 +1002,18 @@ const NON_TOURISM_TYPES: ReadonlySet<string> = new Set([
  * 예전엔 평점·리뷰 수 하한이었지만 평점은 더 이상 받지 않는다.
  */
 export function passesQualityGate(p: Place, scope: "overseas" | "domestic", slotCategory?: RecommendSlot["category"]): boolean {
-  void slotCategory; // 슬롯 카테고리별 하한은 평점 조건과 함께 없어졌다 — 호출부 시그니처만 유지
   if (scope === "domestic") return true;
   const type = p.category?.toLowerCase();
-  return !(type && NON_TOURISM_TYPES.has(type));
+  if (type && NON_TOURISM_TYPES.has(type)) return false;
+  // 작업지시서 2026-10-20 "#331 검증" §3⑦ — 명소 슬롯에 카페·식당·바가 섞여 들어오면(평점 정렬이 없으니 Google 순서에 그대로 올라온다) 하루에 카페 2곳 · 식당 연속이 생긴다.
+  // 명소 슬롯(attraction)은 먹고 마시는 곳 유형을 뺀다 — 식사·카페는 전용 슬롯(restaurant · cafe)의 몫이다.
+  if (slotCategory === "attraction" && type && isEatingPlaceType(type)) return false;
+  return true;
+}
+
+/** 먹고 마시는 곳의 Google primaryType 인가(카페·커피숍·식당류·바·베이커리·간이음식 등). */
+export function isEatingPlaceType(type: string): boolean {
+  return EATING_TYPES.has(type) || /_(restaurant|cafe|bar)$/.test(type);
 }
 
 /**
@@ -1043,7 +1060,7 @@ const LARGE_FACILITY_TYPES = new Set(["amusement_park", "theme_park", "water_par
 // 으로 종일시설이 된다 — 이전엔 타입이 없어 국내는 영향이 없었다.
 const LARGE_FACILITY_MIN_REVIEWS = 30000;
 const LARGE_FACILITY_NAME_PATTERN =
-  /유니버설|universal|\busj\b|디즈니|disney|캐리비안\s?베이|caribbean\s?bay|롯데월드|lotte\s?world|에버랜드|everland|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|씨월드|sea\s?world|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
+  /유니버설|universal|\busj\b|디즈니|disney|캐리비안\s?베이|caribbean\s?bay|롯데월드|lotte\s?world|에버랜드|everland|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|해양공원|하우스\s?텐보스|huis\s?ten\s?bosch|후지큐|fuji-?q|겐팅\s?스카이|skyworlds|씨월드|sea\s?world|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
 const LARGE_FACILITY_NAME_EXCLUDE =
   /스토어|\bstore\b|\bshop\b|숍|샵|카페|\bcafe\b|호텔|\bhotel\b|리조트\s?라인|resort\s?line|\bline\b|스테이션|\bstation\b|버스|\bbus\b|시티\s?워크|city\s?walk|타워|\btower\b|스카이|\bsky\b|\bmall\b|몰(?:\s|$)|아쿠아리움|aquarium|레스토랑|restaurant|식당|아울렛|outlet/i;
 export function isLargeFacility(p: { category?: string; name?: string; reviewCount?: number | null }): boolean {

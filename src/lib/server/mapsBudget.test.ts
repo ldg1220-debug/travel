@@ -167,7 +167,18 @@ describe("일 단위 페이싱", () => {
     fakeStore({ [mapsOpsKey("text-enterprise", NOW)]: 281, [mapsDayKey("text-enterprise", NOW)]: 38 });
     expect((await reserveMapsOp("text-enterprise", NOW)).allowed).toBe(false);
   });
-  it("Pro 등 페이싱 SKU 가 아닌 것은 일 상한 없이 월 한도만", async () => {
+  // 작업지시서 2026-10-20 "#331 검증" §2① — text-pro 도 같은 일 페이싱. 10/20 기준 (4500−1365)/12 ≈ 261/일, 워밍은 50%.
+  it("text-pro 도 일 페이싱 — 사용자는 오늘 상한까지, 워밍은 50%까지, 상한에 닿으면 거절", async () => {
+    const day20 = new Date("2026-10-20T15:00:00Z"); // 태평양 10/20 → 남은 날 12
+    expect(dailyPacingLimit(4500, 1365, daysRemainingInMonth(day20))).toBe(261);
+    // 오늘 이전 사용 1,365, 오늘 130건 → 월 1,495
+    fakeStore({ [mapsOpsKey("text-pro", day20)]: 1495, [mapsDayKey("text-pro", day20)]: 130 });
+    expect((await runWithMapsSource("warm", () => reserveMapsOp("text-pro", day20))).allowed).toBe(false); // 워밍 상한 130 도달
+    expect((await reserveMapsOp("text-pro", day20)).allowed).toBe(true); // 사용자는 261 까지
+    fakeStore({ [mapsOpsKey("text-pro", day20)]: 1626, [mapsDayKey("text-pro", day20)]: 261 });
+    expect((await reserveMapsOp("text-pro", day20)).allowed).toBe(false);
+  });
+  it("페이싱 SKU 가 아닌 것(static 등)은 일 상한 없이 월 한도만", async () => {
     fakeStore({ [mapsOpsKey("static", NOW)]: 8000, [mapsDayKey("static", NOW)]: 5000 });
     expect((await reserveMapsOp("static", NOW)).allowed).toBe(true);
   });
