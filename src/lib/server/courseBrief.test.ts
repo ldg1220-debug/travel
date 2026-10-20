@@ -33,6 +33,8 @@ import {
   computeViewport,
   dayMapPathname,
   dedupeByBrand,
+  capCafesPerDay,
+  dayOrderViolations,
   dedupeByProximity,
   dedupeInFlight,
   excludeOutlierSpots,
@@ -3223,5 +3225,46 @@ describe("cleanDisplayName — 키워드 나열형 상호명 꼬리 제거", () 
     expect(cleanDisplayName("황남 옛날 호프 맥주")).toBe("황남 옛날 호프 맥주");
     expect(cleanDisplayName("치킨 맥주 호프")).toBe("치킨 맥주 호프");
     expect(cleanDisplayName("경주 황리단길")).toBe("경주 황리단길");
+  });
+});
+
+
+// 작업지시서 2026-10-20 "#331 검증" §3⑦ — 평점 기반 선호가 사라진 뒤에도 하루 순서 규칙이 지켜진다.
+describe("하루 순서 규칙 — 첫 스팟 식당·카페 금지 · 식당 연속 금지 · 하루 카페 최대 1", () => {
+  const sp = (id: string, lat: number, extra: Partial<FinalStop> = {}) => stop(id, lat, 135, { name: id, category: "tourist_attraction", ...extra });
+  const meal = (id: string, lat: number) => sp(id, lat, { category: "restaurant", meal: true });
+  const cafe = (id: string, lat: number) => sp(id, lat, { category: "cafe", slotKey: "cafe" });
+  const ids = (xs: FinalStop[]) => xs.map((s) => s.id);
+
+  it("dayOrderViolations: 첫 스팟이 식당/카페면 1, 식당이 이어지면 쌍마다 1", () => {
+    expect(dayOrderViolations([sp("a", 35.0), meal("m", 35.01), sp("b", 35.02)])).toBe(0);
+    expect(dayOrderViolations([meal("m1", 35.0), meal("m2", 35.01), sp("b", 35.02)])).toBe(2); // 첫 스팟 식당 + 식당 연속
+    expect(dayOrderViolations([cafe("c", 35.0), sp("a", 35.01)])).toBe(1);
+    expect(dayOrderViolations([sp("a", 35.0), meal("m", 35.01), cafe("c", 35.02)])).toBe(0); // 식당 다음 카페는 허용
+  });
+
+  it("거리상 최단인 [식당1 → 식당2 → 명소]보다 규칙을 지키는 순서를 고른다(오사카 1일차 오니기리 → gogobebe 회귀)", () => {
+    // 위도 순으로 식당 둘이 맨 앞에 몰려 있다 — 거리만 보면 이 순서가 최단이다.
+    const day = [meal("onigiri", 35.0), meal("gogobebe", 35.001), sp("castle", 35.01), sp("tower", 35.02)];
+    const result = optimizeDayOrder(day);
+    expect(dayOrderViolations(result)).toBe(0);
+    expect(ids(result)[0]).not.toBe("onigiri");
+    expect(ids(result)[0]).not.toBe("gogobebe");
+    expect(new Set(ids(result))).toEqual(new Set(ids(day))); // 스팟은 그대로, 순서만
+  });
+
+  it("규칙을 지킬 수 없는 날(전부 식당)은 예전처럼 거리 기준만 따른다", () => {
+    const day = [meal("a", 35.0), meal("b", 35.01), meal("c", 35.02)];
+    expect(ids(optimizeDayOrder(day))).toHaveLength(3);
+  });
+
+  it("capCafesPerDay: 한 날 카페 2곳이면 인기(검색 순위) 높은 1곳만 남기고, 다른 날·비카페는 건드리지 않는다", () => {
+    const days = [
+      [sp("a", 35.0), cafe("c-weak", 35.01), cafe("c-strong", 35.02), meal("m", 35.03)],
+      [cafe("only", 35.0), sp("b", 35.01)],
+    ].map((d, i) => d.map((s) => ({ ...s, searchRank: s.id === "c-weak" ? 30 : s.id === "c-strong" ? 1 : i })));
+    const result = capCafesPerDay(days);
+    expect(ids(result[0])).toEqual(["a", "c-strong", "m"]);
+    expect(ids(result[1])).toEqual(["only", "b"]);
   });
 });

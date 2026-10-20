@@ -77,7 +77,8 @@ export function mapsOpsKey(sku: MapsSku, now = new Date()): string {
 // 일 단위 페이싱 · 호출 출처 — 작업지시서 2026-10-15 "긴급: 평점 검색(Enterprise) 하루 만에 243/900" §2①③.
 
 /** 일 단위 페이싱을 거는 SKU — 평점(Enterprise)을 월중 내내 쓰도록 월 예산을 날짜에 나눠 쓴다. */
-export const PACED_SKUS: ReadonlySet<MapsSku> = new Set<MapsSku>(["text-enterprise", "details-enterprise"]);
+// text-pro 는 작업지시서 2026-10-20 "#331 검증" §2① — 코스 후보 검색이 Pro 로 옮겨 오면서 하루 300 이 이어지면 월 4,500 이 월말 전에 바닥난다(10/30 전후). Enterprise 와 같은 일 페이싱을 건다.
+export const PACED_SKUS: ReadonlySet<MapsSku> = new Set<MapsSku>(["text-enterprise", "details-enterprise", "text-pro"]);
 /** 오늘 상한의 최소값 — 월 예산이 거의 바닥이어도 하루 이만큼은 쓴다. */
 export const DAILY_PACING_MIN = 10;
 /** 워밍 크론이 쓸 수 있는 오늘 상한의 비율 — 나머지는 사용자 요청용으로 남긴다. */
@@ -210,7 +211,7 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
       console.warn(`[mapsBudget] sku=${sku} count=? limit=${limit} action=quota429`);
       return { allowed: false, count: null, limit };
     }
-    // ② Enterprise 일 단위 페이싱
+    // ② 일 단위 페이싱(PACED_SKUS — Enterprise 두 SKU + text-pro)
     if (PACED_SKUS.has(sku)) {
       const [month, today] = await Promise.all([readMapsOps(sku, now), readMapsOpsToday(sku, now)]);
       if (month != null && today != null) {

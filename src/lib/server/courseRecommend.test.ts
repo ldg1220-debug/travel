@@ -172,6 +172,45 @@ describe("passesQualityGate", () => {
   });
 });
 
+describe("passesQualityGate — 명소 슬롯에는 먹고 마시는 곳 제외 (작업지시서 2026-10-20 '#331 검증' §3⑦)", () => {
+  it("attraction 슬롯에서 카페·식당·바·베이커리 유형은 떨어지고, 전용 슬롯(restaurant · cafe)에서는 통과한다", () => {
+    for (const category of ["cafe", "coffee_shop", "restaurant", "bar", "bakery", "japanese_restaurant", "ramen_restaurant"]) {
+      expect(passesQualityGate(place({ category }), "overseas", "attraction")).toBe(false);
+    }
+    expect(passesQualityGate(place({ category: "cafe" }), "overseas", "cafe")).toBe(true);
+    expect(passesQualityGate(place({ category: "japanese_restaurant" }), "overseas", "restaurant")).toBe(true);
+    expect(passesQualityGate(place({ category: "tourist_attraction" }), "overseas", "attraction")).toBe(true);
+    expect(passesQualityGate(place({ category: "cafe" }), "domestic", "attraction")).toBe(true); // 국내(Kakao)는 영향 없음
+  });
+});
+
+describe("isLargeFacility — 이름 사전 보강 (리뷰 수 규칙 대체)", () => {
+  it("홍콩해양공원 · Ocean Park · 하우스텐보스 · 후지큐 하이랜드는 종일시설이고, 역·상점은 아니다", () => {
+    for (const name of ["홍콩해양공원", "Ocean Park Hong Kong", "하우스텐보스", "후지큐 하이랜드", "Fuji-Q Highland"]) {
+      expect(isLargeFacility({ name, category: "amusement_park" })).toBe(true);
+    }
+    expect(isLargeFacility({ name: "오션파크 스테이션", category: "transit_station" })).toBe(false);
+    expect(isLargeFacility({ name: "디즈니 스토어", category: "store" })).toBe(false);
+  });
+});
+
+describe("googleTop — 한도로 건너뛰면 실패로 알린다 (작업지시서 2026-10-20 '#331 검증' §2②)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+  it("Pro 한도 0 이면 Google 을 부르지 않고 onFailure(503)로 알려 호출부가 422 가 아니라 503 으로 내게 한다", async () => {
+    vi.stubEnv("MAPS_BUDGET_OVERRIDE", '{"text-pro":0}');
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const onFailure = vi.fn();
+    const result = await googleTop("오사카 관광지", "test-key", undefined, undefined, onFailure);
+    expect(result).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onFailure).toHaveBeenCalledWith(503);
+  });
+});
+
 describe("applyQualityGate", () => {
   it("관광과 무관한 시설만 걸러내고 나머지는 순서 그대로 둔다", () => {
     const mixed = [
