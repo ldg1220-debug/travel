@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { get } from "@vercel/blob";
 import { pool } from "@/lib/server/db";
 import { getMapsUsage } from "@/lib/server/mapsBudget";
+import { COURSE_ALGO_VERSION } from "@/lib/server/courseBrief";
+import { getCourseBuildStatus } from "@/lib/server/courseBuildStatus";
 import { BLOB_ADVANCED_MONTHLY_LIMIT, getBlobAdvancedOps, isBlobLimitError } from "@/lib/server/blobBudget";
 
 /**
@@ -39,7 +41,7 @@ async function checkDb(): Promise<{ status: "ok" | "error"; message?: string }> 
 }
 
 export async function GET() {
-  const [blob, db, maps] = await Promise.all([checkBlob(), checkDb(), getMapsUsage()]);
+  const [blob, db, maps, courseBuild] = await Promise.all([checkBlob(), checkDb(), getMapsUsage(), getCourseBuildStatus(COURSE_ALGO_VERSION)]);
   const ok = db.status === "ok";
   const warnings: string[] = [];
   if (blob.status === "limit" || blob.status === "error") warnings.push(`blob ${blob.status}: ${blob.message ?? ""}`.trim());
@@ -52,6 +54,8 @@ export async function GET() {
       staticMapsKey: Boolean(process.env.GOOGLE_MAPS_SERVER_KEY),
       // 작업지시서 2026-10-14 "Places 호출 비용" §2① — SKU 별 이번 달 호출 수와 가드 상한(월 무료 한도의 90%). limit 에 닿으면 그 SKU 호출은 건너뛴다.
       maps,
+      // 작업지시서 2026-10-21 "v44 재생성 멈춤" §2④⑤ — 코스 새 버전이 만들어지고 있는지(예약 → 시작 → 완료/실패)와 오늘 방문·직전 버전 서빙 수. 비밀 값 없음.
+      courseBuild,
       checkedAt: new Date().toISOString(),
     },
     { status: ok ? 200 : 503, headers: { "cache-control": "no-store" } },
