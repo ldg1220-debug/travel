@@ -174,3 +174,16 @@ describe("courseSpotCategory — cafe 타입 레스토랑 (2026-10-13 #312 §4)"
     expect(c("cafe", "Pika's Cafe")).toBe("카페");
   });
 });
+
+
+// 작업지시서 2026-10-21 "3km 구간 대중교통 59분 · \"다리\"가 기타" §2②
+describe("courseSpotCategory — 다리·대교·Bridge·Bashi 는 관광지(기타 금지)", () => {
+  it.each(["고쿠라쿠바시 다리", "광안대교", "Tower Bridge", "도톤보리 에비스바시", "Nihonbashi Bashi", "日本橋"])("%s → 관광지", (name) => {
+    expect(c("tourist_attraction", name)).toBe("관광지");
+    expect(c("point_of_interest", name)).toBe("관광지");
+  });
+  it("음식 단어가 있으면 음식점으로 둔다(닭다리 식당) · 다리미 같은 단어는 다리가 아니다", () => {
+    expect(c("restaurant", "닭다리 식당")).toBe("음식점");
+    expect(c("point_of_interest", "다리미 박물관")).not.toBe("관광지");
+  });
+});

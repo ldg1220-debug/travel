@@ -65,6 +65,11 @@ export type CourseDays = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export interface CourseBriefSpot {
   name: string;
   /**
+   * 그 지역 랜드마크 풀(관광 명소 질의 `{지역} 관광명소`)에서의 응답 순서(1,2,3…) — 평점이 없어진 뒤의 "대표성" 신호다(작업지시서 2026-10-21 §2③). 풀에 없는 스팟은 생략한다.
+   * AutoPipeline 은 제목·FAQ 의 대표 명소로 가장 작은 값을 쓴다. 순수 추가 필드.
+   */
+  landmarkRank?: number;
+  /**
    * Google place id(해외 후보만 — 국내 Kakao id 는 넣지 않는다). 작업지시서 2026-10-16 "코스 → 일정 저장 후 장소 정보가 안 보임" §2-①:
    * 일정으로 저장될 때 상세(사진·평점·주소)를 런타임에 조회할 열쇠다. placeId 는 약관상 무기한 보관 가능 — 평점·사진·리뷰 수는 저장하지 않는다.
    */
@@ -348,7 +353,7 @@ const BRIEF_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS; // 하루 1회 워밍 + 다음
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 43; // 작업지시서 2026-10-21 "#333 검증" §3 — 야간형 스팟은 하루 마지막, 하루 카페 최대 1 을 재배치 뒤에도 보장, 종일시설 사전(해양 공원) 보강이 최종 결과를 바꾼다. 재생성은 방문 + 워밍 몫 안에서만(봇 제외). 이전 42: // // 작업지시서 2026-10-20 "#331 검증" §3 — 명소 슬롯에서 카페·식당 제외, 하루 순서 규칙(첫 스팟 식당·카페 금지 · 식당 연속 금지), 하루 카페 최대 1, 대표 랜드마크 days 곳, 종일시설 이름 보강이 최종 결과를 바꾼다. 일괄 재생성 금지(stale-while-rebuild·페이싱). 이전 41: // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 44; // 작업지시서 2026-10-21 "3km 구간 대중교통 59분" — 대중교통 상식 검사(구간 시간·이동수단)·다리 분류·spots[].landmarkRank 가 최종 결과를 바꾼다. 이전 43: // // 작업지시서 2026-10-21 "#333 검증" §3 — 야간형 스팟은 하루 마지막, 하루 카페 최대 1 을 재배치 뒤에도 보장, 종일시설 사전(해양 공원) 보강이 최종 결과를 바꾼다. 재생성은 방문 + 워밍 몫 안에서만(봇 제외). 이전 42: // // 작업지시서 2026-10-20 "#331 검증" §3 — 명소 슬롯에서 카페·식당 제외, 하루 순서 규칙(첫 스팟 식당·카페 금지 · 식당 연속 금지), 하루 카페 최대 1, 대표 랜드마크 days 곳, 종일시설 이름 보강이 최종 결과를 바꾼다. 일괄 재생성 금지(stale-while-rebuild·페이싱). 이전 41: // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -862,8 +867,15 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
  * 반출 제한). 그래서 해외 도보만 Google walking을 새로 태우고, 국내
  * 도보는 여전히 직선 추정(§4 "국내 도보는 직선일 수밖에 없다")을 쓴다.
  */
-const TRANSIT_OUTLIER_MIN_MINUTES = 50;
-const TRANSIT_OUTLIER_MAX_KM = 3;
+/** 이 거리(km) 이하로 대중교통이 비상식이면 도보로 바꾼다(그 위는 차량). */
+const TRANSIT_SANITY_WALK_MAX_KM = 2;
+/**
+ * 대중교통 소요시간이 직선거리에 비해 비상식인가 — transit 분 > max(25, d×12) 이거나 transit 분 > 도보 추정(d×15).
+ * 예: 3.1km 59분(한도 37) → 비상식, 1km 20분(도보 15분보다 길다) → 비상식, 5km 40분(한도 60) → 정상.
+ */
+export function isTransitImplausible(transitMinutes: number, km: number): boolean {
+  return transitMinutes > Math.max(25, km * 12) || transitMinutes > km * 15;
+}
 
 async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, plannedMode: TravelMode): Promise<RouteResult | "no-route"> {
   let mode = plannedMode;
@@ -892,18 +904,25 @@ async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, p
     console.log(`[courseBrief] route-fail ${legCoordsLabel(a, b)} mode=transit status=${transitStatus} fallback=driving ${fallback ? "ok" : "failed"}`);
   }
   mode = effectiveMode;
-  // 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다" §3③ — 직선 3km 이하인데 대중교통이 50분 이상(오사카 성 → 나가자키초
-  // 59분)이면 이상치다. 도보·차 경로를 조회해 그중 짧은 쪽으로 바꾼다(둘 다 못 구하면 대중교통 값을 그대로 둔다).
-  if (mode === "transit" && scope === "overseas" && outcome != null && outcome !== "no-route" && outcome.durationMinutes >= TRANSIT_OUTLIER_MIN_MINUTES && haversineKm(a, b) <= TRANSIT_OUTLIER_MAX_KM) {
-    const [walk, drive] = await Promise.all([fetchGoogleDirectionsRoute(a, b, "walking"), fetchGoogleDirectionsRoute(a, b, "driving")]);
-    const options: { m: RouteMeasurement; mode: TravelMode }[] = [];
-    if (walk != null && walk !== "no-route") options.push({ m: walk, mode: "walk" });
-    if (drive != null && drive !== "no-route") options.push({ m: drive, mode: "car" });
-    const shortest = options.sort((x, y) => x.m.durationMinutes - y.m.durationMinutes)[0];
-    if (shortest && shortest.m.durationMinutes < outcome.durationMinutes) {
-      console.log(`[courseBrief] route-outlier ${legCoordsLabel(a, b)} transit=${outcome.durationMinutes}분 → ${shortest.mode}=${shortest.m.durationMinutes}분(직선 ${haversineKm(a, b).toFixed(1)}km)`);
-      outcome = shortest.m;
-      mode = shortest.mode;
+  // 대중교통 상식 검사 — 작업지시서 2026-10-21 "3km 구간 대중교통 59분": 직선거리 d(km)에 대해 transit 분이 max(25, d×12)보다 크거나 도보 추정(d×15)보다 크면
+  // Directions 의 대중교통 결과를 버린다(2026-10-12 §3③ 의 "3km 이하 50분 이상" 이상치 규칙을 일반화 — 고쿠라쿠바시 → gogobebe 3.1km 59분이 3km 선 바로 밖이라 빠져나갔다).
+  // 버린 뒤: d ≤ 2km 면 도보, 그 밖엔 차량(택시). 실제 경로를 못 구하면 직선 추정으로 대신한다. 차량으로 바뀐 구간은 toNextFallback="driving" 표기를 유지한다.
+  if (mode === "transit" && scope === "overseas" && outcome != null && outcome !== "no-route") {
+    const km = haversineKm(a, b);
+    if (isTransitImplausible(outcome.durationMinutes, km)) {
+      const replacementMode: TravelMode = km <= TRANSIT_SANITY_WALK_MAX_KM ? "walk" : "car";
+      const real = await fetchGoogleDirectionsRoute(a, b, replacementMode === "walk" ? "walking" : "driving");
+      const measurement: RouteMeasurement =
+        real != null && real !== "no-route"
+          ? real
+          : (() => {
+              const est = straightRouteMeasurement(a, b, replacementMode);
+              return { distanceKm: est.distanceKm, durationMinutes: est.durationMinutes, mapPath: est.mapPath, points: est.points };
+            })();
+      console.log(`[courseBrief] transit-sanity from=${a.lat.toFixed(4)},${a.lng.toFixed(4)} to=${b.lat.toFixed(4)},${b.lng.toFixed(4)} km=${km.toFixed(1)} transit=${outcome.durationMinutes} → mode=${replacementMode} min=${measurement.durationMinutes}`);
+      outcome = measurement;
+      mode = replacementMode;
+      if (replacementMode === "car") fallback = "driving";
     }
   }
   if (outcome === "no-route") return "no-route";
@@ -2366,6 +2385,7 @@ export function assembleDaySpots(stops: FinalStop[], segments: RouteResult[], ba
     return {
       name: displayName,
       ...(isLiveGooglePlaceId(stop.placeId) ? { placeId: stop.placeId } : {}),
+      ...(stop.landmarkRank != null ? { landmarkRank: stop.landmarkRank } : {}),
       ...(displayName !== stop.name ? { originalName: stop.name } : {}),
       category: courseSpotCategory({ category: stop.category, name: stop.name, beach: isBeach(stop) }),
       ...(isBeach(stop) ? { beach: true as const } : {}),
@@ -3961,6 +3981,27 @@ export function placeCityAnchors(dayStops: FinalStop[][], anchors: Place[], defi
 }
 
 /**
+ * 최종 스팟에 landmarkRank 를 단다 — 그 지역 랜드마크 풀(`fetchLandmarkCandidates`, 이미 이 빌드에서 가져와 후보 캐시에 있어 보통 DB 읽기만 한다)에서의 응답 순서(1부터).
+ * 풀의 장소와 id 가 같거나(해외) 같은 자리(300m 안 + 이름 포함, 국내 Kakao id 포함)면 같은 장소로 본다. 풀을 못 가져오면 순위 없이 둔다. 스팟 객체에 직접 쓴다(이 빌드가 막 만든 사본).
+ */
+async function annotateLandmarkRanks(scope: CourseBriefScope, region: string, dayGroups: FinalStop[][], onCandidateFetchFailure?: (status: number) => void): Promise<void> {
+  try {
+    const pool = await fetchLandmarkCandidates(scope, region, onCandidateFetchFailure);
+    let matched = 0;
+    for (const stop of dayGroups.flat()) {
+      const idx = pool.findIndex((p) => p.id === stop.id || isDuplicateStop(p as FinalStop, stop, region));
+      if (idx >= 0) {
+        stop.landmarkRank = idx + 1;
+        matched++;
+      }
+    }
+    console.log(`[courseBrief] path=landmark-rank ${scope}/${region} pool=${pool.length} matched=${matched}`);
+  } catch (err) {
+    console.error("[courseBrief] landmark rank annotate failed:", err);
+  }
+}
+
+/**
  * 작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
  * 없습니다" §2·§3 — 도시형 코스는 "그 도시에서 가장 많이 가는 곳"이
  * 먼저 확정돼야 하는데, 실측(경주 2박3일)에서 전부 빠져 있었다. 테마
@@ -3996,7 +4037,7 @@ async function ensureCityLandmarkAnchors(
   // 작업지시서 2026-10-20 "#331 검증" §3⑥ — 평점이 없으니 랜드마크 질의 순위(tourist_attraction 관련도·인지도)가 인기 신호다. 대표 랜드마크를 코스 전체에 최소 days 곳(하루 1곳씩) 포함한다.
   const anchorCount = Math.max(CITY_ANCHOR_COUNT, days);
   const picked = pickLandmarkAnchors(candidates, flat, anchorCount + deficit, Math.max(CITY_ANCHOR_POOL_SIZE, anchorCount + deficit + 3));
-  console.log(`[courseBrief] path=city-anchors ${region} before=${flat.length} minTotal=${minTotal} deficit=${deficit} candidates=${candidates.length} anchors=${picked.map((a) => a.name).join(", ") || "none"}`);
+  console.log(`[courseBrief] path=city-anchors ${region} before=${flat.length} minTotal=${minTotal} deficit=${deficit} candidates=${candidates.length} anchors=${picked.map((a) => a.name).join(", ") || "none"} pool=[${candidates.slice(0, 10).map((p, i) => `${i + 1}:${p.name}`).join(" | ")}]`);
   if (picked.length === 0) return dayStops;
   return placeCityAnchors(dayStops, picked, deficit);
 }
@@ -4087,6 +4128,7 @@ export async function buildBrief(
   // 작업지시서 2026-10-21 "#333 검증" §3 — 하루 카페 최대 1을 재배치·앵커·보충이 끝난 뒤 한 번 더 건다(앞선 캡 뒤에 다른 날 카페가 옮겨 와 같은 날 카페가 둘이 된다: 칭다오 2일차).
   const finalDayGroups = orderDaysWithLog(`${scope}/${region}`, capCafesPerDay(anchoredDayGroups, minViableSpots(style, days)), (s) => hasRatingHint(scope, region, s));
   console.log(`[courseBrief] path=composed ${scope}/${region} counts=${counts(finalDayGroups)}`);
+  await annotateLandmarkRanks(scope, region, finalDayGroups, onCandidateFetchFailure);
 
   // 하루 안의 구간(순서상 이웃한 두 스톱)마다 실제 경로를 조회한다 —
   // 작업지시서 2026-09-08 "이동 거리·시간이 직선거리입니다" §3. 경로가
