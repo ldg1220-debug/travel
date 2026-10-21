@@ -1,5 +1,6 @@
 import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { randomUUID } from "node:crypto";
+import { isBotUserAgent } from "@/lib/botUserAgent";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { pool } from "@/lib/server/db";
@@ -200,7 +201,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   let brief;
   try {
     console.log(`[courseBrief] route=course-open region=${region} days=${days}`);
-    brief = reuseBrief ?? (await getCourseBrief(region, days));
+    brief = reuseBrief ?? (await getCourseBrief(region, days, undefined, { requestSource: isBotUserAgent(request.headers.get("user-agent")) ? "bot" : "user" }));
   } catch (err) {
     // 작업지시서 2026-09-14 §3 — 이 라우트는 blog CTA가 그대로 리다이렉트로
     // 여는 인증 없는 GET이라, course-brief처럼 raw JSON을 주는 대신 기존

@@ -84,7 +84,12 @@ export const DAILY_PACING_MIN = 10;
 /** 워밍 크론이 쓸 수 있는 오늘 상한의 비율 — 나머지는 사용자 요청용으로 남긴다. */
 export const WARM_SHARE_OF_DAILY = 0.5;
 
-export type MapsCallSource = "user" | "warm";
+/** "user"=사용자 요청 · "warm"=워밍 크론 · "rebuild"=사용자 방문이 응답 뒤에 일으킨 새 버전 재생성(작업지시서 2026-10-21 §2② — 하루 Pro 사용량을 출처별로 센다). */
+export type MapsCallSource = "user" | "warm" | "rebuild";
+/** 워밍·재생성은 오늘 상한의 일부(WARM_SHARE_OF_DAILY)까지만 쓴다 — 나머지는 사용자 요청 몫. */
+export function isBackgroundSource(source: MapsCallSource | undefined): boolean {
+  return source === "warm" || source === "rebuild";
+}
 const sourceContext = new AsyncLocalStorage<MapsCallSource>();
 /** fn 안에서 일어나는 모든 Places/Maps 호출을 source 로 센다(워밍 크론은 "warm"). */
 export function runWithMapsSource<T>(source: MapsCallSource, fn: () => Promise<T>): Promise<T> {
@@ -130,6 +135,10 @@ export function aggLimit(agg: MapsDailyAgg): number {
 type CounterName = MapsSku | MapsDailyAgg;
 export function mapsDayKey(name: CounterName, now = new Date()): string {
   return `maps-ops-day:${name}:${ptDateString(now)}`;
+}
+/** 출처별 오늘 호출 수(페이싱 SKU) — `/api/health` 의 todayBySource. */
+export function mapsSourceDayKey(sku: MapsSku, source: MapsCallSource, now = new Date()): string {
+  return `maps-ops-day-src:${sku}:${source}:${ptDateString(now)}`;
 }
 export function mapsQuota429Key(name: CounterName, now = new Date()): string {
   return `maps-429:${name}:${ptDateString(now)}`;
@@ -216,7 +225,7 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
       const [month, today] = await Promise.all([readMapsOps(sku, now), readMapsOpsToday(sku, now)]);
       if (month != null && today != null) {
         const todayLimit = dailyPacingLimit(limit, month - today, daysRemainingInMonth(now));
-        const cap = sourceContext.getStore() === "warm" ? Math.floor(todayLimit * WARM_SHARE_OF_DAILY) : todayLimit;
+        const cap = isBackgroundSource(sourceContext.getStore()) ? Math.floor(todayLimit * WARM_SHARE_OF_DAILY) : todayLimit;
         if (today >= cap) {
           console.warn(`[mapsBudget] sku=${sku} today=${today} todayLimit=${todayLimit} cap=${cap} source=${sourceContext.getStore() ?? "user"} action=pacing`);
           return { allowed: false, count: month, limit };
@@ -237,6 +246,7 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
     );
     if (r.rows.length > 0) {
       await bump(mapsDayKey(sku, now), 1);
+      if (PACED_SKUS.has(sku)) await bump(mapsSourceDayKey(sku, currentMapsSource(), now), 1);
       return { allowed: true, count: r.rows[0].n, limit };
     }
     if (aggReserved && agg) await bump(mapsDayKey(agg, now), -1); // 월 한도에서 막혔으니 집계 예약을 되돌린다
@@ -264,7 +274,7 @@ export async function reserveAggregate(agg: MapsDailyAgg, now = new Date()): Pro
       console.warn(`[mapsBudget] agg=${agg} limit=${limit} action=quota429`);
       return false;
     }
-    const cap = sourceContext.getStore() === "warm" ? Math.floor(limit * WARM_SHARE_OF_DAILY) : limit;
+    const cap = isBackgroundSource(sourceContext.getStore()) ? Math.floor(limit * WARM_SHARE_OF_DAILY) : limit;
     const r = await pool.query<{ n: number }>(
       `insert into place_candidate_cache (cache_key, payload) values ($1, jsonb_build_object('count', 1))
        on conflict (cache_key) do update
@@ -287,6 +297,7 @@ export async function releaseMapsOp(sku: MapsSku, now = new Date()): Promise<voi
   try {
     await bump(mapsOpsKey(sku, now), -1);
     await bump(mapsDayKey(sku, now), -1);
+    if (PACED_SKUS.has(sku)) await bump(mapsSourceDayKey(sku, currentMapsSource(), now), -1);
     const agg = aggFor(sku);
     if (agg) await bump(mapsDayKey(agg, now), -1);
   } catch (err) {
@@ -345,7 +356,7 @@ export async function isMapsThrottled(sku: MapsSku, now = new Date()): Promise<b
     if (((await readCounter(mapsQuota429Key(agg ?? sku, now))) ?? 0) > 0) return true;
     if (agg) {
       const aggToday = await readCounter(mapsDayKey(agg, now));
-      const aggCap = currentMapsSource() === "warm" ? Math.floor(aggLimit(agg) * WARM_SHARE_OF_DAILY) : aggLimit(agg);
+      const aggCap = isBackgroundSource(currentMapsSource()) ? Math.floor(aggLimit(agg) * WARM_SHARE_OF_DAILY) : aggLimit(agg);
       if (aggToday != null && aggToday >= aggCap) return true;
     }
     const month = await readMapsOps(sku, now);
@@ -354,7 +365,7 @@ export async function isMapsThrottled(sku: MapsSku, now = new Date()): Promise<b
       const today = await readMapsOpsToday(sku, now);
       if (month != null && today != null) {
         const todayLimit = dailyPacingLimit(limit, month - today, daysRemainingInMonth(now));
-        const cap = currentMapsSource() === "warm" ? Math.floor(todayLimit * WARM_SHARE_OF_DAILY) : todayLimit;
+        const cap = isBackgroundSource(currentMapsSource()) ? Math.floor(todayLimit * WARM_SHARE_OF_DAILY) : todayLimit;
         return today >= cap;
       }
     }
@@ -373,6 +384,8 @@ export async function isMapsBudgetExhausted(sku: MapsSku, now = new Date()): Pro
 }
 
 export interface MapsSkuUsage {
+  /** 페이싱 SKU 의 오늘 호출 수를 출처별로(user · warm · rebuild) — 봇 요청은 호출을 일으키지 않으므로 항목이 없다(작업지시서 2026-10-21 §2②). */
+  todayBySource?: Record<MapsCallSource, number | null>;
   count: number | null;
   limit: number;
   freeLimit: number;
@@ -405,7 +418,17 @@ export async function getMapsUsage(now = new Date()): Promise<MapsUsage> {
   const rows = await Promise.all(
     skus.map(async (s) => {
       const [count, todayCount, todayLimit] = await Promise.all([readMapsOps(s, now), readMapsOpsToday(s, now), todayLimitFor(s, now)]);
-      return { count, limit: mapsBudgetLimit(s), freeLimit: MAPS_FREE_LIMITS[s], todayCount, todayLimit };
+      const bySource = PACED_SKUS.has(s)
+        ? await Promise.all((["user", "warm", "rebuild"] as const).map(async (src) => [src, await readCounter(mapsSourceDayKey(s, src, now))] as const))
+        : null;
+      return {
+        count,
+        limit: mapsBudgetLimit(s),
+        freeLimit: MAPS_FREE_LIMITS[s],
+        todayCount,
+        todayLimit,
+        ...(bySource ? { todayBySource: Object.fromEntries(bySource) as Record<MapsCallSource, number | null> } : {}),
+      };
     }),
   );
   const [textSearchAll, getPlaceAll] = await Promise.all([dailyUsage("text-search-all", now), dailyUsage("get-place-all", now)]);

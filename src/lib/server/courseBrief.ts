@@ -1,6 +1,6 @@
 import { regionCoords } from "@/lib/regionTypicalDays";
 import { PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS } from "@/lib/server/placesRetention";
-import { currentMapsSource, isMapsBudgetExhausted, reserveMapsOp, runWithMapsSource } from "@/lib/server/mapsBudget";
+import { currentMapsSource, isBackgroundSource, isMapsBudgetExhausted, reserveMapsOp, runWithMapsSource } from "@/lib/server/mapsBudget";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after } from "next/server";
 import type { Place } from "@/lib/types";
@@ -348,7 +348,7 @@ const BRIEF_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS; // 하루 1회 워밍 + 다음
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 42; // 작업지시서 2026-10-20 "#331 검증" §3 — 명소 슬롯에서 카페·식당 제외, 하루 순서 규칙(첫 스팟 식당·카페 금지 · 식당 연속 금지), 하루 카페 최대 1, 대표 랜드마크 days 곳, 종일시설 이름 보강이 최종 결과를 바꾼다. 일괄 재생성 금지(stale-while-rebuild·페이싱). 이전 41: // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 43; // 작업지시서 2026-10-21 "#333 검증" §3 — 야간형 스팟은 하루 마지막, 하루 카페 최대 1 을 재배치 뒤에도 보장, 종일시설 사전(해양 공원) 보강이 최종 결과를 바꾼다. 재생성은 방문 + 워밍 몫 안에서만(봇 제외). 이전 42: // // 작업지시서 2026-10-20 "#331 검증" §3 — 명소 슬롯에서 카페·식당 제외, 하루 순서 규칙(첫 스팟 식당·카페 금지 · 식당 연속 금지), 하루 카페 최대 1, 대표 랜드마크 days 곳, 종일시설 이름 보강이 최종 결과를 바꾼다. 일괄 재생성 금지(stale-while-rebuild·페이싱). 이전 41: // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -1172,7 +1172,22 @@ export function dayOrderViolations(stops: readonly FinalStop[]): number {
   let v = 0;
   if (body.length > 0 && (isRestaurantStop(body[0]) || isCafeStop(body[0]))) v++;
   for (let i = 0; i < body.length - 1; i++) if (isRestaurantStop(body[i]) && isRestaurantStop(body[i + 1])) v++;
+  // 작업지시서 2026-10-21 "#333 검증" §3 — 야간형(저녁 쇼·야시장·야경·루프탑 바)은 그날 마지막(마지막 max(2, 야간 수)곳 안)이어야 한다. 심포니 오브 라이트(저녁 8시)가 1일차 맨 앞에 왔다.
+  const nightCount = body.filter(isNightStop).length;
+  if (nightCount > 0) {
+    const allowedFrom = body.length - Math.max(2, nightCount);
+    body.forEach((s, i) => {
+      if (isNightStop(s) && i < allowedFrom) v++;
+    });
+  }
   return v;
+}
+
+const NIGHT_PATTERN = /심포니\s?오브\s?라이트|symphony of lights|야시장|night\s?market|야경|night\s?view|루프탑|rooftop|light\s?show|레이저\s?쇼|라이트\s?쇼/i;
+/** 야간형 스팟인가 — 야경 슬롯에서 온 것이거나, 이름이 저녁 쇼·야시장·야경·루프탑 바. 숙소·식사는 아니다. */
+export function isNightStop(s: FinalStop): boolean {
+  if (s.meal || isLodging(s)) return false;
+  return s.slotKey === "night" || NIGHT_PATTERN.test(s.name ?? "");
 }
 
 /** 규칙 위반 1건을 이만큼의 거리(km)로 환산해 경로 비용에 더한다 — 하루 경로(수 km~수십 km)보다 훨씬 크다. */
@@ -3302,12 +3317,16 @@ export async function composeResortDays(
  * 하루 카페 최대 1곳 — 작업지시서 2026-10-20 "#331 검증" §3⑦. 카페 슬롯은 하루 1개인데 명소 슬롯에 카페가 섞이면 한 날에 2곳이 된다(홍콩 1일차 "카페 → … → 카페").
  * 후보 단계(명소 슬롯에서 먹고 마시는 유형 제외)가 먼저 막고, 그래도 남은 초과분은 그날 인기(검색 순위) 낮은 카페부터 뺀다. 카페가 아닌 스팟은 건드리지 않는다.
  */
-export function capCafesPerDay(dayGroups: FinalStop[][]): FinalStop[][] {
+export function capCafesPerDay(dayGroups: FinalStop[][], minTotal: number = 0): FinalStop[][] {
+  let total = dayGroups.reduce((n, d) => n + d.length, 0);
   return dayGroups.map((day) => {
     const cafes = day.filter((s) => !s.meal && isCafeStop(s));
     if (cafes.length <= 1) return day;
     const keep = [...cafes].sort((a, b) => popularity(b) - popularity(a))[0];
-    return day.filter((s) => !cafes.includes(s) || s === keep);
+    // 총량이 최소(minTotal) 아래로 내려가면 더 빼지 않는다 — 얇은 코스를 만들지 않는다.
+    const drop = cafes.filter((c) => c !== keep).sort((a, b) => popularity(a) - popularity(b)).slice(0, Math.max(0, total - minTotal));
+    total -= drop.length;
+    return day.filter((s) => !drop.includes(s));
   });
 }
 
@@ -4065,7 +4084,8 @@ export async function buildBrief(
   // 스팟을 빼지 않고 순서만 바꾼다(§3-a 제외는 여전히 보류).
   // 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다" §2① — 앵커·보충·재배분·선착장 삽입이 모두 끝난 지금
   // 하루 단위로 순서를 다시 계산한다(평점 있는 스팟을 1번으로 두는 선호(§3-b)는 최적 길이와 거의 같을 때만 반영).
-  const finalDayGroups = orderDaysWithLog(`${scope}/${region}`, anchoredDayGroups, (s) => hasRatingHint(scope, region, s));
+  // 작업지시서 2026-10-21 "#333 검증" §3 — 하루 카페 최대 1을 재배치·앵커·보충이 끝난 뒤 한 번 더 건다(앞선 캡 뒤에 다른 날 카페가 옮겨 와 같은 날 카페가 둘이 된다: 칭다오 2일차).
+  const finalDayGroups = orderDaysWithLog(`${scope}/${region}`, capCafesPerDay(anchoredDayGroups, minViableSpots(style, days)), (s) => hasRatingHint(scope, region, s));
   console.log(`[courseBrief] path=composed ${scope}/${region} counts=${counts(finalDayGroups)}`);
 
   // 하루 안의 구간(순서상 이웃한 두 스톱)마다 실제 경로를 조회한다 —
@@ -4088,7 +4108,7 @@ export async function buildBrief(
   const routedDaysBeforeRebalance = routedDays.reduce((sum, d) => sum + d.stops.length, 0);
   {
     const before = routedDays.map((d) => d.stops);
-    const rebalanced = style === "resort" ? rebalanceResortDays(before) : balanceCityDayGroups(before, minViableSpots(style, days), region);
+    const rebalanced = capCafesPerDay(style === "resort" ? rebalanceResortDays(before) : balanceCityDayGroups(before, minViableSpots(style, days), region), minViableSpots(style, days));
     // 구성이 바뀐 날만 순서를 다시 계산한다(같은 구성의 날은 이미 라우팅된 순서 그대로 — 재라우팅 방지).
     const sameMembers = (a: FinalStop[], b: FinalStop[]) => a.length === b.length && a.every((s) => b.some((o) => o.id === s.id));
     const after = rebalanced.map((stops, i) => (sameMembers(stops, before[i]) ? before[i] : orderDaysWithLog(`${scope}/${region}(post-route)`, [stops], (st) => hasRatingHint(scope, region, st))[0]));
@@ -4283,7 +4303,7 @@ export async function acquireRebuildLock(cacheKey: string): Promise<boolean> {
 
 /**
  * 직전 버전 캐시를 서빙한 요청이 응답을 보낸 뒤 새 버전을 만든다 — Next.js `after()`(Vercel 에선 waitUntil)로 감싸 응답 직후 잘리지 않게 한다.
- * 워밍과 같은 출처("warm")로 돌려 Places 사용량이 워밍 몫(오늘 상한의 50%) 안에 머물고, 사용자 직접 요청·검색의 몫을 먹지 않는다. 로그:
+ * 출처 "rebuild"(워밍과 같은 몫 — 오늘 상한의 50% — 이지만 사용량은 따로 센다)로 돌려 Places 사용량이 그 안에 머물고, 사용자 직접 요청·검색의 몫을 먹지 않는다. 로그:
  * `path=rebuild-start|rebuild-done|rebuild-fail reason=…|rebuild-skip reason=lock`. 요청 스코프 밖(테스트·스크립트)이면 `after` 가 던지므로 그냥 백그라운드로 띄운다.
  */
 export function scheduleBackgroundRebuild(rawRegion: string, days: CourseDays, cacheKey: string): void {
@@ -4294,7 +4314,7 @@ export function scheduleBackgroundRebuild(rawRegion: string, days: CourseDays, c
         return;
       }
       console.log(`[courseBrief] path=rebuild-start key=${cacheKey}`);
-      const brief = await runWithMapsSource("warm", () => getCourseBrief(rawRegion, days));
+      const brief = await runWithMapsSource("rebuild", () => getCourseBrief(rawRegion, days));
       console.log(`[courseBrief] path=rebuild-done key=${cacheKey} spots=${brief.spots.length} dayCounts=[${(brief.dayTotals ?? []).map((d) => d.spotCount).join(",")}]`);
     } catch (err) {
       const reason = err instanceof TransientApiFailureError ? `transient(spots=${err.spotCount})` : err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160);
@@ -4323,9 +4343,12 @@ export async function getCourseBrief(
   rawRegion: string,
   days: CourseDays,
   enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS,
-  options: { refresh?: boolean } = {},
+  options: { refresh?: boolean; requestSource?: "user" | "bot" } = {},
 ): Promise<CourseBrief> {
   const region = resolveRegionAlias(rawRegion);
+  // 작업지시서 2026-10-21 "#333 검증" §2 — 검색 로봇(User-Agent 이름 목록)은 캐시(직전 버전 포함)가 있으면 그대로 받고, 재생성·방문 기록·워밍 대상 선정에 쓰이지 않는다.
+  const bot = options.requestSource === "bot";
+  console.log(`[course-brief] source=${isBackgroundSource(currentMapsSource()) ? currentMapsSource() : bot ? "bot" : "user"} region=${region} days=${days}`);
   // 작업지시서 2026-09-30 "#287 검증" §2 — 요청이 어느 경로로 가는지 조건 없이
   // 로그로 남긴다(진입 → path=… 분기). 필터 문자열: "[courseBrief] enter" ·
   // "[courseBrief] path=".
@@ -4356,7 +4379,7 @@ export async function getCourseBrief(
   }
   // 작업지시서 2026-10-15 장애 §3④⑤ — stale-while-rebuild: 사용자 요청이 새 버전 캐시가 없다고 재빌드를 유발하지 않는다. 같은 조합의 직전 버전 캐시(26시간 이내)가
   // 있으면 그걸 반환하고, 새 버전은 워밍 크론이 페이싱 안에서 천천히 만든다(방문 기록이 남아 있어 대상이 된다). 워밍 자신과 refresh 는 새로 만든다.
-  if (!options.refresh && currentMapsSource() !== "warm") {
+  if (!options.refresh && !isBackgroundSource(currentMapsSource())) {
     const previous = await readPreviousVersionBrief(scope, region, days).catch((err) => {
       console.error("[courseBrief] previous-version read failed:", err);
       return null;
@@ -4365,8 +4388,13 @@ export async function getCourseBrief(
       console.log(`[courseBrief] path=stale-while-rebuild key=${cacheKey} from=v${previous.version} spots=${previous.brief.spots.length}`);
       // 작업지시서 2026-10-20 "v42가 적용되지 않습니다" A-1 — 직전 버전을 내보내고 끝내면 새 버전은 워밍 크론(하루 지역 2개)만 만들어 사실상 멈춰 있었다. 응답을 보낸 뒤(`after`)
       // 새 버전을 한 번 만든다 — 방문된 조합만, 워밍과 같은 몫(50%)의 페이싱 안에서, 같은 조합은 10분에 한 번만.
-      scheduleBackgroundRebuild(rawRegion, days, cacheKey);
+      if (!bot) scheduleBackgroundRebuild(rawRegion, days, cacheKey);
       return previous.brief;
+    }
+    // 로봇은 캐시가 하나도 없으면 만들지 않는다 — 503(일시 불가)로 돌려 사이트맵 순회가 Places 호출을 일으키지 않게 한다(404 금지).
+    if (bot) {
+      console.log(`[courseBrief] path=bot-no-cache key=${cacheKey} (만들지 않음 → 503)`);
+      throw new TransientApiFailureError(region, 0);
     }
   }
   console.log(`[courseBrief] path=cache-miss key=${cacheKey} scope=${scope}`);

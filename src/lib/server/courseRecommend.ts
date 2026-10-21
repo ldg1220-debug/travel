@@ -571,6 +571,7 @@ export async function googleTop(
       },
       body: JSON.stringify({ textQuery: query, maxResultCount: 20, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
     });
+    console.log(`[courseRecommend] googleTop lang=ko type=${includedType ?? "-"} query="${query}"`); // 작업지시서 2026-10-21 §3 — 요청에 languageCode=ko 가 실리는지 로그로 남긴다
   } catch (err) {
     await settleGuarded(guarded, null); // 타임아웃·네트워크 오류 — Google 이 처리하지 않았으니 카운트를 되돌린다(작업지시서 2026-10-15 §2③)
     throw err;
@@ -1060,7 +1061,7 @@ const LARGE_FACILITY_TYPES = new Set(["amusement_park", "theme_park", "water_par
 // 으로 종일시설이 된다 — 이전엔 타입이 없어 국내는 영향이 없었다.
 const LARGE_FACILITY_MIN_REVIEWS = 30000;
 const LARGE_FACILITY_NAME_PATTERN =
-  /유니버설|universal|\busj\b|디즈니|disney|캐리비안\s?베이|caribbean\s?bay|롯데월드|lotte\s?world|에버랜드|everland|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|해양공원|하우스\s?텐보스|huis\s?ten\s?bosch|후지큐|fuji-?q|겐팅\s?스카이|skyworlds|씨월드|sea\s?world|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
+  /유니버설|universal|\busj\b|디즈니|disney|캐리비안\s?베이|caribbean\s?bay|롯데월드|lotte\s?world|에버랜드|everland|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|해양\s?공원|하우스\s?텐보스|huis\s?ten\s?bosch|후지큐|fuji-?q|겐팅\s?스카이|skyworlds|씨월드|sea\s?world|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
 const LARGE_FACILITY_NAME_EXCLUDE =
   /스토어|\bstore\b|\bshop\b|숍|샵|카페|\bcafe\b|호텔|\bhotel\b|리조트\s?라인|resort\s?line|\bline\b|스테이션|\bstation\b|버스|\bbus\b|시티\s?워크|city\s?walk|타워|\btower\b|스카이|\bsky\b|\bmall\b|몰(?:\s|$)|아쿠아리움|aquarium|레스토랑|restaurant|식당|아울렛|outlet/i;
 export function isLargeFacility(p: { category?: string; name?: string; reviewCount?: number | null }): boolean {

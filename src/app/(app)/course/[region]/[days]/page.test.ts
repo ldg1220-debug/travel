@@ -19,12 +19,16 @@ import type { CourseBrief, CourseBriefSpot } from "@/lib/server/courseBrief";
 // courseBrief.test.ts의 dedupeInFlight 테스트가 검증한다.
 
 const getCourseBriefMock = vi.fn<(region: string, days: 1 | 2 | 3) => Promise<CourseBrief>>();
+const lastOptions: { value?: { requestSource?: string } } = {};
 
 vi.mock("@/lib/server/courseBrief", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/server/courseBrief")>();
   return {
     ...actual,
-    getCourseBrief: (region: string, days: 1 | 2 | 3) => getCourseBriefMock(region, days),
+    getCourseBrief: (region: string, days: 1 | 2 | 3, _budget?: number, options?: { requestSource?: string }) => {
+      lastOptions.value = options;
+      return getCourseBriefMock(region, days);
+    },
   };
 });
 
@@ -33,7 +37,10 @@ vi.mock("@/lib/server/coursePageIndex", async (importOriginal) => {
   return { ...actual, fetchConfirmedCoursePages: vi.fn().mockResolvedValue([]) };
 });
 
-vi.mock("@/lib/server/courseVisits", () => ({ recordCourseVisit: vi.fn() }));
+const recordVisitMock = vi.fn();
+vi.mock("@/lib/server/courseVisits", () => ({ recordCourseVisit: (...a: unknown[]) => recordVisitMock(...a) }));
+const uaRef = { value: null as string | null };
+vi.mock("next/headers", () => ({ headers: async () => new Headers(uaRef.value ? { "user-agent": uaRef.value } : {}) }));
 
 vi.mock("@/lib/server/coursePageLinks", () => ({
   fetchRelatedTripPosts: vi.fn().mockResolvedValue([]),
@@ -287,5 +294,35 @@ describe("코스 상세 페이지 Google 출처 표시", () => {
     expect(html).toContain("장소 정보 제공:");
     expect(html).not.toContain("평점·리뷰 정보 제공:");
     expect(html).toMatch(/<span[^>]*translate="no"[^>]*>Google Maps<\/span>/);
+  });
+});
+
+
+// 작업지시서 2026-10-21 "#333 검증" §2① — 검색 로봇은 방문 기록·재생성을 일으키지 않는다.
+describe("코스 페이지 — 검색 로봇", () => {
+  beforeEach(() => {
+    getCourseBriefMock.mockReset();
+    getCourseBriefMock.mockResolvedValue(thickBrief());
+    recordVisitMock.mockReset();
+    uaRef.value = null;
+    lastOptions.value = undefined;
+  });
+
+  it("Googlebot/Yeti 는 requestSource=bot 이고 방문을 기록하지 않는다", async () => {
+    const { default: CoursePage } = await import("./page");
+    for (const ua of ["Mozilla/5.0 (compatible; Googlebot/2.1)", "Mozilla/5.0 (compatible; Yeti/1.1; +https://naver.me/spd)"]) {
+      uaRef.value = ua;
+      await CoursePage({ params: Promise.resolve({ region: "경주", days: "2박3일" }) });
+      expect(lastOptions.value).toMatchObject({ requestSource: "bot" });
+    }
+    expect(recordVisitMock).not.toHaveBeenCalled();
+  });
+
+  it("일반 브라우저는 user 이고 방문을 기록한다", async () => {
+    const { default: CoursePage } = await import("./page");
+    uaRef.value = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1";
+    await CoursePage({ params: Promise.resolve({ region: "경주", days: "2박3일" }) });
+    expect(lastOptions.value).toMatchObject({ requestSource: "user" });
+    expect(recordVisitMock).toHaveBeenCalledTimes(1);
   });
 });

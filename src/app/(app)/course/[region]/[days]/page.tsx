@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+import { isBotUserAgent } from "@/lib/botUserAgent";
 import { recordCourseVisit } from "@/lib/server/courseVisits";
 import { cache } from "react";
 import type { Metadata } from "next";
@@ -112,10 +114,18 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
     console.warn(`[course-page] gate rejected: region=${JSON.stringify(region)} daysSegment=${JSON.stringify(daysSegment)} reason=${route.reason}`);
     return { kind: "missing", reason: route.reason, permanent: true };
   }
-  recordCourseVisit(route.region, route.days); // 작업지시서 2026-10-14 §2③ — 워밍 크론은 최근 방문된 조합만 갱신한다
+  // 작업지시서 2026-10-21 "#333 검증" §2① — 검색 로봇은 방문 기록(워밍 대상)·재생성을 일으키지 않는다.
+  let userAgent: string | null = null;
+  try {
+    userAgent = (await headers()).get("user-agent");
+  } catch {
+    // 요청 스코프 밖(테스트·프리렌더) — 로봇이 아닌 것으로 본다
+  }
+  const bot = isBotUserAgent(userAgent);
+  if (!bot) recordCourseVisit(route.region, route.days); // 작업지시서 2026-10-14 §2③ — 워밍 크론은 최근 방문된 조합만 갱신한다
   let brief: CourseBrief;
   try {
-    brief = await getCourseBrief(route.region, route.days);
+    brief = await getCourseBrief(route.region, route.days, undefined, { requestSource: bot ? "bot" : "user" });
   } catch (err) {
     console.error(`[course-page] getCourseBrief threw: region=${route.region} days=${route.days}`, err);
     // 지원하지 않는 지역은 존재하지 않는 페이지(영구 404), 그 밖의 예외는 일시적 실패다.

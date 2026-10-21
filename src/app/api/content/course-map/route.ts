@@ -1,6 +1,7 @@
 import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { isBotUserAgent } from "@/lib/botUserAgent";
 import { getCourseBrief, loadCourseMapInput, parseDays, renderCourseMapPng, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
 import { resolveRegionAlias, styleForRegion } from "@/lib/discoverData";
 
@@ -54,7 +55,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   if (!input) {
     try {
       console.log(`[courseBrief] route=course-map region=${region} days=${days}`);
-      await getCourseBrief(region, days); // 코스가 만들어지면서 지도 입력도 함께 저장된다
+      await getCourseBrief(region, days, undefined, { requestSource: isBotUserAgent(request.headers.get("user-agent")) ? "bot" : "user" }); // 코스가 만들어지면서 지도 입력도 함께 저장된다
     } catch (err) {
       // course-brief/route.ts와 같은 이유(작업지시서 2026-09-14 §3) — 미지원
       // 지역엔 엉뚱한 코스 지도 대신 명시적으로 거부한다.

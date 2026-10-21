@@ -186,7 +186,7 @@ describe("passesQualityGate — 명소 슬롯에는 먹고 마시는 곳 제외 
 
 describe("isLargeFacility — 이름 사전 보강 (리뷰 수 규칙 대체)", () => {
   it("홍콩해양공원 · Ocean Park · 하우스텐보스 · 후지큐 하이랜드는 종일시설이고, 역·상점은 아니다", () => {
-    for (const name of ["홍콩해양공원", "Ocean Park Hong Kong", "하우스텐보스", "후지큐 하이랜드", "Fuji-Q Highland"]) {
+    for (const name of ["홍콩해양공원", "홍콩 해양 공원", "Ocean Park Hong Kong", "하우스텐보스", "후지큐 하이랜드", "Fuji-Q Highland"]) {
       expect(isLargeFacility({ name, category: "amusement_park" })).toBe(true);
     }
     expect(isLargeFacility({ name: "오션파크 스테이션", category: "transit_station" })).toBe(false);
