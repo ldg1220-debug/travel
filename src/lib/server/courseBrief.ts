@@ -3,6 +3,7 @@ import { PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS } from "@/lib/server/places
 import { currentMapsSource, isBackgroundSource, isMapsBudgetExhausted, reserveMapsOp, runWithMapsSource } from "@/lib/server/mapsBudget";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after } from "next/server";
+import { bumpCourseCounter, recordRebuildEvent } from "@/lib/server/courseBuildStatus";
 import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
@@ -4353,16 +4354,23 @@ export function scheduleBackgroundRebuild(rawRegion: string, days: CourseDays, c
     try {
       if (!(await acquireRebuildLock(cacheKey))) {
         console.log(`[courseBrief] path=rebuild-skip key=${cacheKey} reason=lock`);
+        await recordRebuildEvent({ key: cacheKey, result: "skipped-lock" });
         return;
       }
       console.log(`[courseBrief] path=rebuild-start key=${cacheKey}`);
+      await recordRebuildEvent({ key: cacheKey, result: "started" });
       const brief = await runWithMapsSource("rebuild", () => getCourseBrief(rawRegion, days));
-      console.log(`[courseBrief] path=rebuild-done key=${cacheKey} spots=${brief.spots.length} dayCounts=[${(brief.dayTotals ?? []).map((d) => d.spotCount).join(",")}]`);
+      const dayCounts = (brief.dayTotals ?? []).map((d) => d.spotCount).join(",");
+      console.log(`[courseBrief] path=rebuild-done key=${cacheKey} spots=${brief.spots.length} dayCounts=[${dayCounts}]`);
+      await recordRebuildEvent({ key: cacheKey, result: "ok", detail: `spots=${brief.spots.length}` });
     } catch (err) {
       const reason = err instanceof TransientApiFailureError ? `transient(spots=${err.spotCount})` : err instanceof Error ? err.message.slice(0, 160) : String(err).slice(0, 160);
       console.warn(`[courseBrief] path=rebuild-fail key=${cacheKey} reason=${reason}`);
+      await recordRebuildEvent({ key: cacheKey, result: "fail", detail: reason });
     }
   };
+  // 예약했다는 사실을 먼저 남긴다 — health 에서 "scheduled 인데 started 가 없다"면 after() 가 실행되지 않은 것이다(작업지시서 2026-10-21 "v44 재생성 멈춤" §2①).
+  void recordRebuildEvent({ key: cacheKey, result: "scheduled" });
   try {
     after(run);
   } catch {
@@ -4391,6 +4399,7 @@ export async function getCourseBrief(
   // 작업지시서 2026-10-21 "#333 검증" §2 — 검색 로봇(User-Agent 이름 목록)은 캐시(직전 버전 포함)가 있으면 그대로 받고, 재생성·방문 기록·워밍 대상 선정에 쓰이지 않는다.
   const bot = options.requestSource === "bot";
   console.log(`[course-brief] source=${isBackgroundSource(currentMapsSource()) ? currentMapsSource() : bot ? "bot" : "user"} region=${region} days=${days}`);
+  if (!isBackgroundSource(currentMapsSource())) await bumpCourseCounter(bot ? "bot" : "human"); // health courseBuild.visits*Today
   // 작업지시서 2026-09-30 "#287 검증" §2 — 요청이 어느 경로로 가는지 조건 없이
   // 로그로 남긴다(진입 → path=… 분기). 필터 문자열: "[courseBrief] enter" ·
   // "[courseBrief] path=".
@@ -4430,6 +4439,7 @@ export async function getCourseBrief(
       console.log(`[courseBrief] path=stale-while-rebuild key=${cacheKey} from=v${previous.version} spots=${previous.brief.spots.length}`);
       // 작업지시서 2026-10-20 "v42가 적용되지 않습니다" A-1 — 직전 버전을 내보내고 끝내면 새 버전은 워밍 크론(하루 지역 2개)만 만들어 사실상 멈춰 있었다. 응답을 보낸 뒤(`after`)
       // 새 버전을 한 번 만든다 — 방문된 조합만, 워밍과 같은 몫(50%)의 페이싱 안에서, 같은 조합은 10분에 한 번만.
+      await bumpCourseCounter("stale"); // health courseBuild.staleServedToday
       if (!bot) scheduleBackgroundRebuild(rawRegion, days, cacheKey);
       return previous.brief;
     }

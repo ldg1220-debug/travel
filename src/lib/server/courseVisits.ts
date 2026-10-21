@@ -73,3 +73,31 @@ export async function fetchRecentlyVisitedTasks(windowMs = VISIT_WINDOW_MS): Pro
     return [];
   }
 }
+
+
+/**
+ * 사이트맵에 오른 적 있는 (지역, 일수) — 최근에 확인된 순. 방문 기록이 없을 때(검색 로봇을 방문으로 세지 않게 된 뒤 사람 방문이 적은 날)
+ * 워밍 크론이 새 버전을 만들 대상이 비지 않게 하는 대체 목록이다(작업지시서 2026-10-21 "v44 재생성 멈춤" §2③). DB 오류면 빈 목록.
+ */
+export async function fetchSitemapTasks(limit = 300): Promise<WarmTask[]> {
+  try {
+    const r = await pool.query<{ region: string | null; days: string | null }>(
+      `select payload->>'region' as region, payload->>'days' as days
+         from place_candidate_cache
+        where cache_key like 'course-sitemap:%'
+        order by created_at desc
+        limit $1`,
+      [limit],
+    );
+    const out: WarmTask[] = [];
+    for (const row of r.rows) {
+      const days = Number(row.days);
+      if (!row.region || !Number.isInteger(days) || days < 1 || days > 7) continue;
+      out.push({ region: row.region, days: days as CourseDays });
+    }
+    return out;
+  } catch (err) {
+    console.error("[courseVisits] sitemap tasks fetch failed:", err);
+    return [];
+  }
+}
