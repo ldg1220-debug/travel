@@ -2,18 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { CourseBrief, CourseBriefSpot } from "@/lib/server/courseBrief";
 
+const recordVisitMock = vi.fn();
+vi.mock("@/lib/server/courseVisits", () => ({ recordCourseVisit: (...a: unknown[]) => recordVisitMock(...a) }));
+
 // 작업지시서 2026-09-29 "#280 검증" §2 — 코타키나발루 3일이 "count 6,
 // threshold 6"인데 "insufficient_spots"로 거절돼 사유가 오해됐다. 스팟 수
 // 부족과 해변 없음을 다른 error 코드로 구분한다. courseBrief.ts는 Postgres
 // pool을 끌고 오므로 page.test.ts와 같은 이유로 getCourseBrief만 모킹한다.
 
-const getCourseBriefMock = vi.fn<(region: string, days: number, budget?: number, options?: { refresh?: boolean }) => Promise<CourseBrief>>();
+const getCourseBriefMock = vi.fn<(region: string, days: number, budget?: number, options?: { refresh?: boolean; requestSource?: "user" | "bot" }) => Promise<CourseBrief>>();
 
 vi.mock("@/lib/server/courseBrief", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/server/courseBrief")>();
   return {
     ...actual,
-    getCourseBrief: (region: string, days: number, budget?: number, options?: { refresh?: boolean }) => getCourseBriefMock(region, days, budget, options),
+    getCourseBrief: (region: string, days: number, budget?: number, options?: { refresh?: boolean; requestSource?: "user" | "bot" }) => getCourseBriefMock(region, days, budget, options),
   };
 });
 
@@ -85,7 +88,7 @@ describe("GET /api/content/course-brief — ?refresh= 토큰 (작업지시서 20
 
   it("passes refresh=true only when the token equals CRON_SECRET", async () => {
     await GET(request("region=코타키나발루&days=3&refresh=s3cret"));
-    expect(getCourseBriefMock.mock.calls[0][3]).toEqual({ refresh: true });
+    expect(getCourseBriefMock.mock.calls[0][3]).toEqual({ refresh: true, requestSource: "user" });
   });
 
   it("ignores a wrong token, a missing token, and an unset secret", async () => {
@@ -94,6 +97,29 @@ describe("GET /api/content/course-brief — ?refresh= 토큰 (작업지시서 20
     vi.stubEnv("CRON_SECRET", "");
     await GET(request("region=코타키나발루&days=3&refresh="));
     await GET(request("region=코타키나발루&days=3&refresh=s3cret"));
-    for (const call of getCourseBriefMock.mock.calls) expect(call[3]).toEqual({ refresh: false });
+    for (const call of getCourseBriefMock.mock.calls) expect(call[3]).toEqual({ refresh: false, requestSource: "user" });
+  });
+});
+
+
+// 작업지시서 2026-10-21 "#333 검증" §2① — 검색 로봇은 방문 기록·재생성 대상이 아니다.
+describe("GET /api/content/course-brief — 검색 로봇", () => {
+  beforeEach(() => {
+    getCourseBriefMock.mockReset();
+    getCourseBriefMock.mockResolvedValue(briefWith(Array.from({ length: 9 }, (_, i) => spot(i + 1))));
+    recordVisitMock.mockReset();
+  });
+  const withUa = (ua: string) => new NextRequest("https://www.tradule.co.kr/api/content/course-brief?region=코타키나발루&days=3", { headers: { "user-agent": ua } });
+
+  it("Googlebot 은 requestSource=bot 으로 넘기고 방문을 기록하지 않는다", async () => {
+    await GET(withUa("Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"));
+    expect(getCourseBriefMock.mock.calls[0][3]).toMatchObject({ requestSource: "bot" });
+    expect(recordVisitMock).not.toHaveBeenCalled();
+  });
+  it("일반 사용자·AutoPipeline 호출은 user 로 방문을 기록한다", async () => {
+    await GET(withUa("Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/130 Safari/537.36"));
+    await GET(withUa("AutoPipeline/1.0 (+tradule content client)"));
+    expect(getCourseBriefMock.mock.calls.every((c) => c[3]?.requestSource === "user")).toBe(true);
+    expect(recordVisitMock).toHaveBeenCalledTimes(2);
   });
 });

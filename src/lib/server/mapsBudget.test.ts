@@ -16,6 +16,7 @@ import {
   mapsDayKey,
   mapsOpsKey,
   mapsQuota429Key,
+  mapsSourceDayKey,
   placesFieldTier,
   reserveMapsOp,
   runWithMapsSource,
@@ -177,6 +178,17 @@ describe("일 단위 페이싱", () => {
     expect((await reserveMapsOp("text-pro", day20)).allowed).toBe(true); // 사용자는 261 까지
     fakeStore({ [mapsOpsKey("text-pro", day20)]: 1626, [mapsDayKey("text-pro", day20)]: 261 });
     expect((await reserveMapsOp("text-pro", day20)).allowed).toBe(false);
+  });
+  // 작업지시서 2026-10-21 "#333 검증" §2② — 하루 Pro 사용량을 출처(user · warm · rebuild)별로 센다. rebuild(사용자 방문이 응답 뒤 일으킨 재생성)는 워밍과 같은 50% 몫.
+  it("출처별 오늘 호출 수를 세고, rebuild 도 워밍처럼 오늘 상한의 50% 까지만", async () => {
+    const day20 = new Date("2026-10-20T15:00:00Z");
+    const store = fakeStore({ [mapsOpsKey("text-pro", day20)]: 1495, [mapsDayKey("text-pro", day20)]: 130 });
+    expect((await runWithMapsSource("rebuild", () => reserveMapsOp("text-pro", day20))).allowed).toBe(false); // 50% = 130 도달
+    expect((await reserveMapsOp("text-pro", day20)).allowed).toBe(true);
+    expect(store.get(mapsSourceDayKey("text-pro", "user", day20))).toBe(1);
+    expect(store.get(mapsSourceDayKey("text-pro", "rebuild", day20)) ?? 0).toBe(0);
+    fakeStore({ [mapsOpsKey("text-pro", day20)]: 1400, [mapsDayKey("text-pro", day20)]: 40 });
+    expect((await runWithMapsSource("rebuild", () => reserveMapsOp("text-pro", day20))).allowed).toBe(true);
   });
   it("페이싱 SKU 가 아닌 것(static 등)은 일 상한 없이 월 한도만", async () => {
     fakeStore({ [mapsOpsKey("static", NOW)]: 8000, [mapsDayKey("static", NOW)]: 5000 });

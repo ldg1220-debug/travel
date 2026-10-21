@@ -35,6 +35,7 @@ import {
   dedupeByBrand,
   capCafesPerDay,
   dayOrderViolations,
+  isNightStop,
   dedupeByProximity,
   dedupeInFlight,
   excludeOutlierSpots,
@@ -3266,5 +3267,43 @@ describe("하루 순서 규칙 — 첫 스팟 식당·카페 금지 · 식당 �
     const result = capCafesPerDay(days);
     expect(ids(result[0])).toEqual(["a", "c-strong", "m"]);
     expect(ids(result[1])).toEqual(["only", "b"]);
+  });
+});
+
+
+// 작업지시서 2026-10-21 "#333 검증" §3 — 야간형은 하루 마지막, 하루 카페 최대 1(총량 보호).
+describe("야간형 스팟 마지막 · 카페 상한 총량 보호", () => {
+  const sp = (id: string, lat: number, extra: Partial<FinalStop> = {}) => stop(id, lat, 114, { name: id, category: "tourist_attraction", ...extra });
+  const ids = (xs: FinalStop[]) => xs.map((s) => s.id);
+
+  it("isNightStop: 야경 슬롯·심포니 오브 라이트·야시장·루프탑은 야간형, 식사·숙소는 아니다", () => {
+    expect(isNightStop(sp("a", 22.3, { slotKey: "night" }))).toBe(true);
+    expect(isNightStop(sp("b", 22.3, { name: "심포니 오브 라이트" }))).toBe(true);
+    expect(isNightStop(sp("c", 22.3, { name: "Temple Street Night Market" }))).toBe(true);
+    expect(isNightStop(sp("d", 22.3, { name: "Sky Rooftop Bar" }))).toBe(true);
+    expect(isNightStop(sp("e", 22.3, { name: "야시장 맛집", meal: true }))).toBe(false);
+    expect(isNightStop(sp("f", 22.3, { name: "빅토리아 피크" }))).toBe(false);
+  });
+
+  it("야간형이 앞쪽이면 위반 — 마지막 두 자리 안이면 위반 없음", () => {
+    const show = sp("show", 22.29, { name: "심포니 오브 라이트", slotKey: "night" });
+    expect(dayOrderViolations([show, sp("a", 22.3), sp("b", 22.31), sp("c", 22.32)])).toBe(1);
+    expect(dayOrderViolations([sp("a", 22.3), sp("b", 22.31), show, sp("c", 22.32)])).toBe(0);
+    expect(dayOrderViolations([sp("a", 22.3), sp("b", 22.31), sp("c", 22.32), show])).toBe(0);
+  });
+
+  it("거리상 최단이 심포니 오브 라이트로 시작하는 순서여도 야간형을 뒤로 보낸다(홍콩 1일차 회귀)", () => {
+    // 침사추이(22.29)에서 시작해 북쪽으로 올라가는 경로가 최단 — 규칙 없이는 쇼가 맨 앞이다.
+    const day = [sp("show", 22.29, { name: "심포니 오브 라이트", slotKey: "night" }), sp("a", 22.3), sp("b", 22.31), sp("c", 22.32)];
+    const result = optimizeDayOrder(day);
+    expect(dayOrderViolations(result)).toBe(0);
+    expect(ids(result).indexOf("show")).toBeGreaterThanOrEqual(2);
+  });
+
+  it("capCafesPerDay(minTotal): 총량이 최소 아래로 내려가면 더 빼지 않는다", () => {
+    const cafe = (id: string, rank: number) => sp(id, 22.3, { category: "cafe", slotKey: "cafe", searchRank: rank });
+    const day = [sp("a", 22.3), cafe("c1", 1), cafe("c2", 5)];
+    expect(ids(capCafesPerDay([day], 0)[0])).toEqual(["a", "c1"]);
+    expect(ids(capCafesPerDay([day], 3)[0])).toEqual(["a", "c1", "c2"]); // 총 3곳이 최소라 못 뺀다
   });
 });

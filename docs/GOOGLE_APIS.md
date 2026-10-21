@@ -26,6 +26,8 @@
 
 2026-10-20 변경(작업지시서 "평점은 장소를 눌렀을 때만"): **코스(목록·페이지·course-brief)는 평점을 쓰지 않는다.** 코스 후보 검색(`googleTop`·파이프라인)은 Pro 필드만 받아 Enterprise(`text-enterprise`) 호출이 사라졌고, /discover 카드 지표 갱신(`refreshStaleSpotMetrics`, Place Details Enterprise)도 없앴다. 평점·사진·리뷰는 사용자가 장소를 눌렀을 때 `app/api/places/details/route.ts` 한 곳(`details-enterprise`, 클릭당 1회)에서만 받는다. `text-enterprise` 는 사용자 장소 검색(`app/api/places/search/route.ts`)만 남는다.
 
+2026-10-21 (작업지시서 "#333 검증"): **검색 로봇(User-Agent 이름 목록 — `lib/botUserAgent.ts`)은 방문 기록·백그라운드 재생성·워밍 대상 선정에 쓰이지 않고**, 캐시(직전 버전 포함)가 있으면 그대로 받고 없으면 만들지 않고 503 이다. 페이싱 SKU 의 오늘 호출 수는 출처별(`user` · `warm` · `rebuild`)로 `/api/health` 의 `todayBySource` 에 나온다(`rebuild` = 사용자 방문이 응답 뒤 일으킨 새 버전 재생성, 워밍과 같은 50% 몫). 로그 `[course-brief] source=bot|user|warm|rebuild`.
+
 2026-10-15 보강(작업지시서 "평점 검색(Enterprise) 하루 만에 243/900"):
 - **일 단위 페이싱**(Enterprise 두 SKU + `text-pro` — 2026-10-20 "#331 검증": 코스 후보가 Pro 로 옮겨 오며 하루 300 이 이어지면 월 4,500 이 월말 전에 바닥난다): 오늘 상한 = `floor((월 상한 − 오늘 이전 사용) / 남은 날수)`, 최소 10(예: 10/15 → (900−243)/17 ≈ 38). 사용자 요청은 오늘 상한까지, **워밍 크론은 오늘 상한의 50%까지**. 로그 `[mapsBudget] … action=pacing`.
 - **Google 이 실제 처리한 호출(2xx)만 센다**: 429/5xx/타임아웃/4xx 는 예약을 되돌린다(`settleGuarded`). 429(RESOURCE_EXHAUSTED = 콘솔 하루 상한 도달)는 그 SKU 의 오늘 남은 호출을 건너뛰게 표시한다(`maps-429:{sku}:{날짜}`, 로그 `action=quota429`).
