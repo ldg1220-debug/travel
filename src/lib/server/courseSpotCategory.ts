@@ -81,6 +81,8 @@ const NAME_WORSHIP_SA_SUFFIX = /(?:^|\s)[가-힣]{2,4}사$/;
 const NAME_COMPANY_SUFFIX = /(?:회사|본사|지사|출판사|보험사|증권사|여행사|연구사)$/;
 const NAME_PARK = /공원|교엔|정원|가든|\bpark\b|\bgarden\b/i;
 const NAME_HERITAGE = /(?:성|궁|궁전|탑|고분)$|궁전|박물관|미술관|유적|\bcastle\b|\bpalace\b|\bmuseum\b|\bruins?\b/i;
+// 작업지시서 2026-10-21 "3km 구간 대중교통 59분 · \"다리\"가 기타" §2② — 다리·대교·교(橋)·Bridge·Bashi 는 명소(관광지)다. 음식 단어("닭다리")는 아래 NAME_FOOD 가 먼저 가져간다.
+const NAME_BRIDGE = /다리(?![가-힣])|대교|\bbridge\b|\bbashi\b|바시(?:\s|$)|橋/i;
 const NAME_FOOD = /카오소이|쌀국수|국수|noodle|와규|wagyu|스시|sushi|라멘|ramen|이자카야|izakaya|식당|레스토랑|restaurant|steak|스테이크|\bbbq\b|야키니쿠|yakiniku|맛집/i;
 
 const NAME_RESTAURANT_WORD = /레스토랑|\brestaurant\b|\bbistro\b|\bbrasserie\b/i;
@@ -119,6 +121,7 @@ export function courseSpotCategory(p: { category: string; name: string; beach?: 
   if (isIsland(asPlace)) return "섬";
   if (NAME_BEACH.test(p.name) && !isVenueName(p.name)) return "해변"; // 식당·바·디너쇼는 이름에 비치가 있어도 해변이 아니다(2026-10-13 §1①)
   if (NAME_SPA.test(p.name)) return "스파";
+  if (NAME_BRIDGE.test(p.name) && !NAME_FOOD.test(p.name) && !/닭다리|돼지다리|족발/.test(p.name)) return "관광지";
   if (NAME_TOWER.test(p.name)) return "전망대";
   if (NAME_WORSHIP.test(p.name) || (NAME_WORSHIP_SA_SUFFIX.test(p.name) && !NAME_COMPANY_SUFFIX.test(p.name))) return "사원·성당";
   if (NAME_PARK.test(p.name)) return "공원";

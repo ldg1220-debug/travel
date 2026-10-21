@@ -65,6 +65,8 @@ export interface Place {
   ratingUnavailable?: boolean;
   /** Google/Kakao 검색 응답 안에서의 순서(0부터) — 코스 후보는 평점 대신 이 순위를 인기 신호로 쓴다(작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만"). */
   searchRank?: number;
+  /** 그 지역 랜드마크 풀(관광 명소 질의) 응답 안에서의 순위(1부터) — course-brief 가 spots[].landmarkRank 로 내보낸다. 풀에 없으면 없다(작업지시서 2026-10-21). */
+  landmarkRank?: number;
   /** Number of Google reviews backing `rating` — only present on live Google results. */
   reviewCount?: number;
   /** Coarse Google price tier, 0 (free) – 4 (very expensive). A proxy for cost (Places has no real nightly rate) — used for the 가격대순 sort on lodging results. Undefined when Google didn't provide one. */

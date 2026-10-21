@@ -36,6 +36,7 @@ import {
   capCafesPerDay,
   dayOrderViolations,
   isNightStop,
+  isTransitImplausible,
   dedupeByProximity,
   dedupeInFlight,
   excludeOutlierSpots,
@@ -3052,7 +3053,7 @@ describe("앵커의 날 선택 — 스팟 중심과 가장 가까운 날 (작업
   });
 });
 
-describe("routeDayStops — 이상치 대중교통 구간(직선 3km 이하 · 50분 이상)은 도보/차 중 짧은 쪽 (작업지시서 2026-10-12 §3③)", () => {
+describe("routeDayStops — 대중교통 상식 검사 (작업지시서 2026-10-21 '3km 구간 대중교통 59분', 2026-10-12 §3③ 일반화)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
@@ -3060,32 +3061,58 @@ describe("routeDayStops — 이상치 대중교통 구간(직선 3km 이하 · 5
   });
   const body = (seconds: number) => ({ status: "OK", routes: [{ legs: [{ distance: { value: 2600 }, duration: { value: seconds } }], overview_polyline: { points: "_p~iF~ps|U_ulLnnqC_mqNvxq`@" } }] });
   const modeOf = (input: unknown) => new URL(String(input)).searchParams.get("mode");
+  const bySec = (m: Record<string, number>) => vi.fn(async (input: unknown) => ({ ok: true, json: async () => (m[modeOf(input) ?? ""] ? body(m[modeOf(input) ?? ""]) : { status: "ZERO_RESULTS" }) }));
+  // 직선 약 2.6km — 한도 max(25, 2.6×12=31)분, 도보 추정 39분
   const a = stop("a", 34.6873, 135.5262, { name: "오사카 성" });
   const b = stop("b", 34.7052, 135.5077, { name: "나가자키초" });
+  // 직선 약 1.7km — 한도 25분, 도보 추정 26분 (2km 이하라 도보로 바뀐다)
+  const c = stop("c", 34.6873, 135.5262, { name: "c" });
+  const d = stop("d", 34.7003, 135.5192, { name: "d" });
 
-  it("transit 59분 · walking 35분 · driving 12분 → 차(12분)로 바꾸고 route-outlier 로그를 남긴다", async () => {
-    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
-    const secondsByMode: Record<string, number> = { transit: 59 * 60, walking: 35 * 60, driving: 12 * 60 };
-    vi.stubGlobal("fetch", vi.fn(async (input: unknown) => ({ ok: true, json: async () => body(secondsByMode[modeOf(input) ?? ""]) })));
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const routed = await routeDayStops("overseas", [a, b], Date.now() + 5000);
-    expect(routed.segments[0].mode).toBe("car");
-    expect(routed.segments[0].durationMinutes).toBe(12);
-    expect(logSpy.mock.calls.some((c) => String(c[0]).includes("route-outlier") && String(c[0]).includes("transit=59분"))).toBe(true);
+  it("isTransitImplausible: 3.1km 59분·1km 20분은 비상식, 5km 40분·2.6km 30분은 정상", () => {
+    expect(isTransitImplausible(59, 3.1)).toBe(true); // 한도 37
+    expect(isTransitImplausible(20, 1)).toBe(true); // 도보 추정 15분보다 길다
+    expect(isTransitImplausible(40, 5)).toBe(false); // 한도 60
+    expect(isTransitImplausible(30, 2.6)).toBe(false); // 한도 31
   });
 
-  it("도보가 더 짧으면 도보, 둘 다 실패하거나 transit이 정상(50분 미만)이면 그대로 둔다", async () => {
+  it("2.6km 에서 transit 59분 → 차량(driving 12분)으로 바꾸고 fallback=driving · transit-sanity 로그", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    vi.stubGlobal("fetch", bySec({ transit: 59 * 60, walking: 35 * 60, driving: 12 * 60 }));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const seg = (await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0];
+    expect(seg.mode).toBe("car");
+    expect(seg.durationMinutes).toBe(12);
+    expect(seg.fallback).toBe("driving");
+    expect(logSpy.mock.calls.some((c2) => String(c2[0]).includes("transit-sanity") && String(c2[0]).includes("transit=59") && String(c2[0]).includes("mode=car min=12"))).toBe(true);
+  });
+
+  it("차량 경로도 못 구하면 직선 기반 차량 추정으로 대신한다(대중교통 59분을 쓰지 않는다)", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    vi.stubGlobal("fetch", bySec({ transit: 55 * 60 }));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const seg = (await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0];
+    expect(seg.mode).toBe("car");
+    expect(seg.durationMinutes).toBeLessThan(15);
+  });
+
+  it("2km 이하 비상식 구간은 도보로 바꾼다(도보 Directions 값)", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
+    vi.stubGlobal("fetch", bySec({ transit: 40 * 60, walking: 22 * 60, driving: 8 * 60 }));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const seg = (await routeDayStops("overseas", [c, d], Date.now() + 5000)).segments[0];
+    expect(seg.mode).toBe("walk");
+    expect(seg.durationMinutes).toBe(22);
+    expect(seg.fallback).toBeUndefined();
+  });
+
+  it("정상 transit(한도 이내)은 그대로 둔다", async () => {
     vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "k");
     vi.spyOn(console, "log").mockImplementation(() => {});
-    const bySec = (m: Record<string, number>) => vi.fn(async (input: unknown) => ({ ok: true, json: async () => (m[modeOf(input) ?? ""] ? body(m[modeOf(input) ?? ""]) : { status: "ZERO_RESULTS" }) }));
-    vi.stubGlobal("fetch", bySec({ transit: 55 * 60, walking: 20 * 60, driving: 25 * 60 }));
-    expect((await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0].mode).toBe("walk");
-    vi.stubGlobal("fetch", bySec({ transit: 55 * 60 }));
-    const kept = (await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0];
-    expect(kept.mode).toBe("transit");
-    expect(kept.durationMinutes).toBe(55);
     vi.stubGlobal("fetch", bySec({ transit: 30 * 60, walking: 5 * 60 }));
-    expect((await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0].mode).toBe("transit");
+    const seg = (await routeDayStops("overseas", [a, b], Date.now() + 5000)).segments[0];
+    expect(seg.mode).toBe("transit");
+    expect(seg.durationMinutes).toBe(30);
   });
 });
 
@@ -3305,5 +3332,29 @@ describe("야간형 스팟 마지막 · 카페 상한 총량 보호", () => {
     const day = [sp("a", 22.3), cafe("c1", 1), cafe("c2", 5)];
     expect(ids(capCafesPerDay([day], 0)[0])).toEqual(["a", "c1"]);
     expect(ids(capCafesPerDay([day], 3)[0])).toEqual(["a", "c1", "c2"]); // 총 3곳이 최소라 못 뺀다
+  });
+});
+
+
+// 작업지시서 2026-10-21 "3km 구간 대중교통 59분" §2③·④ — landmarkRank, 대표 랜드마크 포함
+describe("landmarkRank · 랜드마크 앵커", () => {
+  it("assembleDaySpots: 스팟에 landmarkRank 가 있으면 그대로 내보내고 없으면 필드를 생략한다", () => {
+    const s1 = stop("castle", 34.687, 135.526, { name: "오사카 성", landmarkRank: 2, category: "tourist_attraction" });
+    const s2 = stop("cafe", 34.69, 135.52, { name: "동네 카페", category: "cafe" });
+    const { spots } = assembleDaySpots([s1, s2], [straightRouteMeasurement(s1, s2, "walk")], 1, "overseas", "오사카", 1);
+    expect(spots[0].landmarkRank).toBe(2);
+    expect(spots[1]).not.toHaveProperty("landmarkRank");
+  });
+
+  it("pickLandmarkAnchors: 풀 상위(오사카 성 2위)가 코스에 없으면 앞선 순위부터 앵커가 된다", () => {
+    const pool = [
+      place("dotonbori", { name: "도톤보리", searchRank: 0, lat: 34.6687, lng: 135.5013 }),
+      place("castle", { name: "오사카 성", searchRank: 1, lat: 34.6873, lng: 135.5262 }),
+      place("umeda", { name: "우메다 스카이 빌딩", searchRank: 2, lat: 34.7052, lng: 135.4906 }),
+      place("shinsekai", { name: "신세카이", searchRank: 3, lat: 34.6525, lng: 135.5063 }),
+    ];
+    const course = [stop("dotonbori", 34.6687, 135.5013, { name: "도톤보리" }), stop("x", 34.67, 135.5, { name: "다른 곳" })];
+    const picked = pickLandmarkAnchors(pool, course, 3, 6);
+    expect(picked.map((p) => p.name)).toEqual(["오사카 성", "우메다 스카이 빌딩", "신세카이"]);
   });
 });
