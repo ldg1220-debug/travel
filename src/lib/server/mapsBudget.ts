@@ -137,8 +137,13 @@ export function mapsDayKey(name: CounterName, now = new Date()): string {
   return `maps-ops-day:${name}:${ptDateString(now)}`;
 }
 /** 출처별 오늘 호출 수(페이싱 SKU) — `/api/health` 의 todayBySource. */
-export function mapsSourceDayKey(sku: MapsSku, source: MapsCallSource, now = new Date()): string {
-  return `maps-ops-day-src:${sku}:${source}:${ptDateString(now)}`;
+export function mapsSourceDayKey(name: MapsSku | MapsDailyAgg, source: MapsCallSource, now = new Date()): string {
+  return `maps-ops-day-src:${name}:${source}:${ptDateString(now)}`;
+}
+/** 오늘 워밍 + 재생성이 쓴 호출 수(없으면 0, 조회 실패면 null). 워밍·재생성 몫(WARM_SHARE_OF_DAILY)은 사용자 사용분과 섞지 않고 이 값만으로 센다 — 작업지시서 2026-10-22 "#336 검증" §2①. */
+export async function readBackgroundToday(name: MapsSku | MapsDailyAgg, now = new Date()): Promise<number | null> {
+  const [w, r] = await Promise.all([readCounter(mapsSourceDayKey(name, "warm", now)), readCounter(mapsSourceDayKey(name, "rebuild", now))]);
+  return w == null || r == null ? null : w + r;
 }
 export function mapsQuota429Key(name: CounterName, now = new Date()): string {
   return `maps-429:${name}:${ptDateString(now)}`;
@@ -225,9 +230,12 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
       const [month, today] = await Promise.all([readMapsOps(sku, now), readMapsOpsToday(sku, now)]);
       if (month != null && today != null) {
         const todayLimit = dailyPacingLimit(limit, month - today, daysRemainingInMonth(now));
-        const cap = isBackgroundSource(sourceContext.getStore()) ? Math.floor(todayLimit * WARM_SHARE_OF_DAILY) : todayLimit;
-        if (today >= cap) {
-          console.warn(`[mapsBudget] sku=${sku} today=${today} todayLimit=${todayLimit} cap=${cap} source=${sourceContext.getStore() ?? "user"} action=pacing`);
+        // 워밍·재생성은 자기 사용분(warm+rebuild)이 오늘 상한의 50% 안일 때만, 사용자는 총 사용이 오늘 상한 안일 때만 — 사용자 요청이 먼저 쌓여도 백그라운드 몫은 그대로 남는다.
+        const bg = isBackgroundSource(sourceContext.getStore());
+        const bgUsed = bg ? ((await readBackgroundToday(sku, now)) ?? 0) : 0;
+        const cap = bg ? Math.floor(todayLimit * WARM_SHARE_OF_DAILY) : todayLimit;
+        if ((bg ? bgUsed : today) >= cap || today >= todayLimit) {
+          console.warn(`[mapsBudget] sku=${sku} today=${today} bgUsed=${bgUsed} todayLimit=${todayLimit} cap=${cap} source=${sourceContext.getStore() ?? "user"} action=pacing`);
           return { allowed: false, count: month, limit };
         }
       }
@@ -249,7 +257,10 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
       if (PACED_SKUS.has(sku)) await bump(mapsSourceDayKey(sku, currentMapsSource(), now), 1);
       return { allowed: true, count: r.rows[0].n, limit };
     }
-    if (aggReserved && agg) await bump(mapsDayKey(agg, now), -1); // 월 한도에서 막혔으니 집계 예약을 되돌린다
+    if (aggReserved && agg) {
+      await bump(mapsDayKey(agg, now), -1); // 월 한도에서 막혔으니 집계 예약을 되돌린다
+      if (isBackgroundSource(currentMapsSource())) await bump(mapsSourceDayKey(agg, currentMapsSource(), now), -1);
+    }
     const count = await readMapsOps(sku, now);
     console.warn(`[mapsBudget] sku=${sku} count=${count ?? "?"} limit=${limit} action=skip`);
     return { allowed: false, count, limit };
@@ -274,7 +285,13 @@ export async function reserveAggregate(agg: MapsDailyAgg, now = new Date()): Pro
       console.warn(`[mapsBudget] agg=${agg} limit=${limit} action=quota429`);
       return false;
     }
-    const cap = isBackgroundSource(sourceContext.getStore()) ? Math.floor(limit * WARM_SHARE_OF_DAILY) : limit;
+    const bgSource = isBackgroundSource(sourceContext.getStore());
+    const bgCap = Math.floor(limit * WARM_SHARE_OF_DAILY);
+    if (bgSource && ((await readBackgroundToday(agg, now)) ?? 0) >= bgCap) {
+      console.warn(`[mapsBudget] agg=${agg} limit=${limit} bgCap=${bgCap} source=${sourceContext.getStore()} action=skip (워밍·재생성 몫)`);
+      return false;
+    }
+    const cap = limit; // 총 사용은 상한까지 — 백그라운드 몫은 위에서 자기 사용분만으로 따로 막았다
     const r = await pool.query<{ n: number }>(
       `insert into place_candidate_cache (cache_key, payload) values ($1, jsonb_build_object('count', 1))
        on conflict (cache_key) do update
@@ -283,7 +300,10 @@ export async function reserveAggregate(agg: MapsDailyAgg, now = new Date()): Pro
        returning (payload->>'count')::int as n`,
       [mapsDayKey(agg, now), Math.max(cap, 0)],
     );
-    if (r.rows.length > 0 && cap > 0) return true;
+    if (r.rows.length > 0 && cap > 0) {
+      if (bgSource) await bump(mapsSourceDayKey(agg, currentMapsSource(), now), 1);
+      return true;
+    }
     console.warn(`[mapsBudget] agg=${agg} limit=${limit} cap=${cap} source=${sourceContext.getStore() ?? "user"} action=skip (콘솔 하루 상한 ${aggQuota(agg)} 의 90%)`);
     return false;
   } catch (err) {
@@ -299,7 +319,10 @@ export async function releaseMapsOp(sku: MapsSku, now = new Date()): Promise<voi
     await bump(mapsDayKey(sku, now), -1);
     if (PACED_SKUS.has(sku)) await bump(mapsSourceDayKey(sku, currentMapsSource(), now), -1);
     const agg = aggFor(sku);
-    if (agg) await bump(mapsDayKey(agg, now), -1);
+    if (agg) {
+      await bump(mapsDayKey(agg, now), -1);
+      if (isBackgroundSource(currentMapsSource())) await bump(mapsSourceDayKey(agg, currentMapsSource(), now), -1);
+    }
   } catch (err) {
     console.error("[mapsBudget] release failed:", err);
   }
@@ -338,6 +361,7 @@ export async function settleGuarded(guarded: { sku?: MapsSku; ids?: boolean; kin
     if (status === 429) await markQuota429(agg, now);
     try {
       await bump(mapsDayKey(agg, now), -1);
+      if (isBackgroundSource(currentMapsSource())) await bump(mapsSourceDayKey(agg, currentMapsSource(), now), -1);
     } catch (err) {
       console.error("[mapsBudget] release failed:", err);
     }
@@ -356,8 +380,11 @@ export async function isMapsThrottled(sku: MapsSku, now = new Date()): Promise<b
     if (((await readCounter(mapsQuota429Key(agg ?? sku, now))) ?? 0) > 0) return true;
     if (agg) {
       const aggToday = await readCounter(mapsDayKey(agg, now));
-      const aggCap = isBackgroundSource(currentMapsSource()) ? Math.floor(aggLimit(agg) * WARM_SHARE_OF_DAILY) : aggLimit(agg);
-      if (aggToday != null && aggToday >= aggCap) return true;
+      if (aggToday != null && aggToday >= aggLimit(agg)) return true;
+      if (isBackgroundSource(currentMapsSource())) {
+        const aggBg = await readBackgroundToday(agg, now);
+        if (aggBg != null && aggBg >= Math.floor(aggLimit(agg) * WARM_SHARE_OF_DAILY)) return true;
+      }
     }
     const month = await readMapsOps(sku, now);
     if (month != null && month >= limit) return true;
@@ -365,8 +392,12 @@ export async function isMapsThrottled(sku: MapsSku, now = new Date()): Promise<b
       const today = await readMapsOpsToday(sku, now);
       if (month != null && today != null) {
         const todayLimit = dailyPacingLimit(limit, month - today, daysRemainingInMonth(now));
-        const cap = isBackgroundSource(currentMapsSource()) ? Math.floor(todayLimit * WARM_SHARE_OF_DAILY) : todayLimit;
-        return today >= cap;
+        if (today >= todayLimit) return true;
+        if (isBackgroundSource(currentMapsSource())) {
+          const bgUsed = await readBackgroundToday(sku, now);
+          return bgUsed != null && bgUsed >= Math.floor(todayLimit * WARM_SHARE_OF_DAILY);
+        }
+        return false;
       }
     }
   } catch {

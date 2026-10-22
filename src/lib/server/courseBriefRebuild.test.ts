@@ -53,4 +53,24 @@ describe("scheduleBackgroundRebuild", () => {
     });
     expect(() => scheduleBackgroundRebuild("홍콩", 4, "k")).not.toThrow();
   });
+
+  // 작업지시서 2026-10-22 "#336 검증" §2② — 재생성 몫이 없으면 spots=0 으로 빌드를 시도하지 않고 deferred: budget 으로 기록하고 다음 워밍 때 먼저 만든다.
+  it("오늘 재생성 몫이 바닥이면 빌드를 시도하지 않고 deferred 로 기록한다(실패 아님)", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const status: string[] = [];
+    queryMock.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("rebuild-lock") || (params?.[0] as string | undefined)?.startsWith("rebuild-lock")) return { rowCount: 1, rows: [{ cache_key: "x" }] };
+      if (sql.includes("course-build:status") || (params?.[0] as string | undefined) === "course-build:status") status.push(String(params?.[1]));
+      // 집계(text-search-all) 카운터가 상한을 넘은 것으로 보이게 한다
+      if (sql.includes("select (payload->>'count')::int as n")) return { rows: [{ n: 10_000 }] };
+      return { rowCount: 1, rows: [] };
+    });
+    scheduleBackgroundRebuild("홍콩", 4, "content-brief:overseas:홍콩:4:v45");
+    await (afterMock.mock.calls[0][0] as () => Promise<void>)();
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("path=rebuild-deferred key=content-brief:overseas:홍콩:4:v45 reason=budget"));
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining("rebuild-start"));
+    expect(status.some((p) => p.includes("deferred: budget"))).toBe(true);
+    expect(queryMock.mock.calls.some(([, params]) => String((params as string[] | undefined)?.[0]).startsWith("course-deferred:홍콩:4"))).toBe(true);
+  });
 });

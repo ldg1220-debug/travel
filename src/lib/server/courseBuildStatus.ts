@@ -8,7 +8,8 @@ import { ptDateString } from "./mapsBudget";
  */
 const STATUS_KEY = "course-build:status";
 
-export type CourseCounterKind = "human" | "bot" | "stale";
+/** human/bot=방문, stale=직전 버전 서빙, sync=직전 버전이 없어 사용자 요청이 동기로 새 버전을 만든 횟수, botRebuild=검색 로봇 요청이 재생성을 일으킨 횟수(설계상 항상 0). */
+export type CourseCounterKind = "human" | "bot" | "stale" | "sync" | "botRebuild";
 export function courseCounterKey(kind: CourseCounterKind, now = new Date()): string {
   return `course-build-day:${kind}:${ptDateString(now)}`;
 }
@@ -27,7 +28,7 @@ export async function bumpCourseCounter(kind: CourseCounterKind, now = new Date(
   }
 }
 
-export type RebuildResult = "scheduled" | "started" | "ok" | "fail" | "skipped-lock";
+export type RebuildResult = "scheduled" | "started" | "ok" | "fail" | "skipped-lock" | "deferred";
 export interface RebuildEvent {
   key: string;
   result: RebuildResult;
@@ -65,6 +66,40 @@ async function mergeStatus(patch: Record<string, unknown>): Promise<void> {
   }
 }
 
+/** 버전 전환 진행률 — 사이트맵에 오른 (지역, 일수) 가운데 현재 버전 캐시가 있는 것 / 직전 버전만 있는 것 / 둘 다 없는 것. */
+export interface VersionProgress {
+  total: number;
+  onCurrent: number;
+  onPrevious: number;
+  missing: number;
+}
+
+export async function getVersionProgress(currentVersion: number, ttlMs: number): Promise<VersionProgress | null> {
+  try {
+    const [sitemap, briefs] = await Promise.all([
+      pool.query<{ cache_key: string }>(`select cache_key from place_candidate_cache where cache_key like 'course-sitemap:%'`),
+      pool.query<{ cache_key: string }>(
+        `select cache_key from place_candidate_cache where cache_key like 'content-brief:%' and created_at > now() - ($1 || ' milliseconds')::interval`,
+        [String(ttlMs)],
+      ),
+    ]);
+    const combos = new Set(sitemap.rows.map((r) => r.cache_key.slice("course-sitemap:".length)));
+    const current = new Set<string>();
+    const previous = new Set<string>();
+    for (const { cache_key } of briefs.rows) {
+      const m = /^content-brief:[^:]+:(.+:\d+):v(\d+)$/.exec(cache_key);
+      if (!m || !combos.has(m[1])) continue;
+      (Number(m[2]) === currentVersion ? current : previous).add(m[1]);
+    }
+    const onCurrent = current.size;
+    const onPrevious = [...previous].filter((c) => !current.has(c)).length;
+    return { total: combos.size, onCurrent, onPrevious, missing: combos.size - onCurrent - onPrevious };
+  } catch (err) {
+    console.error("[courseBuildStatus] version progress failed:", err);
+    return null;
+  }
+}
+
 export interface CourseBuildHealth {
   currentVersion: number;
   lastRebuildAt: string | null;
@@ -79,9 +114,14 @@ export interface CourseBuildHealth {
   /** 오늘 사람 방문(검색 로봇 제외)과 로봇 요청 수 — course-brief · 코스 페이지 · 지도 · 열기 요청의 getCourseBrief 호출 기준. */
   visitsHumanToday: number | null;
   visitsBotToday: number | null;
+  /** 오늘 직전 버전이 없어 사용자 요청이 동기로 새 버전을 만든 횟수(text-pro todayBySource.user 의 일부). */
+  syncBuildsToday: number | null;
+  /** 오늘 검색 로봇 요청이 재생성을 일으킨 횟수 — 0 이어야 한다. */
+  rebuildTriggeredByBotToday: number | null;
+  versionProgress: VersionProgress | null;
 }
 
-export async function getCourseBuildStatus(currentVersion: number, now = new Date()): Promise<CourseBuildHealth> {
+export async function getCourseBuildStatus(currentVersion: number, now = new Date(), ttlMs = 26 * 60 * 60 * 1000): Promise<CourseBuildHealth> {
   const read = async (key: string): Promise<Record<string, unknown> | null> => {
     try {
       const r = await pool.query<{ payload: Record<string, unknown> }>(`select payload from place_candidate_cache where cache_key = $1`, [key]);
@@ -91,11 +131,14 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
       return null;
     }
   };
-  const [status, stale, human, bot] = await Promise.all([
+  const [status, stale, human, bot, sync, botRebuild, versionProgress] = await Promise.all([
     read(STATUS_KEY),
     read(courseCounterKey("stale", now)),
     read(courseCounterKey("human", now)),
     read(courseCounterKey("bot", now)),
+    read(courseCounterKey("sync", now)),
+    read(courseCounterKey("botRebuild", now)),
+    getVersionProgress(currentVersion, ttlMs),
   ]);
   const str = (v: unknown) => (typeof v === "string" ? v : null);
   const count = (p: Record<string, unknown> | null) => (p == null ? null : typeof p.count === "number" ? p.count : 0);
@@ -111,5 +154,8 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     staleServedToday: count(stale),
     visitsHumanToday: count(human),
     visitsBotToday: count(bot),
+    syncBuildsToday: count(sync),
+    rebuildTriggeredByBotToday: count(botRebuild),
+    versionProgress,
   };
 }
