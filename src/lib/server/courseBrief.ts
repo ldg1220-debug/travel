@@ -871,6 +871,8 @@ export async function fetchGoogleDirectionsRoute(a: GeoPoint, b: GeoPoint, mode:
  */
 /** 이 거리(km) 이하로 대중교통이 비상식이면 도보로 바꾼다(그 위는 차량). */
 const TRANSIT_SANITY_WALK_MAX_KM = 2;
+/** 대중교통을 버리고 도보로 바꿀 때 실제 도보 경로가 이 시간(분)을 넘으면 차량으로 바꾼다. */
+const TRANSIT_SANITY_WALK_MAX_MIN = 30;
 /**
  * 대중교통 소요시간이 직선거리에 비해 비상식인가 — transit 분 > max(25, d×12) 이거나 transit 분 > 도보 추정(d×15).
  * 예: 3.1km 59분(한도 37) → 비상식, 1km 20분(도보 15분보다 길다) → 비상식, 5km 40분(한도 60) → 정상.
@@ -912,8 +914,13 @@ async function routeSegment(scope: CourseBriefScope, a: GeoPoint, b: GeoPoint, p
   if (mode === "transit" && scope === "overseas" && outcome != null && outcome !== "no-route") {
     const km = haversineKm(a, b);
     if (isTransitImplausible(outcome.durationMinutes, km)) {
-      const replacementMode: TravelMode = km <= TRANSIT_SANITY_WALK_MAX_KM ? "walk" : "car";
-      const real = await fetchGoogleDirectionsRoute(a, b, replacementMode === "walk" ? "walking" : "driving");
+      let replacementMode: TravelMode = km <= TRANSIT_SANITY_WALK_MAX_KM ? "walk" : "car";
+      let real = await fetchGoogleDirectionsRoute(a, b, replacementMode === "walk" ? "walking" : "driving");
+      // 작업지시서 2026-10-22 "#337 검증" §2③ — 직선은 가까워도 실제 도보 경로가 30분을 넘는 구간(홍콩 피크→센트럴 43분)은 도보로 두지 않고 차량으로 바꾼다.
+      if (replacementMode === "walk" && real != null && real !== "no-route" && real.durationMinutes > TRANSIT_SANITY_WALK_MAX_MIN) {
+        replacementMode = "car";
+        real = await fetchGoogleDirectionsRoute(a, b, "driving");
+      }
       const measurement: RouteMeasurement =
         real != null && real !== "no-route"
           ? real
@@ -3989,21 +3996,42 @@ export function placeCityAnchors(dayStops: FinalStop[][], anchors: Place[], defi
   return toReplace.length > 0 ? placeLandmarkAnchors(added, toReplace) : added;
 }
 
+const LANDMARK_RANK_EXCLUDED = new Set<string>(["음식점", "술집", "카페", "숙소", "스파"]);
+const LANDMARK_RANK_MATCH_KM = 0.3;
+
 /**
- * 최종 스팟에 landmarkRank 를 단다 — 그 지역 랜드마크 풀(`fetchLandmarkCandidates`, 이미 이 빌드에서 가져와 후보 캐시에 있어 보통 DB 읽기만 한다)에서의 응답 순서(1부터).
- * 풀의 장소와 id 가 같거나(해외) 같은 자리(300m 안 + 이름 포함, 국내 Kakao id 포함)면 같은 장소로 본다. 풀을 못 가져오면 순위 없이 둔다. 스팟 객체에 직접 쓴다(이 빌드가 막 만든 사본).
+ * 랜드마크 풀(응답 순서)에서 최종 스팟의 순위(1부터)를 매긴다 — 작업지시서 2026-10-22 "#337 검증" §2①②. 매칭은 장소 id 일치가 먼저, 그 밖에는 이름 "전체"(정규화) 일치 + 300m 이내만
+ * (이름 부분일치는 "도톤보리"가 "규카츠 … 도톤보리점"에 붙었다). 음식점·술집·카페·숙소·스파에는 달지 않고, 풀 항목 하나는 최대 1 스팟에만 붙는다.
+ * 스팟 객체에 직접 쓰고 매긴 수를 돌려준다.
  */
+export function assignLandmarkRanks(pool: readonly Place[], stops: readonly FinalStop[]): number {
+  const eligible = stops.filter((s) => !s.meal && !isLodging(s) && !isSpa(s) && !LANDMARK_RANK_EXCLUDED.has(courseSpotCategory(s)));
+  const usedPool = new Set<number>();
+  const rankedStops = new Set<FinalStop>();
+  const take = (stop: FinalStop, idx: number) => {
+    usedPool.add(idx);
+    rankedStops.add(stop);
+    stop.landmarkRank = idx + 1;
+  };
+  for (const stop of eligible) {
+    const idx = pool.findIndex((p, i) => !usedPool.has(i) && p.id === stop.id);
+    if (idx >= 0) take(stop, idx);
+  }
+  for (const stop of eligible) {
+    if (rankedStops.has(stop)) continue;
+    const name = normalizeForMatch(stop.name ?? "");
+    if (!name) continue;
+    const idx = pool.findIndex((p, i) => !usedPool.has(i) && normalizeForMatch(p.name ?? "") === name && haversineKm(p, stop) <= LANDMARK_RANK_MATCH_KM);
+    if (idx >= 0) take(stop, idx);
+  }
+  return rankedStops.size;
+}
+
+/** 최종 스팟에 landmarkRank 를 단다 — 그 지역 랜드마크 풀(`fetchLandmarkCandidates`, 이미 이 빌드에서 가져와 후보 캐시에 있어 보통 DB 읽기만 한다) 기준. 풀을 못 가져오면 순위 없이 둔다. */
 async function annotateLandmarkRanks(scope: CourseBriefScope, region: string, dayGroups: FinalStop[][], onCandidateFetchFailure?: (status: number) => void): Promise<void> {
   try {
     const pool = await fetchLandmarkCandidates(scope, region, onCandidateFetchFailure);
-    let matched = 0;
-    for (const stop of dayGroups.flat()) {
-      const idx = pool.findIndex((p) => p.id === stop.id || isDuplicateStop(p as FinalStop, stop, region));
-      if (idx >= 0) {
-        stop.landmarkRank = idx + 1;
-        matched++;
-      }
-    }
+    const matched = assignLandmarkRanks(pool, dayGroups.flat());
     console.log(`[courseBrief] path=landmark-rank ${scope}/${region} pool=${pool.length} matched=${matched}`);
   } catch (err) {
     console.error("[courseBrief] landmark rank annotate failed:", err);
