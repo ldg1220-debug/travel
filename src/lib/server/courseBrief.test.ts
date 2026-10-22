@@ -36,6 +36,7 @@ import {
   capCafesPerDay,
   dayOrderViolations,
   isNightStop,
+  assignLandmarkRanks,
   isTransitImplausible,
   dedupeByProximity,
   dedupeInFlight,
@@ -859,6 +860,23 @@ describe("fetchGoogleDirectionsRoute — Google Directions(해외)", () => {
   it("returns null when the server key isn't configured", async () => {
     vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "");
     expect(await fetchGoogleDirectionsRoute({ lat: 0, lng: 0 }, { lat: 1, lng: 1 }, "driving")).toBeNull();
+  });
+
+  // 작업지시서 2026-10-22 "#337 검증" §2③ — 대중교통이 비상식이라 도보로 바꿨는데 실제 도보 경로가 30분을 넘으면(홍콩 피크→센트럴 43분) 차량으로 바꾼다.
+  it("transit-sanity: 직선 ≤2km 라도 실제 도보 경로가 30분을 넘으면 차량으로 바꾼다", async () => {
+    vi.stubEnv("GOOGLE_MAPS_SERVER_KEY", "test-key");
+    const minutes: Record<string, number> = { transit: 40, walking: 43, driving: 8 };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: URL) => ({
+        ok: true,
+        json: async () => ({ status: "OK", routes: [{ legs: [{ distance: { value: 1800 }, duration: { value: minutes[url.searchParams.get("mode") ?? "driving"] * 60 } }], overview_polyline: { points: "abc" } }] }),
+      })),
+    );
+    const a = stop("peak", 22.2759, 114.1455, { name: "스카이 테라스 428" });
+    const b = stop("mural", 22.2829, 114.1553, { name: "Graham Street Wall Mural" });
+    const { segments } = await routeDayStops("overseas", [a, b], Date.now() + 60_000);
+    expect(segments[0]).toMatchObject({ durationMinutes: 8, mode: "car" });
   });
 
   it("parses a successful response and passes the overview_polyline straight through as an enc: path", async () => {
@@ -3371,6 +3389,29 @@ describe("landmarkRank · 랜드마크 앵커", () => {
     const { spots } = assembleDaySpots([s1, s2], [straightRouteMeasurement(s1, s2, "walk")], 1, "overseas", "오사카", 1);
     expect(spots[0].landmarkRank).toBe(2);
     expect(spots[1]).not.toHaveProperty("landmarkRank");
+  });
+
+  // 작업지시서 2026-10-22 "#337 검증" §2①② — 이름 전체 일치 + 300m, 음식점 등 제외, 풀 항목은 최대 1 스팟
+  it("assignLandmarkRanks: 이름 부분일치로 식당에 붙지 않고, 음식점·카페·숙소엔 달지 않으며, 풀 항목 하나는 한 스팟에만 붙는다", () => {
+    const pool = [
+      place("p-doton", { name: "도톤보리", lat: 34.6687, lng: 135.5013 }),
+      place("p-castle", { name: "오사카 성", lat: 34.6873, lng: 135.5262 }),
+    ];
+    const doton = stop("g-doton", 34.6688, 135.5014, { name: "도톤보리", category: "tourist_attraction" }); // 이름 전체 일치 + 가까움
+    const gyukatsu = stop("g-gyu", 34.6689, 135.5015, { name: "규카츠 교토가츠규 도톤보리 나카자쿠이다오레빌딩점", category: "restaurant", meal: true });
+    const castle = stop("p-castle", 34.6873, 135.5262, { name: "오사카 성", category: "tourist_attraction" }); // id 일치
+    const dotonDup = stop("g-doton2", 34.6688, 135.5014, { name: "도톤보리", category: "tourist_attraction" }); // 같은 풀 항목을 또 노림
+    const far = stop("g-far", 34.9, 135.9, { name: "오사카 성", category: "tourist_attraction" }); // 이름은 같지만 멀다
+    const hotelNamed = stop("g-hotel", 34.6687, 135.5013, { name: "도톤보리", category: "lodging" });
+    const stops = [gyukatsu, doton, castle, dotonDup, far, hotelNamed];
+    const matched = assignLandmarkRanks(pool, stops);
+    expect(gyukatsu.landmarkRank).toBeUndefined();
+    expect(hotelNamed.landmarkRank).toBeUndefined();
+    expect(doton.landmarkRank).toBe(1);
+    expect(dotonDup.landmarkRank).toBeUndefined();
+    expect(castle.landmarkRank).toBe(2);
+    expect(far.landmarkRank).toBeUndefined();
+    expect(matched).toBe(2);
   });
 
   it("pickLandmarkAnchors: 풀 상위(오사카 성 2위)가 코스에 없으면 앞선 순위부터 앵커가 된다", () => {
