@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
-import { bumpCourseCounter, courseCounterKey, getCourseBuildStatus, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
+import { bumpCourseCounter, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
 
 const NOW = new Date("2026-10-21T12:00:00Z"); // 태평양 10/21
 
@@ -61,5 +61,30 @@ describe("courseBuildStatus", () => {
     const down = await getCourseBuildStatus(44, NOW);
     expect(down.staleServedToday).toBeNull();
     expect(down.lastRebuildAt).toBeNull();
+  });
+
+  // 작업지시서 2026-10-22 "#336 검증" §2④⑤ — 버전 전환 진행률 · 로봇 재생성 카운터
+  it("versionProgress: 사이트맵 조합 중 현재 버전 / 직전 버전만 / 없음을 센다", async () => {
+    queryMock.mockImplementation(async (...args: unknown[]) => {
+      const sql = String(args[0]);
+      if (sql.includes("course-sitemap")) {
+        return { rows: ["오사카:3", "홍콩:4", "나고야:4", "방콕:3"].map((c) => ({ cache_key: `course-sitemap:${c}` })) };
+      }
+      return {
+        rows: ["content-brief:overseas:오사카:3:v44", "content-brief:overseas:오사카:3:v43", "content-brief:overseas:홍콩:4:v43", "content-brief:overseas:도쿄:3:v44"].map((cache_key) => ({ cache_key })),
+      };
+    });
+    expect(await getVersionProgress(44, 1000)).toEqual({ total: 4, onCurrent: 1, onPrevious: 1, missing: 2 });
+  });
+
+  it("봇 재생성·동기 빌드 카운터를 courseBuild 에 싣는다", async () => {
+    queryMock.mockImplementation(async (_sql: string, params?: string[]) => {
+      if (params?.[0]?.startsWith("course-build-day:sync")) return { rows: [{ payload: { count: 9 } }] };
+      return { rows: [] };
+    });
+    const s = await getCourseBuildStatus(45, NOW);
+    expect(s.syncBuildsToday).toBe(9);
+    expect(s.rebuildTriggeredByBotToday).toBe(0);
+    expect(s.versionProgress).toEqual({ total: 0, onCurrent: 0, onPrevious: 0, missing: 0 });
   });
 });

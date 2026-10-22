@@ -2404,7 +2404,7 @@ describe("rebalanceCityDays — 도시형 하루 스팟 수 재배분 (작업지
   const normals = (prefix: string, n: number, dx0: number) => Array.from({ length: n }, (_, i) => spotAt(`${prefix}${i}`, dx0 + i * 0.3, i * 0.2, { reviewCount: 100 + i }));
   const sizes = (days: FinalStop[][]) => days.map((d) => d.length);
 
-  it("시드니 5일 6·6·1·1·1 → 하루 2곳 이상·최대 5곳(시설 날 3곳), 총합·시설 유지", () => {
+  it("시드니 5일 6·6·1·1·1 → 시설 날은 시설 + 저녁 1곳까지, 총합·시설 유지", () => {
     const days = [
       normals("a", 6, 0),
       normals("b", 6, 3),
@@ -2414,8 +2414,11 @@ describe("rebalanceCityDays — 도시형 하루 스팟 수 재배분 (작업지
     ];
     const result = rebalanceCityDays(days);
     expect(result.flat()).toHaveLength(15);
-    for (const day of result) expect(day.length).toBeGreaterThanOrEqual(2);
-    for (const day of result) expect(day.length).toBeLessThanOrEqual(day.some((s) => ["amusement_park", "water_park"].includes(s.category)) ? 3 : 5);
+    // 작업지시서 2026-10-22 "#336 검증" §2⑥ — 시설 날은 시설 + 저녁 1곳까지라 일반 관광지는 붙지 않는다(시설 단독 날 가능). 시설이 없는 날은 2곳 이상.
+    const isFac = (d: FinalStop[]) => d.some((s) => ["amusement_park", "water_park"].includes(s.category));
+    for (const day of result) expect(day.length).toBeGreaterThanOrEqual(isFac(day) ? 1 : 2);
+    for (const day of result) if (isFac(day)) expect(day.length).toBeLessThanOrEqual(2);
+    // 일반 관광지는 시설 날로 옮겨지지 않으므로 6곳 날의 초과분은 이 단계에서 남고, capCityDaySizes 가 하루 최대 5곳으로 줄인다.
     for (const id of ["zoo", "aq", "luna"]) {
       // 시설은 자기 날에 그대로, 다른 시설과 한 날에 섞이지 않는다.
       const day = result.find((d) => d.some((s) => s.id === id))!;
@@ -2424,11 +2427,11 @@ describe("rebalanceCityDays — 도시형 하루 스팟 수 재배분 (작업지
     expect(new Set(result.flat().map((s) => s.id)).size).toBe(15);
   });
 
-  it("시드니 3일 6·6·1 → 최대 5곳, 하루 2곳 이상", () => {
+  it("시드니 3일 6·6·1 → 시설 날에는 일반 관광지를 붙이지 않는다", () => {
     const result = rebalanceCityDays([normals("a", 6, 0), normals("b", 6, 3), [facility("zoo", "amusement_park", 1, 1)]]);
     expect(result.flat()).toHaveLength(13);
-    expect(sizes(result).every((n) => n >= 2 && n <= 5)).toBe(true);
-    expect(result.find((d) => d.some((s) => s.id === "zoo"))!.length).toBeLessThanOrEqual(3);
+    expect(result.filter((d) => !d.some((s) => s.id === "zoo")).every((d) => d.length >= 2)).toBe(true); // 초과분은 capCityDaySizes 몫
+    expect(result.find((d) => d.some((s) => s.id === "zoo"))!.length).toBeLessThanOrEqual(2);
   });
 
   it("이미 고른 분포(서울 2일 4·3)는 그대로 둔다", () => {
@@ -2826,11 +2829,35 @@ describe("종일시설은 테마파크만 · 판정 함수 단일화 (작업지�
     expect(isDayFacility(s)).toBe(c.facility); // 시설 날 판정
     expect(assembleDaySpots([s], [], 1, "overseas", "오사카", 1).spots[0].facilityDay === true).toBe(c.facility); // 응답 표시
     const usj = stop("usj", 34.665, 135.433, { category: "amusement_park", name: "유니버설 스튜디오 재팬", reviewCount: 90000 });
-    // 동반 조건: 같은 시설 날의 동반이 될 수 있는지 = 시설이 아닐 때만(거리는 가깝게 맞춰 둔다)
-    expect(isValidFacilityCompanion(s, usj)).toBe(!c.facility);
+    // 동반 조건: 시설도 일반 관광지도 시설 날의 동반이 될 수 없다(식당·야간형 1곳만 — 아래 별도 테스트)
+    expect(isValidFacilityCompanion(s, usj)).toBe(false);
     // 상한: 2일 코스에서 시설 1곳까지만 허용 — 시설이면 2번째가 빠지고, 시설이 아니면 영향이 없다
     const { dropped } = enforceFacilityDayLimit([[usj], [s]]);
     expect(dropped.length === 1).toBe(c.facility);
+  });
+
+  // 작업지시서 2026-10-22 "#336 검증" §2⑥ — 종일시설 날은 시설 + 저녁 1곳(3km 이내 식당·야간형)까지.
+  it("시설 날 동반: 3km 이내 식당·야간형만 — 관광지·전망대·시장·먼 식당은 안 된다", () => {
+    const park = stop("park", 22.24, 114.0, { category: "amusement_park", name: "홍콩 해양공원", reviewCount: 90000 });
+    const near = (id: string, extra: Partial<FinalStop>) => stop(id, 22.25, 114.0, { name: id, ...extra });
+    expect(isValidFacilityCompanion(near("식당", { meal: true, category: "restaurant" }), park)).toBe(true);
+    expect(isValidFacilityCompanion(near("심포니 오브 라이트", { slotKey: "night" }), park)).toBe(true);
+    expect(isValidFacilityCompanion(near("완차이 마켓", { category: "market" }), park)).toBe(false);
+    expect(isValidFacilityCompanion(near("스카이 테라스 428", { slotKey: "night" }), park)).toBe(false); // 전망대
+    expect(isValidFacilityCompanion(near("도시 공원", { category: "tourist_attraction" }), park)).toBe(false);
+    expect(isValidFacilityCompanion(stop("far", 22.3, 114.0, { name: "먼 식당", meal: true, category: "restaurant" }), park)).toBe(false); // 3km 초과
+  });
+  it("시설 날 동반이 여럿이면 1곳(야간형 우선)만 남기고 나머지는 다른 날로 옮긴다", () => {
+    const park = stop("park", 22.24, 114.0, { category: "amusement_park", name: "홍콩 해양공원", reviewCount: 90000 });
+    const meal = stop("meal", 22.245, 114.0, { name: "식당", meal: true, category: "restaurant" });
+    const night = stop("night", 22.246, 114.0, { name: "야경 크루즈", slotKey: "night" });
+    const wanchai = stop("wanchai", 22.246, 114.0, { name: "완차이 마켓", category: "market" });
+    const other = [stop("o1", 22.28, 114.15), stop("o2", 22.29, 114.16)];
+    const r = enforceFacilityDayCompanions([[park, meal, night, wanchai], other], 4);
+    const parkDay = r.days.find((d) => d.some((s) => s.id === "park"))!;
+    expect(parkDay.map((s) => s.id).sort()).toEqual(["night", "park"]);
+    expect(r.days.flat()).toHaveLength(6);
+    expect(r.days.find((d) => d.some((s) => s.id === "wanchai"))).not.toBe(parkDay);
   });
 
   it("오사카 2일(USJ + 해유관): 해유관은 일반 명소로 남고 시설 날은 USJ 하나뿐이다", () => {

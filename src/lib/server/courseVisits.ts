@@ -101,3 +101,41 @@ export async function fetchSitemapTasks(limit = 300): Promise<WarmTask[]> {
     return [];
   }
 }
+
+const DEFERRED_WINDOW_MS = 36 * 60 * 60 * 1000;
+
+/** 재생성이 오늘 몫이 없어 미뤄진 조합을 남긴다 — 워밍 크론이 다음 실행에서 방문 조합보다 먼저 만든다(작업지시서 2026-10-22 "#336 검증" §2②). 실패해도 코스 생성에는 영향이 없다. */
+export async function recordDeferredRebuild(region: string, days: number): Promise<void> {
+  try {
+    await pool.query(
+      `insert into place_candidate_cache (cache_key, payload) values ($1, $2)
+       on conflict (cache_key) do update set created_at = now()`,
+      [`course-deferred:${resolveRegionAlias(region)}:${days}`, JSON.stringify({ region: resolveRegionAlias(region), days })],
+    );
+  } catch (err) {
+    console.error("[courseVisits] deferred record failed:", err);
+  }
+}
+
+/** 미뤄진 (지역, 일수) — 최근 것부터. DB 오류면 빈 목록. */
+export async function fetchDeferredTasks(windowMs = DEFERRED_WINDOW_MS): Promise<WarmTask[]> {
+  try {
+    const r = await pool.query<{ region: string | null; days: string | null }>(
+      `select payload->>'region' as region, payload->>'days' as days
+         from place_candidate_cache
+        where cache_key like 'course-deferred:%' and created_at > now() - ($1 || ' milliseconds')::interval
+        order by created_at desc`,
+      [String(windowMs)],
+    );
+    const out: WarmTask[] = [];
+    for (const row of r.rows) {
+      const days = Number(row.days);
+      if (!row.region || !Number.isInteger(days) || days < 1 || days > 7) continue;
+      out.push({ region: row.region, days: days as CourseDays });
+    }
+    return out;
+  } catch (err) {
+    console.error("[courseVisits] deferred fetch failed:", err);
+    return [];
+  }
+}

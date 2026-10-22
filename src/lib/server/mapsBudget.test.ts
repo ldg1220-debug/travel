@@ -159,7 +159,7 @@ describe("일 단위 페이싱", () => {
     const monthKey = mapsOpsKey("text-enterprise", NOW);
     const dayKey = mapsDayKey("text-enterprise", NOW);
     // 월 243(오늘 이전 243 − 오늘 0 → 오늘 상한 38). 오늘 이미 19건 → 월 262
-    fakeStore({ [monthKey]: 262, [dayKey]: 19 });
+    fakeStore({ [monthKey]: 262, [dayKey]: 19, [mapsSourceDayKey("text-enterprise", "warm", NOW)]: 19 });
     // 오늘 이전 사용 = 262 − 19 = 243 → 상한 floor(657/17) = 38
     expect((await runWithMapsSource("warm", () => reserveMapsOp("text-enterprise", NOW))).allowed).toBe(false); // 워밍 상한 19 도달
     expect((await reserveMapsOp("text-enterprise", NOW)).allowed).toBe(true); // 사용자는 38 까지
@@ -173,7 +173,7 @@ describe("일 단위 페이싱", () => {
     const day20 = new Date("2026-10-20T15:00:00Z"); // 태평양 10/20 → 남은 날 12
     expect(dailyPacingLimit(4500, 1365, daysRemainingInMonth(day20))).toBe(261);
     // 오늘 이전 사용 1,365, 오늘 130건 → 월 1,495
-    fakeStore({ [mapsOpsKey("text-pro", day20)]: 1495, [mapsDayKey("text-pro", day20)]: 130 });
+    fakeStore({ [mapsOpsKey("text-pro", day20)]: 1495, [mapsDayKey("text-pro", day20)]: 130, [mapsSourceDayKey("text-pro", "warm", day20)]: 130 });
     expect((await runWithMapsSource("warm", () => reserveMapsOp("text-pro", day20))).allowed).toBe(false); // 워밍 상한 130 도달
     expect((await reserveMapsOp("text-pro", day20)).allowed).toBe(true); // 사용자는 261 까지
     fakeStore({ [mapsOpsKey("text-pro", day20)]: 1626, [mapsDayKey("text-pro", day20)]: 261 });
@@ -182,13 +182,27 @@ describe("일 단위 페이싱", () => {
   // 작업지시서 2026-10-21 "#333 검증" §2② — 하루 Pro 사용량을 출처(user · warm · rebuild)별로 센다. rebuild(사용자 방문이 응답 뒤 일으킨 재생성)는 워밍과 같은 50% 몫.
   it("출처별 오늘 호출 수를 세고, rebuild 도 워밍처럼 오늘 상한의 50% 까지만", async () => {
     const day20 = new Date("2026-10-20T15:00:00Z");
-    const store = fakeStore({ [mapsOpsKey("text-pro", day20)]: 1495, [mapsDayKey("text-pro", day20)]: 130 });
+    const store = fakeStore({ [mapsOpsKey("text-pro", day20)]: 1495, [mapsDayKey("text-pro", day20)]: 130, [mapsSourceDayKey("text-pro", "rebuild", day20)]: 130 });
     expect((await runWithMapsSource("rebuild", () => reserveMapsOp("text-pro", day20))).allowed).toBe(false); // 50% = 130 도달
     expect((await reserveMapsOp("text-pro", day20)).allowed).toBe(true);
     expect(store.get(mapsSourceDayKey("text-pro", "user", day20))).toBe(1);
-    expect(store.get(mapsSourceDayKey("text-pro", "rebuild", day20)) ?? 0).toBe(0);
+    expect(store.get(mapsSourceDayKey("text-pro", "rebuild", day20))).toBe(130); // 거절된 호출은 세지 않는다
     fakeStore({ [mapsOpsKey("text-pro", day20)]: 1400, [mapsDayKey("text-pro", day20)]: 40 });
     expect((await runWithMapsSource("rebuild", () => reserveMapsOp("text-pro", day20))).allowed).toBe(true);
+  });
+  // 작업지시서 2026-10-22 "#336 검증" §2① — 워밍·재생성 몫은 warm+rebuild 사용분만으로 센다. 사용자 사용이 오늘 상한의 절반을 넘어도 재생성은 자기 몫(50%)까지 돈다.
+  it("사용자 요청이 먼저 절반을 넘겨도 재생성·워밍은 자기 몫만큼 돈다(총 사용이 오늘 상한 안일 때)", async () => {
+    const day20 = new Date("2026-10-20T15:00:00Z"); // 오늘 상한 261, 백그라운드 몫 130
+    const user = mapsSourceDayKey("text-pro", "user", day20);
+    fakeStore({ [mapsOpsKey("text-pro", day20)]: 1365 + 147, [mapsDayKey("text-pro", day20)]: 147, [user]: 147 });
+    expect((await runWithMapsSource("rebuild", () => reserveMapsOp("text-pro", day20))).allowed).toBe(true);
+    expect((await runWithMapsSource("warm", () => reserveMapsOp("text-pro", day20))).allowed).toBe(true);
+    // 백그라운드가 자기 몫(130)을 다 쓰면 거절
+    fakeStore({ [mapsOpsKey("text-pro", day20)]: 1365 + 200, [mapsDayKey("text-pro", day20)]: 200, [mapsSourceDayKey("text-pro", "rebuild", day20)]: 65, [mapsSourceDayKey("text-pro", "warm", day20)]: 65 });
+    expect((await runWithMapsSource("rebuild", () => reserveMapsOp("text-pro", day20))).allowed).toBe(false);
+    // 총 사용이 오늘 상한이면 백그라운드도 거절(사용자 몫을 침범하지 않는다)
+    fakeStore({ [mapsOpsKey("text-pro", day20)]: 1365 + 261, [mapsDayKey("text-pro", day20)]: 261, [user]: 261 });
+    expect((await runWithMapsSource("rebuild", () => reserveMapsOp("text-pro", day20))).allowed).toBe(false);
   });
   it("페이싱 SKU 가 아닌 것(static 등)은 일 상한 없이 월 한도만", async () => {
     fakeStore({ [mapsOpsKey("static", NOW)]: 8000, [mapsDayKey("static", NOW)]: 5000 });
@@ -297,7 +311,7 @@ describe("콘솔 하루 상한 집계 (text-search-all · get-place-all)", () =>
   });
 
   it("워밍 크론은 집계 상한의 절반(45)까지만", async () => {
-    fakeStore({ [mapsDayKey("text-search-all", NOW)]: 45 });
+    fakeStore({ [mapsDayKey("text-search-all", NOW)]: 45, [mapsSourceDayKey("text-search-all", "warm", NOW)]: 45 });
     expect((await runWithMapsSource("warm", () => reserveMapsOp("text-pro", NOW))).allowed).toBe(false);
     expect((await reserveMapsOp("text-pro", NOW)).allowed).toBe(true);
   });

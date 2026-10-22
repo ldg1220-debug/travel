@@ -1,6 +1,6 @@
 import { purgeExpiredPlacesCache } from "@/lib/server/placesRetention";
 import { maxDaysForRegion } from "@/lib/regionTypicalDays";
-import { fetchRecentlyVisitedTasks, fetchSitemapTasks, groupTasksByRegion } from "@/lib/server/courseVisits";
+import { fetchDeferredTasks, fetchRecentlyVisitedTasks, fetchSitemapTasks, groupTasksByRegion } from "@/lib/server/courseVisits";
 import { recordWarmRun } from "@/lib/server/courseBuildStatus";
 import { runWithMapsSource } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
@@ -94,8 +94,12 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // 작업지시서 2026-10-22 "#336 검증" §2② — 어제 몫이 없어 미뤄진 조합을 방문 조합보다 먼저 만든다.
+  const deferred = (await fetchDeferredTasks()).filter((t) => WARM_TASK_KEYS.has(`${t.region}/${t.days}`));
   const visited = (await fetchRecentlyVisitedTasks()).filter((t) => WARM_TASK_KEYS.has(`${t.region}/${t.days}`));
-  const stale = await pickStaleTasks(visited, BATCH_SIZE, { minAgeMs: WARM_MIN_AGE_MS });
+  const staleDeferred = await pickStaleTasks(deferred, BATCH_SIZE, { minAgeMs: WARM_MIN_AGE_MS });
+  const staleVisited = await pickStaleTasks(visited, BATCH_SIZE, { minAgeMs: WARM_MIN_AGE_MS });
+  const stale = [...staleDeferred, ...staleVisited.filter((t) => !staleDeferred.some((d) => d.region === t.region && d.days === t.days))]; // 미뤄진 조합이 앞 — groupTasksByRegion 이 처음 나온 순서로 지역을 고른다
   const visitedGroups = groupTasksByRegion(stale, warmDailyMax());
   // 작업지시서 2026-10-21 "v44 재생성 멈춤" §2③ — 검색 로봇을 방문으로 세지 않게 된 뒤 사람 방문이 적은 날엔 대상이 비어 새 버전이 아무것도 안 만들어졌다. 남는 지역 몫은
   // 사이트맵에 오른 적 있는 조합(최근 확인 순, 현재 버전 캐시가 없거나 20시간 이상 묵은 것)으로 채운다 — 같은 워밍 몫(오늘 상한의 50%) 안에서.
@@ -142,7 +146,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     warmed.map((w) => `${w.region}(${w.days}일)${w.ok ? `✓ rated=${w.rated}/${w.spots}` : "✗"}`).join(", "),
   );
 
-  await recordWarmRun(`처리 ${warmed.length}건(성공 ${warmed.filter((w) => w.ok).length}) · 방문 ${visited.length} · 대체 지역 ${fallbackRegions}`); // health courseBuild.lastWarm*
+  await recordWarmRun(`처리 ${warmed.length}건(성공 ${warmed.filter((w) => w.ok).length}) · 방문 ${visited.length} · 미뤄짐 ${deferred.length} · 대체 지역 ${fallbackRegions}`); // health courseBuild.lastWarm*
 
   // 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" §2 — 보관 기간이 지난 Places 유래 캐시 행(이름·평점 26h+2h · 좌표 30일)을 지운다.
   const purged = await purgeExpiredPlacesCache().catch((err) => {
@@ -151,5 +155,5 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   });
   if (purged) console.log(`[warm-course-brief] places cache purge: content=${purged.content} latLng=${purged.latLng} degradedPools=${purged.degradedPools ?? 0}`);
 
-  return NextResponse.json({ ok: true, purged, totalTasks: WARM_TASKS.length, visited: visited.length, fallbackRegions, dailyMaxRegions: warmDailyMax(), regions: regionGroups.length, batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
+  return NextResponse.json({ ok: true, purged, totalTasks: WARM_TASKS.length, visited: visited.length, deferred: deferred.length, fallbackRegions, dailyMaxRegions: warmDailyMax(), regions: regionGroups.length, batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
 });
