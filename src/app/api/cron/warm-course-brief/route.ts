@@ -1,7 +1,7 @@
 import { purgeExpiredPlacesCache } from "@/lib/server/placesRetention";
 import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { fetchDeferredTasks, fetchRecentlyVisitedTasks, fetchSitemapTasks, groupTasksByRegion } from "@/lib/server/courseVisits";
-import { purgeOldUserAgents, recordWarmRun } from "@/lib/server/courseBuildStatus";
+import { purgeOldUserAgents, recordWarmRun, warmSourceFrom } from "@/lib/server/courseBuildStatus";
 import { runWithMapsSource } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
@@ -147,7 +147,8 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   );
 
   await purgeOldUserAgents(); // 이틀 넘은 User-Agent 카운터 정리
-  await recordWarmRun(`처리 ${warmed.length}건(성공 ${warmed.filter((w) => w.ok).length}) · 방문 ${visited.length} · 미뤄짐 ${staleDeferred.length} · 빈 조합 ${missing.length} · 지역 ${regionGroups.length}`); // health courseBuild.lastWarm*
+  const source = warmSourceFrom(request.headers.get("user-agent"), request.headers.get("x-warm-source"));
+  await recordWarmRun(`처리 ${warmed.length}건(성공 ${warmed.filter((w) => w.ok).length}) · 방문 ${visited.length} · 미뤄짐 ${staleDeferred.length} · 빈 조합 ${missing.length} · 지역 ${regionGroups.length}`, new Date(), source); // health courseBuild.lastWarm*
 
   // 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" §2 — 보관 기간이 지난 Places 유래 캐시 행(이름·평점 26h+2h · 좌표 30일)을 지운다.
   const purged = await purgeExpiredPlacesCache().catch((err) => {

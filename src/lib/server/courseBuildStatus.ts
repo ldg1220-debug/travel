@@ -78,8 +78,16 @@ export async function recordRebuildEvent(event: RebuildEvent, now = new Date()):
 }
 
 /** 워밍 크론 실행 결과를 상태 행에 합친다. */
-export async function recordWarmRun(summary: string, now = new Date()): Promise<void> {
-  await mergeStatus({ lastWarmAt: now.toISOString(), lastWarmResult: summary.slice(0, 200) });
+/** 워밍 호출 출처 — Vercel 크론(05:00 UTC, UA `vercel-cron/…`) · GitHub Actions(17:00 UTC, `X-Warm-Source: gh-actions`) · 그 밖의 수동 호출. */
+export type WarmSource = "vercel-cron" | "gh-actions" | "manual";
+export function warmSourceFrom(userAgent: string | null | undefined, warmSourceHeader: string | null | undefined): WarmSource {
+  if (/^vercel-cron\//i.test(userAgent ?? "")) return "vercel-cron";
+  if (warmSourceHeader === "gh-actions") return "gh-actions";
+  return "manual";
+}
+
+export async function recordWarmRun(summary: string, now = new Date(), source: WarmSource = "manual"): Promise<void> {
+  await mergeStatus({ lastWarmAt: now.toISOString(), lastWarmResult: summary.slice(0, 200), lastWarmSource: source });
 }
 
 async function mergeStatus(patch: Record<string, unknown>): Promise<void> {
@@ -143,6 +151,8 @@ export interface CourseBuildHealth {
   lastRebuildOkAt: string | null;
   lastWarmAt: string | null;
   lastWarmResult: string | null;
+  /** 마지막 워밍을 부른 쪽 — "vercel-cron"(05:00 UTC) · "gh-actions"(17:00 UTC) · "manual". */
+  lastWarmSource: WarmSource | null;
   /** 오늘(태평양 시간) 직전 버전을 내보낸 요청 수. */
   staleServedToday: number | null;
   /** 오늘 사람 방문(검색 로봇 제외)과 로봇 요청 수 — course-brief · 코스 페이지 · 지도 · 열기 요청의 getCourseBrief 호출 기준. */
@@ -205,6 +215,7 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     lastRebuildOkAt: str(status?.lastRebuildOkAt),
     lastWarmAt: str(status?.lastWarmAt),
     lastWarmResult: str(status?.lastWarmResult),
+    lastWarmSource: ((v) => (v === "vercel-cron" || v === "gh-actions" || v === "manual" ? v : null))(status?.lastWarmSource),
     staleServedToday: count(stale),
     visitsHumanToday: count(human),
     visitsBotToday: count(bot),

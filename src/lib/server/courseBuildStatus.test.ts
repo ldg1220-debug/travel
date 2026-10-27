@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
-import { bumpCourseCounter, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordUserAgent, userAgentKey, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
+import { bumpCourseCounter, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordUserAgent, userAgentKey, warmSourceFrom, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
 
 const NOW = new Date("2026-10-21T12:00:00Z"); // 태평양 10/21
 
@@ -42,18 +42,18 @@ describe("courseBuildStatus", () => {
   it("recordWarmRun 은 lastWarm* 를 남긴다", async () => {
     queryMock.mockResolvedValue({ rows: [] });
     await recordWarmRun("처리 4건", NOW);
-    expect(JSON.parse(queryMock.mock.calls[0][1][1])).toEqual({ lastWarmAt: NOW.toISOString(), lastWarmResult: "처리 4건" });
+    expect(JSON.parse(queryMock.mock.calls[0][1][1])).toEqual({ lastWarmAt: NOW.toISOString(), lastWarmResult: "처리 4건", lastWarmSource: "manual" });
   });
 
   it("getCourseBuildStatus: 상태 행과 오늘 카운터를 합쳐 돌려준다(없으면 0 · 조회 실패면 null)", async () => {
     queryMock.mockImplementation(async (_sql: string, params: string[]) => {
-      if (params[0] === "course-build:status") return { rows: [{ payload: { lastRebuildAt: "2026-10-21T11:00:00.000Z", lastRebuildKey: "k", lastRebuildResult: "ok: spots=15", lastWarmAt: "2026-10-21T05:00:00.000Z" } }] };
+      if (params[0] === "course-build:status") return { rows: [{ payload: { lastRebuildAt: "2026-10-21T11:00:00.000Z", lastRebuildKey: "k", lastRebuildResult: "ok: spots=15", lastWarmAt: "2026-10-21T05:00:00.000Z", lastWarmSource: "vercel-cron" } }] };
       if (params[0].startsWith("course-build-day:stale")) return { rows: [{ payload: { count: 7 } }] };
       if (params[0].startsWith("course-build-day:human")) return { rows: [{ payload: { count: 3 } }] };
       return { rows: [] }; // bot — 아직 행 없음
     });
     const s = await getCourseBuildStatus(44, NOW);
-    expect(s).toMatchObject({ currentVersion: 44, lastRebuildResult: "ok: spots=15", lastRebuildKey: "k", lastWarmAt: "2026-10-21T05:00:00.000Z", staleServedToday: 7, visitsHumanToday: 3, visitsBotToday: 0 });
+    expect(s).toMatchObject({ currentVersion: 44, lastRebuildResult: "ok: spots=15", lastRebuildKey: "k", lastWarmAt: "2026-10-21T05:00:00.000Z", lastWarmSource: "vercel-cron", staleServedToday: 7, visitsHumanToday: 3, visitsBotToday: 0 });
     expect(s.lastRebuildStartedAt).toBeNull();
     vi.spyOn(console, "error").mockImplementation(() => {});
     queryMock.mockReset();
@@ -121,5 +121,13 @@ describe("courseBuildStatus", () => {
     const s = await getCourseBuildStatus(45, NOW);
     expect(s.visitsBySource).toEqual({ human: 12, bot: 400, internal: 30, api: 150 });
     expect(s.topUserAgents).toEqual([{ userAgent: "python-requests/2.31", count: 90 }]);
+  });
+
+  // 작업지시서 2026-10-27 "워밍 하루 2회" §1② — 워밍 호출 출처
+  it("warmSourceFrom: vercel-cron UA → vercel-cron, X-Warm-Source: gh-actions → gh-actions, 그 밖은 manual", () => {
+    expect(warmSourceFrom("vercel-cron/1.0", null)).toBe("vercel-cron");
+    expect(warmSourceFrom("curl/8.5.0", "gh-actions")).toBe("gh-actions");
+    expect(warmSourceFrom("curl/8.5.0", null)).toBe("manual");
+    expect(warmSourceFrom(null, "other")).toBe("manual");
   });
 });
