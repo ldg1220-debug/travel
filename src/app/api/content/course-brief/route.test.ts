@@ -10,13 +10,13 @@ vi.mock("@/lib/server/courseVisits", () => ({ recordCourseVisit: (...a: unknown[
 // 부족과 해변 없음을 다른 error 코드로 구분한다. courseBrief.ts는 Postgres
 // pool을 끌고 오므로 page.test.ts와 같은 이유로 getCourseBrief만 모킹한다.
 
-const getCourseBriefMock = vi.fn<(region: string, days: number, budget?: number, options?: { refresh?: boolean; requestSource?: "user" | "bot" }) => Promise<CourseBrief>>();
+const getCourseBriefMock = vi.fn<(region: string, days: number, budget?: number, options?: { refresh?: boolean; requestSource?: "user" | "bot" | "internal" | "api"; userAgent?: string | null }) => Promise<CourseBrief>>();
 
 vi.mock("@/lib/server/courseBrief", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/server/courseBrief")>();
   return {
     ...actual,
-    getCourseBrief: (region: string, days: number, budget?: number, options?: { refresh?: boolean; requestSource?: "user" | "bot" }) => getCourseBriefMock(region, days, budget, options),
+    getCourseBrief: (region: string, days: number, budget?: number, options?: { refresh?: boolean; requestSource?: "user" | "bot" | "internal" | "api"; userAgent?: string | null }) => getCourseBriefMock(region, days, budget, options),
   };
 });
 
@@ -88,7 +88,7 @@ describe("GET /api/content/course-brief — ?refresh= 토큰 (작업지시서 20
 
   it("passes refresh=true only when the token equals CRON_SECRET", async () => {
     await GET(request("region=코타키나발루&days=3&refresh=s3cret"));
-    expect(getCourseBriefMock.mock.calls[0][3]).toEqual({ refresh: true, requestSource: "user" });
+    expect(getCourseBriefMock.mock.calls[0][3]).toMatchObject({ refresh: true, requestSource: "api" }); // 공개 API 직접 호출은 사람이 아니다(2026-10-27)
   });
 
   it("ignores a wrong token, a missing token, and an unset secret", async () => {
@@ -97,7 +97,7 @@ describe("GET /api/content/course-brief — ?refresh= 토큰 (작업지시서 20
     vi.stubEnv("CRON_SECRET", "");
     await GET(request("region=코타키나발루&days=3&refresh="));
     await GET(request("region=코타키나발루&days=3&refresh=s3cret"));
-    for (const call of getCourseBriefMock.mock.calls) expect(call[3]).toEqual({ refresh: false, requestSource: "user" });
+    for (const call of getCourseBriefMock.mock.calls) expect(call[3]).toMatchObject({ refresh: false, requestSource: "api" });
   });
 });
 
@@ -116,10 +116,13 @@ describe("GET /api/content/course-brief — 검색 로봇", () => {
     expect(getCourseBriefMock.mock.calls[0][3]).toMatchObject({ requestSource: "bot" });
     expect(recordVisitMock).not.toHaveBeenCalled();
   });
-  it("일반 사용자·AutoPipeline 호출은 user 로 방문을 기록한다", async () => {
+  // 작업지시서 2026-10-27 "사람 방문 218" — 공개 API 직접 호출은 사람으로 세지 않는다. 내부(TraduleAutoPipeline)는 internal, 방문 기록·재생성 대상은 아니다.
+  it("브라우저 UA 라도 이 API 직접 호출은 api, 스크립트 클라이언트는 bot, TraduleAutoPipeline 은 internal 이며 방문을 기록하지 않는다", async () => {
     await GET(withUa("Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/130 Safari/537.36"));
+    await GET(withUa("python-requests/2.31"));
+    await GET(withUa("TraduleAutoPipeline/1.2"));
     await GET(withUa("AutoPipeline/1.0 (+tradule content client)"));
-    expect(getCourseBriefMock.mock.calls.every((c) => c[3]?.requestSource === "user")).toBe(true);
-    expect(recordVisitMock).toHaveBeenCalledTimes(2);
+    expect(getCourseBriefMock.mock.calls.map((c) => c[3]?.requestSource)).toEqual(["api", "bot", "internal", "api"]);
+    expect(recordVisitMock).not.toHaveBeenCalled();
   });
 });

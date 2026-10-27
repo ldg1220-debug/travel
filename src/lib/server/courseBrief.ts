@@ -3,7 +3,7 @@ import { PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS } from "@/lib/server/places
 import { currentMapsSource, isBackgroundSource, isMapsBudgetExhausted, isMapsThrottled, reserveMapsOp, runWithMapsSource } from "@/lib/server/mapsBudget";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after } from "next/server";
-import { bumpCourseCounter, recordRebuildEvent } from "@/lib/server/courseBuildStatus";
+import { bumpCourseCounter, recordRebuildEvent, recordUserAgent } from "@/lib/server/courseBuildStatus";
 import { recordDeferredRebuild } from "@/lib/server/courseVisits";
 import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
@@ -242,6 +242,9 @@ export class UnsupportedRegionError extends Error {
  * 알고 있을 때만 이 에러를 던진다 — route.ts가 이걸 잡아 422가 아니라
  * 503(잠시 후 재시도)으로 응답한다.
  */
+/** getCourseBrief 요청 출처 — user=사람(브라우저 UA + Accept-Language + 화면 요청), bot, internal(TraduleAutoPipeline), api(그 밖의 직접 호출). */
+export type CourseRequestSource = "user" | "bot" | "internal" | "api";
+
 export class TransientApiFailureError extends Error {
   constructor(
     public readonly region: string,
@@ -4444,13 +4447,19 @@ export async function getCourseBrief(
   rawRegion: string,
   days: CourseDays,
   enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS,
-  options: { refresh?: boolean; requestSource?: "user" | "bot" } = {},
+  options: { refresh?: boolean; requestSource?: CourseRequestSource; userAgent?: string | null } = {},
 ): Promise<CourseBrief> {
   const region = resolveRegionAlias(rawRegion);
   // 작업지시서 2026-10-21 "#333 검증" §2 — 검색 로봇(User-Agent 이름 목록)은 캐시(직전 버전 포함)가 있으면 그대로 받고, 재생성·방문 기록·워밍 대상 선정에 쓰이지 않는다.
-  const bot = options.requestSource === "bot";
-  console.log(`[course-brief] source=${isBackgroundSource(currentMapsSource()) ? currentMapsSource() : bot ? "bot" : "user"} region=${region} days=${days}`);
-  if (!isBackgroundSource(currentMapsSource())) await bumpCourseCounter(bot ? "bot" : "human"); // health courseBuild.visits*Today
+  // 작업지시서 2026-10-27 "사람 방문 218" §2 — 출처: user(사람) · bot · internal(AutoPipeline 등 우리 서버 호출) · api(브라우저가 아닌 직접 호출). bot·api 는 캐시가 없으면 만들지 않고(503),
+  // internal 은 동기 빌드를 허용한다. 사람(user)만 방문 기록·백그라운드 재생성 대상이다.
+  const requestSource: CourseRequestSource = options.requestSource ?? "user";
+  const noBuild = requestSource === "bot" || requestSource === "api";
+  console.log(`[course-brief] source=${isBackgroundSource(currentMapsSource()) ? currentMapsSource() : requestSource} region=${region} days=${days}`);
+  if (!isBackgroundSource(currentMapsSource())) {
+    await bumpCourseCounter(requestSource === "user" ? "human" : requestSource); // health courseBuild.visitsBySource
+    if (options.userAgent !== undefined) await recordUserAgent(options.userAgent); // health courseBuild.topUserAgents
+  }
   // 작업지시서 2026-09-30 "#287 검증" §2 — 요청이 어느 경로로 가는지 조건 없이
   // 로그로 남긴다(진입 → path=… 분기). 필터 문자열: "[courseBrief] enter" ·
   // "[courseBrief] path=".
@@ -4491,12 +4500,12 @@ export async function getCourseBrief(
       // 작업지시서 2026-10-20 "v42가 적용되지 않습니다" A-1 — 직전 버전을 내보내고 끝내면 새 버전은 워밍 크론(하루 지역 2개)만 만들어 사실상 멈춰 있었다. 응답을 보낸 뒤(`after`)
       // 새 버전을 한 번 만든다 — 방문된 조합만, 워밍과 같은 몫(50%)의 페이싱 안에서, 같은 조합은 10분에 한 번만.
       await bumpCourseCounter("stale"); // health courseBuild.staleServedToday
-      if (!bot) scheduleBackgroundRebuild(rawRegion, days, cacheKey, "user");
+      if (requestSource === "user") scheduleBackgroundRebuild(rawRegion, days, cacheKey, "user");
       return previous.brief;
     }
     // 로봇은 캐시가 하나도 없으면 만들지 않는다 — 503(일시 불가)로 돌려 사이트맵 순회가 Places 호출을 일으키지 않게 한다(404 금지).
-    if (bot) {
-      console.log(`[courseBrief] path=bot-no-cache key=${cacheKey} (만들지 않음 → 503)`);
+    if (noBuild) {
+      console.log(`[courseBrief] path=${requestSource}-no-cache key=${cacheKey} (만들지 않음 → 503)`);
       throw new TransientApiFailureError(region, 0);
     }
   }
@@ -4551,7 +4560,7 @@ export interface WarmTask {
  * 애초에 안 쓰이므로, 워밍 크론이 국내는 days=1을, 해외는 days=2·3을
  * 태스크로 넘긴다.
  */
-export async function pickStaleTasks(tasks: WarmTask[], limit: number, opts: { minAgeMs?: number } = {}): Promise<WarmTask[]> {
+export async function pickStaleTasks(tasks: WarmTask[], limit: number, opts: { minAgeMs?: number; missingOnly?: boolean } = {}): Promise<WarmTask[]> {
   if (tasks.length === 0 || limit <= 0) return [];
   const keys = tasks.map((t) => briefCacheKey(resolveScope(t.region), t.region, t.days));
   const result = await pool.query<{ cache_key: string; created_at: string }>(
@@ -4563,6 +4572,8 @@ export async function pickStaleTasks(tasks: WarmTask[], limit: number, opts: { m
   return tasks
     .map((task, i) => ({ task, age: createdAtByKey.get(keys[i]) ?? -Infinity })) // 캐시 없음 = 가장 오래된 것으로 취급(맨 앞으로)
     .filter((x) => freshSince == null || x.age <= freshSince)
+    // missingOnly: 현재 버전 브리프가 없거나 TTL 이 지나 읽을 수 없는 것만(사이트맵인데 비어 있는 조합 — 작업지시서 2026-10-23 "#338 검증" §2①)
+    .filter((x) => !opts.missingOnly || Date.now() - x.age > BRIEF_CACHE_TTL_MS)
     .sort((a, b) => a.age - b.age)
     .slice(0, limit)
     .map((x) => x.task);

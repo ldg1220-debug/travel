@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
-import { bumpCourseCounter, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
+import { bumpCourseCounter, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordUserAgent, userAgentKey, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
 
 const NOW = new Date("2026-10-21T12:00:00Z"); // 태평양 10/21
 
@@ -68,13 +68,22 @@ describe("courseBuildStatus", () => {
     queryMock.mockImplementation(async (...args: unknown[]) => {
       const sql = String(args[0]);
       if (sql.includes("course-sitemap")) {
-        return { rows: ["오사카:3", "홍콩:4", "나고야:4", "방콕:3"].map((c) => ({ cache_key: `course-sitemap:${c}` })) };
+        return { rows: ["오사카:3", "홍콩:4", "나고야:4", "방콕:3"].map((c) => ({ cache_key: `course-sitemap:${c}`, region: c.split(":")[0], days: c.split(":")[1] })) };
       }
       return {
         rows: ["content-brief:overseas:오사카:3:v44", "content-brief:overseas:오사카:3:v43", "content-brief:overseas:홍콩:4:v43", "content-brief:overseas:도쿄:3:v44"].map((cache_key) => ({ cache_key })),
       };
     });
-    expect(await getVersionProgress(44, 1000)).toEqual({ total: 4, onCurrent: 1, onPrevious: 1, missing: 2 });
+    expect(await getVersionProgress(44, 1000)).toEqual({
+      total: 4,
+      onCurrent: 1,
+      onPrevious: 1,
+      missing: 2,
+      missingList: [
+        { region: "나고야", days: 4 },
+        { region: "방콕", days: 3 },
+      ],
+    });
   });
 
   it("봇 재생성·동기 빌드 카운터를 courseBuild 에 싣는다", async () => {
@@ -85,6 +94,32 @@ describe("courseBuildStatus", () => {
     const s = await getCourseBuildStatus(45, NOW);
     expect(s.syncBuildsToday).toBe(9);
     expect(s.rebuildTriggeredByBotToday).toBe(0);
-    expect(s.versionProgress).toEqual({ total: 0, onCurrent: 0, onPrevious: 0, missing: 0 });
+    expect(s.versionProgress).toEqual({ total: 0, onCurrent: 0, onPrevious: 0, missing: 0, missingList: [] });
+  });
+
+  // 작업지시서 2026-10-27 "사람 방문 218" §2⑤ — 출처별 방문 · 상위 User-Agent
+  it("userAgentKey: 오늘 날짜 + UA 앞 60자, recordUserAgent 는 upsert 로 센다", async () => {
+    const long = "Mozilla/5.0 " + "x".repeat(100);
+    expect(userAgentKey(long, NOW)).toBe(`course-ua:2026-10-21:${long.slice(0, 60)}`);
+    expect(userAgentKey(null, NOW)).toBe("course-ua:2026-10-21:(none)");
+    queryMock.mockResolvedValueOnce({ rows: [] });
+    await recordUserAgent("curl/8.4", NOW);
+    expect(queryMock.mock.calls[0][1]).toEqual(["course-ua:2026-10-21:curl/8.4"]);
+  });
+
+  it("visitsBySource · topUserAgents 를 courseBuild 에 싣는다", async () => {
+    queryMock.mockImplementation(async (rawSql: unknown, params?: unknown[]) => {
+      const sql = String(rawSql);
+      const key = String(params?.[0] ?? "");
+      if (key === "course-build-day:human:2026-10-21") return { rows: [{ payload: { count: 12 } }] };
+      if (key === "course-build-day:bot:2026-10-21") return { rows: [{ payload: { count: 400 } }] };
+      if (key === "course-build-day:internal:2026-10-21") return { rows: [{ payload: { count: 30 } }] };
+      if (key === "course-build-day:api:2026-10-21") return { rows: [{ payload: { count: 150 } }] };
+      if (sql.includes("left(cache_key")) return { rows: [{ cache_key: "course-ua:2026-10-21:python-requests/2.31", n: 90 }] };
+      return { rows: [] };
+    });
+    const s = await getCourseBuildStatus(45, NOW);
+    expect(s.visitsBySource).toEqual({ human: 12, bot: 400, internal: 30, api: 150 });
+    expect(s.topUserAgents).toEqual([{ userAgent: "python-requests/2.31", count: 90 }]);
   });
 });

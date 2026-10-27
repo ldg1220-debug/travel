@@ -40,7 +40,7 @@ vi.mock("@/lib/server/coursePageIndex", async (importOriginal) => {
 const recordVisitMock = vi.fn();
 vi.mock("@/lib/server/courseVisits", () => ({ recordCourseVisit: (...a: unknown[]) => recordVisitMock(...a) }));
 const uaRef = { value: null as string | null };
-vi.mock("next/headers", () => ({ headers: async () => new Headers(uaRef.value ? { "user-agent": uaRef.value } : {}) }));
+vi.mock("next/headers", () => ({ headers: async () => new Headers(uaRef.value ? { "user-agent": uaRef.value, "accept-language": "ko-KR,ko;q=0.9" } : {}) }));
 
 vi.mock("@/lib/server/coursePageLinks", () => ({
   fetchRelatedTripPosts: vi.fn().mockResolvedValue([]),
