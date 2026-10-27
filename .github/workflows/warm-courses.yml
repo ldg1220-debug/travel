@@ -1,0 +1,23 @@
+name: Warm course briefs
+
+# Vercel Hobby 크론은 하루 1회(05:00 UTC, vercel.json)만 돌 수 있어, 같은 워밍 엔드포인트를 하루 한 번 더(17:00 UTC) 부른다.
+# 워밍 호출은 서버에서 warm+rebuild 몫(오늘 상한의 50%) 안으로 제한되므로 두 번째 실행은 남은 몫만 쓴다.
+# 저장소 Settings → Secrets and variables → Actions 에 CRON_SECRET(Vercel 환경변수와 같은 값)을 등록해야 한다.
+# 실패해도 재시도하지 않는다 — 다음 날 실행으로 충분하다.
+on:
+  schedule:
+    - cron: "0 17 * * *"
+  workflow_dispatch:
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call warm endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS -m 120 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "X-Warm-Source: gh-actions" \
+            https://www.tradule.co.kr/api/cron/warm-course-brief
