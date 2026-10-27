@@ -1,7 +1,7 @@
 import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { isBotUserAgent } from "@/lib/botUserAgent";
+import { classifyVisit } from "@/lib/botUserAgent";
 import { getCourseBrief, loadCourseMapInput, parseDays, renderCourseMapPng, TransientApiFailureError, UnsupportedRegionError } from "@/lib/server/courseBrief";
 import { resolveRegionAlias, styleForRegion } from "@/lib/discoverData";
 
@@ -20,6 +20,12 @@ import { resolveRegionAlias, styleForRegion } from "@/lib/discoverData";
  * 이점이 바로 깨진다. 지금은 800×500(scale=2, 실픽셀 1600×1000) PNG
  * 고정 — 필요해지면 그때 크기별 캐시 분리를 검토한다.
  */
+
+/** 앱 화면(계획·지도)이 여는 요청 — 브라우저 UA + Accept-Language 면 사람(user), 로봇·내부·그 밖은 해당 출처(작업지시서 2026-10-27). */
+function visitSource(request: Request): "user" | "bot" | "internal" | "api" {
+  const v = classifyVisit(request.headers.get("user-agent"), request.headers.get("accept-language"), "page");
+  return v === "human" ? "user" : v;
+}
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // course-brief와 동일(2026-09-06 §4-2로 60초 상향) — 캐시 미스 시 코스 생성+지도 생성을 처음부터 해야 할 수 있다.
@@ -55,7 +61,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   if (!input) {
     try {
       console.log(`[courseBrief] route=course-map region=${region} days=${days}`);
-      await getCourseBrief(region, days, undefined, { requestSource: isBotUserAgent(request.headers.get("user-agent")) ? "bot" : "user" }); // 코스가 만들어지면서 지도 입력도 함께 저장된다
+      await getCourseBrief(region, days, undefined, { requestSource: visitSource(request) }); // 코스가 만들어지면서 지도 입력도 함께 저장된다
     } catch (err) {
       // course-brief/route.ts와 같은 이유(작업지시서 2026-09-14 §3) — 미지원
       // 지역엔 엉뚱한 코스 지도 대신 명시적으로 거부한다.

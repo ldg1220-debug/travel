@@ -1,6 +1,6 @@
 import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { randomUUID } from "node:crypto";
-import { isBotUserAgent } from "@/lib/botUserAgent";
+import { classifyVisit } from "@/lib/botUserAgent";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { pool } from "@/lib/server/db";
@@ -75,6 +75,12 @@ import type { ItineraryItem, Region } from "@/lib/types";
 
 const CONTENT_OWNER_EMAIL = "content@tradule.co.kr";
 const START_HOUR = 9; // 하루 일정 시작 시각 — courseRecommend.ts의 기존 관례(9시 시작)와 맞춤
+
+/** 앱 화면(계획·지도)이 여는 요청 — 브라우저 UA + Accept-Language 면 사람(user), 로봇·내부·그 밖은 해당 출처(작업지시서 2026-10-27). */
+function visitSource(request: Request): "user" | "bot" | "internal" | "api" {
+  const v = classifyVisit(request.headers.get("user-agent"), request.headers.get("accept-language"), "page");
+  return v === "human" ? "user" : v;
+}
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // course-brief와 동일(2026-09-06 §4-2로 60초 상향) — 캐시 미스 시 코스 생성부터 해야 할 수 있다.
@@ -201,7 +207,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   let brief;
   try {
     console.log(`[courseBrief] route=course-open region=${region} days=${days}`);
-    brief = reuseBrief ?? (await getCourseBrief(region, days, undefined, { requestSource: isBotUserAgent(request.headers.get("user-agent")) ? "bot" : "user" }));
+    brief = reuseBrief ?? (await getCourseBrief(region, days, undefined, { requestSource: visitSource(request) }));
   } catch (err) {
     // 작업지시서 2026-09-14 §3 — 이 라우트는 blog CTA가 그대로 리다이렉트로
     // 여는 인증 없는 GET이라, course-brief처럼 raw JSON을 주는 대신 기존

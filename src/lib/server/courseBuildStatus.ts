@@ -9,7 +9,7 @@ import { ptDateString } from "./mapsBudget";
 const STATUS_KEY = "course-build:status";
 
 /** human/bot=방문, stale=직전 버전 서빙, sync=직전 버전이 없어 사용자 요청이 동기로 새 버전을 만든 횟수, botRebuild=검색 로봇 요청이 재생성을 일으킨 횟수(설계상 항상 0). */
-export type CourseCounterKind = "human" | "bot" | "stale" | "sync" | "botRebuild";
+export type CourseCounterKind = "human" | "bot" | "internal" | "api" | "stale" | "sync" | "botRebuild";
 export function courseCounterKey(kind: CourseCounterKind, now = new Date()): string {
   return `course-build-day:${kind}:${ptDateString(now)}`;
 }
@@ -25,6 +25,34 @@ export async function bumpCourseCounter(kind: CourseCounterKind, now = new Date(
     );
   } catch (err) {
     console.error("[courseBuildStatus] counter failed:", err);
+  }
+}
+
+const UA_PREFIX_LEN = 60;
+export function userAgentKey(userAgent: string | null | undefined, now = new Date()): string {
+  return `course-ua:${ptDateString(now)}:${(userAgent ?? "(none)").trim().slice(0, UA_PREFIX_LEN) || "(none)"}`;
+}
+
+/** 오늘 코스 요청의 User-Agent(앞 60자)별 횟수를 센다 — 봇 목록에 없는 수집기를 찾는 용도. */
+export async function recordUserAgent(userAgent: string | null | undefined, now = new Date()): Promise<void> {
+  try {
+    await pool.query(
+      `insert into place_candidate_cache (cache_key, payload) values ($1, jsonb_build_object('count', 1))
+       on conflict (cache_key) do update
+         set payload = jsonb_build_object('count', coalesce((place_candidate_cache.payload->>'count')::int, 0) + 1), created_at = now()`,
+      [userAgentKey(userAgent, now)],
+    );
+  } catch (err) {
+    console.error("[courseBuildStatus] ua counter failed:", err);
+  }
+}
+
+/** 이틀 넘은 User-Agent 카운터를 지운다(워밍 크론이 부른다). */
+export async function purgeOldUserAgents(): Promise<void> {
+  try {
+    await pool.query(`delete from place_candidate_cache where cache_key like 'course-ua:%' and created_at < now() - interval '2 days'`);
+  } catch (err) {
+    console.error("[courseBuildStatus] ua purge failed:", err);
   }
 }
 
@@ -72,18 +100,23 @@ export interface VersionProgress {
   onCurrent: number;
   onPrevious: number;
   missing: number;
+  /** 브리프가 없는 조합 상위 10(사이트맵 최근 확인 순) — 워밍이 먼저 채울 대상. */
+  missingList: Array<{ region: string; days: number }>;
 }
 
 export async function getVersionProgress(currentVersion: number, ttlMs: number): Promise<VersionProgress | null> {
   try {
     const [sitemap, briefs] = await Promise.all([
-      pool.query<{ cache_key: string }>(`select cache_key from place_candidate_cache where cache_key like 'course-sitemap:%'`),
+      pool.query<{ cache_key: string; region: string | null; days: string | null }>(
+        `select cache_key, payload->>'region' as region, payload->>'days' as days from place_candidate_cache where cache_key like 'course-sitemap:%' order by created_at desc`,
+      ),
       pool.query<{ cache_key: string }>(
         `select cache_key from place_candidate_cache where cache_key like 'content-brief:%' and created_at > now() - ($1 || ' milliseconds')::interval`,
         [String(ttlMs)],
       ),
     ]);
     const combos = new Set(sitemap.rows.map((r) => r.cache_key.slice("course-sitemap:".length)));
+    const label = new Map(sitemap.rows.map((r) => [r.cache_key.slice("course-sitemap:".length), { region: r.region ?? r.cache_key.slice("course-sitemap:".length), days: Number(r.days) || 0 }]));
     const current = new Set<string>();
     const previous = new Set<string>();
     for (const { cache_key } of briefs.rows) {
@@ -93,7 +126,8 @@ export async function getVersionProgress(currentVersion: number, ttlMs: number):
     }
     const onCurrent = current.size;
     const onPrevious = [...previous].filter((c) => !current.has(c)).length;
-    return { total: combos.size, onCurrent, onPrevious, missing: combos.size - onCurrent - onPrevious };
+    const missingList = [...combos].filter((c) => !current.has(c) && !previous.has(c)).slice(0, 10).map((c) => label.get(c)!);
+    return { total: combos.size, onCurrent, onPrevious, missing: combos.size - onCurrent - onPrevious, missingList };
   } catch (err) {
     console.error("[courseBuildStatus] version progress failed:", err);
     return null;
@@ -119,6 +153,10 @@ export interface CourseBuildHealth {
   /** 오늘 검색 로봇 요청이 재생성을 일으킨 횟수 — 0 이어야 한다. */
   rebuildTriggeredByBotToday: number | null;
   versionProgress: VersionProgress | null;
+  /** 오늘 코스 요청의 출처 분포 — human=사람(브라우저+Accept-Language+화면), bot=수집기, internal=TraduleAutoPipeline 등 우리 서버, api=브라우저가 아닌 직접 호출. */
+  visitsBySource: { human: number | null; bot: number | null; internal: number | null; api: number | null };
+  /** 오늘 User-Agent(앞 60자) 상위 10. */
+  topUserAgents: Array<{ userAgent: string; count: number }> | null;
 }
 
 export async function getCourseBuildStatus(currentVersion: number, now = new Date(), ttlMs = 26 * 60 * 60 * 1000): Promise<CourseBuildHealth> {
@@ -131,7 +169,20 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
       return null;
     }
   };
-  const [status, stale, human, bot, sync, botRebuild, versionProgress] = await Promise.all([
+  const topUa = async (): Promise<Array<{ userAgent: string; count: number }> | null> => {
+    try {
+      const prefix = `course-ua:${ptDateString(now)}:`;
+      const r = await pool.query<{ cache_key: string; n: number | null }>(
+        `select cache_key, (payload->>'count')::int as n from place_candidate_cache where left(cache_key, $1) = $2 order by n desc nulls last limit 10`,
+        [prefix.length, prefix],
+      );
+      return r.rows.map((row) => ({ userAgent: row.cache_key.slice(prefix.length), count: row.n ?? 0 }));
+    } catch (err) {
+      console.error("[courseBuildStatus] top ua failed:", err);
+      return null;
+    }
+  };
+  const [status, stale, human, bot, sync, botRebuild, versionProgress, internal, api, topUserAgents] = await Promise.all([
     read(STATUS_KEY),
     read(courseCounterKey("stale", now)),
     read(courseCounterKey("human", now)),
@@ -139,6 +190,9 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     read(courseCounterKey("sync", now)),
     read(courseCounterKey("botRebuild", now)),
     getVersionProgress(currentVersion, ttlMs),
+    read(courseCounterKey("internal", now)),
+    read(courseCounterKey("api", now)),
+    topUa(),
   ]);
   const str = (v: unknown) => (typeof v === "string" ? v : null);
   const count = (p: Record<string, unknown> | null) => (p == null ? null : typeof p.count === "number" ? p.count : 0);
@@ -157,5 +211,7 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     syncBuildsToday: count(sync),
     rebuildTriggeredByBotToday: count(botRebuild),
     versionProgress,
+    visitsBySource: { human: count(human), bot: count(bot), internal: count(internal), api: count(api) },
+    topUserAgents,
   };
 }

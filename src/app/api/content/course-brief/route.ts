@@ -1,5 +1,4 @@
-import { isBotUserAgent } from "@/lib/botUserAgent";
-import { recordCourseVisit } from "@/lib/server/courseVisits";
+import { classifyVisit } from "@/lib/botUserAgent";
 import { maxDaysForRegion } from "@/lib/regionTypicalDays";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
@@ -57,11 +56,12 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   const refresh = isRefreshTokenValid(refreshParam, process.env.CRON_SECRET);
   if (refreshParam && !refresh) console.log("[courseBrief] refresh 토큰이 유효하지 않아 무시했습니다");
   console.log(`[courseBrief] route=course-brief region=${region} days=${days} refresh=${refresh}`);
-  const bot = isBotUserAgent(request.headers.get("user-agent")); // 작업지시서 2026-10-21 §2① — 검색 로봇은 방문 기록·재생성 대상이 아니다
-  if (!bot) recordCourseVisit(region, days); // 작업지시서 2026-10-14 §2③ — 워밍 크론은 최근 방문된 조합만 갱신한다
+  // 작업지시서 2026-10-27 "사람 방문 218" — 이 공개 API 의 직접 호출은 사람으로 세지 않는다(bot · internal · api). 방문 기록·재생성은 사람 화면만 일으킨다.
+  const userAgent = request.headers.get("user-agent");
+  const visit = classifyVisit(userAgent, request.headers.get("accept-language"), "public-api");
   let brief;
   try {
-    brief = await getCourseBrief(region, days, undefined, { refresh, requestSource: bot ? "bot" : "user" });
+    brief = await getCourseBrief(region, days, undefined, { refresh, requestSource: visit === "human" ? "user" : visit, userAgent });
   } catch (err) {
     // 작업지시서 2026-09-14 "미지원 지역이 엉뚱한 동명 지역으로
     // 바뀝니다" §3 — 모르는 지역을 조용히 아무거나로 채워 돌려주지

@@ -6,7 +6,7 @@ vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }
 const afterMock = vi.fn();
 vi.mock("next/server", async (orig) => ({ ...(await orig<typeof import("next/server")>()), after: (fn: () => unknown) => afterMock(fn) }));
 
-import { acquireRebuildLock, scheduleBackgroundRebuild } from "./courseBrief";
+import { acquireRebuildLock, briefCacheKey, pickStaleTasks, scheduleBackgroundRebuild } from "./courseBrief";
 
 // 작업지시서 2026-10-20 "v42가 적용되지 않습니다" A-1 — 직전 버전을 내보낸 뒤 응답 후 재생성(after) · 10분 잠금 · 로그.
 describe("acquireRebuildLock", () => {
@@ -72,5 +72,31 @@ describe("scheduleBackgroundRebuild", () => {
     expect(log).not.toHaveBeenCalledWith(expect.stringContaining("rebuild-start"));
     expect(status.some((p) => p.includes("deferred: budget"))).toBe(true);
     expect(queryMock.mock.calls.some(([, params]) => String((params as string[] | undefined)?.[0]).startsWith("course-deferred:홍콩:4"))).toBe(true);
+  });
+});
+
+// 작업지시서 2026-10-23 "#338 검증" §2① — 사이트맵인데 브리프가 없는 조합만 고르기(missingOnly) · 만료 4시간 전 갱신(minAgeMs)
+describe("pickStaleTasks — missingOnly · minAgeMs", () => {
+  beforeEach(() => queryMock.mockReset());
+  const hour = 60 * 60 * 1000;
+  it("missingOnly 는 브리프 행이 없거나 TTL(26시간)이 지난 조합만, minAgeMs 는 그 시간 이상 묵은 조합을 고른다", async () => {
+    const tasks = [
+      { region: "오사카", days: 3 as const }, // 2시간 — 신선
+      { region: "홍콩", days: 4 as const }, // 23시간 — 만료 임박
+      { region: "방콕", days: 3 as const }, // 27시간 — 만료됨
+      { region: "나고야", days: 4 as const }, // 행 없음
+    ];
+    const at = (h: number) => new Date(Date.now() - h * hour).toISOString();
+    queryMock.mockResolvedValue({
+      rows: [
+        { cache_key: briefCacheKey("overseas", "오사카", 3), created_at: at(2) },
+        { cache_key: briefCacheKey("overseas", "홍콩", 4), created_at: at(23) },
+        { cache_key: briefCacheKey("overseas", "방콕", 3), created_at: at(27) },
+      ],
+    });
+    const missing = await pickStaleTasks(tasks, 10, { missingOnly: true });
+    expect(missing.map((t) => t.region).sort()).toEqual(["나고야", "방콕"]);
+    const expiring = await pickStaleTasks(tasks, 10, { minAgeMs: 22 * hour });
+    expect(expiring.map((t) => t.region).sort()).toEqual(["나고야", "방콕", "홍콩"]);
   });
 });

@@ -11,9 +11,33 @@ const BOT_TOKENS = [
   "facebookexternalhit", "facebot", "twitterbot", "kakaotalk-scrap", "slackbot", "linkedinbot", "telegrambot", "discordbot", "pinterestbot",
   "ahrefsbot", "semrushbot", "mj12bot", "dotbot", "bytespider", "ccbot", "amazonbot", "gptbot", "chatgpt-user", "oai-searchbot", "claudebot", "claude-web", "anthropic-ai",
   "perplexitybot", "meta-externalagent", "ia_archiver",
+  // 작업지시서 2026-10-27 "사람 방문 218" §2② — 사이트맵을 순회하는 그 밖의 수집기
+  "seznambot", "dataforseobot", "blexbot", "imagesiftbot", "barkrowler",
 ];
 const BOT_PATTERN = new RegExp(`\\b(?:${BOT_TOKENS.join("|")})\\b`, "i");
+// 일반 패턴 — 이름 목록에 없는 수집기·스크립트 클라이언트. (브라우저 토큰 `Claude/3.x` 는 해당 없음)
+const GENERIC_BOT_PATTERN = /(bot|crawler|spider|crawl|slurp|scraper|headless|python-requests|curl|wget|go-http-client|axios|node-fetch|undici)/i;
+/** 우리 쪽 서버 호출(AutoPipeline)의 User-Agent 표식 — `TraduleAutoPipeline/1.x`. */
+const INTERNAL_PATTERN = /TraduleAutoPipeline/i;
+
+export function isInternalUserAgent(userAgent: string | null | undefined): boolean {
+  return Boolean(userAgent) && INTERNAL_PATTERN.test(userAgent as string);
+}
 
 export function isBotUserAgent(userAgent: string | null | undefined): boolean {
-  return Boolean(userAgent) && BOT_PATTERN.test(userAgent as string);
+  if (!userAgent || isInternalUserAgent(userAgent)) return false; // 내부 호출은 로봇이 아니다(먼저 분기)
+  return BOT_PATTERN.test(userAgent) || GENERIC_BOT_PATTERN.test(userAgent);
+}
+
+/**
+ * 요청 출처 — human(사람: 브라우저 UA + Accept-Language + 사람이 여는 화면) · bot(검색 로봇·수집기) · internal(우리 서버 호출) · api(그 밖의 직접 호출).
+ * surface: "page" = 코스 페이지·앱 화면에서 열린 요청, "public-api" = 공개 course-brief API 직접 호출(사람으로 세지 않는다).
+ */
+export type VisitSource = "human" | "bot" | "internal" | "api";
+export function classifyVisit(userAgent: string | null | undefined, acceptLanguage: string | null | undefined, surface: "page" | "public-api"): VisitSource {
+  if (isInternalUserAgent(userAgent)) return "internal";
+  if (isBotUserAgent(userAgent)) return "bot";
+  if (surface === "public-api") return "api";
+  if (!userAgent || !/^Mozilla\//i.test(userAgent) || !acceptLanguage?.trim()) return "api";
+  return "human";
 }
