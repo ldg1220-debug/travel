@@ -102,7 +102,7 @@ describe("지역 허브 /course/{지역}", () => {
 
   it("확인된 조합이 없으면 200 빈 페이지 + noindex, 미지원 지역은 404, 별칭은 정본으로 리다이렉트", async () => {
     confirmedMock.mockResolvedValue([]);
-    expect(await render("세부")).toContain("준비하고 있어요");
+    expect(await render("세부")).toContain("앱에서 이 지역 코스 만들기");
     const meta = await regionMetadata({ params: Promise.resolve({ region: "세부" }) });
     expect(meta.robots).toMatchObject({ index: false });
     await expect(render("아틀란티스")).rejects.toThrow();

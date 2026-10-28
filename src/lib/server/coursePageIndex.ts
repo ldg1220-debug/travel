@@ -5,6 +5,7 @@ import { judgeCourseBrief } from "./coursePageGate";
 import { flatRegions, styleForRegion } from "@/lib/discoverData";
 import { pickRepresentativeSpots } from "@/lib/coursePages";
 import { regionTypicalDays, typicalDayRank } from "@/lib/regionTypicalDays";
+import { isIndexedCourse } from "@/lib/indexedCourses";
 
 /**
  * "크론이 200 확인한 코스 조합" 목록 — 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §2.
@@ -46,6 +47,7 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
     for (const row of result.rows) {
       const days = Number(row.days);
       if (!row.region || !Number.isInteger(days) || days < 1 || days > 7 || !Array.isArray(row.spots)) continue;
+      if (!isIndexedCourse(row.region, days)) continue; // 색인 대상(indexedCourses.json)만 — 나머지는 noindex·요청 시 생성(2026-10-28)
       const spots = row.spots as CourseBrief["spots"];
       if (judgeCourseBrief({ spots }, row.region, days as CourseDays) != null) continue;
       const km = row.totalDistanceKm != null ? Number(row.totalDistanceKm) : null;
@@ -66,7 +68,7 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
     const byKey = new Map(value.map((p) => [`${p.region}/${p.days}`, p]));
     for (const row of recorded.rows) {
       const days = Number(row.days);
-      if (!row.region || !Number.isInteger(days) || days < 1 || days > 7) continue;
+      if (!row.region || !Number.isInteger(days) || days < 1 || days > 7 || !isIndexedCourse(row.region, days)) continue;
       const key = `${row.region}/${days}`;
       const at = new Date(row.created_at);
       const prev = byKey.get(key);

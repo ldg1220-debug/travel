@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { get } from "@vercel/blob";
 import { pool } from "@/lib/server/db";
 import { getMapsUsage } from "@/lib/server/mapsBudget";
-import { COURSE_ALGO_VERSION } from "@/lib/server/courseBrief";
+import { briefCacheKey, COURSE_ALGO_VERSION, resolveScope } from "@/lib/server/courseBrief";
+import { INDEXED_COURSES } from "@/lib/indexedCourses";
 import { getCourseBuildStatus } from "@/lib/server/courseBuildStatus";
 import { BLOB_ADVANCED_MONTHLY_LIMIT, getBlobAdvancedOps, isBlobLimitError } from "@/lib/server/blobBudget";
 
@@ -41,7 +42,12 @@ async function checkDb(): Promise<{ status: "ok" | "error"; message?: string }> 
 }
 
 export async function GET() {
-  const [blob, db, maps, courseBuild] = await Promise.all([checkBlob(), checkDb(), getMapsUsage(), getCourseBuildStatus(COURSE_ALGO_VERSION)]);
+  const [blob, db, maps, courseBuild] = await Promise.all([checkBlob(), checkDb(), getMapsUsage(), getCourseBuildStatus(
+      COURSE_ALGO_VERSION,
+      new Date(),
+      undefined,
+      INDEXED_COURSES.map((c) => ({ region: c.region, days: c.days, currentKey: briefCacheKey(resolveScope(c.region), c.region, c.days) })),
+    )]);
   const ok = db.status === "ok";
   const warnings: string[] = [];
   if (blob.status === "limit" || blob.status === "error") warnings.push(`blob ${blob.status}: ${blob.message ?? ""}`.trim());

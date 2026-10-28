@@ -1,12 +1,13 @@
 import { headers } from "next/headers";
 import { classifyVisit } from "@/lib/botUserAgent";
+import { isIndexedCourse } from "@/lib/indexedCourses";
 import { recordCourseVisit } from "@/lib/server/courseVisits";
 import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
 import { GoogleAttribution } from "@/components/GoogleAttribution";
-import { getCourseBrief, UnsupportedRegionError, type CourseBrief, type CourseDays } from "@/lib/server/courseBrief";
+import { getCourseBrief, peekBrief, UnsupportedRegionError, type CourseBrief, type CourseDays } from "@/lib/server/courseBrief";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
 import { CoursePageUnavailableError, judgeCourseBrief, resolveCoursePageRoute } from "@/lib/server/coursePageGate";
 import { fetchConfirmedCoursePages, parentOfRegion, pickRelatedCourseLinks } from "@/lib/server/coursePageIndex";
@@ -98,7 +99,9 @@ function normalizeParam(value: string): string {
  *    notFound()로 내려가게 한다 — 로그로 원인은 남긴다.
  */
 type LoadedCoursePage =
-  | { kind: "ok"; brief: CourseBrief; region: string; days: CourseDays }
+  | { kind: "ok"; brief: CourseBrief; region: string; days: CourseDays; /** 색인 대상(indexedCourses.json) 여부 — 아니면 noindex·JSON-LD 없음. */ indexed: boolean }
+  /** 색인 대상이 아닌 코스를 봇·직접 호출이 열었는데 캐시가 없다 — Google 을 부르지 않고 가벼운 200(noindex)으로 답한다. */
+  | { kind: "preparing"; region: string; days: CourseDays }
   | { kind: "redirect"; to: string }
   | { kind: "missing"; reason: string; /** 존재하지 않는 지역·일수(영구 404) — false 면 일시적으로 못 만든 것(503 대신 5xx 로 색인 보호). */ permanent: boolean };
 
@@ -127,9 +130,20 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
   // 작업지시서 2026-10-27 — 사람 = 브라우저 UA + Accept-Language + 이 화면(HTML) 요청. 요청 스코프 밖(테스트)은 UA 가 없어 api 로 본다.
   const visit = classifyVisit(userAgent, acceptLanguage, "page");
   if (visit === "human") recordCourseVisit(route.region, route.days); // 작업지시서 2026-10-14 §2③ — 워밍 크론은 최근 방문된 조합만 갱신한다
+  const indexed = isIndexedCourse(route.region, route.days);
   let brief: CourseBrief;
   try {
-    brief = await getCourseBrief(route.region, route.days, undefined, { requestSource: visit === "human" ? "user" : visit, userAgent });
+    // 작업지시서 2026-10-28 "사람이 열 때만" — 색인 대상이 아닌 코스는 사람(또는 내부 호출)만 그 자리에서 만든다. 봇·직접 호출은 캐시(직전 버전 포함)만 읽고, 없으면 만들지 않고 가벼운 200 으로 답한다.
+    if (!indexed && visit !== "human" && visit !== "internal") {
+      const cached = await peekBrief(route.region, route.days).catch(() => null);
+      if (!cached) {
+        console.log(`[course-page] path=preparing region=${route.region} days=${route.days} source=${visit} (색인 대상 아님 · 캐시 없음 → Google 호출 없이 200)`);
+        return { kind: "preparing", region: route.region, days: route.days };
+      }
+      brief = cached;
+    } else {
+      brief = await getCourseBrief(route.region, route.days, undefined, { requestSource: visit === "human" ? "user" : visit, userAgent });
+    }
   } catch (err) {
     console.error(`[course-page] getCourseBrief threw: region=${route.region} days=${route.days}`, err);
     // 지원하지 않는 지역은 존재하지 않는 페이지(영구 404), 그 밖의 예외는 일시적 실패다.
@@ -144,15 +158,16 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
     const pool = brief.poolStats ? ` pool=cache:${brief.poolStats.cache}/google:${brief.poolStats.google} candidates=${brief.poolStats.candidates}` : "";
     return { kind: "missing", reason: `${rejected}${pool}`, permanent: false };
   }
-  return { kind: "ok", brief, region: route.region, days: route.days };
+  return { kind: "ok", brief, region: route.region, days: route.days, indexed };
 });
 
 export async function generateMetadata({ params }: { params: Promise<CoursePageParams> }): Promise<Metadata> {
   const raw = await params;
   const loaded = await loadCoursePage(normalizeParam(raw.region), normalizeParam(raw.days));
+  if (loaded.kind === "preparing") return { title: "코스를 준비하고 있어요 - 트레쥴", robots: { index: false, follow: true } };
   if (loaded.kind === "missing" && !loaded.permanent) return { title: "코스를 준비하고 있어요 - 트레쥴", robots: { index: false, follow: true } };
   if (loaded.kind !== "ok") return { title: "코스를 찾을 수 없어요 - 트레쥴", robots: { index: false, follow: true } };
-  const { brief, region, days } = loaded;
+  const { brief, region, days, indexed } = loaded;
 
   const title = buildCourseTitle(brief);
   const description = buildCourseDescription(brief);
@@ -161,6 +176,7 @@ export async function generateMetadata({ params }: { params: Promise<CoursePageP
     title: { absolute: title },
     description,
     alternates: { canonical },
+    ...(indexed ? {} : { robots: { index: false, follow: true } }), // 색인 대상이 아닌 코스는 noindex, follow
     openGraph: {
       title,
       description,
@@ -181,6 +197,25 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
   const raw = await params;
   const loaded = await loadCoursePage(normalizeParam(raw.region), normalizeParam(raw.days));
   if (loaded.kind === "redirect") permanentRedirect(loaded.to);
+  if (loaded.kind === "preparing") {
+    const label = dayDisplayLabel(loaded.region, loaded.days);
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-10">
+        <nav aria-label="breadcrumb" className="text-[12px] text-slate-400">
+          <Link href="/" className="hover:underline">트레쥴</Link> › <Link href={COURSE_HUB_PATH} className="hover:underline">여행 코스 모음</Link> › <span>{loaded.region} {label}</span>
+        </nav>
+        <h1 className="mt-3 text-2xl font-bold text-slate-900 dark:text-slate-100">{loaded.region} {label} 코스를 준비하고 있어요</h1>
+        <p className="mt-2 text-[13.5px] text-slate-600 dark:text-slate-300">앱에서 이 코스를 바로 만들 수 있어요.</p>
+        <CourseCtaLink
+          region={loaded.region}
+          days={loaded.days}
+          className="mt-5 flex h-11 w-full items-center justify-center rounded-2xl bg-brand-700 text-[14px] font-semibold text-white transition-colors hover:bg-brand-800"
+        >
+          앱에서 만들기
+        </CourseCtaLink>
+      </div>
+    );
+  }
   if (loaded.kind === "missing") {
     // Vercel 로그에서 사유(unsupported-region · days-out-of-range · thin · no-beach · brief-threw)를 바로 본다.
     console.warn(`[course-page] ${loaded.permanent ? "notFound" : "unavailable"}: region=${normalizeParam(raw.region)} daysSegment=${normalizeParam(raw.days)} reason=${loaded.reason}`);
@@ -189,7 +224,7 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
     if (loaded.permanent) notFound();
     throw new CoursePageUnavailableError(loaded.reason);
   }
-  const { brief, region, days } = loaded;
+  const { brief, region, days, indexed } = loaded;
   const daysLabel = dayDisplayLabel(region, days);
 
   const intro = buildCourseIntro(brief);
@@ -202,8 +237,8 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
   return (
     <div className="mx-auto max-w-2xl px-4 py-6">
       {/* JSON-LD는 스크립트가 아니라 데이터라 XSS 경로가 아니다(작업지시서 §4 "JSON-LD ItemList + TouristTrip"). */}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(touristTripJsonLd) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
+      {indexed && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(touristTripJsonLd) }} />}
+      {indexed && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />}
 
       {/* 작업지시서 2026-10-08 "#300 검증" §2 — /course/** 도 Drive 로드(공유 토큰이 URL에 없다). */}
       <TravelpayoutsDriveScript />

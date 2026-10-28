@@ -16,6 +16,7 @@ import {
   fetchLandmarkCandidates,
   fetchSlotCandidates,
   isBeach,
+  isEatingPlaceType,
   isIsland,
   isJetty,
   isKoreanRestaurant,
@@ -358,7 +359,7 @@ const BRIEF_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS; // 하루 1회 워밍 + 다음
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 45; // 작업지시서 2026-10-22 "#336 검증" §2⑥ — 종일시설 날은 시설 + 저녁 1곳(3km 이내 식당·야간형)까지이고 관광지·전망대·시장은 다른 날로 옮겨져 최종 결과를 바꾼다. 재생성 몫은 warm+rebuild 사용분만으로 센다(사용자 요청에 뺏기지 않음). 이전 44: // // 작업지시서 2026-10-21 "3km 구간 대중교통 59분" — 대중교통 상식 검사(구간 시간·이동수단)·다리 분류·spots[].landmarkRank 가 최종 결과를 바꾼다. 이전 43: // // 작업지시서 2026-10-21 "#333 검증" §3 — 야간형 스팟은 하루 마지막, 하루 카페 최대 1 을 재배치 뒤에도 보장, 종일시설 사전(해양 공원) 보강이 최종 결과를 바꾼다. 재생성은 방문 + 워밍 몫 안에서만(봇 제외). 이전 42: // // 작업지시서 2026-10-20 "#331 검증" §3 — 명소 슬롯에서 카페·식당 제외, 하루 순서 규칙(첫 스팟 식당·카페 금지 · 식당 연속 금지), 하루 카페 최대 1, 대표 랜드마크 days 곳, 종일시설 이름 보강이 최종 결과를 바꾼다. 일괄 재생성 금지(stale-while-rebuild·페이싱). 이전 41: // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 46; // 작업지시서 2026-10-28 §1⑦ — 경주 대표 명소 이름 사전(불국사·석굴암·첨성대·대릉원·동궁과 월지)·지역명 접두어 변형 중복 제거·국내 하루 구성(식당 최대 2·명소 최소 2)이 최종 결과를 바꾼다(색인 대상 12개만 워밍으로 재생성). 이전 45: // // 작업지시서 2026-10-22 "#336 검증" §2⑥ — 종일시설 날은 시설 + 저녁 1곳(3km 이내 식당·야간형)까지이고 관광지·전망대·시장은 다른 날로 옮겨져 최종 결과를 바꾼다. 재생성 몫은 warm+rebuild 사용분만으로 센다(사용자 요청에 뺏기지 않음). 이전 44: // // 작업지시서 2026-10-21 "3km 구간 대중교통 59분" — 대중교통 상식 검사(구간 시간·이동수단)·다리 분류·spots[].landmarkRank 가 최종 결과를 바꾼다. 이전 43: // // 작업지시서 2026-10-21 "#333 검증" §3 — 야간형 스팟은 하루 마지막, 하루 카페 최대 1 을 재배치 뒤에도 보장, 종일시설 사전(해양 공원) 보강이 최종 결과를 바꾼다. 재생성은 방문 + 워밍 몫 안에서만(봇 제외). 이전 42: // // 작업지시서 2026-10-20 "#331 검증" §3 — 명소 슬롯에서 카페·식당 제외, 하루 순서 규칙(첫 스팟 식당·카페 금지 · 식당 연속 금지), 하루 카페 최대 1, 대표 랜드마크 days 곳, 종일시설 이름 보강이 최종 결과를 바꾼다. 일괄 재생성 금지(stale-while-rebuild·페이싱). 이전 41: // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -1435,13 +1436,20 @@ export function preferRatedFirstStop(scope: CourseBriefScope, region: string, st
 // ("경주 황리단길" / "황리단길")가 나와, 날짜 구분 없이 적용 가능한
 // 두 함수(dedupeWithinList, dedupeCrossDay)로 나눴다.
 const DEDUPE_MAX_KM = 0.3;
-function isDuplicateStop(a: FinalStop, b: FinalStop, region: string): boolean {
+/** 지역명 접두어만 다른 같은 이름("보문관광단지" / "경주보문관광단지")은 넓은 지역(관광단지 등)이라 좌표가 300m 넘게 어긋난다 — 이 거리(km) 안이면 같은 곳으로 본다. */
+const DEDUPE_PREFIX_VARIANT_MAX_KM = 3;
+export function isDuplicateStop(a: FinalStop, b: FinalStop, region: string): boolean {
   if (a.placeId && b.placeId && a.placeId === b.placeId) return true;
   const distKm = haversineKm({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng });
-  if (distKm > DEDUPE_MAX_KM) return false;
-  const na = normalizeForMatch(stripRegionPrefix(a.name, region));
-  const nb = normalizeForMatch(stripRegionPrefix(b.name, region));
+  const sa = stripRegionPrefix(a.name, region);
+  const sb = stripRegionPrefix(b.name, region);
+  const na = normalizeForMatch(sa);
+  const nb = normalizeForMatch(sb);
   if (!na || !nb) return false;
+  // 작업지시서 2026-10-28 §1⑦ — 한쪽만 지역명 접두어가 붙은 같은 이름은 3km 안이면 1곳으로.
+  const prefixVariant = (sa !== a.name.trim() && sa !== a.name) !== (sb !== b.name.trim() && sb !== b.name);
+  if (prefixVariant && na === nb && distKm <= DEDUPE_PREFIX_VARIANT_MAX_KM) return true;
+  if (distKm > DEDUPE_MAX_KM) return false;
   return na.includes(nb) || nb.includes(na);
 }
 /** 같은 날짜 안의 중복을 걸러낸다 — 뒤에 나온 쪽이 rating을 가질 가능성이 있으면(hasRatingHint) 그쪽으로 교체하고, 아니면 먼저(순서가 앞선) 것을 남긴다. */
@@ -3362,6 +3370,52 @@ export function capCafesPerDay(dayGroups: FinalStop[][], minTotal: number = 0): 
   });
 }
 
+const isDaySight = (s: FinalStop) => isSightStop(s) && !isCafeStop(s) && !isEatingPlaceType(s.category ?? "") && !isLodging(s);
+const DAY_MAX_RESTAURANTS = 2;
+const DAY_MIN_SIGHTS = 2;
+
+/**
+ * 국내 하루 구성 규칙 — 작업지시서 2026-10-28 §1⑦: 식당 최대 2(카페는 capCafesPerDay 가 1), 명소 최소 2. 종일시설 날은 건드리지 않는다.
+ * 식당 초과분은 식당이 모자란 다른 날로 옮기고(자리가 없으면 총량이 minTotal 이상일 때만 인기 낮은 것부터 뺀다), 명소가 모자란 날은 명소가 3곳 이상인 날에서
+ * 가장 가까운 명소를 받는다(배 여행 묶음·종일시설은 옮기지 않는다). 새 장소를 만들지 않는다.
+ */
+export function enforceDayComposition(dayGroups: FinalStop[][], minTotal: number = 0): FinalStop[][] {
+  const days = dayGroups.map((d) => [...d]);
+  const eligible = (d: FinalStop[]) => !d.some(isDayFacility);
+  let total = days.reduce((n, d) => n + d.length, 0);
+  days.forEach((day) => {
+    if (!eligible(day)) return;
+    for (;;) {
+      const restaurants = day.filter(isRestaurantStop);
+      if (restaurants.length <= DAY_MAX_RESTAURANTS) break;
+      const worst = [...restaurants].sort((a, b) => popularity(a) - popularity(b))[0];
+      const target = days
+        .filter((d) => d !== day && eligible(d) && d.filter(isRestaurantStop).length < DAY_MAX_RESTAURANTS)
+        .sort((a, b) => haversineKm(worst, centroidOf(a.length > 0 ? a : [worst])) - haversineKm(worst, centroidOf(b.length > 0 ? b : [worst])))[0];
+      day.splice(day.indexOf(worst), 1);
+      if (target) target.push(worst);
+      else if (total - 1 >= minTotal) total -= 1;
+      else {
+        day.push(worst); // 총량이 모자라 뺄 수 없다 — 그대로 둔다
+        break;
+      }
+    }
+  });
+  days.forEach((day) => {
+    if (!eligible(day)) return;
+    while (day.filter(isDaySight).length < DAY_MIN_SIGHTS) {
+      const center = day.length > 0 ? centroidOf(day) : null;
+      const donor = days.filter((d) => d !== day && eligible(d) && d.filter(isDaySight).length > DAY_MIN_SIGHTS);
+      const candidates = donor.flatMap((d) => d.filter((s) => isDaySight(s) && !isBoatTripStop(s)).map((s) => ({ d, s })));
+      if (candidates.length === 0) break;
+      const best = center ? candidates.sort((a, b) => haversineKm(a.s, center) - haversineKm(b.s, center))[0] : candidates[0];
+      best.d.splice(best.d.indexOf(best.s), 1);
+      day.push(best.s);
+    }
+  });
+  return days;
+}
+
 /**
  * 작업지시서 2026-09-29 "#277 검증" §3-② — 휴양형 activity/relax
  * 슬롯이 category 제한 없이 검색해(작업지시서 2026-09-28 §3), 스파를
@@ -4124,7 +4178,9 @@ export async function buildBrief(
   // 이전에 해도 안전하다 — reallocateStopsByDay/routeDayStops 이전에
   // 해야 한다는 원칙(이후엔 순서·구간 이동시간이 이미 확정돼 스팟을
   // 넣거나 빼면 다시 어긋난다)은 그대로 유지.
-  let composedDayStops = capCafesPerDay(scope === "overseas" ? capOverseasKoreanRestaurants(dayStops) : dayStops);
+  const minViable = minViableSpots(style, days);
+  const capDayRules = (groups: FinalStop[][], minTotal: number) => (scope === "domestic" ? enforceDayComposition(capCafesPerDay(groups, minTotal), minTotal) : capCafesPerDay(groups, minTotal));
+  let composedDayStops = capDayRules(scope === "overseas" ? capOverseasKoreanRestaurants(dayStops) : dayStops, scope === "domestic" ? minViable : 0);
   if (style === "resort") {
     composedDayStops = capLodgingToOne(capResortSpaSpotsTotal(composedDayStops, days));
   }
@@ -4166,7 +4222,7 @@ export async function buildBrief(
   // 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다" §2① — 앵커·보충·재배분·선착장 삽입이 모두 끝난 지금
   // 하루 단위로 순서를 다시 계산한다(평점 있는 스팟을 1번으로 두는 선호(§3-b)는 최적 길이와 거의 같을 때만 반영).
   // 작업지시서 2026-10-21 "#333 검증" §3 — 하루 카페 최대 1을 재배치·앵커·보충이 끝난 뒤 한 번 더 건다(앞선 캡 뒤에 다른 날 카페가 옮겨 와 같은 날 카페가 둘이 된다: 칭다오 2일차).
-  const finalDayGroups = orderDaysWithLog(`${scope}/${region}`, capCafesPerDay(anchoredDayGroups, minViableSpots(style, days)), (s) => hasRatingHint(scope, region, s));
+  const finalDayGroups = orderDaysWithLog(`${scope}/${region}`, capDayRules(anchoredDayGroups, minViable), (s) => hasRatingHint(scope, region, s));
   console.log(`[courseBrief] path=composed ${scope}/${region} counts=${counts(finalDayGroups)}`);
   await annotateLandmarkRanks(scope, region, finalDayGroups, onCandidateFetchFailure);
 
@@ -4190,7 +4246,7 @@ export async function buildBrief(
   const routedDaysBeforeRebalance = routedDays.reduce((sum, d) => sum + d.stops.length, 0);
   {
     const before = routedDays.map((d) => d.stops);
-    const rebalanced = capCafesPerDay(style === "resort" ? rebalanceResortDays(before) : balanceCityDayGroups(before, minViableSpots(style, days), region), minViableSpots(style, days));
+    const rebalanced = capDayRules(style === "resort" ? rebalanceResortDays(before) : balanceCityDayGroups(before, minViable, region), minViable);
     // 구성이 바뀐 날만 순서를 다시 계산한다(같은 구성의 날은 이미 라우팅된 순서 그대로 — 재라우팅 방지).
     const sameMembers = (a: FinalStop[], b: FinalStop[]) => a.length === b.length && a.every((s) => b.some((o) => o.id === s.id));
     const after = rebalanced.map((stops, i) => (sameMembers(stops, before[i]) ? before[i] : orderDaysWithLog(`${scope}/${region}(post-route)`, [stops], (st) => hasRatingHint(scope, region, st))[0]));

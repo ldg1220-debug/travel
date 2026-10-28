@@ -37,6 +37,8 @@ import {
   dayOrderViolations,
   isNightStop,
   assignLandmarkRanks,
+  enforceDayComposition,
+  isDuplicateStop,
   isTransitImplausible,
   dedupeByProximity,
   dedupeInFlight,
@@ -3424,5 +3426,47 @@ describe("landmarkRank · 랜드마크 앵커", () => {
     const course = [stop("dotonbori", 34.6687, 135.5013, { name: "도톤보리" }), stop("x", 34.67, 135.5, { name: "다른 곳" })];
     const picked = pickLandmarkAnchors(pool, course, 3, 6);
     expect(picked.map((p) => p.name)).toEqual(["오사카 성", "우메다 스카이 빌딩", "신세카이"]);
+  });
+});
+
+// 작업지시서 2026-10-28 §1⑦ — 경주 품질: 지역명 접두어 변형 중복 · 하루 구성(식당 ≤2 · 명소 ≥2)
+describe("지역명 접두어 변형 중복", () => {
+  it("'보문관광단지' 와 '경주보문관광단지' 는 300m 넘게 떨어져도(3km 이내) 같은 곳이다", () => {
+    const a = stop("a", 35.8405, 129.2886, { name: "보문관광단지" });
+    const b = stop("b", 35.8432, 129.2911, { name: "경주보문관광단지" }); // ≈ 380m
+    const far = stop("c", 35.9, 129.4, { name: "경주보문관광단지" }); // 10km+ — 다른 곳
+    expect(isDuplicateStop(a, b, "경주")).toBe(true);
+    expect(isDuplicateStop(a, far, "경주")).toBe(false);
+    // 둘 다 접두어가 없거나 둘 다 있으면 기존 규칙(300m)
+    expect(isDuplicateStop(stop("d", 35.8405, 129.2886, { name: "보문관광단지" }), stop("e", 35.8432, 129.2911, { name: "보문관광단지" }), "경주")).toBe(false);
+  });
+});
+
+describe("enforceDayComposition — 식당 최대 2 · 명소 최소 2", () => {
+  const sight = (id: string, lat: number, lng: number) => stop(id, lat, lng, { name: id, category: "tourist_attraction" });
+  const meal = (id: string, lat: number, lng: number) => stop(id, lat, lng, { name: id, category: "restaurant", meal: true });
+  const museum = (id: string, lat: number, lng: number) => stop(id, lat, lng, { name: id, category: "museum" });
+
+  it("박물관 1 + 식당 3 + 카페 1 인 날은 식당이 2곳으로 줄고 명소는 2곳 이상이 된다", () => {
+    const day3 = [museum("m", 35.83, 129.21), meal("r1", 35.831, 129.211), meal("r2", 35.832, 129.212), meal("r3", 35.833, 129.213), stop("c", 35.834, 129.214, { name: "카페", category: "cafe" })];
+    const day1 = [sight("s1", 35.84, 129.22), sight("s2", 35.841, 129.221), sight("s3", 35.842, 129.222), meal("r4", 35.843, 129.223)];
+    const out = enforceDayComposition([day1, [sight("s4", 35.85, 129.23), sight("s5", 35.851, 129.231)], day3], 0);
+    const last = out[2];
+    expect(last.filter((s) => s.meal).length).toBeLessThanOrEqual(2);
+    expect(last.filter((s) => !s.meal && s.category !== "cafe").length).toBeGreaterThanOrEqual(2);
+    // 총량: 식당은 다른 날 자리가 있으면 옮겨지고, 없으면 minTotal 안에서만 빠진다
+    expect(out.flat().length).toBeLessThanOrEqual(day1.length + 2 + day3.length);
+  });
+
+  it("minTotal 이 총량이면 식당을 빼지 않는다", () => {
+    const day = [sight("s1", 35.84, 129.22), sight("s2", 35.841, 129.221), meal("r1", 35.842, 129.222), meal("r2", 35.843, 129.223), meal("r3", 35.844, 129.224)];
+    const out = enforceDayComposition([day], 5);
+    expect(out[0]).toHaveLength(5);
+  });
+
+  it("종일시설 날은 건드리지 않는다", () => {
+    const park = stop("park", 35.8, 129.2, { name: "에버랜드", category: "amusement_park", reviewCount: 90000 });
+    const out = enforceDayComposition([[park, meal("r1", 35.801, 129.201), meal("r2", 35.802, 129.202), meal("r3", 35.803, 129.203)]], 0);
+    expect(out[0]).toHaveLength(4);
   });
 });

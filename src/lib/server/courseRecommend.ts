@@ -1199,6 +1199,15 @@ const LANDMARK_CANDIDATE_LIMIT = 20;
  * (슬롯 캐시와 겹치지 않는 "landmark:" 키로, 같은 7일 TTL) 저장해
  * Places 호출 비용을 지역당 7일에 한 번으로 묶는다.
  */
+/**
+ * 지역별 꼭 들어가야 하는 대표 명소 이름 사전 — 작업지시서 2026-10-28 §1⑦ (경주: 불국사 · 석굴암 · 첨성대 · 대릉원 · 동궁과 월지). 일반 "관광 명소" 검색에 빠지는 경우가 있어
+ * 이름으로 한 번씩 검색(지역·이름별 캐시, 26시간)해 풀의 맨 앞(사전 순서 = 우선순위)에 둔다. 앵커 선정(상위 days 곳)이 이 순서를 따른다.
+ */
+export const REQUIRED_LANDMARK_NAMES: Readonly<Record<string, readonly string[]>> = {
+  경주: ["불국사", "석굴암", "첨성대", "대릉원", "동궁과 월지"],
+};
+const compactName = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+
 export async function fetchLandmarkCandidates(
   scope: "overseas" | "domestic",
   city: string,
@@ -1224,8 +1233,18 @@ export async function fetchLandmarkCandidates(
       ])
     : [[], []];
   const islands = [...islandsBasic, ...islandsHopping];
+  const requiredNames = REQUIRED_LANDMARK_NAMES[city] ?? [];
+  const named: Place[] = (
+    await Promise.all(
+      requiredNames.map(async (name, i): Promise<Place | null> => {
+        const hits = await fetchLandmarkPool(`landmark-named:${scope}:${cityKey}:${compactName(name)}`, `${city} ${name}`, undefined, onFailure);
+        const hit = hits.find((p) => compactName(p.name).includes(compactName(name)));
+        return hit ? { ...hit, searchRank: i } : null; // 사전 순서가 곧 검색 순위(앞일수록 대표)
+      }),
+    )
+  ).filter((p): p is Place => p !== null);
   const seen = new Set<string>();
-  const merged = [...base, ...islands].filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
+  const merged = [...named, ...base, ...islands].filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
   const gated = applyQualityGate(merged.filter(isValidPlace), "overseas", "attraction").filter(
     (p) => !isTravelAgency(p) && !isTransitFacility(p) && !isNonAttractionVenue(p) && !isRegionItself(p, city),
   );

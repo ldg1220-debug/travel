@@ -1,0 +1,14 @@
+[
+  { "region": "오사카", "days": 3 },
+  { "region": "도쿄", "days": 3 },
+  { "region": "후쿠오카", "days": 3 },
+  { "region": "다낭", "days": 4 },
+  { "region": "방콕", "days": 4 },
+  { "region": "세부", "days": 4 },
+  { "region": "하노이", "days": 4 },
+  { "region": "타이베이", "days": 3 },
+  { "region": "홍콩", "days": 3 },
+  { "region": "제주", "days": 3 },
+  { "region": "부산", "days": 2 },
+  { "region": "경주", "days": 3 }
+]
