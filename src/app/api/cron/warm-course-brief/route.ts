@@ -1,13 +1,11 @@
 import { purgeExpiredPlacesCache } from "@/lib/server/placesRetention";
-import { maxDaysForRegion } from "@/lib/regionTypicalDays";
-import { fetchDeferredTasks, fetchRecentlyVisitedTasks, fetchSitemapTasks, groupTasksByRegion } from "@/lib/server/courseVisits";
+import { groupTasksByRegion } from "@/lib/server/courseVisits";
+import { INDEXED_COURSES } from "@/lib/indexedCourses";
 import { purgeOldUserAgents, recordWarmRun, warmSourceFrom } from "@/lib/server/courseBuildStatus";
 import { runWithMapsSource } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { getCourseBrief, mapWithConcurrency, pickStaleTasks, type CourseDays, type WarmTask } from "@/lib/server/courseBrief";
-import { flatRegions } from "@/lib/discoverData";
-import { minDaysForStyle } from "@/lib/server/coursePageGate";
 
 /**
  * Vercel Cron(vercel.json, 하루 1회) — 블로그 파이프라인이 실제로 쓸
@@ -58,29 +56,14 @@ const WARM_START_DEADLINE_MS = 55_000; // 이후엔 새 조합을 시작하지 �
 const PER_REGION_ENRICH_BUDGET_MS = 8000; // 지시서 §A-3 권장값
 const WARM_CONCURRENCY = 3; // 지시서 §A-3 권장값
 
-// 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §2 — 사이트맵에는 "크론이 200 확인한 조합"만
-// 오르므로(coursePageIndex.ts), 일반 풀을 지역 × (도시형 1~5일 · 휴양형 2~7일) 전체로 넓힌다. 기존
-// (국내 1일, 해외 2·3일)은 그 부분집합이다. Hobby 플랜(하루 1회·BATCH_SIZE 12)이라 한 바퀴 도는 데
-// 오래 걸린다 — 캐시가 없는 조합부터 채우고(pickStaleTasks) 페이지 방문도 캐시를 채운다.
-const allDayTasks = (scope: "domestic" | "overseas"): WarmTask[] =>
-  flatRegions(scope).flatMap((r) => {
-    const tasks: WarmTask[] = [];
-    for (let d = minDaysForStyle(r.style); d <= maxDaysForRegion(r.name); d++) tasks.push({ region: r.name, days: d as CourseDays });
-    return tasks;
-  });
-
-const WARM_TASKS: WarmTask[] = [...allDayTasks("domestic"), ...allDayTasks("overseas")];
-const WARM_TASK_KEYS = new Set(WARM_TASKS.map((t) => `${t.region}/${t.days}`));
-
 // 작업지시서 2026-10-14 "긴급: #319 이후 Places 호출 비용" §2③ — 매일 20지역 일괄 재조회는 Places 무료 한도(Enterprise 월 1,000회)를 넘는다.
 // 최근 26시간 안에 방문(코스 페이지 · course-brief 요청)된 조합만, 그중 캐시가 곧 만료되는(20시간 이상 묵은) 것부터 갱신한다.
 // 작업지시서 2026-10-15 "긴급: 평점 검색(Enterprise) 하루 만에 243/900" §2④ — 후보 풀이 지역 단위로 공유되므로 단위를 "조합 5개"에서 "지역 2개"로 바꿨다:
 // WARM_DAILY_MAX = 하루에 갱신할 지역 수(기본 2) — 그 지역의 방문된(만료 임박) 일수는 전부 같은 풀로 만든다. 워밍은 Places 호출을 오늘 상한의 50%까지만 쓴다(mapsBudget).
 // 방문 없는 조합은 만료된 채로 두고 다음 첫 요청 때 만든다(월 예산 가드 안에서). 환경 변수 WARM_DAILY_MAX 로 조정한다.
-const WARM_DAILY_MAX_DEFAULT = 10; // 2026-10-23 "#338 검증" §2② — 2 → 10. 사이트맵 코스 절반이 비어 있어 하루 2지역으로는 줄지 않았다(워밍 몫 = 오늘 상한의 50% 안에서만 돈다)
+const WARM_DAILY_MAX_DEFAULT = 12; // 2026-10-23 "#338 검증" §2② — 2 → 10. 사이트맵 코스 절반이 비어 있어 하루 2지역으로는 줄지 않았다(워밍 몫 = 오늘 상한의 50% 안에서만 돈다)
 // 캐시 TTL 26시간 — 만료 4시간 전(22시간 묵은 것)부터 갱신해 봇이 만료 직후 503 을 보지 않게 한다(2026-10-23 §2④).
 const WARM_MIN_AGE_MS = 22 * 60 * 60 * 1000;
-const PICK_LIMIT = 300; // 후보로 훑는 최대 건수(사이트맵 전체 ≈ 120) — 실제 처리 수는 시간 예산이 정한다
 function warmDailyMax(): number {
   const n = Number(process.env.WARM_DAILY_MAX);
   return Number.isInteger(n) && n >= 0 ? n : WARM_DAILY_MAX_DEFAULT;
@@ -95,23 +78,11 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 우선순위(작업지시서 2026-10-23 "#338 검증" §2①): (1) 어제 몫이 없어 미뤄진 조합 (2) 사이트맵인데 브리프가 없는 조합(사이트맵 최근 확인 순) (3) 만료 임박 조합(방문된 것 먼저).
-  // groupTasksByRegion 이 처음 나온 순서로 지역을 고르므로 이 순서가 곧 우선순위다.
-  const sitemapAll = (await fetchSitemapTasks()).filter((t) => WARM_TASK_KEYS.has(`${t.region}/${t.days}`));
-  const deferred = (await fetchDeferredTasks()).filter((t) => WARM_TASK_KEYS.has(`${t.region}/${t.days}`));
-  const visited = (await fetchRecentlyVisitedTasks()).filter((t) => WARM_TASK_KEYS.has(`${t.region}/${t.days}`));
-  const staleDeferred = await pickStaleTasks(deferred, PICK_LIMIT, { minAgeMs: WARM_MIN_AGE_MS });
-  const missing = await pickStaleTasks(sitemapAll, PICK_LIMIT, { missingOnly: true });
-  const expiringVisited = await pickStaleTasks(visited, PICK_LIMIT, { minAgeMs: WARM_MIN_AGE_MS });
-  const expiringSitemap = await pickStaleTasks(sitemapAll, PICK_LIMIT, { minAgeMs: WARM_MIN_AGE_MS });
-  const seen = new Set<string>();
-  const ordered = [...staleDeferred, ...missing, ...expiringVisited, ...expiringSitemap].filter((t) => {
-    const k = `${t.region}/${t.days}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-  const regionGroups = groupTasksByRegion(ordered, warmDailyMax());
+  // 작업지시서 2026-10-28 "사람이 열 때만" — 워밍 대상은 색인 대상 코스(src/data/indexedCourses.json)뿐이고, 만료 4시간 전(22시간 묵은 것)부터 갱신한다.
+  // 방문 기반 선정·빈 조합 미리 채우기·미뤄진 조합 우선은 폐지했다 — 나머지 코스는 사람이 열 때 만든다.
+  const indexedTasks: WarmTask[] = INDEXED_COURSES.map((c) => ({ region: c.region, days: c.days as CourseDays }));
+  const expiring = await pickStaleTasks(indexedTasks, indexedTasks.length, { minAgeMs: WARM_MIN_AGE_MS });
+  const regionGroups = groupTasksByRegion(expiring, warmDailyMax());
   const batch = regionGroups.flat();
 
   const startedAt = Date.now();
@@ -148,7 +119,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
 
   await purgeOldUserAgents(); // 이틀 넘은 User-Agent 카운터 정리
   const source = warmSourceFrom(request.headers.get("user-agent"), request.headers.get("x-warm-source"));
-  await recordWarmRun(`처리 ${warmed.length}건(성공 ${warmed.filter((w) => w.ok).length}) · 방문 ${visited.length} · 미뤄짐 ${staleDeferred.length} · 빈 조합 ${missing.length} · 지역 ${regionGroups.length}`, new Date(), source); // health courseBuild.lastWarm*
+  await recordWarmRun(`처리 ${warmed.length}건(성공 ${warmed.filter((w) => w.ok).length}) · 색인 대상 ${indexedTasks.length} · 갱신 대상 ${expiring.length} · 지역 ${regionGroups.length}`, new Date(), source); // health courseBuild.lastWarm*
 
   // 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" §2 — 보관 기간이 지난 Places 유래 캐시 행(이름·평점 26h+2h · 좌표 30일)을 지운다.
   const purged = await purgeExpiredPlacesCache().catch((err) => {
@@ -157,5 +128,5 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   });
   if (purged) console.log(`[warm-course-brief] places cache purge: content=${purged.content} latLng=${purged.latLng} degradedPools=${purged.degradedPools ?? 0}`);
 
-  return NextResponse.json({ ok: true, purged, totalTasks: WARM_TASKS.length, visited: visited.length, deferred: staleDeferred.length, missing: missing.length, expiring: expiringVisited.length + expiringSitemap.length, dailyMaxRegions: warmDailyMax(), regions: regionGroups.length, batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
+  return NextResponse.json({ ok: true, purged, indexed: indexedTasks.length, expiring: expiring.length, dailyMaxRegions: warmDailyMax(), regions: regionGroups.length, batchSize: batch.length, processed: warmed.length, skippedByDeadline: skipped, elapsedMs: Date.now() - startedAt, warmed });
 });

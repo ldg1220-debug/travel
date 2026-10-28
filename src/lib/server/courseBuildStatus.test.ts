@@ -64,24 +64,20 @@ describe("courseBuildStatus", () => {
   });
 
   // 작업지시서 2026-10-22 "#336 검증" §2④⑤ — 버전 전환 진행률 · 로봇 재생성 카운터
-  it("versionProgress: 사이트맵 조합 중 현재 버전 / 직전 버전만 / 없음을 센다", async () => {
-    queryMock.mockImplementation(async (...args: unknown[]) => {
-      const sql = String(args[0]);
-      if (sql.includes("course-sitemap")) {
-        return { rows: ["오사카:3", "홍콩:4", "나고야:4", "방콕:3"].map((c) => ({ cache_key: `course-sitemap:${c}`, region: c.split(":")[0], days: c.split(":")[1] })) };
-      }
-      return {
-        rows: ["content-brief:overseas:오사카:3:v44", "content-brief:overseas:오사카:3:v43", "content-brief:overseas:홍콩:4:v43", "content-brief:overseas:도쿄:3:v44"].map((cache_key) => ({ cache_key })),
-      };
-    });
-    expect(await getVersionProgress(44, 1000)).toEqual({
+  it("versionProgress: 색인 대상 중 현재 버전 / 직전 버전만 / 없음을 센다", async () => {
+    queryMock.mockImplementation(async () => ({
+      rows: ["content-brief:overseas:오사카:3:v45", "content-brief:overseas:오사카:3:v44", "content-brief:overseas:홍콩:3:v44", "content-brief:overseas:도쿄:3:v45"].map((cache_key) => ({ cache_key })),
+    }));
+    const key = (scope: string, region: string, days: number) => ({ region, days, currentKey: `content-brief:${scope}:${region}:${days}:v45` });
+    const indexed = [key("overseas", "오사카", 3), key("overseas", "홍콩", 3), key("overseas", "나고야", 4), key("overseas", "방콕", 4)];
+    expect(await getVersionProgress(1000, indexed)).toEqual({
       total: 4,
       onCurrent: 1,
       onPrevious: 1,
       missing: 2,
       missingList: [
         { region: "나고야", days: 4 },
-        { region: "방콕", days: 3 },
+        { region: "방콕", days: 4 },
       ],
     });
   });
@@ -95,6 +91,7 @@ describe("courseBuildStatus", () => {
     expect(s.syncBuildsToday).toBe(9);
     expect(s.rebuildTriggeredByBotToday).toBe(0);
     expect(s.versionProgress).toEqual({ total: 0, onCurrent: 0, onPrevious: 0, missing: 0, missingList: [] });
+    expect(s.indexed).toEqual({ total: 0, fresh: 0, missing: 0 });
   });
 
   // 작업지시서 2026-10-27 "사람 방문 218" §2⑤ — 출처별 방문 · 상위 User-Agent

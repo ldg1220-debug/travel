@@ -26,7 +26,7 @@ describe("fetchConfirmedCoursePages", () => {
         { region: null, days: "3", created_at: created, spots: spots(12) },
       ] }));
     const result = await fetchConfirmedCoursePages();
-    expect(result.map((p) => `${p.region}/${p.days}`)).toEqual(["오사카/3", "세부/7"]);
+    expect(result.map((p) => `${p.region}/${p.days}`)).toEqual(["오사카/3"]); // 세부 7일은 색인 대상(indexedCourses.json)이 아니라 제외(2026-10-28)
     expect(result[0].lastModified).toEqual(created);
     expect(queryMock.mock.calls[0][1][0]).toBe(`content-brief:%:v${COURSE_ALGO_VERSION}`);
   });
@@ -71,11 +71,11 @@ describe("버전 무관 사이트맵 기록", () => {
     const recent = new Date("2026-10-07T00:00:00Z");
     queryMock.mockImplementation(async (sql: string) =>
       String(sql).includes("course-sitemap")
-        ? { rows: [{ region: "오사카", days: "3", created_at: recent }, { region: "도쿄", days: "2", created_at: old }, { region: "세부", days: "9", created_at: recent }] }
+        ? { rows: [{ region: "오사카", days: "3", created_at: recent }, { region: "도쿄", days: "3", created_at: old }, { region: "세부", days: "9", created_at: recent }] }
         : { rows: [{ region: "오사카", days: "3", created_at: old, spots: spots(12) }] },
     );
     const result = await fetchConfirmedCoursePages();
-    expect(result.map((p) => `${p.region}/${p.days}`).sort()).toEqual(["도쿄/2", "오사카/3"]); // days=9는 범위 밖이라 제외
+    expect(result.map((p) => `${p.region}/${p.days}`).sort()).toEqual(["도쿄/3", "오사카/3"]); // days=9는 범위 밖이라 제외
     expect(result.find((p) => p.region === "오사카")!.lastModified).toEqual(recent);
     const recordedSql = String(queryMock.mock.calls.find((c) => String(c[0]).includes("course-sitemap"))![0]);
     expect(recordedSql).toContain("30 days"); // 버전 키가 아니라 기간으로 거른다

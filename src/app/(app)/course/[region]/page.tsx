@@ -58,7 +58,7 @@ export default async function RegionHubPage({ params }: { params: Promise<Params
       <h1 className="mt-3 text-2xl font-bold text-slate-900 dark:text-slate-100">{region} 여행 코스</h1>
       {pages.length === 0 ? (
         <p className="mt-3 text-[13.5px] text-slate-600 dark:text-slate-300">
-          {region} 코스를 준비하고 있어요. <Link href="/course" className="font-semibold text-brand-700 hover:underline dark:text-brand-400">직접 코스 만들기 →</Link>
+          {region} 코스는 앱에서 바로 만들 수 있어요. <Link href="/course" className="font-semibold text-brand-700 hover:underline dark:text-brand-400">앱에서 이 지역 코스 만들기 →</Link>
         </p>
       ) : (
         (() => {

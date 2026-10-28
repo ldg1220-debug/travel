@@ -102,40 +102,44 @@ async function mergeStatus(patch: Record<string, unknown>): Promise<void> {
   }
 }
 
-/** 버전 전환 진행률 — 사이트맵에 오른 (지역, 일수) 가운데 현재 버전 캐시가 있는 것 / 직전 버전만 있는 것 / 둘 다 없는 것. */
+/** 색인 대상(indexedCourses.json) 코스 한 건 — currentKey 는 현재 버전 브리프 캐시 키(`content-brief:{scope}:{지역}:{일수}:v{N}`). */
+export interface IndexedCourseKey {
+  region: string;
+  days: number;
+  currentKey: string;
+}
+
+/** 버전 전환 진행률 — 색인 대상 코스 가운데 현재 버전 캐시가 있는 것 / 직전 버전만 있는 것 / 둘 다 없는 것. */
 export interface VersionProgress {
   total: number;
   onCurrent: number;
   onPrevious: number;
   missing: number;
-  /** 브리프가 없는 조합 상위 10(사이트맵 최근 확인 순) — 워밍이 먼저 채울 대상. */
+  /** 현재 버전 브리프가 없는 색인 대상 상위 10. */
   missingList: Array<{ region: string; days: number }>;
 }
 
-export async function getVersionProgress(currentVersion: number, ttlMs: number): Promise<VersionProgress | null> {
+export async function getVersionProgress(ttlMs: number, indexed: readonly IndexedCourseKey[]): Promise<VersionProgress | null> {
   try {
-    const [sitemap, briefs] = await Promise.all([
-      pool.query<{ cache_key: string; region: string | null; days: string | null }>(
-        `select cache_key, payload->>'region' as region, payload->>'days' as days from place_candidate_cache where cache_key like 'course-sitemap:%' order by created_at desc`,
-      ),
-      pool.query<{ cache_key: string }>(
-        `select cache_key from place_candidate_cache where cache_key like 'content-brief:%' and created_at > now() - ($1 || ' milliseconds')::interval`,
-        [String(ttlMs)],
-      ),
-    ]);
-    const combos = new Set(sitemap.rows.map((r) => r.cache_key.slice("course-sitemap:".length)));
-    const label = new Map(sitemap.rows.map((r) => [r.cache_key.slice("course-sitemap:".length), { region: r.region ?? r.cache_key.slice("course-sitemap:".length), days: Number(r.days) || 0 }]));
-    const current = new Set<string>();
-    const previous = new Set<string>();
-    for (const { cache_key } of briefs.rows) {
-      const m = /^content-brief:[^:]+:(.+:\d+):v(\d+)$/.exec(cache_key);
-      if (!m || !combos.has(m[1])) continue;
-      (Number(m[2]) === currentVersion ? current : previous).add(m[1]);
+    const briefs = await pool.query<{ cache_key: string }>(
+      `select cache_key from place_candidate_cache where cache_key like 'content-brief:%' and created_at > now() - ($1 || ' milliseconds')::interval`,
+      [String(ttlMs)],
+    );
+    const keys = new Set(briefs.rows.map((r) => r.cache_key));
+    let onCurrent = 0;
+    let onPrevious = 0;
+    const missingList: Array<{ region: string; days: number }> = [];
+    for (const c of indexed) {
+      if (keys.has(c.currentKey)) {
+        onCurrent++;
+        continue;
+      }
+      const prefix = c.currentKey.slice(0, c.currentKey.lastIndexOf(":v") + 2);
+      if ([...keys].some((k) => k.startsWith(prefix))) onPrevious++;
+      else if (missingList.length < 10) missingList.push({ region: c.region, days: c.days });
     }
-    const onCurrent = current.size;
-    const onPrevious = [...previous].filter((c) => !current.has(c)).length;
-    const missingList = [...combos].filter((c) => !current.has(c) && !previous.has(c)).slice(0, 10).map((c) => label.get(c)!);
-    return { total: combos.size, onCurrent, onPrevious, missing: combos.size - onCurrent - onPrevious, missingList };
+    const missing = indexed.length - onCurrent - onPrevious;
+    return { total: indexed.length, onCurrent, onPrevious, missing, missingList };
   } catch (err) {
     console.error("[courseBuildStatus] version progress failed:", err);
     return null;
@@ -163,13 +167,15 @@ export interface CourseBuildHealth {
   /** 오늘 검색 로봇 요청이 재생성을 일으킨 횟수 — 0 이어야 한다. */
   rebuildTriggeredByBotToday: number | null;
   versionProgress: VersionProgress | null;
+  /** 색인 대상 코스 요약 — fresh = 현재 버전 캐시가 있는 것, missing = 그 밖(직전 버전만·없음). */
+  indexed: { total: number; fresh: number; missing: number } | null;
   /** 오늘 코스 요청의 출처 분포 — human=사람(브라우저+Accept-Language+화면), bot=수집기, internal=TraduleAutoPipeline 등 우리 서버, api=브라우저가 아닌 직접 호출. */
   visitsBySource: { human: number | null; bot: number | null; internal: number | null; api: number | null };
   /** 오늘 User-Agent(앞 60자) 상위 10. */
   topUserAgents: Array<{ userAgent: string; count: number }> | null;
 }
 
-export async function getCourseBuildStatus(currentVersion: number, now = new Date(), ttlMs = 26 * 60 * 60 * 1000): Promise<CourseBuildHealth> {
+export async function getCourseBuildStatus(currentVersion: number, now = new Date(), ttlMs = 26 * 60 * 60 * 1000, indexed: readonly IndexedCourseKey[] = []): Promise<CourseBuildHealth> {
   const read = async (key: string): Promise<Record<string, unknown> | null> => {
     try {
       const r = await pool.query<{ payload: Record<string, unknown> }>(`select payload from place_candidate_cache where cache_key = $1`, [key]);
@@ -199,7 +205,7 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     read(courseCounterKey("bot", now)),
     read(courseCounterKey("sync", now)),
     read(courseCounterKey("botRebuild", now)),
-    getVersionProgress(currentVersion, ttlMs),
+    getVersionProgress(ttlMs, indexed),
     read(courseCounterKey("internal", now)),
     read(courseCounterKey("api", now)),
     topUa(),
@@ -222,6 +228,7 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     syncBuildsToday: count(sync),
     rebuildTriggeredByBotToday: count(botRebuild),
     versionProgress,
+    indexed: versionProgress ? { total: versionProgress.total, fresh: versionProgress.onCurrent, missing: versionProgress.total - versionProgress.onCurrent } : null,
     visitsBySource: { human: count(human), bot: count(bot), internal: count(internal), api: count(api) },
     topUserAgents,
   };

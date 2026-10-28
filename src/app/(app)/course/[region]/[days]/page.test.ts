@@ -20,11 +20,13 @@ import type { CourseBrief, CourseBriefSpot } from "@/lib/server/courseBrief";
 
 const getCourseBriefMock = vi.fn<(region: string, days: 1 | 2 | 3) => Promise<CourseBrief>>();
 const lastOptions: { value?: { requestSource?: string } } = {};
+const peekBriefMock = vi.fn<() => Promise<CourseBrief | null>>();
 
 vi.mock("@/lib/server/courseBrief", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/server/courseBrief")>();
   return {
     ...actual,
+    peekBrief: () => peekBriefMock(),
     getCourseBrief: (region: string, days: 1 | 2 | 3, _budget?: number, options?: { requestSource?: string }) => {
       lastOptions.value = options;
       return getCourseBriefMock(region, days);
@@ -39,7 +41,9 @@ vi.mock("@/lib/server/coursePageIndex", async (importOriginal) => {
 
 const recordVisitMock = vi.fn();
 vi.mock("@/lib/server/courseVisits", () => ({ recordCourseVisit: (...a: unknown[]) => recordVisitMock(...a) }));
-const uaRef = { value: null as string | null };
+// 기본은 사람(브라우저 UA + Accept-Language) — 색인 대상이 아닌 코스도 사람이 열면 그 자리에서 만든다(2026-10-28).
+const HUMAN_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+const uaRef = { value: HUMAN_UA as string | null };
 vi.mock("next/headers", () => ({ headers: async () => new Headers(uaRef.value ? { "user-agent": uaRef.value, "accept-language": "ko-KR,ko;q=0.9" } : {}) }));
 
 vi.mock("@/lib/server/coursePageLinks", () => ({
@@ -324,5 +328,56 @@ describe("코스 페이지 — 검색 로봇", () => {
     await CoursePage({ params: Promise.resolve({ region: "경주", days: "2박3일" }) });
     expect(lastOptions.value).toMatchObject({ requestSource: "user" });
     expect(recordVisitMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 작업지시서 2026-10-28 "코스 페이지는 사람이 열 때만" — 색인 대상(indexedCourses.json)이 아닌 코스는 noindex · JSON-LD 없음, 사람만 그 자리에서 생성한다.
+describe("코스 페이지 — 색인 대상 12개 외에는 요청 시 생성", () => {
+  beforeEach(() => {
+    getCourseBriefMock.mockReset();
+    getCourseBriefMock.mockResolvedValue(thickBrief());
+    peekBriefMock.mockReset();
+    peekBriefMock.mockResolvedValue(null);
+    uaRef.value = HUMAN_UA;
+  });
+  const render = async (region: string, days: string) => {
+    const { default: CoursePage, generateMetadata } = await import("./page");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const params = Promise.resolve({ region, days });
+    const metadata = (await generateMetadata({ params })) as { robots?: { index?: boolean } };
+    const html = renderToStaticMarkup(await CoursePage({ params }));
+    return { metadata, html };
+  };
+
+  it("색인 대상(경주 2박3일)은 색인 허용 + JSON-LD 2개", async () => {
+    const { metadata, html } = await render("경주", "2박3일");
+    expect(metadata.robots).toBeUndefined();
+    expect(html.match(/application\/ld\+json/g)).toHaveLength(2);
+  });
+
+  it("비색인 코스를 사람이 열면 그 자리에서 만들고 noindex · JSON-LD 없음", async () => {
+    const { metadata, html } = await render("시드니", "3박4일");
+    expect(getCourseBriefMock).toHaveBeenCalled();
+    expect(metadata.robots).toMatchObject({ index: false, follow: true });
+    expect(html).not.toContain("application/ld+json");
+  });
+
+  it("비색인 코스를 봇이 열면 캐시가 없을 때 Google 호출 없이 가벼운 200(noindex) 페이지", async () => {
+    uaRef.value = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+    const { metadata, html } = await render("시드니", "3박4일");
+    expect(getCourseBriefMock).not.toHaveBeenCalled();
+    expect(metadata.robots).toMatchObject({ index: false, follow: true });
+    expect(html).toContain("준비하고 있어요");
+    expect(html).toContain("앱에서 만들기");
+  });
+
+  it("비색인 코스를 봇이 열었는데 캐시가 있으면 그대로 보여주되 noindex · JSON-LD 없음", async () => {
+    uaRef.value = "python-requests/2.31";
+    peekBriefMock.mockResolvedValue(thickBrief());
+    const { metadata, html } = await render("시드니", "3박4일");
+    expect(getCourseBriefMock).not.toHaveBeenCalled();
+    expect(metadata.robots).toMatchObject({ index: false });
+    expect(html).not.toContain("application/ld+json");
+    expect(html).not.toContain("준비하고 있어요");
   });
 });
