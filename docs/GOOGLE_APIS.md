@@ -35,6 +35,7 @@
 2026-10-28 (작업지시서 "코스 페이지는 사람이 열 때만"): **색인·워밍 대상은 `src/data/indexedCourses.json` 의 12개뿐**(위 "워밍 2회"·GitHub Actions 워크플로는 폐지 — 워밍은 Vercel 크론 하루 1회, 05:00 UTC). 나머지 코스 페이지는 noindex·JSON-LD 없음, 사람이 열 때 생성(26시간 캐시), 봇/api 는 캐시가 있으면 200·없으면 Google 호출 없이 가벼운 200. 경주는 대표 명소 이름 사전(`REQUIRED_LANDMARK_NAMES`, 이름 검색 최대 5회/일)을 쓴다. `/api/health` `courseBuild.indexed { total, fresh, missing }`.
 2026-10-29 (작업지시서 "#341 검증"): 이름 사전(`REQUIRED_LANDMARK_NAMES`)에 제주·부산 추가 — 이름 검색은 지역·이름별 26시간 캐시, 색인 12개 워밍 안에서 경주 5 · 제주 8 · 부산 8회/일 이내. 올레길 같은 "코스" 이름은 후보에서 제외(`isTrailCourse`).
 2026-10-29 (작업지시서 "#342 검증"): 이름 사전 지역(경주·제주·부산)은 앵커를 권역 군집별 날에 먼저 배정한다. 이름 검색 결과는 로그 `[anchor-dict] region= name= hit= accepted= reason=` 로 이름마다 남는다(`search-failed(status=503)` = 한도·페이싱으로 건너뜀).
+2026-10-29 (작업지시서 "#343 검증"): 사전 지역(경주·제주·부산)은 하루가 4곳 미만이면 날 군집 중심 주변(`locationBias`)에서 종류별(맛집·카페·관광지) 1회씩 검색해 채운다 — 지역당 최대 days×3 회, 중심·종류별 26시간 캐시, 색인 12개 워밍 안에서만. `lastRebuildResult` 의 `thin-rejected: spots=N need=M` = 만들었지만 저장 기준 미달. 사전 명소 단계 추적 로그 `[anchor-trace]` · `[anchor-drop]`.
 
 2026-10-15 보강(작업지시서 "평점 검색(Enterprise) 하루 만에 243/900"):
 - **일 단위 페이싱**(Enterprise 두 SKU + `text-pro` — 2026-10-20 "#331 검증": 코스 후보가 Pro 로 옮겨 오며 하루 300 이 이어지면 월 4,500 이 월말 전에 바닥난다): 오늘 상한 = `floor((월 상한 − 오늘 이전 사용) / 남은 날수)`, 최소 10(예: 10/15 → (900−243)/17 ≈ 38). 사용자 요청은 오늘 상한까지, **워밍 크론은 오늘 상한의 50%까지**. 로그 `[mapsBudget] … action=pacing`.

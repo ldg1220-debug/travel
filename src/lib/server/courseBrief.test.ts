@@ -40,6 +40,9 @@ import {
   enforceDayComposition,
   enforceDayCompactness,
   assignDaysByAnchorClusters,
+  dedupeStopsAcrossDays,
+  topUpDaysFromAreas,
+  makeLandmarkTrace,
   isFerryIsland,
   daySpreadLimitKm,
   isDuplicateStop,
@@ -3584,5 +3587,65 @@ describe("assignDaysByAnchorClusters — 사전 지역의 앵커를 권역별 �
     expect(isFerryIsland({ name: "제주 우도 (올레 1코스)" })).toBe(true);
     expect(isFerryIsland({ name: "우도 맛집", meal: true })).toBe(false);
     expect(isFerryIsland({ name: "성산일출봉" })).toBe(false);
+  });
+});
+
+// 작업지시서 2026-10-29 "#343 검증" §2~3 — 권역 채우기 · 접두어 변형 중복 · 시내와 먼 곳은 자기 날 · 사전 명소 추적
+describe("경주 잔여 · 제주 얇음", () => {
+  const anchor = (id: string, name: string, lat: number, lng: number) => stop(id, lat, lng, { name, category: "tourist_attraction", slotKey: "landmark-anchor", searchRank: 0 });
+  const plain = (id: string, name: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name, category: "tourist_attraction", ...extra });
+
+  it("dedupeStopsAcrossDays: 접두어 변형('보문관광단지' / '경주보문관광단지')은 코스 전체에서 1곳", () => {
+    const days = [[plain("a", "보문관광단지", 35.8405, 129.2886)], [plain("b", "경주보문관광단지", 35.8432, 129.2911), plain("c", "경주월드", 35.8386, 129.2864)]];
+    const out = dedupeStopsAcrossDays(days, "경주");
+    expect(out.flat().filter((s) => s.name?.includes("보문관광단지"))).toHaveLength(1);
+    expect(out.flat().some((s) => s.name === "경주월드")).toBe(true);
+  });
+
+  it("보문관광단지·경주월드(시내에서 6km+)는 시내 앵커 날이 아니라 자기 날을 갖는다", () => {
+    const anchors = [anchor("b3", "첨성대", 35.8347, 129.219), anchor("b4", "대릉원", 35.8393, 129.2113), anchor("b5", "동궁과 월지", 35.8346, 129.2269), anchor("b1", "불국사", 35.79, 129.332), anchor("b2", "석굴암", 35.795, 129.349)];
+    const days = [
+      [plain("q1", "월정교", 35.829, 129.2175)],
+      [plain("q5", "보문관광단지", 35.8405, 129.2886)],
+      [plain("q4", "경주월드", 35.8386, 129.2864)],
+    ];
+    const out = assignDaysByAnchorClusters(days, anchors, "경주", 8, []);
+    const dayOf = (id: string) => out.findIndex((d) => d.some((s) => s.id === id));
+    expect(dayOf("q5")).toBe(dayOf("q4")); // 보문 = 경주월드 쪽
+    expect(dayOf("q5")).not.toBe(dayOf("b3"));
+    expect(dayOf("b5")).toBe(dayOf("b3")); // 동궁과 월지는 첨성대와 같은 날
+  });
+
+  it("topUpDaysFromAreas: 4곳 미만인 날을 그 날 중심의 권역 후보(명소·식당·카페)로 채운다 — 날마다 검색 3종 이내, 한도 밖·이미 있는 곳은 제외", async () => {
+    const thin = [anchor("a1", "성산일출봉", 33.458, 126.943), plain("a2", "우도아님", 33.46, 126.94)];
+    const calls: string[] = [];
+    const pools: Record<string, Place[]> = {
+      attraction: [
+        place("n1", { name: "섭지코지", lat: 33.424, lng: 126.931, category: "tourist_attraction", searchRank: 0 }),
+        place("far", { name: "협재해수욕장", lat: 33.394, lng: 126.239, category: "tourist_attraction", searchRank: 1 }), // 한도 밖
+        place("dup", { name: "성산일출봉", lat: 33.458, lng: 126.943, category: "tourist_attraction", searchRank: 2 }), // 이미 있음
+      ],
+      restaurant: [place("r1", { name: "성산 맛집", lat: 33.46, lng: 126.93, category: "restaurant", searchRank: 0 })],
+      cafe: [place("c1", { name: "성산 카페", lat: 33.455, lng: 126.935, category: "cafe", searchRank: 0 })],
+    };
+    const out = await topUpDaysFromAreas([thin], "제주", 15, 4, async (_c, kind) => {
+      calls.push(kind);
+      return pools[kind];
+    });
+    expect(out[0].length).toBeGreaterThanOrEqual(4);
+    expect(out[0].map((s) => s.name)).toEqual(expect.arrayContaining(["섭지코지", "성산 맛집"]));
+    expect(out[0].some((s) => s.name === "협재해수욕장")).toBe(false);
+    expect(out[0].filter((s) => s.name === "성산일출봉")).toHaveLength(1);
+    expect(calls.length).toBeLessThanOrEqual(3);
+    expect(out[0].find((s) => s.name === "성산 맛집")).toMatchObject({ meal: true });
+  });
+
+  it("makeLandmarkTrace: 이전 단계에 있던 사전 명소가 사라지면 [anchor-drop] 로그", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const trace = makeLandmarkTrace("경주");
+    trace("anchored", ["불국사", "석굴암", "첨성대", "동궁과 월지", "월정교"]);
+    trace("day-rules", ["불국사", "석굴암", "첨성대", "월정교"], "compactness");
+    expect(log).toHaveBeenCalledWith("[anchor-drop] region=경주 name=동궁과 월지 stage=day-rules reason=compactness");
+    log.mockRestore();
   });
 });

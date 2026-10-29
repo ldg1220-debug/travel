@@ -19,7 +19,7 @@ vi.mock("./mapsBudget", () => ({
   isMapsThrottled: async () => false,
 }));
 
-import { fetchLandmarkCandidates, isTrailCourse, isValidPlace, REQUIRED_LANDMARK_NAMES } from "./courseRecommend";
+import { fetchAreaCandidates, fetchLandmarkCandidates, isTrailCourse, isValidPlace, REQUIRED_LANDMARK_NAMES } from "./courseRecommend";
 
 // 작업지시서 2026-10-28 §1⑦ — 경주 대표 명소 이름 사전
 describe("fetchLandmarkCandidates — 필수 대표 명소 이름 사전", () => {
@@ -71,5 +71,29 @@ describe("올레길 같은 '코스' 제외 · 제주·부산 사전", () => {
   it("제주·부산 사전에 지시서의 명소가 들어 있다", () => {
     expect(REQUIRED_LANDMARK_NAMES["제주"]).toEqual(["성산일출봉", "우도", "섭지코지", "협재해수욕장", "천지연폭포", "만장굴", "오설록 티뮤지엄", "용두암"]);
     expect(REQUIRED_LANDMARK_NAMES["부산"]).toEqual(["해운대해수욕장", "광안리해수욕장", "감천문화마을", "자갈치시장", "해동용궁사", "태종대", "흰여울문화마을", "송도해상케이블카"]);
+  });
+});
+
+// 작업지시서 2026-10-29 "#343 검증" §2① — 권역(군집 중심) 후보 검색
+describe("fetchAreaCandidates — 중심 좌표 주변 검색", () => {
+  beforeEach(() => {
+    cache.clear();
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ places: [{ id: "z1", displayName: { text: "성산 맛집" }, location: { latitude: 33.46, longitude: 126.93 }, primaryType: "restaurant" }] }) })),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+  it("locationBias(circle)와 종류별 includedType 으로 1회 검색하고, 같은 중심·종류는 캐시를 쓴다", async () => {
+    const a = await fetchAreaCandidates("제주", { lat: 33.4567, lng: 126.9334 }, 7500, "restaurant");
+    expect(a.map((p) => p.name)).toEqual(["성산 맛집"]);
+    const body = JSON.parse(((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as { body: string }).body);
+    expect(body).toMatchObject({ textQuery: "제주 맛집", includedType: "restaurant", locationBias: { circle: { center: { latitude: 33.4567, longitude: 126.9334 }, radius: 7500 } } });
+    await fetchAreaCandidates("제주", { lat: 33.4567, lng: 126.9334 }, 7500, "restaurant");
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
   });
 });
