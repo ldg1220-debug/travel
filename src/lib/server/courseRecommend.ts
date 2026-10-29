@@ -758,7 +758,16 @@ async function writeCandidateCache(key: string, places: Place[]): Promise<void> 
  * 가능성에 대비해 후보 풀에 들어오는 시점에 한 번 걸러낸다.
  */
 export function isValidPlace(p: Place): boolean {
-  return Boolean(p.id) && Boolean(p.name?.trim()) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0);
+  return Boolean(p.id) && Boolean(p.name?.trim()) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0) && !isTrailCourse(p.name);
+}
+
+/**
+ * 장소가 아니라 "코스"(올레길 6코스 · 둘레길 · 순례길 · 트레킹 · 탐방로 · 등산로)인 이름 — 작업지시서 2026-10-29 §2①. 길이가 10~20km 인 도보 코스라 하루 일정의 한 "장소"가 될 수 없다
+ * (제주 코스에 올레길이 4개 들어갔다). 후보 풀에 들어오는 시점(isValidPlace)에 한 번 걸러낸다.
+ */
+const TRAIL_COURSE_PATTERN = /올레길|둘레길|순례길|트레킹|탐방로|등산로|\d+\s?코스|코스\s*$|\btrail\b|\btrek(?:king)?\b/i;
+export function isTrailCourse(name: string | undefined): boolean {
+  return TRAIL_COURSE_PATTERN.test(name ?? "");
 }
 
 // 작업지시서 2026-09-29 "세부 7일이 열렸는데, 여행사 사무실과 스파로
@@ -1205,6 +1214,9 @@ const LANDMARK_CANDIDATE_LIMIT = 20;
  */
 export const REQUIRED_LANDMARK_NAMES: Readonly<Record<string, readonly string[]>> = {
   경주: ["불국사", "석굴암", "첨성대", "대릉원", "동궁과 월지"],
+  // 작업지시서 2026-10-29 §2② — 국내 색인 코스(제주·부산)도 같은 방식
+  제주: ["성산일출봉", "우도", "섭지코지", "협재해수욕장", "천지연폭포", "만장굴", "오설록 티뮤지엄", "용두암"],
+  부산: ["해운대해수욕장", "광안리해수욕장", "감천문화마을", "자갈치시장", "해동용궁사", "태종대", "흰여울문화마을", "송도해상케이블카"],
 };
 const compactName = (s: string) => s.toLowerCase().replace(/\s+/g, "");
 

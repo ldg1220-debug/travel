@@ -33,6 +33,7 @@
 2026-10-27 (작업지시서 "사람 방문 218"): 코스 요청 출처 = human(브라우저 UA + Accept-Language + 코스 페이지/앱 화면) · bot(이름 목록 + 일반 패턴) · internal(`TraduleAutoPipeline` UA) · api(공개 `course-brief` API 직접 호출 등). 방문 기록·백그라운드 재생성은 human 만, bot·api 는 캐시가 없으면 503, internal 은 동기 빌드 허용. `/api/health` `courseBuild.visitsBySource` · `topUserAgents`.
 2026-10-27 (작업지시서 "워밍 하루 2회"): **워밍은 하루 2회(05:00 UTC Vercel 크론 · 17:00 UTC GitHub Actions `.github/workflows/warm-courses.yml`)**. Actions 는 같은 엔드포인트를 `Authorization: Bearer CRON_SECRET` 으로 부르며 저장소 Actions 시크릿 `CRON_SECRET` 이 필요하다. 두 번째 실행은 warm+rebuild 남은 몫만 쓴다. `/api/health` `courseBuild.lastWarmSource` = vercel-cron | gh-actions | manual.
 2026-10-28 (작업지시서 "코스 페이지는 사람이 열 때만"): **색인·워밍 대상은 `src/data/indexedCourses.json` 의 12개뿐**(위 "워밍 2회"·GitHub Actions 워크플로는 폐지 — 워밍은 Vercel 크론 하루 1회, 05:00 UTC). 나머지 코스 페이지는 noindex·JSON-LD 없음, 사람이 열 때 생성(26시간 캐시), 봇/api 는 캐시가 있으면 200·없으면 Google 호출 없이 가벼운 200. 경주는 대표 명소 이름 사전(`REQUIRED_LANDMARK_NAMES`, 이름 검색 최대 5회/일)을 쓴다. `/api/health` `courseBuild.indexed { total, fresh, missing }`.
+2026-10-29 (작업지시서 "#341 검증"): 이름 사전(`REQUIRED_LANDMARK_NAMES`)에 제주·부산 추가 — 이름 검색은 지역·이름별 26시간 캐시, 색인 12개 워밍 안에서 경주 5 · 제주 8 · 부산 8회/일 이내. 올레길 같은 "코스" 이름은 후보에서 제외(`isTrailCourse`).
 
 2026-10-15 보강(작업지시서 "평점 검색(Enterprise) 하루 만에 243/900"):
 - **일 단위 페이싱**(Enterprise 두 SKU + `text-pro` — 2026-10-20 "#331 검증": 코스 후보가 Pro 로 옮겨 오며 하루 300 이 이어지면 월 4,500 이 월말 전에 바닥난다): 오늘 상한 = `floor((월 상한 − 오늘 이전 사용) / 남은 날수)`, 최소 10(예: 10/15 → (900−243)/17 ≈ 38). 사용자 요청은 오늘 상한까지, **워밍 크론은 오늘 상한의 50%까지**. 로그 `[mapsBudget] … action=pacing`.

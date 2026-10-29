@@ -38,6 +38,8 @@ import {
   isNightStop,
   assignLandmarkRanks,
   enforceDayComposition,
+  enforceDayCompactness,
+  daySpreadLimitKm,
   isDuplicateStop,
   isTransitImplausible,
   dedupeByProximity,
@@ -3468,5 +3470,43 @@ describe("enforceDayComposition — 식당 최대 2 · 명소 최소 2", () => {
     const park = stop("park", 35.8, 129.2, { name: "에버랜드", category: "amusement_park", reviewCount: 90000 });
     const out = enforceDayComposition([[park, meal("r1", 35.801, 129.201), meal("r2", 35.802, 129.202), meal("r3", 35.803, 129.203)]], 0);
     expect(out[0]).toHaveLength(4);
+  });
+});
+
+// 작업지시서 2026-10-29 "#341 검증" §2④⑤ — 하루 최대 직선거리 · 숙소 제외
+describe("enforceDayCompactness — 하루 스팟 간 최대 직선거리", () => {
+  const at = (id: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name: id, category: "tourist_attraction", ...extra });
+  it("제주 15km · 그 밖의 국내 8km", () => {
+    expect(daySpreadLimitKm("제주")).toBe(15);
+    expect(daySpreadLimitKm("부산")).toBe(8);
+  });
+  it("부산 지그재그(영도 → 광안리 → 온천장)는 권역별 날로 갈린다", () => {
+    const yeongdo = at("흰여울", 35.0787, 129.0436);
+    const gwangan = at("광안리", 35.1532, 129.1187); // 영도에서 ≈ 11km
+    const haeundae = at("해운대", 35.1587, 129.1604);
+    const ongcheon = at("온천장", 35.2203, 129.0866);
+    const nampo = [at("자갈치", 35.0966, 129.0306), at("감천", 35.0975, 129.0106)];
+    const out = enforceDayCompactness([[yeongdo, gwangan, ongcheon, haeundae], nampo], 8, 0);
+    const spread = (d: FinalStop[]) => Math.max(0, ...d.flatMap((a) => d.map((b) => Math.hypot((a.lat - b.lat) * 111, (a.lng - b.lng) * 91))));
+    for (const day of out) expect(spread(day)).toBeLessThanOrEqual(8.5);
+    expect(out.flat().length).toBeGreaterThanOrEqual(5); // 갈 날이 있는 스팟은 버리지 않고 옮긴다
+  });
+  it("갈 곳이 없고 총량이 최소 이하면 빼지 않는다 · 대표 명소 앵커는 빼지 않는다", () => {
+    const a = at("a", 35.0, 129.0);
+    const far = at("far", 35.5, 129.5, { slotKey: "landmark-anchor" });
+    const out = enforceDayCompactness([[a, far]], 8, 0);
+    expect(out[0].map((x) => x.id)).toEqual([far.id]); // 앵커는 남기고 멀리 떨어진 일반 스팟이 빠진다
+    const out2 = enforceDayCompactness([[a, at("far2", 35.5, 129.5)]], 8, 2);
+    expect(out2[0]).toHaveLength(2);
+  });
+});
+
+describe("enforceDayComposition — 숙소 제외", () => {
+  it("숙소는 하루 중간에 두지 않고 제외한다(총량이 모자라면 그대로)", () => {
+    const s = (id: string, extra: Partial<FinalStop> = {}) => stop(id, 35.1, 129.0, { name: id, category: "tourist_attraction", ...extra });
+    const hotel = s("스테이354", { category: "lodging" });
+    const day = [s("a"), hotel, s("b"), s("c")];
+    expect(enforceDayComposition([day], 0)[0].some((x) => x.id === hotel.id)).toBe(false);
+    expect(enforceDayComposition([day], 4)[0].some((x) => x.id === hotel.id)).toBe(true);
   });
 });

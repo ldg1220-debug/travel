@@ -19,7 +19,7 @@ vi.mock("./mapsBudget", () => ({
   isMapsThrottled: async () => false,
 }));
 
-import { fetchLandmarkCandidates, REQUIRED_LANDMARK_NAMES } from "./courseRecommend";
+import { fetchLandmarkCandidates, isTrailCourse, isValidPlace, REQUIRED_LANDMARK_NAMES } from "./courseRecommend";
 
 // 작업지시서 2026-10-28 §1⑦ — 경주 대표 명소 이름 사전
 describe("fetchLandmarkCandidates — 필수 대표 명소 이름 사전", () => {
@@ -56,5 +56,20 @@ describe("fetchLandmarkCandidates — 필수 대표 명소 이름 사전", () =>
     await fetchLandmarkCandidates("domestic", "부산");
     const bodies = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => (JSON.parse((c[1] as { body: string }).body) as { textQuery: string }).textQuery);
     expect(bodies.every((q) => !q.includes("불국사"))).toBe(true);
+  });
+});
+
+// 작업지시서 2026-10-29 §2①② — 코스(올레길 등) 제외 · 제주·부산 이름 사전
+describe("올레길 같은 '코스' 제외 · 제주·부산 사전", () => {
+  it.each(["올레길 6코스", "올레길 1코스", "한라산 둘레길", "한라산 탐방로", "산티아고 순례길", "지리산 트레킹", "관악산 등산로", "서울 성곽 1코스"])("%s 는 장소가 아니다", (name) => {
+    expect(isTrailCourse(name)).toBe(true);
+    expect(isValidPlace({ id: "x", placeId: "x", name, category: "tourist_attraction", color: "#000", lat: 33.4, lng: 126.5, icon: "pin" })).toBe(false);
+  });
+  it.each(["성산일출봉", "서귀포매일올레시장", "우도", "협재해수욕장", "해운대해수욕장", "불국사"])("%s 는 장소다", (name) => {
+    expect(isTrailCourse(name)).toBe(false);
+  });
+  it("제주·부산 사전에 지시서의 명소가 들어 있다", () => {
+    expect(REQUIRED_LANDMARK_NAMES["제주"]).toEqual(["성산일출봉", "우도", "섭지코지", "협재해수욕장", "천지연폭포", "만장굴", "오설록 티뮤지엄", "용두암"]);
+    expect(REQUIRED_LANDMARK_NAMES["부산"]).toEqual(["해운대해수욕장", "광안리해수욕장", "감천문화마을", "자갈치시장", "해동용궁사", "태종대", "흰여울문화마을", "송도해상케이블카"]);
   });
 });
