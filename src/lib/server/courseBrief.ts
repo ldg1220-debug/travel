@@ -14,6 +14,7 @@ import {
   collectPoolStats,
   cuisineKeyword,
   fetchLandmarkCandidates,
+  matchesRequiredLandmark,
   REQUIRED_LANDMARK_NAMES,
   fetchSlotCandidates,
   isBeach,
@@ -360,7 +361,7 @@ const BRIEF_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS; // 하루 1회 워밍 + 다음
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 47; // 작업지시서 2026-10-29 "#341 검증" §2 — 올레길 등 "코스" 이름 후보 제외·제주/부산 대표 명소 이름 사전·국내 앵커 수 확대·하루 스팟 간 최대 직선거리(8km, 제주 15km)·숙소 제외가 최종 결과를 바꾼다(색인 12개 워밍 안에서만 재생성). 이전 46: // // 작업지시서 2026-10-28 §1⑦ — 경주 대표 명소 이름 사전(불국사·석굴암·첨성대·대릉원·동궁과 월지)·지역명 접두어 변형 중복 제거·국내 하루 구성(식당 최대 2·명소 최소 2)이 최종 결과를 바꾼다(색인 대상 12개만 워밍으로 재생성). 이전 45: // // 작업지시서 2026-10-22 "#336 검증" §2⑥ — 종일시설 날은 시설 + 저녁 1곳(3km 이내 식당·야간형)까지이고 관광지·전망대·시장은 다른 날로 옮겨져 최종 결과를 바꾼다. 재생성 몫은 warm+rebuild 사용분만으로 센다(사용자 요청에 뺏기지 않음). 이전 44: // // 작업지시서 2026-10-21 "3km 구간 대중교통 59분" — 대중교통 상식 검사(구간 시간·이동수단)·다리 분류·spots[].landmarkRank 가 최종 결과를 바꾼다. 이전 43: // // 작업지시서 2026-10-21 "#333 검증" §3 — 야간형 스팟은 하루 마지막, 하루 카페 최대 1 을 재배치 뒤에도 보장, 종일시설 사전(해양 공원) 보강이 최종 결과를 바꾼다. 재생성은 방문 + 워밍 몫 안에서만(봇 제외). 이전 42: // // 작업지시서 2026-10-20 "#331 검증" §3 — 명소 슬롯에서 카페·식당 제외, 하루 순서 규칙(첫 스팟 식당·카페 금지 · 식당 연속 금지), 하루 카페 최대 1, 대표 랜드마크 days 곳, 종일시설 이름 보강이 최종 결과를 바꾼다. 일괄 재생성 금지(stale-while-rebuild·페이싱). 이전 41: // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 48; // 작업지시서 2026-10-29 "#342 검증" §2 — 이름 사전 국내 지역은 앵커를 권역(군집)별 날에 먼저 배정(하루 한도 8km·제주 15km)하고 하루 최소 4곳·우도 같은 배 섬 날 최대 3곳이 최종 결과를 바꾼다(색인 12개 워밍 안에서만 재생성). 이전 47: // // 작업지시서 2026-10-29 "#341 검증" §2 — 올레길 등 "코스" 이름 후보 제외·제주/부산 대표 명소 이름 사전·국내 앵커 수 확대·하루 스팟 간 최대 직선거리(8km, 제주 15km)·숙소 제외가 최종 결과를 바꾼다(색인 12개 워밍 안에서만 재생성). 이전 46: // // 작업지시서 2026-10-28 §1⑦ — 경주 대표 명소 이름 사전(불국사·석굴암·첨성대·대릉원·동궁과 월지)·지역명 접두어 변형 중복 제거·국내 하루 구성(식당 최대 2·명소 최소 2)이 최종 결과를 바꾼다(색인 대상 12개만 워밍으로 재생성). 이전 45: // // 작업지시서 2026-10-22 "#336 검증" §2⑥ — 종일시설 날은 시설 + 저녁 1곳(3km 이내 식당·야간형)까지이고 관광지·전망대·시장은 다른 날로 옮겨져 최종 결과를 바꾼다. 재생성 몫은 warm+rebuild 사용분만으로 센다(사용자 요청에 뺏기지 않음). 이전 44: // // 작업지시서 2026-10-21 "3km 구간 대중교통 59분" — 대중교통 상식 검사(구간 시간·이동수단)·다리 분류·spots[].landmarkRank 가 최종 결과를 바꾼다. 이전 43: // // 작업지시서 2026-10-21 "#333 검증" §3 — 야간형 스팟은 하루 마지막, 하루 카페 최대 1 을 재배치 뒤에도 보장, 종일시설 사전(해양 공원) 보강이 최종 결과를 바꾼다. 재생성은 방문 + 워밍 몫 안에서만(봇 제외). 이전 42: // // 작업지시서 2026-10-20 "#331 검증" §3 — 명소 슬롯에서 카페·식당 제외, 하루 순서 규칙(첫 스팟 식당·카페 금지 · 식당 연속 금지), 하루 카페 최대 1, 대표 랜드마크 days 곳, 종일시설 이름 보강이 최종 결과를 바꾼다. 일괄 재생성 금지(stale-while-rebuild·페이싱). 이전 41: // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -3426,6 +3427,109 @@ export function enforceDayComposition(dayGroups: FinalStop[][], minTotal: number
   return days;
 }
 
+/** 배로 가는 국내 섬(제주 우도 등) — 그날 전체가 배 왕복이라 하루에 이 섬 + 가까운 명소 1 + 식사 1까지만 둔다. */
+const FERRY_ISLAND_PATTERN = /(^|\s)(우도|가파도|마라도|비양도)(\s|$|\()/;
+export function isFerryIsland(s: { name?: string; meal?: boolean }): boolean {
+  return !s.meal && FERRY_ISLAND_PATTERN.test(s.name ?? "");
+}
+const ANCHORS_PER_DAY_MAX = 4;
+const FERRY_ISLAND_DAY_MAX = 3;
+const DICT_REGION_MIN_PER_DAY = 4;
+
+/**
+ * 이름 사전이 있는 국내 지역의 날 배정 — 작업지시서 2026-10-29 "#342 검증" §2①③④. 앵커(대표 명소)를 먼저 일수 개 군집(좌표, 하루 한도 maxKm)으로 나눠 군집마다 날을 주고,
+ * 나머지 스팟(식당 포함)을 가장 가까운 군집(날)에 채운 뒤 하루가 4곳 미만이면 후보 풀에서 그 날 권역(한도 안)의 명소로 채운다. 앵커도 하루 한도를 지킨다(한 군집 앵커가
+ * 4곳을 넘으면 가까운 날로 넘김). 우도처럼 배로 가는 섬이 있는 날은 섬 + 가까운 명소 1 + 식사 1(최대 3곳)이다. 종일시설이 있는 날은 건드리지 않고 그 시설의 날로 둔다.
+ */
+export function assignDaysByAnchorClusters(
+  dayStops: FinalStop[][],
+  anchors: FinalStop[],
+  region: string,
+  maxKm: number,
+  fillPool: readonly Place[] = [],
+): FinalStop[][] {
+  const k = dayStops.length;
+  const flat = dayStops.flat();
+  const facilityDays = dayStops.filter((d) => d.some(isDayFacility));
+  const free = flat.filter((s) => !facilityDays.some((d) => d.includes(s)));
+  const existingAnchors = free.filter((s) => matchesRequiredLandmark(region, s.name ?? ""));
+  const anchorSet = new Set<FinalStop>([...existingAnchors, ...anchors.filter((a) => !existingAnchors.some((e) => e.id === a.id))]);
+  const allAnchors = [...anchorSet].filter((a) => !isDayFacility(a));
+  const others = free.filter((s) => !anchorSet.has(s));
+  const clusterCount = Math.max(1, k - facilityDays.length);
+  if (allAnchors.length === 0 || clusterCount < 2) return dayStops;
+  // 1) 앵커를 farthest-point 시드로 군집
+  const clusters: FinalStop[][] = [];
+  const seeds: FinalStop[] = [];
+  const ordered = [...allAnchors].sort((a, b) => popularity(b) - popularity(a));
+  seeds.push(ordered[0]);
+  // 시드는 하루 한도(maxKm)를 넘게 떨어진 앵커만 새 군집이 된다 — 가까운 앵커(첨성대·대릉원·동궁과 월지)를 일수만큼 쪼개지 않는다.
+  while (seeds.length < Math.min(clusterCount, ordered.length)) {
+    const next = ordered.filter((a) => !seeds.includes(a)).sort((a, b) => Math.min(...seeds.map((sd) => haversineKm(b, sd))) - Math.min(...seeds.map((sd) => haversineKm(a, sd))))[0];
+    if (!next || Math.min(...seeds.map((sd) => haversineKm(next, sd))) <= maxKm) break;
+    seeds.push(next);
+  }
+  seeds.forEach(() => clusters.push([]));
+  while (clusters.length < clusterCount) clusters.push([]); // 앵커가 없는 날도 둔다(앵커 초과분이 넘어갈 자리)
+  for (const a of ordered) {
+    const i = seeds.reduce((best, sd, idx) => (haversineKm(a, sd) < haversineKm(a, seeds[best]) ? idx : best), 0);
+    clusters[i].push(a);
+  }
+  // 2) 한도·군집당 앵커 수·섬 날 제한을 지키도록 앵커를 넘긴다(가까운 날로; 못 넘기면 그대로)
+  const capOf = (c: FinalStop[]) => (c.some(isFerryIsland) ? 2 : ANCHORS_PER_DAY_MAX);
+  const fits = (c: FinalStop[], s: FinalStop) => c.every((o) => haversineKm(o, s) <= maxKm);
+  for (let guard = 0; guard < 40; guard++) {
+    const over = clusters.findIndex((c) => c.length > capOf(c) || c.some((a) => !fits(c.filter((o) => o !== a), a)));
+    if (over < 0) break;
+    const c = clusters[over];
+    const candidates = [...c].sort((a, b) => c.reduce((n, o) => n + haversineKm(b, o), 0) - c.reduce((n, o) => n + haversineKm(a, o), 0));
+    let moved = false;
+    for (const a of candidates) {
+      const target = clusters.filter((t, i) => i !== over && t.length < capOf([...t, a]) && fits(t, a)).sort((x, y) => haversineKm(a, centroidOf(x.length ? x : [a])) - haversineKm(a, centroidOf(y.length ? y : [a])))[0];
+      if (target) {
+        c.splice(c.indexOf(a), 1);
+        target.push(a);
+        moved = true;
+        break;
+      }
+    }
+    if (!moved) break;
+  }
+  // 3) 나머지 스팟을 가장 가까운 군집(날)에 — 하루 한도 안·자리(섬 날은 3곳) 있는 곳 우선
+  const dayMaxOf = (c: FinalStop[]) => (c.some(isFerryIsland) ? FERRY_ISLAND_DAY_MAX : CITY_DAY_MAX);
+  const leftovers: FinalStop[] = [];
+  for (const s of [...others].sort((a, b) => popularity(b) - popularity(a))) {
+    const scored = clusters
+      .map((c, i) => ({ c, i, d: c.length ? haversineKm(s, centroidOf(c)) : 1000, ok: c.length < dayMaxOf(c) && fits(c, s) })) // 빈 날은 마지막 선택지
+      .sort((x, y) => Number(y.ok) - Number(x.ok) || x.d - y.d);
+    const best = scored[0];
+    if (best && best.ok) best.c.push(s);
+    else leftovers.push(s); // 갈 날이 없는 스팟은 뺀다(하루 한도를 지킨다)
+  }
+  // 4) 하루 4곳 미만이면 후보 풀(사전 명소 우선)에서 그 날 권역 안의 명소로 채운다 — 섬 날은 제외
+  const used = new Set<string>([...clusters.flat(), ...leftovers, ...facilityDays.flat()].map((s) => s.id));
+  const usedNames = [...clusters.flat(), ...facilityDays.flat()];
+  for (const c of clusters) {
+    if (c.some(isFerryIsland)) continue;
+    while (c.length < DICT_REGION_MIN_PER_DAY) {
+      const center = c.length ? centroidOf(c) : null;
+      const pick = fillPool
+        .filter((p) => !used.has(p.id) && !isLargeFacility(p) && !isEatingPlaceType((p.category ?? "").toLowerCase()) && !isFerryIsland(p) && !isAlreadyInCourse(p, usedNames) && (!center || fits(c, p as FinalStop)))
+        .sort((a, b) => (center ? haversineKm(a, center) - haversineKm(b, center) : 0) || popularityOf(b) - popularityOf(a))[0];
+      if (!pick) break;
+      const stop: FinalStop = { ...pick, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: 14, meal: false } as FinalStop;
+      c.push(stop);
+      used.add(pick.id);
+      usedNames.push(stop);
+    }
+  }
+  // 종일시설 날은 그대로 두고, 군집 날을 그 사이 자리에 채운다
+  const result: FinalStop[][] = [];
+  let ci = 0;
+  for (const d of dayStops) result.push(d.some(isDayFacility) ? d : (clusters[ci++] ?? []));
+  return result.map((d) => d.map((s) => s));
+}
+
 /** 국내 하루 스팟 간 최대 직선거리(km) — 작업지시서 2026-10-29 §2④. 제주는 섬이 넓어 15km. */
 export function daySpreadLimitKm(region: string): number {
   return region === "제주" ? 15 : 8;
@@ -4189,6 +4293,11 @@ async function ensureCityLandmarkAnchors(
   const picked = pickLandmarkAnchors(candidates, flat, anchorCount + deficit, Math.max(CITY_ANCHOR_POOL_SIZE, anchorCount + deficit + 3), dictLen > 0 ? DICT_REGION_ANCHOR_MAX_KM : CITY_ANCHOR_MAX_DISTANCE_KM);
   console.log(`[courseBrief] path=city-anchors ${region} before=${flat.length} minTotal=${minTotal} deficit=${deficit} candidates=${candidates.length} anchors=${picked.map((a) => a.name).join(", ") || "none"} pool=[${candidates.slice(0, 10).map((p, i) => `${i + 1}:${p.name}`).join(" | ")}]`);
   if (picked.length === 0) return dayStops;
+  // 작업지시서 2026-10-29 "#342 검증" §2① — 이름 사전이 있는 국내 지역은 앵커를 먼저 권역(군집)별 날에 배정한다(날마다 따로 얹으면 하루 거리 한도를 앵커가 무시한다).
+  if (dictLen > 0 && dayStops.length >= 2) {
+    const anchorStops = picked.map((a) => ({ ...a, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: 14, meal: false }) as FinalStop);
+    return assignDaysByAnchorClusters(dayStops, anchorStops, region, daySpreadLimitKm(region), candidates);
+  }
   return placeCityAnchors(dayStops, picked, deficit);
 }
 
