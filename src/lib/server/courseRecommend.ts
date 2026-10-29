@@ -549,6 +549,7 @@ export async function googleTop(
   includedType?: string,
   signal?: AbortSignal,
   onFailure?: (status: number) => void,
+  locationBias?: { lat: number; lng: number; radiusM: number },
 ): Promise<GooglePlace[]> {
   // Pro 필드만 쓰므로 Pro 한도(월 무료 5,000의 90%)와 하루 상한(text-search-all)만 지킨다 — 한도에 닿으면 이 검색을 건너뛴다.
   const guarded = await chooseGuardedMask("text", GOOGLE_TOP_FIELD_MASK);
@@ -569,7 +570,13 @@ export async function googleTop(
         "X-Goog-Api-Key": apiKey,
         "X-Goog-FieldMask": guarded.mask,
       },
-      body: JSON.stringify({ textQuery: query, maxResultCount: 20, languageCode: "ko", ...(includedType ? { includedType } : {}) }),
+      body: JSON.stringify({
+        textQuery: query,
+        maxResultCount: 20,
+        languageCode: "ko",
+        ...(includedType ? { includedType } : {}),
+        ...(locationBias ? { locationBias: { circle: { center: { latitude: locationBias.lat, longitude: locationBias.lng }, radius: Math.min(50000, locationBias.radiusM) } } } : {}),
+      }),
     });
     console.log(`[courseRecommend] googleTop lang=ko type=${includedType ?? "-"} query="${query}"`); // 작업지시서 2026-10-21 §3 — 요청에 languageCode=ko 가 실리는지 로그로 남긴다
   } catch (err) {
@@ -1208,6 +1215,33 @@ const LANDMARK_CANDIDATE_LIMIT = 20;
  * (슬롯 캐시와 겹치지 않는 "landmark:" 키로, 같은 7일 TTL) 저장해
  * Places 호출 비용을 지역당 7일에 한 번으로 묶는다.
  */
+export type AreaKind = "restaurant" | "cafe" | "attraction";
+const AREA_KEYWORD: Record<AreaKind, string> = { restaurant: "맛집", cafe: "카페", attraction: "관광지" };
+
+/**
+ * 한 권역(날 군집 중심) 안의 후보 — 작업지시서 2026-10-29 "#343 검증" §2①. 지역 중심 반경 검색은 동부·서부처럼 넓은 지역의 권역 안 후보가 모자라 하루가 얇아진다
+ * (제주 v48 이 7곳). 중심 좌표 주변(locationBias)으로 종류별 1회 검색하고 중심·종류별로 캐시한다(26시간). 한도로 건너뛰면 빈 목록(+onFailure 503).
+ */
+export async function fetchAreaCandidates(
+  city: string,
+  center: { lat: number; lng: number },
+  radiusM: number,
+  kind: AreaKind,
+  onFailure?: (status: number) => void,
+): Promise<Place[]> {
+  const key = `area:${city.trim().toLowerCase()}:${center.lat.toFixed(2)},${center.lng.toFixed(2)}:${kind}`;
+  const rawCached = await readCandidateCache(key);
+  const cached = rawCached ? await usableCachedPool("overseas", rawCached) : null;
+  if (cached) return cached.filter(isValidPlace);
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return [];
+  const results = await googleTop(`${city} ${AREA_KEYWORD[kind]}`, apiKey, CATEGORY_TYPE[kind], undefined, onFailure, { ...center, radiusM });
+  const places = results.map((p) => googleToPlace(p, CATEGORY_LABEL[kind])).filter(isValidPlace).slice(0, POOL_SIZE);
+  recordPool("google", places.length);
+  if (places.length > 0) await writeCandidateCache(key, places);
+  return places;
+}
+
 /**
  * 지역별 꼭 들어가야 하는 대표 명소 이름 사전 — 작업지시서 2026-10-28 §1⑦ (경주: 불국사 · 석굴암 · 첨성대 · 대릉원 · 동궁과 월지). 일반 "관광 명소" 검색에 빠지는 경우가 있어
  * 이름으로 한 번씩 검색(지역·이름별 캐시, 26시간)해 풀의 맨 앞(사전 순서 = 우선순위)에 둔다. 앵커 선정(상위 days 곳)이 이 순서를 따른다.

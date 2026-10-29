@@ -56,7 +56,7 @@ export async function purgeOldUserAgents(): Promise<void> {
   }
 }
 
-export type RebuildResult = "scheduled" | "started" | "ok" | "fail" | "skipped-lock" | "deferred";
+export type RebuildResult = "scheduled" | "started" | "ok" | "fail" | "skipped-lock" | "deferred" | "thin-rejected";
 export interface RebuildEvent {
   key: string;
   result: RebuildResult;
