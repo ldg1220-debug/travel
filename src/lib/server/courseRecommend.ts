@@ -1219,6 +1219,11 @@ export const REQUIRED_LANDMARK_NAMES: Readonly<Record<string, readonly string[]>
   부산: ["해운대해수욕장", "광안리해수욕장", "감천문화마을", "자갈치시장", "해동용궁사", "태종대", "흰여울문화마을", "송도해상케이블카"],
 };
 const compactName = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+/** 이 지역의 필수 대표 명소(이름 사전) 이름과 같은 곳인가 — 공백·대소문자를 무시한 부분 일치. */
+export function matchesRequiredLandmark(region: string, name: string): boolean {
+  const c = compactName(name);
+  return (REQUIRED_LANDMARK_NAMES[region] ?? []).some((n) => c.includes(compactName(n)));
+}
 
 export async function fetchLandmarkCandidates(
   scope: "overseas" | "domestic",
@@ -1246,12 +1251,25 @@ export async function fetchLandmarkCandidates(
     : [[], []];
   const islands = [...islandsBasic, ...islandsHopping];
   const requiredNames = REQUIRED_LANDMARK_NAMES[city] ?? [];
+  // 작업지시서 2026-10-29 "#342 검증" §2② — 이름 검색 결과를 이름마다 로그로 남긴다: [anchor-dict] region= name= hit= accepted= reason=
+  // reason: ok · search-failed(status=…; 503 = 한도·페이싱으로 건너뜀) · no-results · no-name-match(first=…) · filtered(사유, 아래 게이트 이후).
+  const namedLog = new Map<string, { hit: string; reason: string }>();
   const named: Place[] = (
     await Promise.all(
       requiredNames.map(async (name, i): Promise<Place | null> => {
-        const hits = await fetchLandmarkPool(`landmark-named:${scope}:${cityKey}:${compactName(name)}`, `${city} ${name}`, undefined, onFailure);
+        let failStatus: number | null = null;
+        const hits = await fetchLandmarkPool(`landmark-named:${scope}:${cityKey}:${compactName(name)}`, `${city} ${name}`, undefined, (status) => {
+          failStatus = status;
+          onFailure?.(status);
+        });
         const hit = hits.find((p) => compactName(p.name).includes(compactName(name)));
-        return hit ? { ...hit, searchRank: i } : null; // 사전 순서가 곧 검색 순위(앞일수록 대표)
+        if (!hit) {
+          const reason = failStatus != null ? `search-failed(status=${failStatus})` : hits.length === 0 ? "no-results" : `no-name-match(first=${hits[0].name})`;
+          namedLog.set(name, { hit: "none", reason });
+          return null;
+        }
+        namedLog.set(name, { hit: hit.name, reason: "ok" });
+        return { ...hit, searchRank: i }; // 사전 순서가 곧 검색 순위(앞일수록 대표)
       }),
     )
   ).filter((p): p is Place => p !== null);
@@ -1260,6 +1278,20 @@ export async function fetchLandmarkCandidates(
   const gated = applyQualityGate(merged.filter(isValidPlace), "overseas", "attraction").filter(
     (p) => !isTravelAgency(p) && !isTransitFacility(p) && !isNonAttractionVenue(p) && !isRegionItself(p, city),
   );
+  for (const name of requiredNames) {
+    const entry = namedLog.get(name);
+    if (!entry) continue;
+    let accepted = false;
+    let reason = entry.reason;
+    if (entry.hit !== "none") {
+      const np = named.find((p) => compactName(p.name) === compactName(entry.hit));
+      accepted = np != null && gated.some((g) => g.id === np.id);
+      if (!accepted && np) {
+        reason = `filtered(${!isValidPlace(np) ? "invalid" : applyQualityGate([np], "overseas", "attraction").length === 0 ? "quality" : isTravelAgency(np) ? "agency" : isTransitFacility(np) ? "transit" : isNonAttractionVenue(np) ? "venue" : isRegionItself(np, city) ? "region-itself" : "duplicate-id"})`;
+      }
+    }
+    console.log(`[anchor-dict] region=${city} name=${name} hit=${entry.hit} accepted=${accepted} reason=${reason}`);
+  }
   const gatedIslands = gated.filter(isIsland);
   if (options.includeIslands) {
     // 작업지시서 2026-09-30 "#287 검증" §3 — 섬 후보가 "검색에서 0건"인지

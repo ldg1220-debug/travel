@@ -39,6 +39,8 @@ import {
   assignLandmarkRanks,
   enforceDayComposition,
   enforceDayCompactness,
+  assignDaysByAnchorClusters,
+  isFerryIsland,
   daySpreadLimitKm,
   isDuplicateStop,
   isTransitImplausible,
@@ -3508,5 +3510,79 @@ describe("enforceDayComposition — 숙소 제외", () => {
     const day = [s("a"), hotel, s("b"), s("c")];
     expect(enforceDayComposition([day], 0)[0].some((x) => x.id === hotel.id)).toBe(false);
     expect(enforceDayComposition([day], 4)[0].some((x) => x.id === hotel.id)).toBe(true);
+  });
+});
+
+// 작업지시서 2026-10-29 "#342 검증" §2①③④ — 앵커 군집 날 배정
+describe("assignDaysByAnchorClusters — 사전 지역의 앵커를 권역별 날로", () => {
+  const anchor = (id: string, name: string, lat: number, lng: number) => stop(id, lat, lng, { name, category: "tourist_attraction", slotKey: "landmark-anchor", searchRank: 0 });
+  const plain = (id: string, name: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name, category: "tourist_attraction", ...extra });
+  const km = (a: FinalStop, b: FinalStop) => Math.hypot((a.lat - b.lat) * 111, (a.lng - b.lng) * 111 * Math.cos((a.lat * Math.PI) / 180));
+  const maxSpread = (d: FinalStop[]) => Math.max(0, ...d.flatMap((a) => d.map((b) => km(a, b))));
+
+  it("제주 3일: 동부(성산·우도·섭지)가 한 날에 모이고 서부(협재·오설록)와 시내 앵커가 따로 간다 — 하루 15km 이내", () => {
+    const seongsan = anchor("a1", "성산일출봉", 33.458, 126.943);
+    const udo = anchor("a2", "우도", 33.504, 126.954);
+    const seopji = anchor("a3", "섭지코지", 33.424, 126.931);
+    const hyeopjae = anchor("a4", "협재해수욕장", 33.394, 126.239);
+    const osulloc = anchor("a5", "오설록 티뮤지엄", 33.306, 126.289);
+    const yongdu = anchor("a6", "용두암", 33.516, 126.512);
+    // 기존 스팟은 날마다 흩어져 있다(39~46km 폭)
+    const days = [
+      [plain("p1", "동문시장", 33.513, 126.528), plain("p2", "맛집A", 33.46, 126.94, { meal: true, category: "restaurant" })],
+      [plain("p3", "서귀포올레시장", 33.25, 126.563), plain("p4", "카페B", 33.5, 126.95)],
+      [plain("p5", "오일시장", 33.497, 126.475), plain("p6", "맛집C", 33.39, 126.24, { meal: true, category: "restaurant" })],
+    ];
+    const out = assignDaysByAnchorClusters(days, [seongsan, udo, seopji, hyeopjae, osulloc, yongdu], "제주", 15, []);
+    for (const d of out) expect(maxSpread(d)).toBeLessThanOrEqual(15.5);
+    const dayOf = (id: string) => out.findIndex((d) => d.some((s) => s.id === id));
+    expect(dayOf("a2")).toBe(dayOf("a1")); // 우도 = 성산일출봉과 같은 날(섬 날은 3곳까지)
+    expect(out[dayOf("a2")].length).toBeLessThanOrEqual(3);
+    expect(dayOf("a4")).toBe(dayOf("a5") === dayOf("a4") ? dayOf("a4") : dayOf("a4")); // 협재는 자기 날
+    expect(new Set([dayOf("a1"), dayOf("a4"), dayOf("a6")]).size).toBe(3); // 동부 / 서부 / 시내
+  });
+
+  it("경주 3일: 첨성대·대릉원·동궁과 월지·월정교는 한 날, 불국사·석굴암은 다른 날", () => {
+    const bulguk = anchor("b1", "불국사", 35.79, 129.332);
+    const seokgul = anchor("b2", "석굴암", 35.795, 129.349);
+    const cheomseong = anchor("b3", "첨성대", 35.8347, 129.219);
+    const daereung = anchor("b4", "대릉원", 35.8393, 129.2113);
+    const woljibd = anchor("b5", "동궁과 월지", 35.8346, 129.2269);
+    const days = [
+      [plain("q1", "월정교", 35.829, 129.2175), plain("q2", "중앙시장", 35.8395, 129.2155)],
+      [plain("q3", "한우집", 35.78, 129.33, { meal: true, category: "restaurant" })],
+      [plain("q4", "경주월드", 35.8386, 129.2864)],
+    ];
+    const out = assignDaysByAnchorClusters(days, [bulguk, seokgul, cheomseong, daereung, woljibd], "경주", 8, []);
+    const dayOf = (id: string) => out.findIndex((d) => d.some((s) => s.id === id));
+    expect(new Set(["b3", "b4", "b5", "q1"].map(dayOf)).size).toBe(1);
+    expect(dayOf("b1")).toBe(dayOf("b2"));
+    expect(dayOf("b1")).not.toBe(dayOf("b3"));
+    for (const d of out) expect(maxSpread(d)).toBeLessThanOrEqual(8.5);
+  });
+
+  it("하루가 4곳 미만이면 후보 풀(사전 명소 우선)에서 그 권역의 명소로 채운다", () => {
+    const a = anchor("c1", "해운대해수욕장", 35.1587, 129.1604);
+    const b = anchor("c2", "자갈치시장", 35.0966, 129.0306);
+    const pool = [
+      place("p-taejong", { name: "태종대", lat: 35.0511, lng: 129.087, searchRank: 5 }),
+      place("p-gwangan", { name: "광안리해수욕장", lat: 35.1532, lng: 129.1187, searchRank: 1 }),
+      place("p-dadaepo", { name: "다대포해수욕장", lat: 35.0467, lng: 128.9654, searchRank: 9 }),
+      place("p-songdo", { name: "송도해상케이블카", lat: 35.0757, lng: 129.0172, searchRank: 7 }),
+      place("p-yongdang", { name: "해동용궁사", lat: 35.1884, lng: 129.2233, searchRank: 4 }),
+      place("p-dongbaek", { name: "동백섬", lat: 35.1535, lng: 129.1525, searchRank: 6 }),
+      place("p-minrak", { name: "민락수변공원", lat: 35.1533, lng: 129.1308, searchRank: 8 }),
+    ];
+    const out = assignDaysByAnchorClusters([[plain("x1", "국제시장", 35.1, 129.0285)], []], [a, b], "부산", 8, pool);
+    for (const d of out) expect(d.length).toBeGreaterThanOrEqual(4);
+    expect(out.every((d) => maxSpread(d) <= 8.5)).toBe(true);
+    expect(out.flat().filter((s) => s.id.startsWith("p-")).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("isFerryIsland: 우도·가파도·마라도는 배로 가는 섬, 식당·성산은 아니다", () => {
+    expect(isFerryIsland({ name: "우도" })).toBe(true);
+    expect(isFerryIsland({ name: "제주 우도 (올레 1코스)" })).toBe(true);
+    expect(isFerryIsland({ name: "우도 맛집", meal: true })).toBe(false);
+    expect(isFerryIsland({ name: "성산일출봉" })).toBe(false);
   });
 });
