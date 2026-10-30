@@ -52,7 +52,7 @@ import {
   type TasteSlotInput,
 } from "./courseTaste";
 
-export type FinalStop = Place & { slotKey: string; slotLabel: string; hour: number; meal: boolean; reason?: string };
+export type FinalStop = Place & { slotKey: string; slotLabel: string; hour: number; meal: boolean; reason?: string; /** 야경 명소(이름 사전 nightView) — 그날 마지막 명소로 둔다(작업지시서 2026-10-30). */ nightView?: boolean };
 
 /** 15/30/60/120분/무제한 각각의 실제 km 반경 — radiusKmFor()를 그대로 계단으로 사용. 임의 값을 넣지 말 것(회귀 유발, 이전 리뷰에서 지적된 지점). mode별로 속도가 달라(radiusKmFor 참고) 매 요청 계산해야 해서 모듈 상수가 아니라 함수다. */
 function radiusStepsKmFor(mode: TravelMode): (number | null)[] {

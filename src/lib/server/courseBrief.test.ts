@@ -45,6 +45,7 @@ import {
   makeLandmarkTrace,
   ensureMinLandmarks,
   ensureDayMeals,
+  markNightViewStops,
   isFerryIsland,
   daySpreadLimitKm,
   isDuplicateStop,
@@ -3613,8 +3614,9 @@ describe("경주 잔여 · 제주 얇음", () => {
     ];
     const out = assignDaysByAnchorClusters(days, anchors, "경주", 8, []);
     const dayOf = (id: string) => out.findIndex((d) => d.some((s) => s.id === id));
-    expect(dayOf("q5")).toBe(dayOf("q4")); // 보문 = 경주월드 쪽
+    // 경주월드는 이제 종일시설(시설 날)이라 군집에 끼지 않는다 — 보문은 시내 날에는 못 낀다(갈 날이 없으면 뺀다).
     expect(dayOf("q5")).not.toBe(dayOf("b3"));
+    expect(dayOf("q4")).toBe(2); // 시설 날은 그대로
     expect(dayOf("b5")).toBe(dayOf("b3")); // 동궁과 월지는 첨성대와 같은 날
   });
 
@@ -3647,7 +3649,7 @@ describe("경주 잔여 · 제주 얇음", () => {
     const trace = makeLandmarkTrace("경주");
     trace.stage("anchored", ["불국사", "석굴암", "첨성대", "동궁과 월지", "월정교"]);
     trace.stage("day-rules", ["불국사", "석굴암", "첨성대", "월정교"], "compactness");
-    expect(trace.finish(["불국사"]).dropped.map((d) => `${d.name}@${d.stage}`)).toEqual(["동궁과 월지@day-rules", "석굴암@final", "첨성대@final"]);
+    expect(trace.finish(["불국사"]).dropped.map((d) => `${d.name}@${d.stage}`)).toEqual(["동궁과 월지@day-rules", "석굴암@final", "첨성대@final", "월정교@final"]);
     expect(log).toHaveBeenCalledWith("[anchor-drop] region=경주 name=동궁과 월지 stage=day-rules reason=compactness");
     log.mockRestore();
   });
@@ -3683,13 +3685,12 @@ describe("색인 코스 마무리", () => {
     const out = assignDaysByAnchorClusters([[plain("q1", "월정교", 35.829, 129.2175)], [plain("q4", "경주월드", 35.8386, 129.2864)], []], [...core, bomun], "경주", 8, []);
     const dayOf = (id: string) => out.findIndex((d) => d.some((x) => x.id === id));
     expect(dayOf("b9")).not.toBe(dayOf("b3"));
-    expect(dayOf("b9")).toBe(dayOf("q4"));
     expect(dayOf("b5")).toBe(dayOf("b3")); // 동궁과 월지 유지
   });
 
   it("assignDaysByAnchorClusters: 이미 코스에 있던 사전 명소에 앵커 표시를 달아 이후 단계에서 보호한다", () => {
     const wolji = plain("w", "동궁과 월지", 35.8346, 129.2269);
-    const out = assignDaysByAnchorClusters([[wolji], [plain("o", "경주월드", 35.8386, 129.2864)]], [anchor("b1", "불국사", 35.79, 129.332)], "경주", 8, []);
+    const out = assignDaysByAnchorClusters([[wolji], [plain("o", "교촌마을", 35.83, 129.213)]], [anchor("b1", "불국사", 35.79, 129.332)], "경주", 8, []);
     expect(out.flat().find((x) => x.id === "w")?.slotKey).toBe("landmark-anchor");
   });
 
@@ -3721,6 +3722,54 @@ describe("색인 코스 마무리", () => {
     expect(out[0].some((x) => x.name === "카페")).toBe(false);
     expect(out[1]).toHaveLength(1);
     expect(out[2]).toHaveLength(2);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2); // 일반 날 1회 + 종일시설 날 1회(시설에서 3km 안 후보가 없어 그대로)
   });
+});
+
+// 작업지시서 2026-10-30 "경주 야경 명소 배치 · 경주월드 종일시설 · 오사카 1일차 식사 · 종단 접두어"
+describe("야경 명소 · 시설 날 저녁 · 종단 접두어", () => {
+  const sp = (id: string, name: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name, category: "tourist_attraction", ...extra });
+
+  it("markNightViewStops: 경주 동궁과 월지·월정교, 오사카 도톤보리는 야간형(nightView)이 되어 하루 마지막에 둔다", () => {
+    const day = [sp("w", "동궁과 월지", 35.8346, 129.2269), sp("c", "첨성대", 35.8347, 129.219), sp("r", "점심밥상", 35.836, 129.22, { meal: true, category: "restaurant" }), sp("d", "대릉원", 35.8393, 129.2113)];
+    const [marked] = markNightViewStops([day], "경주");
+    expect(isNightStop(marked.find((x) => x.name === "동궁과 월지")!)).toBe(true);
+    expect(isNightStop(marked.find((x) => x.name === "첨성대")!)).toBe(false);
+    // 야간형이 맨 앞이면 규칙 위반, 마지막이면 위반 아님
+    const wolji = marked.find((x) => x.name === "동궁과 월지")!;
+    const rest = marked.filter((x) => x !== wolji);
+    expect(dayOrderViolations([wolji, ...rest])).toBeGreaterThan(dayOrderViolations([...rest, wolji]));
+    expect(markNightViewStops([[sp("t", "도톤보리", 34.6687, 135.5013)]], "오사카")[0][0].nightView).toBe(true);
+    expect(markNightViewStops([[sp("t", "도톤보리", 34.6687, 135.5013)]], "도쿄")[0][0].nightView).toBeUndefined();
+  });
+
+  it("경주월드는 종일시설(시설 날)로 분류된다 — 타입·리뷰 수 없이도 이름 사전으로", () => {
+    expect(isDayFacility(sp("g", "경주월드", 35.8386, 129.2864))).toBe(true);
+    expect(isDayFacility(sp("g2", "경주월드 주차장 카페", 35.8386, 129.2864))).toBe(false);
+  });
+
+  it("ensureDayMeals: 종일시설 날은 시설에서 3km 안 식당 1곳(저녁)을 붙인다", async () => {
+    const world = sp("g", "경주월드", 35.8386, 129.2864);
+    const out = await ensureDayMeals([[world]], "경주", 8, async () => [
+      place("far", { name: "먼 식당", lat: 35.9, lng: 129.4, category: "restaurant", searchRank: 0 }),
+      place("near", { name: "보문 맛집", lat: 35.84, lng: 129.29, category: "restaurant", searchRank: 1 }),
+    ]);
+    expect(out[0].map((x) => x.name)).toEqual(["경주월드", "보문 맛집"]);
+    expect(out[0][1]).toMatchObject({ meal: true, slotKey: "dinner" });
+  });
+
+  it("카페는 식사로 세지 않는다 — 카페만 있는 날(오사카 1일차)에는 식당을 채운다", async () => {
+    const day = [sp("a", "고쿠라쿠바시", 34.689, 135.527), sp("b", "오사카 성", 34.6873, 135.5262), stop("c", 34.688, 135.526, { name: "Cafe+82", category: "cafe" }), sp("d", "도톤보리", 34.6687, 135.5013)];
+    const out = await ensureDayMeals([day], "오사카", 8, async () => [place("r", { name: "구로몬 식당", lat: 34.67, lng: 135.505, category: "japanese_restaurant", searchRank: 0 })]);
+    expect(out[0].some((x) => x.name === "구로몬 식당" && x.meal)).toBe(true);
+  });
+
+  it.each([
+    ["대한불교조계종 석굴암", "석굴암"],
+    ["대한불교조계종 제11교구 본사 불국사", "불국사"],
+    ["대한불교조계종 (제11교구 본사) 불국사", "불국사"],
+    ["대한불교천태종 구인사", "구인사"],
+    ["불국사", "불국사"],
+    ["대한불교조계종", "대한불교조계종"],
+  ])("cleanDisplayName(%s) = %s", (input, expected) => expect(cleanDisplayName(input)).toBe(expected));
 });
