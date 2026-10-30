@@ -217,7 +217,7 @@ export function buildSpotDescription(spot: CourseBriefSpot): string {
   // 시간은 모르므로 분을 지어내지 않고 이동수단만 정직하게 쓴다.
   // 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §3 — 직선 추정·차량 폴백 구간은 그 사실을 같이 적는다(정직한 표기).
   const estimateNote = spot.toNextFallback === "driving" ? " (대중교통 정보가 없어 차량 기준 참고값)" : spot.toNextSource === "straight" ? " (직선거리 추정)" : "";
-  const nextPart = spot.toNextMode === "boat" ? " 다음 장소까지는 배로 이동합니다." : spot.toNextMinutes != null ? ` 다음 장소까지 ${spot.toNextMode === "walk" ? "도보" : spot.toNextMode === "transit" ? "대중교통" : "차량"}로 약 ${spot.toNextMinutes}분${estimateNote}.` : "";
+  const nextPart = spot.toNextMode === "boat" ? " 다음 장소까지는 배로 이동합니다." : spot.toNextMinutes != null ? ` 다음 장소까지 ${spot.toNextMode === "walk" ? "도보로" : spot.toNextMode === "transit" ? "대중교통으로" : "차량으로"} 약 ${spot.toNextMinutes}분${estimateNote}.` : "";
   return `${spot.category}.${nextPart}`;
 }
 

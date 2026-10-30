@@ -3649,7 +3649,7 @@ describe("경주 잔여 · 제주 얇음", () => {
     const trace = makeLandmarkTrace("경주");
     trace.stage("anchored", ["불국사", "석굴암", "첨성대", "동궁과 월지", "월정교"]);
     trace.stage("day-rules", ["불국사", "석굴암", "첨성대", "월정교"], "compactness");
-    expect(trace.finish(["불국사"]).dropped.map((d) => `${d.name}@${d.stage}`)).toEqual(["동궁과 월지@day-rules", "석굴암@final", "첨성대@final", "월정교@final"]);
+    expect(trace.finish(["불국사"]).dropped.map((d) => `${d.name}@${d.stage}`)).toEqual(["동궁과 월지@day-rules", "석굴암@final", "첨성대@final", "월정교@final", "대릉원@anchored"]);
     expect(log).toHaveBeenCalledWith("[anchor-drop] region=경주 name=동궁과 월지 stage=day-rules reason=compactness");
     log.mockRestore();
   });
@@ -3772,4 +3772,43 @@ describe("야경 명소 · 시설 날 저녁 · 종단 접두어", () => {
     ["불국사", "불국사"],
     ["대한불교조계종", "대한불교조계종"],
   ])("cleanDisplayName(%s) = %s", (input, expected) => expect(cleanDisplayName(input)).toBe(expected));
+});
+
+// 작업지시서 2026-10-30 "#348 검증" — 월정교 누락 · dropped 불변식 · 차량으로
+describe("월정교 누락 수정", () => {
+  const sp = (id: string, name: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name, category: "tourist_attraction", ...extra });
+
+  it("ensureMinLandmarks: 가득 찬 날(앵커 3 + 식당 2)은 식당이 2곳이면 인기 낮은 식당 1곳을 빼고 월정교를 넣는다", () => {
+    const meal = (id: string, rank: number) => sp(id, id, 35.835, 129.22, { meal: true, category: "restaurant", searchRank: rank });
+    const day = [sp("a", "대릉원", 35.8393, 129.2113, { slotKey: "landmark-anchor" }), meal("백년손님", 0), sp("b", "첨성대", 35.8347, 129.219, { slotKey: "landmark-anchor" }), sp("c", "동궁과 월지", 35.8346, 129.2269, { slotKey: "landmark-anchor" }), meal("점심밥상", 8)];
+    const pool = [place("wj", { name: "월정교", lat: 35.829, lng: 129.2175, category: "tourist_attraction", searchRank: 5 })];
+    const skipped: string[] = [];
+    const [out] = ensureMinLandmarks([day], ["대릉원", "첨성대", "동궁과 월지", "월정교"], pool, 4, 8, "경주", (n, r) => skipped.push(`${n}:${r}`));
+    expect(out.some((x) => x.name === "월정교")).toBe(true);
+    expect(out.filter((x) => x.meal)).toHaveLength(1); // 식당은 최소 1 유지
+    expect(out).toHaveLength(5);
+    expect(skipped).toEqual([]);
+  });
+
+  it("ensureMinLandmarks: 못 넣으면 사유를 알린다(풀에 없음 · 식당 1곳뿐인 가득 찬 날)", () => {
+    const day = [sp("a", "대릉원", 35.8393, 129.2113, { slotKey: "landmark-anchor" }), sp("b", "첨성대", 35.8347, 129.219, { slotKey: "landmark-anchor" }), sp("c", "동궁과 월지", 35.8346, 129.2269, { slotKey: "landmark-anchor" }), sp("d", "교촌", 35.83, 129.21, { slotKey: "landmark-anchor" }), sp("e", "식당", 35.835, 129.22, { meal: true, category: "restaurant" })];
+    const skipped: string[] = [];
+    ensureMinLandmarks([day], ["대릉원", "월정교", "불국사"], [place("wj", { name: "월정교", lat: 35.829, lng: 129.2175, category: "tourist_attraction" })], 3, 8, "경주", (n, r) => skipped.push(`${n}:${r}`));
+    expect(skipped).toEqual(["월정교:day-full-no-removable-stop", "불국사:not-in-landmark-pool"]);
+  });
+
+  it("makeLandmarkTrace 불변식: 처음부터 코스에 없던 추적 명소도 finish 가 사유와 함께 dropped 에 기록한다(accepted = placed ∪ dropped)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const trace = makeLandmarkTrace("경주");
+    trace.stage("anchored", ["불국사", "석굴암", "첨성대", "대릉원", "동궁과 월지"]); // 월정교는 한 번도 없었다
+    trace.note("석굴암", "ensure-min-landmarks", "day-full-no-removable-stop");
+    const report = trace.finish(["불국사", "석굴암", "첨성대", "대릉원", "동궁과 월지"]);
+    const covered = new Set([...report.placed, ...report.dropped.map((d) => d.name)]);
+    expect([...covered].sort()).toEqual([...report.accepted].sort());
+    expect(report.dropped.find((d) => d.name === "월정교")).toMatchObject({ stage: "anchored", reason: expect.stringContaining("never-present") });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("invariant"));
+    warn.mockRestore();
+    log.mockRestore();
+  });
 });
