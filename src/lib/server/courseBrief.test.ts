@@ -43,6 +43,8 @@ import {
   dedupeStopsAcrossDays,
   topUpDaysFromAreas,
   makeLandmarkTrace,
+  ensureMinLandmarks,
+  ensureDayMeals,
   isFerryIsland,
   daySpreadLimitKm,
   isDuplicateStop,
@@ -3643,9 +3645,82 @@ describe("경주 잔여 · 제주 얇음", () => {
   it("makeLandmarkTrace: 이전 단계에 있던 사전 명소가 사라지면 [anchor-drop] 로그", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const trace = makeLandmarkTrace("경주");
-    trace("anchored", ["불국사", "석굴암", "첨성대", "동궁과 월지", "월정교"]);
-    trace("day-rules", ["불국사", "석굴암", "첨성대", "월정교"], "compactness");
+    trace.stage("anchored", ["불국사", "석굴암", "첨성대", "동궁과 월지", "월정교"]);
+    trace.stage("day-rules", ["불국사", "석굴암", "첨성대", "월정교"], "compactness");
+    expect(trace.finish(["불국사"]).dropped.map((d) => `${d.name}@${d.stage}`)).toEqual(["동궁과 월지@day-rules", "석굴암@final", "첨성대@final"]);
     expect(log).toHaveBeenCalledWith("[anchor-drop] region=경주 name=동궁과 월지 stage=day-rules reason=compactness");
     log.mockRestore();
+  });
+});
+
+// 작업지시서 2026-10-30 §3 — 색인 코스 마무리: 대표 명소 보장 · 권역 군집(해외) · 보문 분리 · 하루 식사
+describe("색인 코스 마무리", () => {
+  const anchor = (id: string, name: string, lat: number, lng: number) => stop(id, lat, lng, { name, category: "tourist_attraction", slotKey: "landmark-anchor", searchRank: 0 });
+  const plain = (id: string, name: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name, category: "tourist_attraction", ...extra });
+
+  it("오사카 3일: USJ 날은 그대로, 신세카이·쓰텐카쿠·하루카스는 같은 날, 오사카 성은 다른 날(해외는 군집을 강제로 나눈다)", () => {
+    const usj = stop("usj", 34.665, 135.433, { name: "유니버설 스튜디오 재팬", category: "amusement_park", reviewCount: 90000 });
+    const castle = anchor("t1", "오사카 성", 34.6873, 135.5262);
+    const tsuten = anchor("t2", "쓰텐카쿠", 34.652, 135.5063);
+    const harukas = anchor("t3", "하루카스 300", 34.6458, 135.5136);
+    const doton = anchor("t4", "도톤보리", 34.6687, 135.5013);
+    const shinsekai = plain("s1", "신세카이 시장", 34.6525, 135.5063);
+    const tracked = ["도톤보리", "오사카 성", "쓰텐카쿠", "하루카스 300"];
+    const out = assignDaysByAnchorClusters([[usj], [shinsekai], [plain("s2", "우메다 공중정원", 34.7052, 135.4906)]], [castle, tsuten, harukas, doton], "오사카", 8, [], {
+      isLandmark: (x) => tracked.some((t) => (x.name ?? "").includes(t)),
+      forceSplit: true,
+    });
+    const dayOf = (id: string) => out.findIndex((d) => d.some((x) => x.id === id));
+    expect(out[dayOf("usj")]).toHaveLength(1);
+    expect(new Set([dayOf("t2"), dayOf("t3"), dayOf("s1")]).size).toBe(1);
+    expect(dayOf("t1")).not.toBe(dayOf("t2"));
+    expect(out.flat().filter((x) => x.name === "도톤보리")).toHaveLength(1);
+  });
+
+  it("보문관광단지가 앵커로 뽑혀도 시내(사전 명소) 날에 끼지 않는다", () => {
+    const core = [anchor("b3", "첨성대", 35.8347, 129.219), anchor("b4", "대릉원", 35.8393, 129.2113), anchor("b5", "동궁과 월지", 35.8346, 129.2269), anchor("b1", "불국사", 35.79, 129.332), anchor("b2", "석굴암", 35.795, 129.349)];
+    const bomun = anchor("b9", "보문관광단지", 35.8405, 129.2886); // 앵커 표시가 있어도 사전 명소가 아니다
+    const out = assignDaysByAnchorClusters([[plain("q1", "월정교", 35.829, 129.2175)], [plain("q4", "경주월드", 35.8386, 129.2864)], []], [...core, bomun], "경주", 8, []);
+    const dayOf = (id: string) => out.findIndex((d) => d.some((x) => x.id === id));
+    expect(dayOf("b9")).not.toBe(dayOf("b3"));
+    expect(dayOf("b9")).toBe(dayOf("q4"));
+    expect(dayOf("b5")).toBe(dayOf("b3")); // 동궁과 월지 유지
+  });
+
+  it("assignDaysByAnchorClusters: 이미 코스에 있던 사전 명소에 앵커 표시를 달아 이후 단계에서 보호한다", () => {
+    const wolji = plain("w", "동궁과 월지", 35.8346, 129.2269);
+    const out = assignDaysByAnchorClusters([[wolji], [plain("o", "경주월드", 35.8386, 129.2864)]], [anchor("b1", "불국사", 35.79, 129.332)], "경주", 8, []);
+    expect(out.flat().find((x) => x.id === "w")?.slotKey).toBe("landmark-anchor");
+  });
+
+  it("ensureMinLandmarks: 추적 대표 명소가 빠졌으면 풀에서 찾아 가까운 날에 넣는다(가득 찬 날은 앵커 아닌 인기 낮은 스팟을 뺀다)", () => {
+    const days = [
+      [plain("a", "도톤보리", 34.6687, 135.5013), plain("b", "릴로 커피", 34.667, 135.502), plain("c", "오니기리", 34.668, 135.503), plain("d", "시장", 34.669, 135.504), plain("e", "신세카이", 34.652, 135.506)],
+      [stop("usj", 34.665, 135.433, { name: "유니버설 스튜디오 재팬", category: "amusement_park", reviewCount: 90000 })],
+    ];
+    const pool = [place("castle", { name: "오사카 성", lat: 34.6873, lng: 135.5262, category: "tourist_attraction", searchRank: 1 })];
+    const out = ensureMinLandmarks(days, ["도톤보리", "오사카 성"], pool, 2, 8, "오사카");
+    expect(out.flat().some((x) => x.name === "오사카 성")).toBe(true);
+    expect(out[0]).toHaveLength(5); // 가득 찬 날 — 하나를 뺐다
+    expect(out[0].some((x) => x.name === "도톤보리")).toBe(true);
+    expect(out[1]).toHaveLength(1); // 종일시설 날에는 넣지 않는다
+  });
+
+  it("ensureDayMeals: 식당이 없는 날(종일시설 날 제외)에 그 날 권역 식당 1곳을 넣는다", async () => {
+    const days = [
+      [plain("a", "성산일출봉", 33.458, 126.943), plain("b", "섭지코지", 33.424, 126.931)],
+      [stop("park", 33.3, 126.3, { name: "에버랜드", category: "amusement_park", reviewCount: 90000 })],
+      [plain("c", "협재", 33.394, 126.239), stop("m", 33.39, 126.24, { name: "해녀의집", category: "restaurant", meal: true })],
+    ];
+    const calls: number[] = [];
+    const out = await ensureDayMeals(days, "제주", 15, async (center) => {
+      calls.push(center.lat);
+      return [place("r1", { name: "성산 맛집", lat: 33.45, lng: 126.93, category: "restaurant", searchRank: 0 }), place("r2", { name: "카페", lat: 33.45, lng: 126.93, category: "cafe", searchRank: 1 })];
+    });
+    expect(out[0].some((x) => x.name === "성산 맛집" && x.meal)).toBe(true);
+    expect(out[0].some((x) => x.name === "카페")).toBe(false);
+    expect(out[1]).toHaveLength(1);
+    expect(out[2]).toHaveLength(2);
+    expect(calls).toHaveLength(1);
   });
 });

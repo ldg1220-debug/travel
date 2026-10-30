@@ -86,6 +86,18 @@ export function warmSourceFrom(userAgent: string | null | undefined, warmSourceH
   return "manual";
 }
 
+/** 마지막 색인 코스 재생성의 대표 명소 보고(추적 대상 · 최종 코스에 있는 것 · 사라진 것과 단계·사유) — `/api/health` courseBuild.lastAnchorReport. */
+export interface AnchorReportRecord {
+  region: string;
+  days: number;
+  accepted: string[];
+  placed: string[];
+  dropped: Array<{ name: string; stage: string; reason: string }>;
+}
+export async function recordAnchorReport(report: AnchorReportRecord): Promise<void> {
+  await mergeStatus({ lastAnchorReport: report });
+}
+
 export async function recordWarmRun(summary: string, now = new Date(), source: WarmSource = "manual"): Promise<void> {
   await mergeStatus({ lastWarmAt: now.toISOString(), lastWarmResult: summary.slice(0, 200), lastWarmSource: source });
 }
@@ -157,6 +169,7 @@ export interface CourseBuildHealth {
   lastWarmResult: string | null;
   /** 마지막 워밍을 부른 쪽 — "vercel-cron"(05:00 UTC) · "gh-actions"(17:00 UTC) · "manual". */
   lastWarmSource: WarmSource | null;
+  lastAnchorReport: AnchorReportRecord | null;
   /** 오늘(태평양 시간) 직전 버전을 내보낸 요청 수. */
   staleServedToday: number | null;
   /** 오늘 사람 방문(검색 로봇 제외)과 로봇 요청 수 — course-brief · 코스 페이지 · 지도 · 열기 요청의 getCourseBrief 호출 기준. */
@@ -221,6 +234,7 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     lastRebuildOkAt: str(status?.lastRebuildOkAt),
     lastWarmAt: str(status?.lastWarmAt),
     lastWarmResult: str(status?.lastWarmResult),
+    lastAnchorReport: ((v) => (v && typeof v === "object" ? (v as AnchorReportRecord) : null))(status?.lastAnchorReport),
     lastWarmSource: ((v) => (v === "vercel-cron" || v === "gh-actions" || v === "manual" ? v : null))(status?.lastWarmSource),
     staleServedToday: count(stale),
     visitsHumanToday: count(human),

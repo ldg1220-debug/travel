@@ -3,8 +3,9 @@ import { PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS } from "@/lib/server/places
 import { currentMapsSource, isBackgroundSource, isMapsBudgetExhausted, isMapsThrottled, reserveMapsOp, runWithMapsSource } from "@/lib/server/mapsBudget";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after } from "next/server";
-import { bumpCourseCounter, recordRebuildEvent, recordUserAgent } from "@/lib/server/courseBuildStatus";
+import { bumpCourseCounter, recordAnchorReport, recordRebuildEvent, recordUserAgent } from "@/lib/server/courseBuildStatus";
 import { recordDeferredRebuild } from "@/lib/server/courseVisits";
+import { isIndexedCourse } from "@/lib/indexedCourses";
 import type { Place } from "@/lib/types";
 import { pool } from "@/lib/server/db";
 import { generateCourseV2, type FinalStop, type GenerateResultV2 } from "@/lib/server/courseRecommendV2";
@@ -362,7 +363,7 @@ const BRIEF_CACHE_TTL_MS = PLACES_CONTENT_TTL_MS; // 하루 1회 워밍 + 다음
 // 바뀌어도 콘텐츠 CTA로 이미 저장된 예전 계획이 계속 열렸다(itineraries."contentKey"에
 // 이 버전이 안 들어가 있었음). export해서 course-open/route.ts가
 // 직접 참조한다.
-export const COURSE_ALGO_VERSION = 49; // 작업지시서 2026-10-29 "#343 검증" — 권역(군집 중심)별 후보 검색으로 하루 최소 4곳 채우기·접두어 변형 중복 코스 전체 제거·시내와 먼 곳(보문·경주월드)은 자기 날·사전 명소 보호가 최종 결과를 바꾼다(색인 12개 워밍 안에서만 재생성). 이전 48: // // 작업지시서 2026-10-29 "#342 검증" §2 — 이름 사전 국내 지역은 앵커를 권역(군집)별 날에 먼저 배정(하루 한도 8km·제주 15km)하고 하루 최소 4곳·우도 같은 배 섬 날 최대 3곳이 최종 결과를 바꾼다(색인 12개 워밍 안에서만 재생성). 이전 47: // // 작업지시서 2026-10-29 "#341 검증" §2 — 올레길 등 "코스" 이름 후보 제외·제주/부산 대표 명소 이름 사전·국내 앵커 수 확대·하루 스팟 간 최대 직선거리(8km, 제주 15km)·숙소 제외가 최종 결과를 바꾼다(색인 12개 워밍 안에서만 재생성). 이전 46: // // 작업지시서 2026-10-28 §1⑦ — 경주 대표 명소 이름 사전(불국사·석굴암·첨성대·대릉원·동궁과 월지)·지역명 접두어 변형 중복 제거·국내 하루 구성(식당 최대 2·명소 최소 2)이 최종 결과를 바꾼다(색인 대상 12개만 워밍으로 재생성). 이전 45: // // 작업지시서 2026-10-22 "#336 검증" §2⑥ — 종일시설 날은 시설 + 저녁 1곳(3km 이내 식당·야간형)까지이고 관광지·전망대·시장은 다른 날로 옮겨져 최종 결과를 바꾼다. 재생성 몫은 warm+rebuild 사용분만으로 센다(사용자 요청에 뺏기지 않음). 이전 44: // // 작업지시서 2026-10-21 "3km 구간 대중교통 59분" — 대중교통 상식 검사(구간 시간·이동수단)·다리 분류·spots[].landmarkRank 가 최종 결과를 바꾼다. 이전 43: // // 작업지시서 2026-10-21 "#333 검증" §3 — 야간형 스팟은 하루 마지막, 하루 카페 최대 1 을 재배치 뒤에도 보장, 종일시설 사전(해양 공원) 보강이 최종 결과를 바꾼다. 재생성은 방문 + 워밍 몫 안에서만(봇 제외). 이전 42: // // 작업지시서 2026-10-20 "#331 검증" §3 — 명소 슬롯에서 카페·식당 제외, 하루 순서 규칙(첫 스팟 식당·카페 금지 · 식당 연속 금지), 하루 카페 최대 1, 대표 랜드마크 days 곳, 종일시설 이름 보강이 최종 결과를 바꾼다. 일괄 재생성 금지(stale-while-rebuild·페이싱). 이전 41: // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
+export const COURSE_ALGO_VERSION = 50; // 작업지시서 2026-10-30 — 색인 코스 대표 명소 최소 보장·해외 도시형 권역 군집·핵심이 아닌 앵커(보문)는 시내 날 금지·국립공원 제외·하루 식사 최소 1·명소 최소 2가 최종 결과를 바꾼다(색인 12개 워밍 안에서만 재생성). 이전 49: // // 작업지시서 2026-10-29 "#343 검증" — 권역(군집 중심)별 후보 검색으로 하루 최소 4곳 채우기·접두어 변형 중복 코스 전체 제거·시내와 먼 곳(보문·경주월드)은 자기 날·사전 명소 보호가 최종 결과를 바꾼다(색인 12개 워밍 안에서만 재생성). 이전 48: // // 작업지시서 2026-10-29 "#342 검증" §2 — 이름 사전 국내 지역은 앵커를 권역(군집)별 날에 먼저 배정(하루 한도 8km·제주 15km)하고 하루 최소 4곳·우도 같은 배 섬 날 최대 3곳이 최종 결과를 바꾼다(색인 12개 워밍 안에서만 재생성). 이전 47: // // 작업지시서 2026-10-29 "#341 검증" §2 — 올레길 등 "코스" 이름 후보 제외·제주/부산 대표 명소 이름 사전·국내 앵커 수 확대·하루 스팟 간 최대 직선거리(8km, 제주 15km)·숙소 제외가 최종 결과를 바꾼다(색인 12개 워밍 안에서만 재생성). 이전 46: // // 작업지시서 2026-10-28 §1⑦ — 경주 대표 명소 이름 사전(불국사·석굴암·첨성대·대릉원·동궁과 월지)·지역명 접두어 변형 중복 제거·국내 하루 구성(식당 최대 2·명소 최소 2)이 최종 결과를 바꾼다(색인 대상 12개만 워밍으로 재생성). 이전 45: // // 작업지시서 2026-10-22 "#336 검증" §2⑥ — 종일시설 날은 시설 + 저녁 1곳(3km 이내 식당·야간형)까지이고 관광지·전망대·시장은 다른 날로 옮겨져 최종 결과를 바꾼다. 재생성 몫은 warm+rebuild 사용분만으로 센다(사용자 요청에 뺏기지 않음). 이전 44: // // 작업지시서 2026-10-21 "3km 구간 대중교통 59분" — 대중교통 상식 검사(구간 시간·이동수단)·다리 분류·spots[].landmarkRank 가 최종 결과를 바꾼다. 이전 43: // // 작업지시서 2026-10-21 "#333 검증" §3 — 야간형 스팟은 하루 마지막, 하루 카페 최대 1 을 재배치 뒤에도 보장, 종일시설 사전(해양 공원) 보강이 최종 결과를 바꾼다. 재생성은 방문 + 워밍 몫 안에서만(봇 제외). 이전 42: // // 작업지시서 2026-10-20 "#331 검증" §3 — 명소 슬롯에서 카페·식당 제외, 하루 순서 규칙(첫 스팟 식당·카페 금지 · 식당 연속 금지), 하루 카페 최대 1, 대표 랜드마크 days 곳, 종일시설 이름 보강이 최종 결과를 바꾼다. 일괄 재생성 금지(stale-while-rebuild·페이싱). 이전 41: // 작업지시서 2026-10-20 "평점은 장소를 눌렀을 때만" — 후보 검색이 Pro 필드(평점 없음)로 바뀌고 품질 게이트·정렬 신호(검색 순위)가 달라져 코스 결과가 바뀐다. 일괄 재생성 금지 — stale-while-rebuild(직전 버전 캐시 서빙)로 방문된 조합만 페이싱 안에서 다시 만든다. 이전 40(설명): // 작업지시서 2026-10-15 장애 hotfix — 41 로 올리자 캐시가 전부 미스가 돼 첫 방문 재빌드가 Enterprise 오늘 상한을 소진하고 Pro 강등 빌드가 임계 미만으로 422→404 가 났다. 40 으로 되돌린다(풀 공유·페이싱 코드는 유지). 41 설명(이전):  작업지시서 2026-10-15 "긴급: 평점 검색 하루 만에 243/900" §2② — 후보 풀을 지역 단위 1벌로 공유(3일차 이후 넓히기는 식당 슬롯의 동의어 질의 1회뿐)해 코스 결과가 바뀐다. 일괄 재생성 금지 — 방문된 조합이 페이싱 안에서 천천히 다시 만들어진다. 이전 40: 작업지시서 2026-10-13 "긴급: Vercel Blob 한도 초과" — 지도를 Blob 대신 course-map URL(내용 해시)로 두는 변경은 imageUrl·dayImageUrls 값을 바꾸고, v39 캐시는 imageUrl 이 null 이라 올려야 모든 코스가 지도를 다시 얻는다. 이전 39: 작업지시서 2026-10-13 "#312 검증" — 도시형 원거리(지역 좌표 40km 근교 날 분리/제외)·섬 복귀 순서(섬은 그날 마지막)·cafe 타입 레스토랑 종류가 최종 결과를 바꾼다. 이전 38: 작업지시서 2026-10-13 "새 대표 일수 코스 점검" — 섬·해변 판정 규칙(식음료·공연 제외, 이름 끝 일치), 도시형 원거리 제외, marina 선착장→섬 순서, 식사 분산, 캐리비안베이·대관람차 이름 사전이 모두 최종 결과를 바꾼다. 이전 37: // 작업지시서 2026-10-12 "#306 검증: 오분류 2건 해결. 국내 테마파크 종류만" — 종일시설(isLargeFacility)이면 종류도 테마파크로 두는 규칙은 최종 브리프 조립 결과에만 있어, 버전을 올리지 않으면 서울 롯데월드 어드벤처가 26시간 동안 "관광지"인 v36 결과를 반환한다.
 
 export function briefCacheKey(scope: CourseBriefScope, region: string, days: number): string {
   return `content-brief:${scope}:${normalizeForMatch(region)}:${days}:v${COURSE_ALGO_VERSION}`;
@@ -3382,12 +3383,12 @@ const DAY_MIN_SIGHTS = 2;
  * 식당 초과분은 식당이 모자란 다른 날로 옮기고(자리가 없으면 총량이 minTotal 이상일 때만 인기 낮은 것부터 뺀다), 명소가 모자란 날은 명소가 3곳 이상인 날에서
  * 가장 가까운 명소를 받는다(배 여행 묶음·종일시설은 옮기지 않는다). 새 장소를 만들지 않는다.
  */
-export function enforceDayComposition(dayGroups: FinalStop[][], minTotal: number = 0, maxSpreadKm: number = Infinity): FinalStop[][] {
+export function enforceDayComposition(dayGroups: FinalStop[][], minTotal: number = 0, maxSpreadKm: number = Infinity, opts: { dropLodging?: boolean } = {}): FinalStop[][] {
   const days = dayGroups.map((d) => [...d]);
   const eligible = (d: FinalStop[]) => !d.some(isDayFacility);
   let total = days.reduce((n, d) => n + d.length, 0);
   // 작업지시서 2026-10-29 §2⑤ — 숙소는 하루 중간에 두지 않는다(코스 글에 숙소 추천을 넣지 않으므로 제외). 총량이 모자라면 그대로 둔다(순서 규칙이 마지막으로 보낸다).
-  for (const day of days) {
+  for (const day of opts.dropLodging === false ? [] : days) {
     for (const lodging of day.filter((s) => isLodging(s) || courseSpotCategory(s) === "숙소")) {
       if (total - 1 < minTotal) break;
       day.splice(day.indexOf(lodging), 1);
@@ -3514,6 +3515,37 @@ export async function topUpDaysFromAreas(
   return days;
 }
 
+/**
+ * 하루 식사 최소 1 — 식당이 없는 날(종일시설 날 제외)은 그 날 권역 후보(#344 권역 검색)에서 가까운 식당 1곳을 넣는다. 섬 날도 섬 근처 1곳. 날이 가득(5곳)이면 앵커·사전이 아닌 가장 인기 낮은 명소를
+ * 대신 뺀다(명소가 2곳 이하면 넣지 않는다). 작업지시서 2026-10-30 §3⑥.
+ */
+export async function ensureDayMeals(
+  dayGroups: FinalStop[][],
+  region: string,
+  maxKm: number,
+  fetchArea: (center: { lat: number; lng: number }, kind: "restaurant") => Promise<Place[]>,
+): Promise<FinalStop[][]> {
+  const days = dayGroups.map((d) => [...d]);
+  for (const day of days) {
+    if (day.length === 0 || day.some(isDayFacility) || day.some(isRestaurantStop)) continue;
+    const center = centroidOf(day);
+    const all = days.flat();
+    const list = await fetchArea(center, "restaurant").catch(() => []);
+    const pick = list
+      .filter((p) => isEatingPlaceType((p.category ?? "").toLowerCase()) && !isCafePlace(p) && !isAlreadyInCourse(p, all) && !all.some((o) => isDuplicateStop(o, p as FinalStop, region)) && day.every((o) => haversineKm(o, p) <= maxKm))
+      .sort((a, b) => haversineKm(a, center) - haversineKm(b, center) || popularityOf(b) - popularityOf(a))[0];
+    if (!pick) continue;
+    if (day.length >= CITY_DAY_MAX) {
+      const sights = day.filter(isDaySight);
+      const victim = sights.length > 2 ? sights.filter((x) => x.slotKey !== "landmark-anchor" && !matchesRequiredLandmark(region, x.name ?? "")).sort((a, b) => popularity(a) - popularity(b))[0] : undefined;
+      if (!victim) continue;
+      day.splice(day.indexOf(victim), 1);
+    }
+    day.push(areaStop(pick, "restaurant", 0));
+  }
+  return days;
+}
+
 function areaStop(p: Place, kind: "attraction" | "restaurant" | "cafe", restaurantsInDay: number): FinalStop {
   if (kind === "restaurant") {
     const dinner = restaurantsInDay >= 1;
@@ -3534,15 +3566,19 @@ export function assignDaysByAnchorClusters(
   region: string,
   maxKm: number,
   fillPool: readonly Place[] = [],
+  opts: { isLandmark?: (s: { name?: string }) => boolean; forceSplit?: boolean } = {},
 ): FinalStop[][] {
+  const isCore = opts.isLandmark ?? ((s: { name?: string }) => matchesRequiredLandmark(region, s.name ?? ""));
   const k = dayStops.length;
   const flat = dayStops.flat();
   const facilityDays = dayStops.filter((d) => d.some(isDayFacility));
   const free = flat.filter((s) => !facilityDays.some((d) => d.includes(s)));
-  const existingAnchors = free.filter((s) => matchesRequiredLandmark(region, s.name ?? ""));
-  const anchorSet = new Set<FinalStop>([...existingAnchors, ...anchors.filter((a) => !existingAnchors.some((e) => e.id === a.id))]);
+  // 핵심 대표 명소(이름 사전/추적 대상)만 군집의 뼈대가 된다. 이미 코스에 있던 핵심 명소는 앵커 표시를 달아 이후 단계(상한·정리)에서 보호한다. 핵심이 아닌 앵커(보문관광단지 등)는 일반 스팟처럼 가까운 날에만 붙는다.
+  const existingAnchors = free.filter((s) => isCore(s)).map((s) => ({ orig: s, marked: { ...s, slotKey: "landmark-anchor" } as FinalStop }));
+  const anchorSet = new Set<FinalStop>([...existingAnchors.map((e) => e.marked), ...anchors.filter((a) => isCore(a) && !existingAnchors.some((e) => e.orig.id === a.id))]);
   const allAnchors = [...anchorSet].filter((a) => !isDayFacility(a));
-  const others = free.filter((s) => !anchorSet.has(s));
+  const swapped = new Set(existingAnchors.map((e) => e.orig));
+  const others = [...free.filter((s) => !swapped.has(s)), ...anchors.filter((a) => !isCore(a) && !free.some((f) => f.id === a.id))];
   const clusterCount = Math.max(1, k - facilityDays.length);
   if (allAnchors.length === 0 || clusterCount < 2) return dayStops;
   // 1) 앵커를 farthest-point 시드로 군집
@@ -3553,7 +3589,7 @@ export function assignDaysByAnchorClusters(
   // 시드는 하루 한도(maxKm)를 넘게 떨어진 앵커만 새 군집이 된다 — 가까운 앵커(첨성대·대릉원·동궁과 월지)를 일수만큼 쪼개지 않는다.
   while (seeds.length < Math.min(clusterCount, ordered.length)) {
     const next = ordered.filter((a) => !seeds.includes(a)).sort((a, b) => Math.min(...seeds.map((sd) => haversineKm(b, sd))) - Math.min(...seeds.map((sd) => haversineKm(a, sd))))[0];
-    if (!next || Math.min(...seeds.map((sd) => haversineKm(next, sd))) <= maxKm) break;
+    if (!next || (!opts.forceSplit && Math.min(...seeds.map((sd) => haversineKm(next, sd))) <= maxKm)) break;
     seeds.push(next);
   }
   seeds.forEach(() => clusters.push([]));
@@ -3601,7 +3637,8 @@ export function assignDaysByAnchorClusters(
   const leftovers: FinalStop[] = [];
   for (const s of [...others].filter((o) => !seeded.has(o)).sort((a, b) => popularity(b) - popularity(a))) {
     const scored = clusters
-      .map((c, i) => ({ c, i, d: c.length ? haversineKm(s, centroidOf(c)) : 1000, ok: c.length < dayMaxOf(c) && fits(c, s) })) // 빈 날은 마지막 선택지
+      // 핵심 명소가 있는 날(시내 날)에는 핵심이 아닌 스팟이 하루 한도의 절반 안일 때만 붙는다 — 시내와 6km 넘는 보문관광단지가 시내 날에 끼지 않게(작업지시서 2026-10-30 §3③)
+      .map((c, i) => ({ c, i, d: c.length ? haversineKm(s, centroidOf(c)) : 1000, ok: c.length < dayMaxOf(c) && fits(c, s) && (!c.some(isCore) || c.length === 0 || haversineKm(s, centroidOf(c)) <= maxKm / 2) })) // 빈 날은 마지막 선택지
       .sort((x, y) => Number(y.ok) - Number(x.ok) || x.d - y.d);
     const best = scored[0];
     if (best && best.ok) best.c.push(s);
@@ -3635,20 +3672,88 @@ export function assignDaysByAnchorClusters(
   return dedupeStopsAcrossDays(result, region);
 }
 
+/** 색인 코스 앵커 보고 — `/api/health` courseBuild.lastAnchorReport (마지막 재생성 1건). */
+export interface AnchorReport {
+  region: string;
+  days: number;
+  /** 추적 대상 대표 명소(이름 사전 또는 랜드마크 풀 상위 days+2 중 종일시설 제외). */
+  accepted: string[];
+  /** 최종 코스에 있는 것. */
+  placed: string[];
+  dropped: Array<{ name: string; stage: string; reason: string }>;
+}
+
+const compactLandmark = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+const landmarkNameMatches = (name: string, tracked: string) => {
+  const a = compactLandmark(name);
+  const b = compactLandmark(tracked);
+  return a.length > 0 && b.length > 0 && (a.includes(b) || b.includes(a));
+};
+
 /**
- * 이름 사전 명소가 단계 사이에서 사라지는 곳을 로그로 잡는다 — 작업지시서 2026-10-29 "#343 검증" §3⑤. 단계마다 현재 코스에 있는 사전 명소를 기록하고, 이전 단계에 있었는데 지금 없으면
- * `[anchor-drop] name= stage= reason=` 로 남긴다(reason 은 그 단계가 스팟을 빼는 사유 후보). 사전이 없는 지역은 아무것도 하지 않는다.
+ * 대표 명소(이름 사전 또는 랜드마크 풀 상위)가 단계 사이에서 사라지는 곳을 잡는다 — 작업지시서 2026-10-29 "#343 검증" §3⑤ · 2026-10-30 §3④. 단계마다 현재 코스에 있는 추적 대상을 기록하고,
+ * 이전 단계에 있었는데 지금 없으면 `[anchor-drop] name= stage= reason=` 로그와 보고(dropped)에 남긴다. finish() 가 마지막 보고를 돌려준다.
  */
-export function makeLandmarkTrace(region: string): (stage: string, names: string[], reason?: string) => void {
-  const dict = REQUIRED_LANDMARK_NAMES[region];
+export function makeLandmarkTrace(region: string, days: number = 0) {
+  let tracked: string[] = [...(REQUIRED_LANDMARK_NAMES[region] ?? [])];
   let previous: string[] | null = null;
-  return (stage, names, reason = "removed-by-stage") => {
-    if (!dict) return;
-    const present = dict.filter((d) => names.some((n) => matchesRequiredLandmark(region, n) && n.replace(/\s+/g, "").includes(d.replace(/\s+/g, ""))));
-    if (previous) for (const name of previous.filter((n) => !present.includes(n))) console.log(`[anchor-drop] region=${region} name=${name} stage=${stage} reason=${reason}`);
-    console.log(`[anchor-trace] region=${region} stage=${stage} present=[${present.join(",")}] missing=[${dict.filter((d) => !present.includes(d)).join(",")}]`);
+  const dropped: AnchorReport["dropped"] = [];
+  const stage = (stageName: string, names: string[], reason = "removed-by-stage") => {
+    if (tracked.length === 0) return;
+    const present = tracked.filter((t) => names.some((n) => landmarkNameMatches(n, t)));
+    if (previous) {
+      for (const name of previous.filter((n) => !present.includes(n))) {
+        dropped.push({ name, stage: stageName, reason });
+        console.log(`[anchor-drop] region=${region} name=${name} stage=${stageName} reason=${reason}`);
+      }
+    }
+    console.log(`[anchor-trace] region=${region} stage=${stageName} present=[${present.join(",")}] missing=[${tracked.filter((t) => !present.includes(t)).join(",")}]`);
     previous = present;
   };
+  return {
+    stage,
+    setTracked(names: string[]) {
+      tracked = [...new Set(names)];
+      previous = null;
+    },
+    tracked: () => [...tracked],
+    finish(names: string[]): AnchorReport {
+      stage("final", names, "removed-before-final");
+      return { region, days, accepted: [...tracked], placed: [...(previous ?? [])], dropped: [...dropped] };
+    },
+  };
+}
+
+/**
+ * 추적 대표 명소가 코스에 최소 minCount 곳(전부 넣을 수 있으면 전부) 있도록 마지막으로 확인해 빠진 것을 넣는다 — 작업지시서 2026-10-30 §3①②. 라우팅 전 마지막 단계에서 부른다.
+ * 빠진 명소는 후보 풀에서 좌표를 찾아, 하루 한도(maxKm) 안에서 가장 가까운 날(종일시설·배 섬 날 제외)에 넣고, 그날이 가득(5곳)이면 앵커·사전·식사가 아닌 가장 인기 낮은 스팟을 뺀다.
+ */
+export function ensureMinLandmarks(dayGroups: FinalStop[][], trackedNames: readonly string[], pool: readonly Place[], minCount: number, maxKm: number, region: string): FinalStop[][] {
+  const days = dayGroups.map((d) => [...d]);
+  const present = (name: string) => days.flat().some((s) => landmarkNameMatches(s.name ?? "", name));
+  let have = trackedNames.filter(present).length;
+  for (const name of trackedNames) {
+    if (have >= Math.min(minCount, trackedNames.length)) break;
+    if (present(name)) continue;
+    const p = pool.find((c) => landmarkNameMatches(c.name ?? "", name) && !isLargeFacility(c));
+    if (!p) continue;
+    if (days.flat().some((o) => isDuplicateStop(o, p as FinalStop, region))) continue;
+    const stop = { ...p, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: 14, meal: false } as FinalStop;
+    const open = days.filter((d) => !d.some(isDayFacility) && !d.some(isFerryIsland));
+    const near = open.filter((d) => d.length === 0 || d.every((o) => haversineKm(o, stop) <= maxKm));
+    const target = (near.length > 0 ? near : open).sort((a, b) => haversineKm(stop, centroidOf(a.length ? a : [stop])) - haversineKm(stop, centroidOf(b.length ? b : [stop])))[0];
+    if (!target) continue;
+    if (target.length >= CITY_DAY_MAX) {
+      const victim = target
+        .filter((s) => s.slotKey !== "landmark-anchor" && !s.meal && !trackedNames.some((t) => landmarkNameMatches(s.name ?? "", t)))
+        .sort((a, b) => popularity(a) - popularity(b))[0];
+      if (!victim) continue;
+      target.splice(target.indexOf(victim), 1);
+    }
+    target.push(stop);
+    have += 1;
+  }
+  return days;
 }
 
 /** 국내 하루 스팟 간 최대 직선거리(km) — 작업지시서 2026-10-29 §2④. 제주는 섬이 넓어 15km. */
@@ -4399,10 +4504,15 @@ async function ensureCityLandmarkAnchors(
   onCandidateFetchFailure?: (status: number) => void,
   minTotal: number = 0,
   days: number = 0,
+  trace?: ReturnType<typeof makeLandmarkTrace>,
 ): Promise<FinalStop[][]> {
   const flat = dayStops.flat();
   if (flat.length === 0) return dayStops;
   const candidates = await fetchLandmarkCandidates(scope, region, onCandidateFetchFailure);
+  // 작업지시서 2026-10-30 §3① — 사전이 없는 색인 코스(해외 도시형 등)는 랜드마크 풀 상위 days+2 중 종일시설을 뺀 것이 추적·보장 대상이다.
+  const indexed = days > 0 && isIndexedCourse(region, days);
+  const trackedPool = indexed && !REQUIRED_LANDMARK_NAMES[region] ? [...candidates].filter((p) => !isLargeFacility(p)).sort((a, b) => popularityOf(b) - popularityOf(a)).slice(0, days + 2) : [];
+  if (trackedPool.length > 0) trace?.setTracked(trackedPool.map((p) => p.name));
   // 작업지시서 2026-10-01 "Vercel 로그 판독 결과" ③ — 재배치 뒤 총량이 도시형 최소
   // (minTotal)에 못 미치면 앵커 후보(오사카는 19곳이 있었다)로 모자란 만큼 채운다.
   // 평소 앵커(CITY_ANCHOR_COUNT곳)는 기존대로 "교체", 모자란 만큼의 추가분은 "추가".
@@ -4410,7 +4520,7 @@ async function ensureCityLandmarkAnchors(
   // 작업지시서 2026-10-20 "#331 검증" §3⑥ — 평점이 없으니 랜드마크 질의 순위(tourist_attraction 관련도·인지도)가 인기 신호다. 대표 랜드마크를 코스 전체에 최소 days 곳(하루 1곳씩) 포함한다.
   // 작업지시서 2026-10-29 §2③ — 이름 사전이 있는 국내 색인 지역은 하루 2곳꼴(사전 수 + 1 이하)로 늘리고, 섬·동서로 퍼진 지역(제주)을 위해 반경을 넓힌다.
   const dictLen = scope === "domestic" ? (REQUIRED_LANDMARK_NAMES[region]?.length ?? 0) : 0;
-  const anchorCount = dictLen > 0 ? Math.max(CITY_ANCHOR_COUNT, Math.min(days * 2, dictLen + 1)) : Math.max(CITY_ANCHOR_COUNT, days);
+  const anchorCount = dictLen > 0 ? Math.max(CITY_ANCHOR_COUNT, Math.min(days * 2, dictLen + 1)) : trackedPool.length > 0 ? Math.max(CITY_ANCHOR_COUNT, days + 2) : Math.max(CITY_ANCHOR_COUNT, days);
   const picked = pickLandmarkAnchors(candidates, flat, anchorCount + deficit, Math.max(CITY_ANCHOR_POOL_SIZE, anchorCount + deficit + 3), dictLen > 0 ? DICT_REGION_ANCHOR_MAX_KM : CITY_ANCHOR_MAX_DISTANCE_KM);
   console.log(`[courseBrief] path=city-anchors ${region} before=${flat.length} minTotal=${minTotal} deficit=${deficit} candidates=${candidates.length} anchors=${picked.map((a) => a.name).join(", ") || "none"} pool=[${candidates.slice(0, 10).map((p, i) => `${i + 1}:${p.name}`).join(" | ")}]`);
   if (picked.length === 0) return dayStops;
@@ -4421,6 +4531,12 @@ async function ensureCityLandmarkAnchors(
     const assigned = assignDaysByAnchorClusters(dayStops, anchorStops, region, maxKm, candidates);
     // 권역(날 군집 중심)별 후보로 하루 최소 4곳까지 채운다 — 날마다 종류별 1회 이내(+days×3 호출 이내)
     return topUpDaysFromAreas(assigned, region, maxKm, DICT_REGION_MIN_PER_DAY, (center, kind) => fetchAreaCandidates(region, center, (maxKm * 1000) / 2, kind, onCandidateFetchFailure));
+  }
+  // 해외 색인 코스: 같은 권역의 앵커는 같은 날(종일시설 날 제외) — 일수만큼 군집으로 강제로 나눈다(작업지시서 2026-10-30 §3①).
+  if (trackedPool.length > 0 && dayStops.length >= 2) {
+    const anchorStops = picked.map((a) => ({ ...a, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: 14, meal: false }) as FinalStop);
+    const trackedNames = trackedPool.map((p) => p.name);
+    return assignDaysByAnchorClusters(dayStops, anchorStops, region, 8, [], { isLandmark: (x) => trackedNames.some((t) => landmarkNameMatches(x.name ?? "", t)), forceSplit: true });
   }
   return placeCityAnchors(dayStops, picked, deficit);
 }
@@ -4469,8 +4585,14 @@ export async function buildBrief(
   // 넣거나 빼면 다시 어긋난다)은 그대로 유지.
   const minViable = minViableSpots(style, days);
   const spreadKm = daySpreadLimitKm(region);
+  const indexedCourse = isIndexedCourse(region, days);
+  // 해외 색인 도시형도 식당 최대 2 · 명소 최소 2 규칙을 쓴다(거리 한도·숙소 제외는 국내만) — 작업지시서 2026-10-30 §3⑥⑦.
   const capDayRules = (groups: FinalStop[][], minTotal: number) =>
-    scope === "domestic" ? enforceDayComposition(enforceDayCompactness(capCafesPerDay(dedupeStopsAcrossDays(groups, region), minTotal), spreadKm, minTotal, region), minTotal, spreadKm) : capCafesPerDay(groups, minTotal);
+    scope === "domestic"
+      ? enforceDayComposition(enforceDayCompactness(capCafesPerDay(dedupeStopsAcrossDays(groups, region), minTotal), spreadKm, minTotal, region), minTotal, spreadKm)
+      : indexedCourse && style !== "resort"
+        ? enforceDayComposition(capCafesPerDay(dedupeStopsAcrossDays(groups, region), minTotal), minTotal, Infinity, { dropLodging: false })
+        : capCafesPerDay(groups, minTotal);
   let composedDayStops = capDayRules(scope === "overseas" ? capOverseasKoreanRestaurants(dayStops) : dayStops, scope === "domestic" ? minViable : 0);
   if (style === "resort") {
     composedDayStops = capLodgingToOne(capResortSpaSpotsTotal(composedDayStops, days));
@@ -4491,6 +4613,7 @@ export async function buildBrief(
   // 없다(작업지시서 2026-09-29 "경주 2박3일에 불국사·석굴암·대릉원·첨성대가
   // 없습니다" §2, "#277 검증" §2).
   console.log(`[courseBrief] path=${style === "resort" ? "resort-compose" : "city-anchors"} ${scope}/${region} before=${counts(geoOrderedDayGroups)}`);
+  const landmarkTrace = makeLandmarkTrace(region, days);
   const anchoredDayGroups =
     style === "resort"
       ? await composeResortDays(geoOrderedDayGroups, {
@@ -4500,7 +4623,7 @@ export async function buildBrief(
           fetchSlot: (slot) => fetchSlotCandidates(scope, region, slot, false, onCandidateFetchFailure),
         })
       : enforceCityFacilityLimit(
-          await ensureCityLandmarkAnchors(scope, region, balanceCityDayGroups(geoOrderedDayGroups, minViableSpots(style, days), region), onCandidateFetchFailure, minViableSpots(style, days), days),
+          await ensureCityLandmarkAnchors(scope, region, balanceCityDayGroups(geoOrderedDayGroups, minViableSpots(style, days), region), onCandidateFetchFailure, minViableSpots(style, days), days, landmarkTrace),
           region,
         );
   // 작업지시서 2026-09-23 §3-b — 각 날짜의 첫 스팟이 평점 신호 없이
@@ -4513,10 +4636,21 @@ export async function buildBrief(
   // 작업지시서 2026-10-12 "하루 안 방문 순서가 지그재그입니다" §2① — 앵커·보충·재배분·선착장 삽입이 모두 끝난 지금
   // 하루 단위로 순서를 다시 계산한다(평점 있는 스팟을 1번으로 두는 선호(§3-b)는 최적 길이와 거의 같을 때만 반영).
   // 작업지시서 2026-10-21 "#333 검증" §3 — 하루 카페 최대 1을 재배치·앵커·보충이 끝난 뒤 한 번 더 건다(앞선 캡 뒤에 다른 날 카페가 옮겨 와 같은 날 카페가 둘이 된다: 칭다오 2일차).
-  const landmarkTrace = makeLandmarkTrace(region);
-  landmarkTrace("anchored", anchoredDayGroups.flat().map((x) => x.name ?? ""));
-  const capped = capDayRules(anchoredDayGroups, minViable);
-  landmarkTrace("day-rules(dedupe·compactness·composition)", capped.flat().map((x) => x.name ?? ""), "dedupe|compactness|composition");
+  landmarkTrace.stage("anchored", anchoredDayGroups.flat().map((x) => x.name ?? ""));
+  let capped = capDayRules(anchoredDayGroups, minViable);
+  landmarkTrace.stage("day-rules(dedupe·compactness·composition)", capped.flat().map((x) => x.name ?? ""), "dedupe|compactness|composition");
+  if (indexedCourse) {
+    // 색인 코스 마무리 — 대표 명소 최소 보장(도시형) → 하루 식사 최소 1. 라우팅 전 마지막 단계다.
+    if (style !== "resort") {
+      const lmPool = await fetchLandmarkCandidates(scope, region, onCandidateFetchFailure).catch(() => []);
+      const tracked = landmarkTrace.tracked();
+      capped = ensureMinLandmarks(capped, tracked, lmPool, REQUIRED_LANDMARK_NAMES[region] ? Math.min(tracked.length, days * 2) : days, scope === "domestic" ? spreadKm : 8, region);
+      landmarkTrace.stage("ensure-min-landmarks", capped.flat().map((x) => x.name ?? ""), "ensure-min-landmarks");
+    }
+    capped = await ensureDayMeals(capped, region, scope === "domestic" ? spreadKm : 8, (center, kind) =>
+      fetchAreaCandidates(region, center, ((scope === "domestic" ? spreadKm : 8) * 1000) / 2, kind, onCandidateFetchFailure),
+    );
+  }
   const finalDayGroups = orderDaysWithLog(`${scope}/${region}`, capped, (s) => hasRatingHint(scope, region, s));
   console.log(`[courseBrief] path=composed ${scope}/${region} counts=${counts(finalDayGroups)}`);
   await annotateLandmarkRanks(scope, region, finalDayGroups, onCandidateFetchFailure);
@@ -4539,7 +4673,7 @@ export async function buildBrief(
   // 본다). 휴양형은 라우팅 *이후*의 분포로 한 번 더 재배분하고, 스팟이
   // 바뀐 날만 다시 라우팅한다(구간 이동시간·경로가 새 스팟 순서와 맞도록).
   const routedDaysBeforeRebalance = routedDays.reduce((sum, d) => sum + d.stops.length, 0);
-  landmarkTrace("routed", routedDays.flatMap((d) => d.stops.map((x) => x.name ?? "")), "no-route");
+  landmarkTrace.stage("routed", routedDays.flatMap((d) => d.stops.map((x) => x.name ?? "")), "no-route");
   {
     const before = routedDays.map((d) => d.stops);
     const rebalanced = capDayRules(style === "resort" ? rebalanceResortDays(before) : balanceCityDayGroups(before, minViable, region), minViable);
@@ -4548,7 +4682,7 @@ export async function buildBrief(
     const after = rebalanced.map((stops, i) => (sameMembers(stops, before[i]) ? before[i] : orderDaysWithLog(`${scope}/${region}(post-route)`, [stops], (st) => hasRatingHint(scope, region, st))[0]));
     const changed = after.map((stops, i) => stops.map((s) => s.id).join("|") !== before[i].map((s) => s.id).join("|"));
     console.log(`[courseBrief] path=post-route-rebalance ${scope}/${region} routed=${counts(before)} after=${counts(after)} changed=[${changed.join(",")}]`);
-    landmarkTrace("post-route-rebalance", after.flatMap((d) => d.map((x) => x.name ?? "")), "post-route-rebalance");
+    landmarkTrace.stage("post-route-rebalance", after.flatMap((d) => d.map((x) => x.name ?? "")), "post-route-rebalance");
     if (changed.some(Boolean)) {
       routedDays = await Promise.all(after.map((stops, i) => (changed[i] ? routeDayStops(scope, stops, routingDeadline) : Promise.resolve(routedDays[i]))));
     }
@@ -4625,6 +4759,7 @@ export async function buildBrief(
   // 다시 시도할 기회를 갖는다(dedupeInFlight가 여전히 동시 요청은
   // 하나로 합친다).
   console.log(`[courseBrief] path=totals ${scope}/${region} generated=${dayStops.flat().length} reallocated=${geoOrderedDayGroups.flat().length} composed=${finalDayGroups.flat().length} routed=${routedDaysBeforeRebalance} final=${allSpots.length}`);
+  if (indexedCourse) void recordAnchorReport(landmarkTrace.finish(allSpots.map((x) => x.name))); // health courseBuild.lastAnchorReport
   console.log(`[courseBrief] path=assembled ${scope}/${region} dayCounts=[${dayTotals.map((d) => d.spotCount).join(",")}] spots=${allSpots.length} km=${round1(totalDistanceKm)} cacheable=${isCacheableBrief(allSpots, style, days)}`);
   if (isCacheableBrief(allSpots, style, days)) {
     await writeBriefCache(cacheKey, brief).catch((err) => {

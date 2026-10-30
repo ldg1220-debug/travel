@@ -19,7 +19,7 @@ vi.mock("./mapsBudget", () => ({
   isMapsThrottled: async () => false,
 }));
 
-import { fetchAreaCandidates, fetchLandmarkCandidates, isTrailCourse, isValidPlace, REQUIRED_LANDMARK_NAMES } from "./courseRecommend";
+import { fetchAreaCandidates, fetchLandmarkCandidates, isTrailCourse, isWholeParkOrMountain, isValidPlace, REQUIRED_LANDMARK_NAMES } from "./courseRecommend";
 
 // 작업지시서 2026-10-28 §1⑦ — 경주 대표 명소 이름 사전
 describe("fetchLandmarkCandidates — 필수 대표 명소 이름 사전", () => {
@@ -96,4 +96,16 @@ describe("fetchAreaCandidates — 중심 좌표 주변 검색", () => {
     await fetchAreaCandidates("제주", { lat: 33.4567, lng: 126.9334 }, 7500, "restaurant");
     expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
   });
+});
+
+// 작업지시서 2026-10-30 §3⑤ — 국립공원·산 전체 제외
+describe("isWholeParkOrMountain", () => {
+  it.each([
+    { name: "한라산 국립공원", category: "tourist_attraction" },
+    { name: "설악산 국립공원", category: "park" },
+    { name: "어떤 산", category: "national_park" },
+    { name: "무슨 산길", category: "hiking_area" },
+    { name: "Hallasan National Park", category: "park" },
+  ])("$name 는 장소가 아니다", (p) => expect(isWholeParkOrMountain(p)).toBe(true));
+  it.each([{ name: "성산일출봉" }, { name: "용두암" }, { name: "남산서울타워" }, { name: "천지연폭포" }])("$name 는 장소다", (p) => expect(isWholeParkOrMountain(p)).toBe(false));
 });
