@@ -192,6 +192,17 @@ describe("buildSpotDescription", () => {
     expect(desc).toContain("8분");
   });
 
+  // 작업지시서 2026-10-30 "#348 검증" §2② — 이동수단 뒤 조사: 도보로 · 대중교통으로 · 차량으로 ("차량로" 오타).
+  it.each([
+    ["walk", "도보로 약 8분"],
+    ["transit", "대중교통으로 약 8분"],
+    ["car", "차량으로 약 8분"],
+  ] as const)("이동수단 %s → '%s'", (mode, expected) => {
+    const desc = buildSpotDescription(spot({ toNextMinutes: 8, toNextMode: mode }));
+    expect(desc).toContain(expected);
+    expect(desc).not.toContain("차량로");
+  });
+
   // 작업지시서 2026-09-29 "#282 검증" §2 — 섬 구간은 배. 분을 지어내지 않는다.
   it("says the next leg is by boat, without inventing minutes", () => {
     const desc = buildSpotDescription(spot({ toNextMode: "boat", toNextMinutes: null }));
