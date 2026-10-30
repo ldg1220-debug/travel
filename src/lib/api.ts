@@ -529,6 +529,9 @@ export interface UserItinerary {
   region: Region;
   placesData: ItineraryItem[];
   shareToken: string;
+  /** 서버 행의 만든 시각·마지막 수정 시각(ISO) — 저장된 계획 목록의 날짜 표시용. */
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 /**

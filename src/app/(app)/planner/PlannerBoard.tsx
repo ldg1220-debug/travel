@@ -1009,8 +1009,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // 본 뒤로 계속 자동 저장이 막힌 채로 남는다.
   useEffect(() => {
     if (!shareToken) return;
-    return () => setViewerModeActive(false);
-  }, [shareToken, setViewerModeActive]);
+    return () => useItineraryStore.getState().leaveSharedView(shareToken);
+  }, [shareToken]);
 
   // "내 계획으로 담아가기" — 공유 링크를 받은 사람이 그 계획을 자기 것으로
   // 복사한다. 작업지시서 2026-09-14 "공유 링크에도 담아가기" §2. 로그인

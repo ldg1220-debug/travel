@@ -155,6 +155,8 @@ export interface SavedPlan {
    */
   remoteId?: number;
   shareToken?: string;
+  /** 서버 행의 만든 시각(ms) — 서버에서 받아 온 계획만 있다. 저장된 계획 목록의 "만든 날" 표시용(작업지시서 2026-10-30). */
+  createdAt?: number;
 }
 
 /**

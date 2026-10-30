@@ -122,3 +122,67 @@ describe("adoptRemotePlan", () => {
     expect(useItineraryStore.getState().savedPlans.filter((p) => p.shareToken === "tok-new")).toHaveLength(1);
   });
 });
+
+// 작업지시서 2026-10-30 "저장된 계획 목록 · 0711 오사카가 하노이로 덮어쓰였는지" §1③ — 재현: 다른 계획("0711 오사카")이 열려 있는 채로 공유 화면에서 빌려온 내용을 보고
+// 화면을 벗어나면, 뷰어 모드만 꺼지고 items 는 빌려온 내용 그대로여서 자동 저장(savePlanAs(name, activePlanId))이 그 내용을 오사카 계획에 덮어썼다.
+describe("공유 화면을 벗어날 때 빌려온 내용이 내 계획으로 흘러가지 않는다 (leaveSharedView)", () => {
+  const savedOsaka = () => {
+    useItineraryStore.setState({ viewerModeActive: false, items: [item("osaka-1", "2026-07-11"), item("osaka-2", "2026-07-11")], currentCity: "오사카" });
+    return useItineraryStore.getState().savePlanAs("0711 오사카")!;
+  };
+
+  it("재현(수정 전 동작): 뷰어 모드만 끄면 자동 저장이 빌려온 하노이 내용을 오사카 계획에 덮어쓴다", () => {
+    const osakaId = savedOsaka();
+    useItineraryStore.getState().setViewerModeActive(true, "하노이 여행 코스");
+    useItineraryStore.setState({ items: [item("hanoi-1", "2026-10-24")] }); // 공유 화면이 items 를 빌려온 내용으로 바꾼다
+    useItineraryStore.getState().setViewerModeActive(false); // 예전 정리 동작: 플래그만 끈다
+    // AppBar 의 1.5초 뒤 자동 저장 = savePlanAs(name, activePlanId)
+    useItineraryStore.getState().savePlanAs("0711 오사카", osakaId);
+    expect(useItineraryStore.getState().savedPlans.find((p) => p.id === osakaId)?.items.map((i) => i.id)).toEqual(["hanoi-1"]); // 덮어써진다
+  });
+
+  it("수정 후: leaveSharedView 가 작업 상태를 열린 내 계획의 저장된 내용으로 되돌려, 자동 저장이 와도 오사카가 그대로다", () => {
+    const osakaId = savedOsaka();
+    useItineraryStore.getState().setViewerModeActive(true, "하노이 여행 코스");
+    useItineraryStore.setState({ items: [item("hanoi-1", "2026-10-24")] });
+    useItineraryStore.getState().leaveSharedView("hanoi-token");
+    const s = useItineraryStore.getState();
+    expect(s.viewerModeActive).toBe(false);
+    expect(s.items.map((i) => i.id)).toEqual(["osaka-1", "osaka-2"]);
+    expect(s.currentCity).toBe("오사카");
+    useItineraryStore.getState().savePlanAs("0711 오사카", osakaId); // 자동 저장
+    expect(useItineraryStore.getState().savedPlans.find((p) => p.id === osakaId)?.items.map((i) => i.id)).toEqual(["osaka-1", "osaka-2"]);
+  });
+
+  it("열린 계획이 없으면(초안만) 초안 내용으로, 초안도 없으면 빈 상태로 돌아간다", () => {
+    useItineraryStore.setState({ viewerModeActive: true, items: [item("hanoi-1")], activePlanId: null, draft: null });
+    useItineraryStore.getState().leaveSharedView("t");
+    expect(useItineraryStore.getState().items).toEqual([]);
+    useItineraryStore.setState({
+      viewerModeActive: true,
+      items: [item("hanoi-1")],
+      draft: { id: "draft", name: "진행 중인 계획", savedAt: 1, items: [item("mine")], places: [], activeDate: "2026-09-16", currentCity: "서울", region: "domestic" },
+    });
+    useItineraryStore.getState().leaveSharedView("t");
+    expect(useItineraryStore.getState().items.map((i) => i.id)).toEqual(["mine"]);
+  });
+
+  it("이 화면이 지금 열린 내 계획의 것이면(소유자) 되돌리지 않는다 — items 는 내 것", () => {
+    const osakaId = savedOsaka();
+    useItineraryStore.getState().setPlanRemoteInfo(osakaId, 7, "osaka-token");
+    useItineraryStore.setState({ items: [item("osaka-1"), item("osaka-3-new")] }); // 방금 고친 내용(아직 자동 저장 전)
+    useItineraryStore.getState().leaveSharedView("osaka-token");
+    expect(useItineraryStore.getState().items.map((i) => i.id)).toEqual(["osaka-1", "osaka-3-new"]);
+  });
+});
+
+describe("hydrateSavedPlansFromServer — 서버 시각을 저장된 계획에 싣는다", () => {
+  it("updatedAt → savedAt(수정), createdAt → createdAt(만든 날)", () => {
+    useItineraryStore.getState().hydrateSavedPlansFromServer([
+      { id: 9, title: "하노이 여행 코스 (복사)", region: "international", placesData: [item("h1", "2026-10-24")], shareToken: "t9", createdAt: "2026-10-19T03:00:00.000Z", updatedAt: "2026-10-20T04:00:00.000Z" },
+    ]);
+    const plan = useItineraryStore.getState().savedPlans[0];
+    expect(plan.savedAt).toBe(Date.parse("2026-10-20T04:00:00.000Z"));
+    expect(plan.createdAt).toBe(Date.parse("2026-10-19T03:00:00.000Z"));
+  });
+});
