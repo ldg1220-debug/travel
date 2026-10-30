@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
-import { bumpCourseCounter, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordUserAgent, userAgentKey, warmSourceFrom, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
+import { bumpCourseCounter, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordUserAgent, userAgentKey, warmSourceFrom, recordAnchorReport, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
 
 const NOW = new Date("2026-10-21T12:00:00Z"); // 태평양 10/21
 
@@ -126,5 +126,16 @@ describe("courseBuildStatus", () => {
     expect(warmSourceFrom("curl/8.5.0", "gh-actions")).toBe("gh-actions");
     expect(warmSourceFrom("curl/8.5.0", null)).toBe("manual");
     expect(warmSourceFrom(null, "other")).toBe("manual");
+  });
+
+  // 작업지시서 2026-10-30 §3④ — lastAnchorReport
+  it("recordAnchorReport 는 상태 행에 합치고, getCourseBuildStatus 가 lastAnchorReport 로 돌려준다", async () => {
+    const report = { region: "경주", days: 3, accepted: ["불국사", "동궁과 월지"], placed: ["불국사"], dropped: [{ name: "동궁과 월지", stage: "day-rules", reason: "compactness" }] };
+    queryMock.mockResolvedValue({ rows: [] });
+    await recordAnchorReport(report);
+    expect(JSON.parse(queryMock.mock.calls[0][1][1])).toEqual({ lastAnchorReport: report });
+    queryMock.mockReset();
+    queryMock.mockImplementation(async (_sql: unknown, params?: unknown[]) => (params?.[0] === "course-build:status" ? { rows: [{ payload: { lastAnchorReport: report } }] } : { rows: [] }));
+    expect((await getCourseBuildStatus(50, NOW)).lastAnchorReport).toEqual(report);
   });
 });

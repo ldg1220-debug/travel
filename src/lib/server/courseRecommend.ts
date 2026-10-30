@@ -765,7 +765,7 @@ async function writeCandidateCache(key: string, places: Place[]): Promise<void> 
  * 가능성에 대비해 후보 풀에 들어오는 시점에 한 번 걸러낸다.
  */
 export function isValidPlace(p: Place): boolean {
-  return Boolean(p.id) && Boolean(p.name?.trim()) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0) && !isTrailCourse(p.name);
+  return Boolean(p.id) && Boolean(p.name?.trim()) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0) && !isTrailCourse(p.name) && !isWholeParkOrMountain(p);
 }
 
 /**
@@ -773,6 +773,15 @@ export function isValidPlace(p: Place): boolean {
  * (제주 코스에 올레길이 4개 들어갔다). 후보 풀에 들어오는 시점(isValidPlace)에 한 번 걸러낸다.
  */
 const TRAIL_COURSE_PATTERN = /올레길|둘레길|순례길|트레킹|탐방로|등산로|\d+\s?코스|코스\s*$|\btrail\b|\btrek(?:king)?\b/i;
+/**
+ * 국립공원·도립공원 전체(한라산 국립공원 등) — 산 전체를 등산하는 곳이라 하루 일정의 한 "장소"가 될 수 없다(작업지시서 2026-10-30 §3⑤). 이름에 국립공원·도립공원·군립공원이 있거나
+ * Google primaryType 이 national_park · hiking_area 면 제외한다. 성산일출봉 같은 단일 명소는 해당 없음.
+ */
+const WHOLE_PARK_NAME_PATTERN = /국립\s?공원|도립\s?공원|군립\s?공원|national\s?park/i;
+export function isWholeParkOrMountain(p: { name?: string; category?: string }): boolean {
+  const type = (p.category ?? "").toLowerCase();
+  return type === "national_park" || type === "hiking_area" || WHOLE_PARK_NAME_PATTERN.test(p.name ?? "");
+}
 export function isTrailCourse(name: string | undefined): boolean {
   return TRAIL_COURSE_PATTERN.test(name ?? "");
 }
