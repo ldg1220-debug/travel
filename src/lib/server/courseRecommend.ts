@@ -1086,7 +1086,7 @@ const LARGE_FACILITY_TYPES = new Set(["amusement_park", "theme_park", "water_par
 // 으로 종일시설이 된다 — 이전엔 타입이 없어 국내는 영향이 없었다.
 const LARGE_FACILITY_MIN_REVIEWS = 30000;
 const LARGE_FACILITY_NAME_PATTERN =
-  /유니버설|universal|\busj\b|디즈니|disney|캐리비안\s?베이|caribbean\s?bay|롯데월드|lotte\s?world|에버랜드|everland|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|해양\s?공원|하우스\s?텐보스|huis\s?ten\s?bosch|후지큐|fuji-?q|겐팅\s?스카이|skyworlds|씨월드|sea\s?world|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
+  /유니버설|universal|\busj\b|디즈니|disney|캐리비안\s?베이|caribbean\s?bay|롯데월드|lotte\s?world|경주\s?월드|에버랜드|everland|레고랜드|legoland|서울랜드|오션\s?파크|ocean\s?park|해양\s?공원|하우스\s?텐보스|huis\s?ten\s?bosch|후지큐|fuji-?q|겐팅\s?스카이|skyworlds|씨월드|sea\s?world|드림월드|dreamworld|무비\s?월드|movie\s?world|워너\s?브라더스|warner\s?bros/i;
 const LARGE_FACILITY_NAME_EXCLUDE =
   /스토어|\bstore\b|\bshop\b|숍|샵|카페|\bcafe\b|호텔|\bhotel\b|리조트\s?라인|resort\s?line|\bline\b|스테이션|\bstation\b|버스|\bbus\b|시티\s?워크|city\s?walk|타워|\btower\b|스카이|\bsky\b|\bmall\b|몰(?:\s|$)|아쿠아리움|aquarium|레스토랑|restaurant|식당|아울렛|outlet/i;
 export function isLargeFacility(p: { category?: string; name?: string; reviewCount?: number | null }): boolean {
@@ -1224,6 +1224,18 @@ const LANDMARK_CANDIDATE_LIMIT = 20;
  * (슬롯 캐시와 겹치지 않는 "landmark:" 키로, 같은 7일 TTL) 저장해
  * Places 호출 비용을 지역당 7일에 한 번으로 묶는다.
  */
+/**
+ * 야경 명소(그날 마지막 명소로 두는 곳) — 작업지시서 2026-10-30 §2①. 색인 지역 사전 중 야경이 대표인 곳만(경주 동궁과 월지·월정교 / 오사카 도톤보리). 이름 부분 일치(공백 무시).
+ */
+export const NIGHT_VIEW_NAMES: Readonly<Record<string, readonly string[]>> = {
+  경주: ["동궁과 월지", "월정교"],
+  오사카: ["도톤보리"],
+};
+export function isNightViewLandmark(region: string, name: string): boolean {
+  const c = compactName(name);
+  return (NIGHT_VIEW_NAMES[region] ?? []).some((n) => c.includes(compactName(n)));
+}
+
 export type AreaKind = "restaurant" | "cafe" | "attraction";
 const AREA_KEYWORD: Record<AreaKind, string> = { restaurant: "맛집", cafe: "카페", attraction: "관광지" };
 
@@ -1256,7 +1268,7 @@ export async function fetchAreaCandidates(
  * 이름으로 한 번씩 검색(지역·이름별 캐시, 26시간)해 풀의 맨 앞(사전 순서 = 우선순위)에 둔다. 앵커 선정(상위 days 곳)이 이 순서를 따른다.
  */
 export const REQUIRED_LANDMARK_NAMES: Readonly<Record<string, readonly string[]>> = {
-  경주: ["불국사", "석굴암", "첨성대", "대릉원", "동궁과 월지"],
+  경주: ["불국사", "석굴암", "첨성대", "대릉원", "동궁과 월지", "월정교"], // 월정교 = 작업지시서 2026-10-30 §2② — 첨성대·대릉원·동궁과 월지와 같은 시내 권역 날로 묶는다
   // 작업지시서 2026-10-29 §2② — 국내 색인 코스(제주·부산)도 같은 방식
   제주: ["성산일출봉", "우도", "섭지코지", "협재해수욕장", "천지연폭포", "만장굴", "오설록 티뮤지엄", "용두암"],
   부산: ["해운대해수욕장", "광안리해수욕장", "감천문화마을", "자갈치시장", "해동용궁사", "태종대", "흰여울문화마을", "송도해상케이블카"],
