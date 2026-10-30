@@ -19,7 +19,8 @@ import { RevisionHistorySheet } from "@/components/RevisionHistorySheet";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
 import { fetchUserItineraries, reviveAccount } from "@/lib/api";
 import { syncPlanToServer } from "@/lib/planSync";
-import { formatDateLabel } from "@/lib/timeline";
+import { summarizePlanForList } from "@/lib/planSummary";
+import { formatDateLabel, todayISODate } from "@/lib/timeline";
 import { planHeaderDateLabel } from "@/lib/planDay";
 import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 import { NAV_TABS } from "@/lib/navTabs";
@@ -61,6 +62,7 @@ export function AppBar() {
   const [toast, setToast] = useState<string | null>(null);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [expandedInfoId, setExpandedInfoId] = useState<string | null>(null); // 저장된 계획 "더보기"(만든 날)
   const [savedPlansOpen, setSavedPlansOpen] = useState(false);
   // 저장된 계획 미리보기 — 목록에서 계획을 누르면 바로 열지 않고, 그 계획에
   // 일정이 들어있는 날짜만 표시(다른 색 점)한 월간 달력을 먼저 보여준 뒤
@@ -426,8 +428,10 @@ export function AppBar() {
                 계획 저장
               </button>
             ) : (
-              savedPlans.map((plan) => (
-                <div key={plan.id} className="group flex items-center gap-1 rounded-lg px-1 py-0.5 hover:bg-slate-50 dark:hover:bg-slate-800">
+              [...savedPlans].sort((x, y) => y.savedAt - x.savedAt).map((plan) => {
+                const summary = summarizePlanForList(plan, todayISODate());
+                return (
+                <div key={plan.id} className={`group flex items-center gap-1 rounded-lg px-1 py-0.5 hover:bg-slate-50 dark:hover:bg-slate-800 ${summary.past ? "opacity-60" : ""}`}>
                   <button
                     onClick={() => {
                       const firstMarked = plan.items.length > 0
@@ -440,8 +444,26 @@ export function AppBar() {
                     className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 py-1.5 text-left"
                   >
                     {activePlanId === plan.id && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-500" />}
-                    <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-slate-600 dark:text-slate-300">{plan.name}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] font-medium text-slate-600 dark:text-slate-300">{plan.name}</span>
+                      {/* 2줄째 — 여행 날짜 · 지역 · 장소 수 · 수정일 (작업지시서 2026-10-30). 지난 여행은 흐리게 + 라벨. */}
+                      <span className="block truncate text-[10.5px] text-slate-400">
+                        {summary.past && <span className="mr-1 rounded bg-slate-100 px-1 text-[10px] text-slate-500 dark:bg-slate-800">지난 여행</span>}
+                        {summary.dateText} · {summary.regionText} · {summary.placeCountText} · {summary.updatedText}
+                      </span>
+                      {summary.createdText && expandedInfoId === plan.id && <span className="block text-[10.5px] text-slate-400">{summary.createdText}</span>}
+                    </span>
                   </button>
+                  {summary.createdText && (
+                    <button
+                      onClick={() => setExpandedInfoId(expandedInfoId === plan.id ? null : plan.id)}
+                      aria-label={`${plan.name} 더보기`}
+                      aria-expanded={expandedInfoId === plan.id}
+                      className="shrink-0 px-1 text-[11px] text-slate-300 hover:text-slate-500"
+                    >
+                      ⋯
+                    </button>
+                  )}
                   {confirmDeleteId === plan.id ? (
                     <div className="flex shrink-0 items-center gap-1.5 pr-1">
                       <button
@@ -467,7 +489,8 @@ export function AppBar() {
                     </button>
                   )}
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </SheetContent>

@@ -271,7 +271,7 @@ interface ItineraryState {
    * either way — only synced plans are ever added or removed here.
    */
   hydrateSavedPlansFromServer: (
-    remote: { id: number; title: string; region: Region; placesData: ItineraryItem[]; shareToken: string }[],
+    remote: { id: number; title: string; region: Region; placesData: ItineraryItem[]; shareToken: string; createdAt?: string; updatedAt?: string }[],
   ) => void;
 
   /**
@@ -357,6 +357,12 @@ interface ItineraryState {
   /** 지금 보고 있는 게 course-open 콘텐츠 일정(날짜는 "만든 날"일 뿐)인가 — 화면 어디서든 날짜 대신 "N일차"로 보여 주는 기준(작업지시서 2026-10-19). 뷰어 모드가 꺼지면 false. */
   viewerContentPlan: boolean;
   setViewerModeActive: (active: boolean, title?: string, contentPlan?: boolean) => void;
+  /**
+   * 공유·콘텐츠 일정 화면(/planner/{shareToken})을 떠날 때 부른다 — 뷰어 모드를 끄고, 빌려온 내용이 남아 있던 작업 상태(items 등)를 지금 열린 내 계획(없으면 진행 중 초안)의 저장된 내용으로 되돌린다.
+   * 작업지시서 2026-10-30 "0711 오사카가 하노이로": 뷰어 모드만 끄고 items 를 그대로 두면, 화면을 벗어난 뒤 자동 저장이 activePlanId(오사카)의 서버 행에 빌려온 하노이 내용을 덮어썼다.
+   * 이 화면이 지금 열린 내 계획의 것이면(소유자가 자기 계획을 연 경우) 되돌리지 않는다 — 그때 items 는 내 것이다.
+   */
+  leaveSharedView: (shareToken: string) => void;
 }
 
 export const useItineraryStore = create<ItineraryState>()(
@@ -380,6 +386,24 @@ export const useItineraryStore = create<ItineraryState>()(
       viewerContentPlan: false,
       setViewerModeActive: (active, title, contentPlan) =>
         set({ viewerModeActive: active, viewerPlanTitle: active ? (title ?? null) : null, viewerContentPlan: active && contentPlan === true }),
+      leaveSharedView: (shareToken) => {
+        const state = get();
+        const open = state.activePlanId ? state.savedPlans.find((p) => p.id === state.activePlanId) : state.draft;
+        if (open?.shareToken != null && open.shareToken === shareToken) {
+          set({ viewerModeActive: false, viewerPlanTitle: null, viewerContentPlan: false });
+          return;
+        }
+        set({
+          viewerModeActive: false,
+          viewerPlanTitle: null,
+          viewerContentPlan: false,
+          items: open?.items ?? [],
+          places: open?.places ?? [],
+          activeDate: open?.activeDate ?? todayISODate(),
+          currentCity: open?.currentCity ?? "새 여행",
+          region: open?.region ?? state.region,
+        });
+      },
       setCurrentCity: (city) => set({ currentCity: city }),
 
       setActiveDate: (date) => set({ activeDate: date }),
@@ -773,10 +797,13 @@ export const useItineraryStore = create<ItineraryState>()(
         // every currentCity-gated UI already treats "" as "unknown" and
         // falls back gracefully (no lodging CTA / Trip.com's own
         // cityId-missing fallback to Naver, see tripComCityIds.ts).
+        // 서버의 마지막 수정·만든 시각이 있으면 목록의 "수정 N/N"·"만든 날"에 그대로 쓴다(없으면 지금).
+        const ms = (iso?: string) => (iso && Number.isFinite(Date.parse(iso)) ? Date.parse(iso) : undefined);
         const toSavedPlan = (r: NonNullable<ReturnType<typeof remoteById.get>>, localId: string, knownCity = ""): SavedPlan => ({
           id: localId,
           name: r.title,
-          savedAt: Date.now(),
+          savedAt: ms(r.updatedAt) ?? Date.now(),
+          ...(ms(r.createdAt) != null ? { createdAt: ms(r.createdAt) } : {}),
           items: r.placesData,
           places: placesFromItems(r.placesData),
           activeDate: r.placesData[0]?.date ?? todayISODate(),

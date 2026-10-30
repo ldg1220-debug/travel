@@ -36,7 +36,7 @@ export const GET = withApiErrorHandling(async () => {
   }
 
   const result = await pool.query(
-    `select id, title, region, "placesData", "shareToken", "isDraft" from itineraries where "userId" = $1 order by updated_at desc`,
+    `select id, title, region, "placesData", "shareToken", "isDraft", created_at as "createdAt", updated_at as "updatedAt" from itineraries where "userId" = $1 order by updated_at desc`,
     [session.user.id],
   );
   const draft = result.rows.find((r) => r.isDraft) ?? null;
