@@ -29,6 +29,8 @@ export const FEATURE_EVENT_NAMES = [
   // /planner/{shareToken}에서의 plan_copy_click/completed로 이어서
   // 추적된다 — 이 이벤트는 "코스 페이지에서 CTA를 눌렀다"만 남긴다.
   "course_page_cta_click",
+  // 작업지시서 2026-10-30 "숙소 제휴 링크" §1④ — 숙소 제휴 버튼 클릭 { provider, region, day, hasDates }.
+  "lodging_click",
 ] as const;
 export type FeatureEventName = (typeof FEATURE_EVENT_NAMES)[number];
 

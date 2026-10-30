@@ -7,7 +7,7 @@ import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
 import { GoogleAttribution } from "@/components/GoogleAttribution";
-import { getCourseBrief, peekBrief, UnsupportedRegionError, type CourseBrief, type CourseDays } from "@/lib/server/courseBrief";
+import { getCourseBrief, peekBrief, resolveScope, UnsupportedRegionError, type CourseBrief, type CourseDays } from "@/lib/server/courseBrief";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
 import { CoursePageUnavailableError, judgeCourseBrief, resolveCoursePageRoute } from "@/lib/server/coursePageGate";
 import { fetchConfirmedCoursePages, parentOfRegion, pickRelatedCourseLinks } from "@/lib/server/coursePageIndex";
@@ -26,6 +26,8 @@ import {
 } from "@/lib/coursePages";
 import { CourseCtaLink } from "@/components/CourseCtaLink";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
+import { LodgingAffiliateLinks } from "@/components/LodgingAffiliateLinks";
+import { lodgingAffiliateProviders } from "@/lib/lodgingAffiliate";
 
 /**
  * `/course/{지역}/{일수}` — 작업지시서 2026-09-18 "트레쥴이 구글에
@@ -233,6 +235,8 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
   const dayGroups = groupSpotsByDay(brief);
   const [relatedPosts, confirmed] = await Promise.all([fetchRelatedTripPosts(region).catch(() => []), fetchConfirmedCoursePages()]);
   const related = pickRelatedCourseLinks({ region, days }, confirmed, parentOfRegion);
+  // 이 지역 숙소 보기(작업지시서 2026-10-30) — 날짜 없는 도시 단위 검색 링크, 제휴 링크가 있을 때만 보인다.
+  const lodgingLinks = lodgingAffiliateProviders({ city: region, region: resolveScope(region) === "domestic" ? "domestic" : "international" });
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6">
@@ -297,6 +301,8 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
       </div>
       {/* 평점은 코스에 없다 — 이름·위치가 Google 콘텐츠라 출처만 밝힌다(작업지시서 2026-10-20). */}
       <GoogleAttribution variant="place" className="mt-3" />
+
+      <LodgingAffiliateLinks region={region} providers={lodgingLinks} />
 
       {(related.sameRegion.length > 0 || related.sameCountry.length > 0) && (
         <nav aria-label="관련 코스" className="mt-8 border-t border-slate-100 pt-4 dark:border-slate-800">

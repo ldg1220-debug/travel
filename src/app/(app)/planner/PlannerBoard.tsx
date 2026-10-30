@@ -42,6 +42,7 @@ import {
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { AffiliateDisclosureNote } from "@/components/AffiliateDisclosureNote";
 import { bookingProviders, hasAffiliateLink } from "@/lib/affiliates";
+import { lodgingAffiliateProviders, mergeLodgingProviders, nextIsoDate, stayDatesFromItems } from "@/lib/lodgingAffiliate";
 import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { LoginModal } from "@/components/LoginModal";
@@ -740,7 +741,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // 2곳 이상 채운 뒤 뜨는 배너)에서 열었는지 — 전환 추적(logLodgingCtaEvent)
   // 이 두 위치 중 어디가 더 잘 눌리는지 나중에 비교할 수 있게 같이 남긴다.
   const [lodgingPickerPlacement, setLodgingPickerPlacement] = useState<"header" | "timeline" | null>(null);
-  const lodgingProviders = useMemo(() => (currentCity ? bookingProviders(currentCity, region) : []), [currentCity, region]);
+  // 작업지시서 2026-10-30 — Travelpayouts 제휴 링크(Agoda · Trip.com · Booking.com, 일본은 Rakuten)를 먼저, 기존 직접 제휴 링크는 뒤에, 커미션 없는 네이버는 맨 아래.
+  // 계획의 날짜가 있으면 체크인/체크아웃에 실린다(날짜 미정이면 생략).
+  const lodgingProviders = useMemo(() => {
+    if (!currentCity) return [];
+    return mergeLodgingProviders(lodgingAffiliateProviders({ city: currentCity, region, ...stayDatesFromItems(items), today: todayISODate() }), bookingProviders(currentCity, region));
+  }, [currentCity, region, items]);
   // Travelpayouts Drive 스니펫을 이 페이지가 실제로 제휴 링크를 보여줄
   // 때만 불러온다 — 작업지시서 2026-09-11 "계획 탭 동선을 실제 경로로"
   // §4: 계획 탭은 도시에 따라 숙소 제휴 링크가 있을 수도, 없을 수도 있어
@@ -752,6 +758,26 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   useEffect(() => {
     if (hasAffiliateLink(lodgingProviders)) loadTravelpayoutsDriveScript();
   }, [lodgingProviders]);
+  // "○일차 일정 근처 숙소 보기"(timeline) — 그 날짜 하루(체크인 = 그 날, 체크아웃 = 다음 날)와 그 날 일정의 중심 좌표로 만든다. 좌표는 지원하는 공급자(Booking.com)만 쓴다.
+  const nearbyDay = useMemo(() => {
+    const dayItems = items.filter((i) => i.date === activeDate);
+    const dates = [...new Set(items.map((i) => i.date))].sort();
+    const dayNumber = items.find((i) => i.date === activeDate && i.dayNumber != null)?.dayNumber ?? dates.indexOf(activeDate) + 1;
+    const undated = items.some((i) => i.dayNumber != null);
+    const coords =
+      dayItems.length > 0
+        ? { lat: dayItems.reduce((n, i) => n + i.coordinates.lat, 0) / dayItems.length, lng: dayItems.reduce((n, i) => n + i.coordinates.lng, 0) / dayItems.length }
+        : undefined;
+    return { dayNumber: dayNumber > 0 ? dayNumber : undefined, coords, dates: undated ? {} : { checkIn: activeDate, checkOut: nextIsoDate(activeDate) } };
+  }, [items, activeDate]);
+  const pickerProviders = useMemo(() => {
+    if (!currentCity) return [];
+    if (lodgingPickerPlacement !== "timeline") return lodgingProviders;
+    return mergeLodgingProviders(
+      lodgingAffiliateProviders({ city: currentCity, region, ...nearbyDay.dates, coords: nearbyDay.coords, day: nearbyDay.dayNumber, today: todayISODate() }),
+      bookingProviders(currentCity, region),
+    );
+  }, [currentCity, region, lodgingPickerPlacement, lodgingProviders, nearbyDay]);
   const openLodgingPicker = (placement: "header" | "timeline") => {
     if (!currentCity) return;
     setLodgingPickerPlacement(placement);
@@ -3080,7 +3106,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             (PR #204/#205) hasAffiliateLink가 항상 true는 아니다 — 배지·
             대가성 고지 둘 다 실제 제휴 링크가 하나라도 있을 때만 뜨게
             조건부로 둔다. */}
-        {lodgingPickerPlacement && currentCity && lodgingProviders.length > 0 && (
+        {lodgingPickerPlacement && currentCity && pickerProviders.length > 0 && (
           <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setLodgingPickerPlacement(null)} />
             <div className="relative w-full max-w-sm rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
@@ -3088,7 +3114,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 <h3 className="flex items-center gap-1.5 text-[15px] font-bold text-slate-900">
                   <CordixIcon name="bed" size={16} className="text-brand-600" />
                   {currentCity} 숙소 예약
-                  {hasAffiliateLink(lodgingProviders) && (
+                  {hasAffiliateLink(pickerProviders) && (
                     <span className="rounded bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-400">제휴</span>
                   )}
                 </h3>
@@ -3101,9 +3127,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 </button>
               </div>
               <p className="mb-3 text-[12.5px] text-slate-500">이 여행 지역 기준으로 숙소를 검색해요.</p>
-              {hasAffiliateLink(lodgingProviders) && <AffiliateDisclosureNote className="mb-3 text-[11px] text-slate-400" />}
+              {hasAffiliateLink(pickerProviders) && <AffiliateDisclosureNote className="mb-3 text-[11px] text-slate-400" />}
               <div className="grid grid-cols-1 gap-2">
-                {lodgingProviders.map((p) => (
+                {pickerProviders.map((p) => (
                   <a
                     key={p.key}
                     href={p.url}
@@ -3112,6 +3138,12 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     rel="sponsored nofollow noreferrer"
                     onClick={() => {
                       logLodgingCtaEvent("click", lodgingPickerPlacement, currentCity, region, p.label, p.isAffiliate);
+                      trackFeatureEvent("lodging_click", "planner", {
+                        provider: p.key,
+                        region,
+                        day: lodgingPickerPlacement === "timeline" ? (nearbyDay.dayNumber ?? null) : null,
+                        hasDates: lodgingPickerPlacement === "timeline" ? Boolean(nearbyDay.dates.checkIn) : Boolean(stayDatesFromItems(items).checkIn),
+                      });
                       setLodgingPickerPlacement(null);
                     }}
                     style={{ color: p.brand, borderColor: `${p.brand}55` }}
