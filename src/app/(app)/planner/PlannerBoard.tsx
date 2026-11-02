@@ -3135,7 +3135,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     href={p.url}
                     target="_blank"
                     // sponsored+nofollow per Google's affiliate-link policy; noreferrer for privacy.
-                    rel="sponsored nofollow noreferrer"
+                    rel={p.isAffiliate ? "sponsored nofollow noreferrer" : "nofollow noreferrer"}
                     onClick={() => {
                       logLodgingCtaEvent("click", lodgingPickerPlacement, currentCity, region, p.label, p.isAffiliate);
                       trackFeatureEvent("lodging_click", "planner", {

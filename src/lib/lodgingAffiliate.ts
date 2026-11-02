@@ -42,6 +42,10 @@ export const KLOOK_CITY_IDS: Readonly<Record<string, string>> = {
   세부: "c97-cebu",
   타이베이: "c19-taipei",
   부산: "c46-busan",
+  // 작업지시서 2026-11-02 "#350 검증" — Klook 사이트에서 확인된 도시 숙소 페이지
+  후쿠오카: "c5209-fukuoka",
+  제주: "c20544-jeju",
+  경주: "c8928-gyeongju",
 };
 
 export function readTpEnv(): TpEnv {

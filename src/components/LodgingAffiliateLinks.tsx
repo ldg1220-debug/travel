@@ -20,7 +20,7 @@ export function LodgingAffiliateLinks({ region, providers, surface = "course" }:
             <a
               href={p.url}
               target="_blank"
-              rel="sponsored nofollow noreferrer"
+              rel={p.isAffiliate ? "sponsored nofollow noreferrer" : "nofollow noreferrer"} // 네이버는 제휴가 아니므로 sponsored 를 달지 않는다
               onClick={() => trackFeatureEvent("lodging_click", surface, { provider: p.key, region, day: null, hasDates: false })}
               style={{ color: p.brand, borderColor: `${p.brand}55` }}
               className="inline-flex h-9 items-center rounded-full border bg-white px-3.5 text-[12.5px] font-semibold hover:bg-slate-50 dark:bg-slate-900"
