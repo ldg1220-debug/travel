@@ -95,12 +95,16 @@ describe("Klook 호텔", () => {
     expect(u.searchParams.get("u")).toBe("https://www.klook.com/ko/destination/c29-osaka/3-hotel/");
   });
 
-  it("확인된 9개 도시는 도시별 호텔 페이지, 확인 못 한 도시(후쿠오카·제주·경주)는 공통 랜딩 /ko/hotels/ — 짐작하지 않는다", () => {
-    expect(Object.keys(KLOOK_CITY_IDS).sort()).toEqual(["다낭", "도쿄", "방콕", "부산", "세부", "오사카", "타이베이", "하노이", "홍콩"].sort());
+  it("확인된 12개 도시는 도시별 호텔 페이지, 확인 못 한 도시는 공통 랜딩 /ko/hotels/ — 짐작하지 않는다", () => {
+    expect(Object.keys(KLOOK_CITY_IDS).sort()).toEqual(["경주", "다낭", "도쿄", "방콕", "부산", "세부", "오사카", "제주", "타이베이", "하노이", "홍콩", "후쿠오카"].sort());
     const target = (city: string, region: "international" | "domestic") => new URL(new URL(lodgingAffiliateProviders({ city, region }, readTpEnv()).find((p) => p.key === "klook-hotel")!.url).searchParams.get("u")!).pathname;
     expect(target("도쿄", "international")).toBe("/ko/destination/c28-tokyo/3-hotel/");
     expect(target("부산", "domestic")).toBe("/ko/destination/c46-busan/3-hotel/");
-    for (const [city, region] of [["후쿠오카", "international"], ["제주", "domestic"], ["경주", "domestic"]] as const) expect(target(city, region)).toBe("/ko/hotels/");
+    // 작업지시서 2026-11-02 "#350 검증" — Klook 사이트에서 확인된 3곳
+    expect(target("후쿠오카", "international")).toBe("/ko/destination/c5209-fukuoka/3-hotel/");
+    expect(target("제주", "domestic")).toBe("/ko/destination/c20544-jeju/3-hotel/");
+    expect(target("경주", "domestic")).toBe("/ko/destination/c8928-gyeongju/3-hotel/");
+    for (const [city, region] of [["광주", "domestic"], ["아틀란티스", "international"]] as const) expect(target(city, region)).toBe("/ko/hotels/"); // 확인 못 한 도시는 공통 랜딩
   });
 
   it("날짜·좌표·인원을 도착 URL 에 싣지 않는다", () => {

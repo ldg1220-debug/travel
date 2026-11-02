@@ -18,4 +18,10 @@ describe("LodgingAffiliateLinks", () => {
     expect(html).toContain("일부 링크는 제휴 링크로, 예약 시 트레쥴에 수수료가 지급될 수 있어요.");
     expect(html.match(/rel="sponsored nofollow noreferrer"/g)).toHaveLength(2);
   });
+  // 작업지시서 2026-11-02 "#350 검증" §2② — 네이버(제휴 아님)에는 sponsored 를 달지 않는다
+  it("제휴가 아닌 보조 링크(네이버)는 rel 에 sponsored 가 없다", () => {
+    const html = renderToStaticMarkup(createElement(LodgingAffiliateLinks, { region: "경주", providers: [prov("klook-hotel", true), prov("naver", false)] }));
+    expect(html.match(/rel="sponsored nofollow noreferrer"/g)).toHaveLength(1);
+    expect(html.match(/rel="nofollow noreferrer"/g)).toHaveLength(1);
+  });
 });
