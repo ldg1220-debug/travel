@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { isJapanCity, lodgingAffiliateProviders, mergeLodgingProviders, nextIsoDate, stayDatesFromItems, type TpEnv } from "./lodgingAffiliate";
+import { isJapanCity, KLOOK_CITY_IDS, lodgingAffiliateProviders, readTpEnv, mergeLodgingProviders, nextIsoDate, stayDatesFromItems, type TpEnv } from "./lodgingAffiliate";
 import type { BookingProvider } from "./affiliates";
 
 const env = (campaign: Partial<TpEnv["campaign"]> = {}, program: Partial<TpEnv["program"]> = {}): TpEnv => ({
   marker: "765548",
   trs: "563085",
-  campaign: { agoda: "", trip: "", booking: "", rakuten: "", ...campaign },
-  program: { agoda: "", trip: "", booking: "", rakuten: "", ...program },
+  campaign: { agoda: "", trip: "", booking: "", rakuten: "", klook: "", ...campaign },
+  program: { agoda: "", trip: "", booking: "", rakuten: "", klook: "", ...program },
 });
 const decodeTarget = (url: string) => new URL(url).searchParams.get("u")!;
 
@@ -72,6 +72,52 @@ describe("lodgingAffiliateProviders", () => {
       const t = new URL(decodeTarget(p.url));
       expect(["/search", "/hotels/list", "/searchresults.ko.html"]).toContain(t.pathname);
     }
+  });
+});
+
+// 작업지시서 2026-11-02 — Klook 호텔(이미 연결, campaign_id 137 · p 4110)
+describe("Klook 호텔", () => {
+  it("코드 기본값으로 켜져 있다 — campaign_id 137 · p 4110 (환경 변수 없이도)", () => {
+    const e = readTpEnv();
+    expect(e.campaign.klook).toBe("137");
+    expect(e.program.klook).toBe("4110");
+    expect(e.marker).toBe("765548");
+    expect(e.trs).toBe("563085");
+  });
+
+  it("오사카: 추적 링크(tp.media · marker · trs · campaign_id=137 · p=4110 · sub_id) + 도착 URL 이 c29-osaka 호텔 페이지", () => {
+    const [klook] = lodgingAffiliateProviders({ city: "오사카", region: "international", day: 2 }, readTpEnv());
+    expect(klook.key).toBe("klook-hotel");
+    expect(klook.isAffiliate).toBe(true);
+    const u = new URL(klook.url);
+    expect(u.origin + u.pathname).toBe("https://tp.media/r");
+    expect(Object.fromEntries(u.searchParams)).toMatchObject({ campaign_id: "137", marker: "765548", p: "4110", sub_id: "tradule_오사카_2", trs: "563085" });
+    expect(u.searchParams.get("u")).toBe("https://www.klook.com/ko/destination/c29-osaka/3-hotel/");
+  });
+
+  it("확인된 9개 도시는 도시별 호텔 페이지, 확인 못 한 도시(후쿠오카·제주·경주)는 공통 랜딩 /ko/hotels/ — 짐작하지 않는다", () => {
+    expect(Object.keys(KLOOK_CITY_IDS).sort()).toEqual(["다낭", "도쿄", "방콕", "부산", "세부", "오사카", "타이베이", "하노이", "홍콩"].sort());
+    const target = (city: string, region: "international" | "domestic") => new URL(new URL(lodgingAffiliateProviders({ city, region }, readTpEnv()).find((p) => p.key === "klook-hotel")!.url).searchParams.get("u")!).pathname;
+    expect(target("도쿄", "international")).toBe("/ko/destination/c28-tokyo/3-hotel/");
+    expect(target("부산", "domestic")).toBe("/ko/destination/c46-busan/3-hotel/");
+    for (const [city, region] of [["후쿠오카", "international"], ["제주", "domestic"], ["경주", "domestic"]] as const) expect(target(city, region)).toBe("/ko/hotels/");
+  });
+
+  it("날짜·좌표·인원을 도착 URL 에 싣지 않는다", () => {
+    const klook = lodgingAffiliateProviders({ city: "오사카", region: "international", checkIn: "2026-12-24", checkOut: "2026-12-27", coords: { lat: 34.6, lng: 135.5 }, adults: 3, today: "2026-11-02" }, readTpEnv()).find((p) => p.key === "klook-hotel")!;
+    expect(new URL(klook.url).searchParams.get("u")).toBe("https://www.klook.com/ko/destination/c29-osaka/3-hotel/");
+  });
+
+  it("순서: 승인된 공급자(Agoda · Trip.com · Booking) → Klook → 네이버(보조) — 승인 전에는 Klook 이 첫 버튼", () => {
+    const base = { city: "부산", region: "domestic" as const };
+    expect(lodgingAffiliateProviders(base, readTpEnv()).map((p) => p.key)).toEqual(["klook-hotel", "naver"]); // 지금: Agoda 등은 숨김
+    expect(lodgingAffiliateProviders(base, { ...readTpEnv(), campaign: { ...readTpEnv().campaign, agoda: "11", booking: "6" } }).map((p) => p.key)).toEqual(["agoda", "booking", "klook-hotel", "naver"]);
+    const legacy: BookingProvider[] = [{ key: "hotels", label: "h", brand: "#000", url: "https://x/h", isAffiliate: true }];
+    expect(mergeLodgingProviders(lodgingAffiliateProviders(base, readTpEnv()), legacy).map((p) => p.key)).toEqual(["hotels", "klook-hotel", "naver"]);
+  });
+
+  it("해외 도시도 Klook 이 첫 버튼(Agoda 등 숨김) — 네이버는 해외에 붙지 않는다", () => {
+    expect(lodgingAffiliateProviders({ city: "방콕", region: "international" }, readTpEnv()).map((p) => p.key)).toEqual(["klook-hotel"]);
   });
 });
 

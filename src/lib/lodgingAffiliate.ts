@@ -11,6 +11,7 @@ import type { Region } from "./types";
  *
  * 환경 변수(브라우저에서 링크를 조립하므로 NEXT_PUBLIC_ 이어야 번들에 들어간다):
  *   NEXT_PUBLIC_TP_CAMPAIGN_AGODA / _TRIPCOM / _BOOKING / _RAKUTEN — 승인 후 Travelpayouts 가 준 campaign_id
+ *   Klook 호텔은 이미 연결돼 있어(블로그의 Klook 활동 링크와 같은 campaign_id 137 · p 4110) 코드 기본값으로 켜져 있다 — NEXT_PUBLIC_TP_CAMPAIGN_KLOOK / _PROGRAM_KLOOK 로 덮어쓴다.
  *   NEXT_PUBLIC_TP_PROGRAM_AGODA / _TRIPCOM / _BOOKING / _RAKUTEN   — (선택) 프로그램 id `p` — 대시보드가 만든 추적 링크에 `p=` 가 있으면 같은 값을 넣는다
  *   NEXT_PUBLIC_TP_MARKER / NEXT_PUBLIC_TP_TRS — 기본 765548 / 563085
  *
@@ -19,9 +20,29 @@ import type { Region } from "./types";
 export interface TpEnv {
   marker: string;
   trs: string;
-  campaign: { agoda: string; trip: string; booking: string; rakuten: string };
-  program: { agoda: string; trip: string; booking: string; rakuten: string };
+  campaign: { agoda: string; trip: string; booking: string; rakuten: string; klook: string };
+  program: { agoda: string; trip: string; booking: string; rakuten: string; klook: string };
 }
+
+// 작업지시서 2026-11-02 — Klook 은 이미 연결된 프로그램이고 실제 동작 중인 추적 링크(블로그, 수익 귀속 확인)가 campaign_id=137 · p=4110 이다.
+const KLOOK_DEFAULT_CAMPAIGN = "137";
+const KLOOK_DEFAULT_PROGRAM = "4110";
+
+/**
+ * Klook 도시별 호텔 페이지(`/ko/destination/{cityId}/3-hotel/`)의 cityId — Klook 사이트에서 확인된 도시만. 여기 없는 도시(후쿠오카·제주·경주 등)는 확인하지 못했으므로 짐작으로 채우지 않고
+ * 공통 호텔 랜딩(`/ko/hotels/`)으로 보낸다.
+ */
+export const KLOOK_CITY_IDS: Readonly<Record<string, string>> = {
+  오사카: "c29-osaka",
+  도쿄: "c28-tokyo",
+  방콕: "c4-bangkok",
+  다낭: "c74-da-nang",
+  홍콩: "c2-hong-kong",
+  하노이: "c34-hanoi",
+  세부: "c97-cebu",
+  타이베이: "c19-taipei",
+  부산: "c46-busan",
+};
 
 export function readTpEnv(): TpEnv {
   // process.env.NEXT_PUBLIC_* 는 정적 참조여야 Next 가 번들에 인라인한다.
@@ -34,12 +55,14 @@ export function readTpEnv(): TpEnv {
       trip: t(process.env.NEXT_PUBLIC_TP_CAMPAIGN_TRIPCOM),
       booking: t(process.env.NEXT_PUBLIC_TP_CAMPAIGN_BOOKING),
       rakuten: t(process.env.NEXT_PUBLIC_TP_CAMPAIGN_RAKUTEN),
+      klook: t(process.env.NEXT_PUBLIC_TP_CAMPAIGN_KLOOK) || KLOOK_DEFAULT_CAMPAIGN,
     },
     program: {
       agoda: t(process.env.NEXT_PUBLIC_TP_PROGRAM_AGODA),
       trip: t(process.env.NEXT_PUBLIC_TP_PROGRAM_TRIPCOM),
       booking: t(process.env.NEXT_PUBLIC_TP_PROGRAM_BOOKING),
       rakuten: t(process.env.NEXT_PUBLIC_TP_PROGRAM_RAKUTEN),
+      klook: t(process.env.NEXT_PUBLIC_TP_PROGRAM_KLOOK) || KLOOK_DEFAULT_PROGRAM,
     },
   };
 }
@@ -110,6 +133,12 @@ export function lodgingAffiliateProviders(req: LodgingRequest, env: TpEnv = read
   if (env.campaign.rakuten && req.region === "international" && isJapanCity(city)) {
     out.push({ key: "rakuten", label: "라쿠텐 트래블", brand: "#bf0000", url: tpLink("https://travel.rakuten.co.jp/", "rakuten", subId, env), isAffiliate: true });
   }
+  // Klook 호텔(커미션 8%, 아시아 호텔) — 날짜·좌표는 도시 페이지가 받지 않아 생략한다. 도시 매핑이 없으면 공통 호텔 랜딩.
+  if (env.campaign.klook) {
+    const cityId = KLOOK_CITY_IDS[city];
+    const target = cityId ? `https://www.klook.com/ko/destination/${cityId}/3-hotel/` : "https://www.klook.com/ko/hotels/";
+    out.push({ key: "klook-hotel", label: "Klook에서 숙소 보기", brand: "#ff5b00", url: tpLink(target, "klook", subId, env), isAffiliate: true });
+  }
   // 국내는 네이버를 커미션 없는 보조 링크로 맨 아래에 둔다(제휴 링크가 있든 없든).
   if (req.region === "domestic") {
     out.push({ key: "naver", label: "네이버에서 예약 정보 보기", brand: "#03c75a", url: `https://search.naver.com/search.naver?query=${encodeURIComponent(`${city} 숙소 예약`)}`, isAffiliate: false });
@@ -122,7 +151,9 @@ export function lodgingAffiliateProviders(req: LodgingRequest, env: TpEnv = read
  * 커미션 없는 보조 링크(네이버)는 맨 아래에 한 번만.
  */
 export function mergeLodgingProviders(primary: BookingProvider[], legacy: BookingProvider[]): BookingProvider[] {
-  const affiliate = [...primary.filter((p) => p.isAffiliate), ...legacy.filter((p) => p.isAffiliate && !primary.some((x) => x.key === p.key))];
+  const merged = [...primary.filter((p) => p.isAffiliate), ...legacy.filter((p) => p.isAffiliate && !primary.some((x) => x.key === p.key))];
+  // Klook 호텔은 승인된 다른 공급자(Agoda · Trip.com · Booking 등) 뒤, 네이버(보조) 앞 — 작업지시서 2026-11-02 §1②.
+  const affiliate = [...merged.filter((p) => p.key !== "klook-hotel"), ...merged.filter((p) => p.key === "klook-hotel")];
   const fallback = [...primary, ...legacy].filter((p) => !p.isAffiliate);
   const seen = new Set<string>();
   const dedupedFallback = fallback.filter((p) => (seen.has(p.key) ? false : (seen.add(p.key), true)));
