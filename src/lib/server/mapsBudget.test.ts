@@ -16,7 +16,9 @@ import {
   mapsDayKey,
   mapsOpsKey,
   mapsQuota429Key,
+  mapsRouteDayKey,
   mapsSourceDayKey,
+  runWithMapsRoute,
   placesFieldTier,
   reserveMapsOp,
   runWithMapsSource,
@@ -189,6 +191,23 @@ describe("일 단위 페이싱", () => {
     expect(store.get(mapsSourceDayKey("text-pro", "rebuild", day20))).toBe(130); // 거절된 호출은 세지 않는다
     fakeStore({ [mapsOpsKey("text-pro", day20)]: 1400, [mapsDayKey("text-pro", day20)]: 40 });
     expect((await runWithMapsSource("rebuild", () => reserveMapsOp("text-pro", day20))).allowed).toBe(true);
+  });
+  // 작업지시서 2026-11-03 "text-pro user 일일 상한 소진" §1① — 사용자 출처는 경로(user:search …)별로도 센다. 되돌릴 때도 같은 경로 키를 뺀다.
+  it("사용자 출처 호출은 경로별 카운터도 올리고, 정산 실패(429/5xx)면 되돌린다. 백그라운드 출처는 경로를 세지 않는다", async () => {
+    const day20 = new Date("2026-10-20T15:00:00Z");
+    const store = fakeStore({});
+    await runWithMapsRoute("search", () => reserveMapsOp("text-pro", day20));
+    await runWithMapsRoute("search", () => reserveMapsOp("text-pro", day20));
+    await runWithMapsRoute("spot-photo", () => reserveMapsOp("text-pro", day20));
+    await reserveMapsOp("text-pro", day20); // 경로 표시 없음 → other
+    expect(store.get(mapsRouteDayKey("text-pro", "search", day20))).toBe(2);
+    expect(store.get(mapsRouteDayKey("text-pro", "spot-photo", day20))).toBe(1);
+    expect(store.get(mapsRouteDayKey("text-pro", "other", day20))).toBe(1);
+    expect(store.get(mapsSourceDayKey("text-pro", "user", day20))).toBe(4);
+    await runWithMapsRoute("search", () => settleGuarded({ sku: "text-pro", kind: "text" }, 503, day20));
+    expect(store.get(mapsRouteDayKey("text-pro", "search", day20))).toBe(1);
+    await runWithMapsSource("warm", () => runWithMapsRoute("search", () => reserveMapsOp("text-pro", day20)));
+    expect(store.get(mapsRouteDayKey("text-pro", "search", day20))).toBe(1); // warm 은 경로를 세지 않는다
   });
   // 작업지시서 2026-10-22 "#336 검증" §2① — 워밍·재생성 몫은 warm+rebuild 사용분만으로 센다. 사용자 사용이 오늘 상한의 절반을 넘어도 재생성은 자기 몫(50%)까지 돈다.
   it("사용자 요청이 먼저 절반을 넘겨도 재생성·워밍은 자기 몫만큼 돈다(총 사용이 오늘 상한 안일 때)", async () => {

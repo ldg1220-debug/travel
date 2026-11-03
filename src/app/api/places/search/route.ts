@@ -1,4 +1,6 @@
-import { chooseGuardedMask, settleGuarded } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, runWithMapsRoute, settleGuarded } from "@/lib/server/mapsBudget";
+import { getCachedSearch, isQueryTooShort, searchCacheKey, setCachedSearch } from "@/lib/server/placesSearchCache";
+import { isBotUserAgent } from "@/lib/botUserAgent";
 import { NextRequest, NextResponse } from "next/server";
 import { getTrendingPlaces } from "@/lib/server/getTrendingPlaces";
 import { DOMESTIC_PLACES } from "@/lib/mockPlacesDomestic";
@@ -95,7 +97,10 @@ const NEAR_RADIUS_M = 3000;
 /** Category spread for a bare "X 근처" (no "Y" named) — one query per label, merged, so the grouped live-results UI has something in each theme bucket instead of whatever one generic query happened to surface. */
 const NEAR_FANOUT_LABELS = ["관광명소", "맛집", "카페", "술집", "숙소"];
 
-export const GET = withApiErrorHandling(async (request: NextRequest) => {
+// 작업지시서 2026-11-03 "text-pro user 일일 상한 소진" §1① — 이 라우트의 Places 호출은 health todayBySource["user:search"] 로 센다.
+export const GET = withApiErrorHandling((request: NextRequest) => runWithMapsRoute("search", () => handleSearch(request)));
+
+async function handleSearch(request: NextRequest): Promise<NextResponse> {
   // 지도 POI 클릭 등 이미 Google place_id를 아는 경우의 단건 조회 —
   // 작업지시서 2026-09-09 "계획 탭 지도에서 장소 정보가 좌표만 나옵니다"
   // §3. region/q와 무관하게(place_id 자체가 전역적으로 유일하다) 가장
@@ -112,10 +117,26 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // "더 보기" continuation — a Google `nextPageToken` from an earlier
   // response, only meaningful for the domestic Google-fallback path today.
   const pageToken = request.nextUrl.searchParams.get("pageToken") ?? undefined;
-  if (!query && !userLocation && !pageToken) return NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
+  const empty = () => NextResponse.json({ places: [], source: "mock" satisfies PlaceSearchSource });
+  if (!query && !userLocation && !pageToken) return empty();
+  // 최소 글자 수 — 한 글자 입력 중 호출을 막는다(좌표·pageToken 요청은 제외). 작업지시서 2026-11-03 §1②
+  if (!userLocation && !pageToken && isQueryTooShort(query)) return empty();
+  // 검색 로봇·미리보기 수집기는 Google 을 부르지 않는다 — 작업지시서 2026-11-03 §1③
+  if (isBotUserAgent(request.headers.get("user-agent"))) return empty();
+
+  // 같은 질의 10분 캐시(좌표 요청은 제외) — 실제 Google/Kakao 결과만 담는다.
+  const cacheKey = userLocation ? null : searchCacheKey({ region, category, query: rawQuery, hasToken: Boolean(pageToken) }) + `|${pageToken ?? ""}`;
+  if (cacheKey) {
+    const hit = getCachedSearch<{ places: Place[]; source: PlaceSearchSource }>(cacheKey);
+    if (hit) return NextResponse.json(hit);
+  }
+  const remember = <T extends { source: PlaceSearchSource }>(result: T): T => {
+    if (cacheKey && (result.source === "google" || result.source === "kakao")) setCachedSearch(cacheKey, result);
+    return result;
+  };
 
   if (region === "domestic") {
-    return NextResponse.json(await searchDomestic(query, near, userLocation, pageToken));
+    return NextResponse.json(remember(await searchDomestic(query, near, userLocation, pageToken)));
   }
 
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -124,8 +145,8 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "Google API Key is completely missing" }, { status: 500 });
   }
   const includedType = CATEGORY_TYPE_MAP[category];
-  return NextResponse.json(await searchInternational(query, googleApiKey, includedType, category, near, userLocation));
-});
+  return NextResponse.json(remember(await searchInternational(query, googleApiKey, includedType, category, near, userLocation)));
+}
 
 interface GooglePlaceResult {
   id: string;

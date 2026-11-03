@@ -96,6 +96,26 @@ export function runWithMapsSource<T>(source: MapsCallSource, fn: () => Promise<T
   return sourceContext.run(source, fn);
 }
 
+/**
+ * 사용자 출처("user") 호출의 경로 — 작업지시서 2026-11-03 "text-pro user 일일 상한 소진" §1①. health todayBySource 에 `user:{경로}` 로 나뉘어 나온다.
+ *  search=/api/places/search(검색창·내 주변·장소 탐색) · spot-photo=/api/discover/spot-photo(명소 사진 조회) · course-sync=코스 페이지/API 가 직전 버전 없이 동기로 만든 후보 검색 ·
+ *  pipeline=AutoPipeline 장소 매핑 · other=경로 표시가 없는 호출.
+ */
+export type MapsUserRoute = "search" | "spot-photo" | "course-sync" | "pipeline" | "other";
+export const MAPS_USER_ROUTES: readonly MapsUserRoute[] = ["search", "spot-photo", "course-sync", "pipeline", "other"];
+const routeContext = new AsyncLocalStorage<MapsUserRoute>();
+/** fn 안의 사용자 출처 Places 호출을 route 로 센다(출처가 warm·rebuild 면 경로는 세지 않는다). */
+export function runWithMapsRoute<T>(route: MapsUserRoute, fn: () => Promise<T>): Promise<T> {
+  return routeContext.run(route, fn);
+}
+export function currentMapsRoute(): MapsUserRoute {
+  return routeContext.getStore() ?? "other";
+}
+/** 사용자 출처 호출이면 경로별 카운터를 올리거나(+1) 되돌린다(-1). 백그라운드 출처는 세지 않는다. */
+async function bumpRoute(name: MapsSku | MapsDailyAgg, delta: 1 | -1, now: Date): Promise<void> {
+  if (currentMapsSource() === "user") await bump(mapsRouteDayKey(name, currentMapsRoute(), now), delta);
+}
+
 /** 지금 호출의 출처(워밍 크론이면 "warm", 그 밖엔 "user"). */
 export function currentMapsSource(): MapsCallSource {
   return sourceContext.getStore() ?? "user";
@@ -144,6 +164,10 @@ export function mapsSourceDayKey(name: MapsSku | MapsDailyAgg, source: MapsCallS
 export async function readBackgroundToday(name: MapsSku | MapsDailyAgg, now = new Date()): Promise<number | null> {
   const [w, r] = await Promise.all([readCounter(mapsSourceDayKey(name, "warm", now)), readCounter(mapsSourceDayKey(name, "rebuild", now))]);
   return w == null || r == null ? null : w + r;
+}
+/** 사용자 출처 호출의 경로별 오늘 호출 수(페이싱 SKU) — `/api/health` 의 todayBySource["user:search"] 등. */
+export function mapsRouteDayKey(name: MapsSku | MapsDailyAgg, route: MapsUserRoute, now = new Date()): string {
+  return `maps-ops-day-route:${name}:${route}:${ptDateString(now)}`;
 }
 export function mapsQuota429Key(name: CounterName, now = new Date()): string {
   return `maps-429:${name}:${ptDateString(now)}`;
@@ -254,7 +278,10 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
     );
     if (r.rows.length > 0) {
       await bump(mapsDayKey(sku, now), 1);
-      if (PACED_SKUS.has(sku)) await bump(mapsSourceDayKey(sku, currentMapsSource(), now), 1);
+      if (PACED_SKUS.has(sku)) {
+        await bump(mapsSourceDayKey(sku, currentMapsSource(), now), 1);
+        await bumpRoute(sku, 1, now);
+      }
       return { allowed: true, count: r.rows[0].n, limit };
     }
     if (aggReserved && agg) {
@@ -317,7 +344,10 @@ export async function releaseMapsOp(sku: MapsSku, now = new Date()): Promise<voi
   try {
     await bump(mapsOpsKey(sku, now), -1);
     await bump(mapsDayKey(sku, now), -1);
-    if (PACED_SKUS.has(sku)) await bump(mapsSourceDayKey(sku, currentMapsSource(), now), -1);
+    if (PACED_SKUS.has(sku)) {
+      await bump(mapsSourceDayKey(sku, currentMapsSource(), now), -1);
+      await bumpRoute(sku, -1, now);
+    }
     const agg = aggFor(sku);
     if (agg) {
       await bump(mapsDayKey(agg, now), -1);
@@ -416,7 +446,7 @@ export async function isMapsBudgetExhausted(sku: MapsSku, now = new Date()): Pro
 
 export interface MapsSkuUsage {
   /** 페이싱 SKU 의 오늘 호출 수를 출처별로(user · warm · rebuild) — 봇 요청은 호출을 일으키지 않으므로 항목이 없다(작업지시서 2026-10-21 §2②). */
-  todayBySource?: Record<MapsCallSource, number | null>;
+  todayBySource?: Partial<Record<MapsCallSource | `user:${MapsUserRoute}`, number | null>>;
   count: number | null;
   limit: number;
   freeLimit: number;
@@ -450,7 +480,11 @@ export async function getMapsUsage(now = new Date()): Promise<MapsUsage> {
     skus.map(async (s) => {
       const [count, todayCount, todayLimit] = await Promise.all([readMapsOps(s, now), readMapsOpsToday(s, now), todayLimitFor(s, now)]);
       const bySource = PACED_SKUS.has(s)
-        ? await Promise.all((["user", "warm", "rebuild"] as const).map(async (src) => [src, await readCounter(mapsSourceDayKey(s, src, now))] as const))
+        ? await Promise.all([
+            ...(["user", "warm", "rebuild"] as const).map(async (src) => [src, await readCounter(mapsSourceDayKey(s, src, now))] as const),
+            // 사용자 출처를 경로별로 쪼갠 값 — user 는 전체 합이고, 경로 표시가 생기기 전에 쌓인 호출은 user 에만 있다.
+            ...MAPS_USER_ROUTES.map(async (r) => [`user:${r}` as const, await readCounter(mapsRouteDayKey(s, r, now))] as const),
+          ])
         : null;
       return {
         count,
@@ -458,7 +492,7 @@ export async function getMapsUsage(now = new Date()): Promise<MapsUsage> {
         freeLimit: MAPS_FREE_LIMITS[s],
         todayCount,
         todayLimit,
-        ...(bySource ? { todayBySource: Object.fromEntries(bySource) as Record<MapsCallSource, number | null> } : {}),
+        ...(bySource ? { todayBySource: Object.fromEntries(bySource) as NonNullable<MapsSkuUsage["todayBySource"]> } : {}),
       };
     }),
   );

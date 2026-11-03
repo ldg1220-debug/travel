@@ -38,7 +38,8 @@ export function PlacesSearchInput({ region, onSelect, surface = "planner" }: Pla
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!trimmedQuery) return;
+    // 두 글자 미만은 서버도 Google 을 부르지 않는다(placesSearchCache.MIN_SEARCH_QUERY_CHARS) — 요청 자체를 보내지 않는다.
+    if ([...trimmedQuery.replace(/\s+/g, "")].length < 2) return;
 
     const thisRequestId = ++requestIdRef.current;
 

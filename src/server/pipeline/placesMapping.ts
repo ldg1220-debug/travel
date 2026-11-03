@@ -1,4 +1,4 @@
-import { chooseGuardedMask, settleGuarded } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, runWithMapsRoute, settleGuarded } from "@/lib/server/mapsBudget";
 import type { ResolvedPlace } from "./types";
 
 // Minimal field mask — only what the app stores (id, name, coords). 평점(rating)은 Enterprise 필드라 받지 않는다 —
@@ -17,6 +17,10 @@ export async function resolvePlace(nameGuess: string): Promise<ResolvedPlace | n
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   if (!apiKey) return OFFLINE_FIXTURES[nameGuess] ?? null;
 
+  return runWithMapsRoute("pipeline", () => resolvePlaceGuarded(nameGuess, apiKey));
+}
+
+async function resolvePlaceGuarded(nameGuess: string, apiKey: string): Promise<ResolvedPlace | null> {
   const guarded = await chooseGuardedMask("text", FIELD_MASK); // Pro 필드만
   if (!guarded) return null;
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {

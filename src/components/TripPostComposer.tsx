@@ -557,7 +557,7 @@ function PlaceSearchBox({
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!trimmedQuery) return;
+    if ([...trimmedQuery.replace(/\s+/g, "")].length < 2) return; // 두 글자 미만은 서버도 Google 을 부르지 않는다
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
