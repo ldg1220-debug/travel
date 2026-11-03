@@ -1,7 +1,7 @@
 name: Autopilot
 on:
   schedule:
-    - cron: "10 0,5,11 * * *"   # KST 09:10 · 14:10 · 20:10
+    - cron: "10 1,4,7,10,13,22 * * *"   # KST 07:10 · 10:10 · 13:10 · 16:10 · 19:10 · 22:10 (6회)
   workflow_dispatch:
 concurrency:
   group: autopilot
@@ -24,11 +24,11 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: '--max-turns 80 --allowedTools "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(curl:*),Bash(date:*),mcp__github"'
+          claude_args: '--model claude-sonnet-5-5 --max-turns 80 --allowedTools "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(curl:*),Bash(date:*),mcp__github"'
           prompt: |
             너는 트레쥴(tradule.co.kr, 이 저장소 ldg1220-debug/travel)의 자동 운영자다. 동근님 개입 없이
-            "점검 → 지시서 작성 → 수정 → PR → (다음 실행에서) 검증 → 병합" 을 돌린다. 하루 3회 실행된다.
-            목표: 트래픽·제휴 수익 증대, Google 무료 한도 유지. 트래픽이 아직 적으니 비용 절감이 우선.
+            "점검 → 지시서 작성 → 수정 → PR → (다음 실행에서) 검증 → 병합" 을 돌린다. 하루 6회 실행된다.
+            가장 먼저 docs/autopilot/DIRECTION.md(작업 방향성)를 읽고, 과제 선택은 반드시 그 우선순위를 따른다.
             CLAUDE.md 와 docs/cowork-rules.md 의 규칙을 따른다. 모든 '오늘'은 KST 기준.
  
             ## 1. 열린 PR 처리 (먼저)
@@ -53,7 +53,8 @@ jobs:
  
             ## 3. 수정 작업 (열린 claude[bot] PR 이 없을 때만, 실행당 1건)
             - 우선순위: 2번 이상 → 기존 열린 이슈 중 라벨 autopilot 또는 본문 "@claude" 인 것 →
-              개선 과제(제휴 클릭 동선·색인 코스 품질·SEO·속도 — 근거가 코드/데이터에 있는 것만).
+              DIRECTION.md 의 현재 단계 과제(위에서부터, 근거가 코드/데이터에 있는 것만).
+              DIRECTION.md 의 "하지 않을 것" 은 절대 하지 않는다.
             - 작업 지시서를 docs/work-orders/{오늘}_{이름}.md 로 먼저 쓰고(완료분 10개 유지),
               새 브랜치 autopilot/{오늘}-{이름} 에서 수정 → npx tsc --noEmit · npx eslint . ·
               npx vitest run 통과 확인 → main 대상 PR(본문 = 작업 보고 형식, 제목 앞 [autopilot]).
@@ -61,7 +62,7 @@ jobs:
             - 코스 생성 로직을 바꾸면 COURSE_ALGO_VERSION 규칙을 따르고, 재생성 비용이 늘지 않게.
  
             ## 상한
-            - 오늘 병합된 [autopilot]·claude[bot] PR 이 4개 이상이면 병합·새 작업 중단, 점검·보고만.
+            - 오늘 병합된 [autopilot]·claude[bot] PR 이 6개 이상이면 병합·새 작업 중단, 점검·보고만.
               (GitHub 에서 오늘 병합된 PR 을 조회해서 센다.)
  
             ## 금지
