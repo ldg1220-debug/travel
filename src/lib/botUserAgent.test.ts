@@ -18,6 +18,12 @@ describe("isBotUserAgent", () => {
     "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.0)",
     "Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)",
     "Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 (Applebot/0.1)",
+    // 작업지시서 2026-11-03 §1③ — 사람처럼 보이는 자동화·측정·미리보기
+    "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 Chrome/109.0 Mobile Safari/537.36 Chrome-Lighthouse",
+    "Mozilla/5.0 (Linux; Android 7.0; Moto G (4)) AppleWebKit/537.36 Chrome/119.0 Mobile Safari/537.36 PTST/240101",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36 Playwright/1.48",
+    "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 Puppeteer",
+    "Mozilla/5.0 (Windows NT 6.1; WOW64) SkypeUriPreview Preview/0.5",
   ])("로봇: %s", (ua) => expect(isBotUserAgent(ua)).toBe(true));
 
   it.each([

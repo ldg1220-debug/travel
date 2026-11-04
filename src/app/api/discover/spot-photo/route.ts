@@ -1,4 +1,4 @@
-import { chooseGuardedMask, reserveMapsOp, settleGuarded } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, reserveMapsOp, runWithMapsRoute, settleGuarded } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
@@ -36,7 +36,10 @@ function rememberPhotoName(q: string, photoName: string | null): void {
 // 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" — 사진 참조는 Places 콘텐츠라 CDN 캐시도 하루로(원래 7일).
 const CACHE_HEADERS = { "Cache-Control": "public, max-age=86400, s-maxage=86400" };
 
-export const GET = withApiErrorHandling(async (request: NextRequest) => {
+// 작업지시서 2026-11-03 §1① — 이 라우트의 Places 호출은 health todayBySource["user:spot-photo"] 로 센다.
+export const GET = withApiErrorHandling((request: NextRequest) => runWithMapsRoute("spot-photo", () => handleSpotPhoto(request)));
+
+async function handleSpotPhoto(request: NextRequest): Promise<NextResponse> {
   const q = (request.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 80);
   if (!q) return NextResponse.json({ error: "missing q" }, { status: 400 });
 
@@ -79,4 +82,4 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   if (!photoUri) return NextResponse.json({ error: "no photo uri" }, { status: 404, headers: CACHE_HEADERS });
 
   return NextResponse.redirect(photoUri, { headers: CACHE_HEADERS });
-});
+}

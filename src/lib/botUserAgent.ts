@@ -13,6 +13,10 @@ const BOT_TOKENS = [
   "perplexitybot", "meta-externalagent", "ia_archiver",
   // 작업지시서 2026-10-27 "사람 방문 218" §2② — 사이트맵을 순회하는 그 밖의 수집기
   "seznambot", "dataforseobot", "blexbot", "imagesiftbot", "barkrowler",
+  // 작업지시서 2026-11-03 "text-pro user 상한 소진" §1③ — Mozilla/ 를 달고 사람처럼 보이는 자동화·측정·링크 미리보기 클라이언트
+  "chrome-lighthouse", "lighthouse", "ptst", "gtmetrix", "pingdom", "uptimerobot", "webpagetest", "google-pagerenderer", "google-read-aloud",
+  "playwright", "puppeteer", "phantomjs", "selenium", "cypress",
+  "skypeuripreview", "embedly", "iframely", "cardyb", "mastodon", "bitlybot", "w3c_validator",
 ];
 const BOT_PATTERN = new RegExp(`\\b(?:${BOT_TOKENS.join("|")})\\b`, "i");
 // 일반 패턴 — 이름 목록에 없는 수집기·스크립트 클라이언트. (브라우저 토큰 `Claude/3.x` 는 해당 없음)

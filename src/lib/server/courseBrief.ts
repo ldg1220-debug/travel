@@ -1,6 +1,6 @@
 import { regionCoords } from "@/lib/regionTypicalDays";
 import { PLACES_CONTENT_TTL_MS, PLACES_LATLNG_TTL_MS } from "@/lib/server/placesRetention";
-import { currentMapsSource, isBackgroundSource, isMapsBudgetExhausted, isMapsThrottled, reserveMapsOp, runWithMapsSource } from "@/lib/server/mapsBudget";
+import { currentMapsSource, isBackgroundSource, isMapsBudgetExhausted, isMapsThrottled, reserveMapsOp, runWithMapsRoute, runWithMapsSource } from "@/lib/server/mapsBudget";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after } from "next/server";
 import { bumpCourseCounter, recordAnchorReport, recordRebuildEvent, recordUserAgent } from "@/lib/server/courseBuildStatus";
@@ -5095,7 +5095,8 @@ export async function getCourseBrief(
   // 바깥(이 함수 스코프)에 두면, 동시 요청 중 실제로 run()을 실행하지
   // 않은 쪽의 tracker는 절대 값이 바뀌지 않는다. 성공이든 실패(throw)든
   // 이 Promise 하나로 모든 동시 대기자에게 동일하게 전달된다.
-  return dedupeInFlight(inFlightBriefBuilds, cacheKey, async () => {
+  // 작업지시서 2026-11-03 "text-pro user 일일 상한 소진" §1① — 사용자 요청이 동기로 만드는 후보 검색은 health todayBySource["user:course-sync"] 로 센다.
+  return runWithMapsRoute("course-sync", () => dedupeInFlight(inFlightBriefBuilds, cacheKey, async () => {
     let hadCandidateFetchFailure = false;
     console.log(`[courseBrief] path=build-start key=${cacheKey}`);
     const { result: brief, stats: poolStats } = await collectPoolStats(() =>
@@ -5110,7 +5111,7 @@ export async function getCourseBrief(
       throw new TransientApiFailureError(region, brief.spots.length);
     }
     return brief;
-  });
+  }));
 }
 
 /**
