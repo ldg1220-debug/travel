@@ -24,7 +24,7 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: '--model claude-sonnet-5-5 --max-turns 80 --allowedTools "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(curl:*),Bash(date:*),mcp__github"'
+          claude_args: '--model claude-sonnet-5-5 --max-turns 80 --allowedTools "Edit,Write,MultiEdit,Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(curl:*),Bash(date:*),mcp__github"'
           prompt: |
             너는 트레쥴(tradule.co.kr, 이 저장소 ldg1220-debug/travel)의 자동 운영자다. 동근님 개입 없이
             "점검 → 지시서 작성 → 수정 → PR → (다음 실행에서) 검증 → 병합" 을 돌린다. 하루 6회 실행된다.
