@@ -62,8 +62,9 @@ const WARM_CONCURRENCY = 3; // 지시서 §A-3 권장값
 // WARM_DAILY_MAX = 하루에 갱신할 지역 수(기본 2) — 그 지역의 방문된(만료 임박) 일수는 전부 같은 풀로 만든다. 워밍은 Places 호출을 오늘 상한의 50%까지만 쓴다(mapsBudget).
 // 방문 없는 조합은 만료된 채로 두고 다음 첫 요청 때 만든다(월 예산 가드 안에서). 환경 변수 WARM_DAILY_MAX 로 조정한다.
 const WARM_DAILY_MAX_DEFAULT = 12; // 2026-10-23 "#338 검증" §2② — 2 → 10. 사이트맵 코스 절반이 비어 있어 하루 2지역으로는 줄지 않았다(워밍 몫 = 오늘 상한의 50% 안에서만 돈다)
-// 캐시 TTL 26시간 — 만료 4시간 전(22시간 묵은 것)부터 갱신해 봇이 만료 직후 503 을 보지 않게 한다(2026-10-23 §2④).
-const WARM_MIN_AGE_MS = 22 * 60 * 60 * 1000;
+// 캐시 TTL 26시간, 크론은 하루 1회(24h 간격) — 22h 기준이면 크론 직후 2시간 뒤에 생긴 캐시가 건너뛰어져 만료→missing 이 반복됐다(#357 A안, 동근님 승인).
+// 2시간 미만으로 막 갱신된 것만 건너뛰고 나머지는 매 크론 갱신한다.
+const WARM_MIN_AGE_MS = 2 * 60 * 60 * 1000;
 function warmDailyMax(): number {
   const n = Number(process.env.WARM_DAILY_MAX);
   return Number.isInteger(n) && n >= 0 ? n : WARM_DAILY_MAX_DEFAULT;
@@ -78,7 +79,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 작업지시서 2026-10-28 "사람이 열 때만" — 워밍 대상은 색인 대상 코스(src/data/indexedCourses.json)뿐이고, 만료 4시간 전(22시간 묵은 것)부터 갱신한다.
+  // 작업지시서 2026-10-28 "사람이 열 때만" — 워밍 대상은 색인 대상 코스(src/data/indexedCourses.json)뿐이고, 2시간 이상 묵은 것은 매 크론 갱신한다(#357).
   // 방문 기반 선정·빈 조합 미리 채우기·미뤄진 조합 우선은 폐지했다 — 나머지 코스는 사람이 열 때 만든다.
   const indexedTasks: WarmTask[] = INDEXED_COURSES.map((c) => ({ region: c.region, days: c.days as CourseDays }));
   const expiring = await pickStaleTasks(indexedTasks, indexedTasks.length, { minAgeMs: WARM_MIN_AGE_MS });
