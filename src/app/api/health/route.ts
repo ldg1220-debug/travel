@@ -5,6 +5,7 @@ import { getMapsUsage } from "@/lib/server/mapsBudget";
 import { briefCacheKey, COURSE_ALGO_VERSION, resolveScope } from "@/lib/server/courseBrief";
 import { INDEXED_COURSES } from "@/lib/indexedCourses";
 import { getCourseBuildStatus } from "@/lib/server/courseBuildStatus";
+import { getAffiliateClickStats } from "@/lib/server/affiliateClickStats";
 import { BLOB_ADVANCED_MONTHLY_LIMIT, getBlobAdvancedOps, isBlobLimitError } from "@/lib/server/blobBudget";
 
 /**
@@ -42,7 +43,7 @@ async function checkDb(): Promise<{ status: "ok" | "error"; message?: string }> 
 }
 
 export async function GET() {
-  const [blob, db, maps, courseBuild] = await Promise.all([checkBlob(), checkDb(), getMapsUsage(), getCourseBuildStatus(
+  const [blob, db, maps, affiliateClicks, courseBuild] = await Promise.all([checkBlob(), checkDb(), getMapsUsage(), getAffiliateClickStats(), getCourseBuildStatus(
       COURSE_ALGO_VERSION,
       new Date(),
       undefined,
@@ -62,6 +63,8 @@ export async function GET() {
       maps,
       // 작업지시서 2026-10-21 "v44 재생성 멈춤" §2④⑤ — 코스 새 버전이 만들어지고 있는지(예약 → 시작 → 완료/실패)와 오늘 방문·직전 버전 서빙 수. 비밀 값 없음.
       courseBuild,
+      // DIRECTION.md 백로그 — 제휴 링크 클릭(숙소·eSIM·입장권) 오늘(KST)·7일 합계, provider 별. 수익 판단 지표.
+      affiliateClicks,
       checkedAt: new Date().toISOString(),
     },
     { status: ok ? 200 : 503, headers: { "cache-control": "no-store" } },
