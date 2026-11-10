@@ -27,6 +27,8 @@ import {
 import { CourseCtaLink } from "@/components/CourseCtaLink";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
 import { LodgingAffiliateLinks } from "@/components/LodgingAffiliateLinks";
+import { EsimAffiliateLinks } from "@/components/EsimAffiliateLinks";
+import { esimAffiliateLinks } from "@/lib/travelpayoutsEsim";
 import { lodgingAffiliateProviders } from "@/lib/lodgingAffiliate";
 
 /**
@@ -303,6 +305,8 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
       <GoogleAttribution variant="place" className="mt-3" />
 
       <LodgingAffiliateLinks region={region} providers={lodgingLinks} />
+      {/* 해외 코스만 — 각 사 홈페이지로 가는 제휴 링크(특정 상품 추천 아님). */}
+      {resolveScope(region) !== "domestic" && <EsimAffiliateLinks region={region} links={esimAffiliateLinks("course_page_esim")} />}
 
       {(related.sameRegion.length > 0 || related.sameCountry.length > 0) && (
         <nav aria-label="관련 코스" className="mt-8 border-t border-slate-100 pt-4 dark:border-slate-800">

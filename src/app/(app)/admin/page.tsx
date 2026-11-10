@@ -74,6 +74,8 @@ const FEATURE_EVENT_LABELS: Record<string, string> = {
   plan_save: "계획 저장",
   plan_share: "계획 공유",
   home_hero_cta: "홈 히어로 CTA 클릭",
+  lodging_click: "숙소 링크 클릭",
+  esim_click: "eSIM 링크 클릭",
 };
 
 function formatDate(iso: string): string {

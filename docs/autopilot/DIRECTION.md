@@ -23,7 +23,7 @@ Google 사용량: 각 항목 이번 달 count ≤ freeLimit 의 50%
 진행 규칙(보강): 점검에 이상이 없고 열린 PR 이 없으면 아래 백로그에서 위에서부터 완료 안 된 1건을 반드시 골라 작업한다. 근거가 부족하면 측정·계측 추가부터 한다. '근거 약함'으로 건너뛰지 않는다.
 백로그 (완료 시 PR 에서 체크)
 - [x] #357 A안: WARM_MIN_AGE_MS 22h→2h (승인됨, PR #359 병합)
-- [ ] 해외 코스 페이지에 eSIM 제휴 링크(Yesim·Airalo, 기존 tp.media 형식·marker 765548) + esim_click 이벤트 (11/07 시도 중단분)
+- [x] 해외 코스 페이지에 eSIM 제휴 링크(Yesim·Airalo, 기존 tp.media 형식·marker 765548) + esim_click 이벤트 (11/07 시도 중단분)
 - [ ] 코스 페이지 명소별 "입장권 확인"(Klook 검색 링크, 블로그와 같은 형식) — 입장권이 있는 명소 종류(전망대·테마파크·수족관·박물관)만 + ticket_click 이벤트
 - [ ] 제휴 클릭 집계를 /api/health 에 오늘·7일 합계로 노출(provider 별) — 수익 판단 지표
 - [ ] 블로그 유입(utm_source=maeilg) 랜딩 수를 health 에 노출

@@ -31,6 +31,8 @@ export const FEATURE_EVENT_NAMES = [
   "course_page_cta_click",
   // 작업지시서 2026-10-30 "숙소 제휴 링크" §1④ — 숙소 제휴 버튼 클릭 { provider, region, day, hasDates }.
   "lodging_click",
+  // DIRECTION.md 백로그 — 해외 색인 코스 페이지 eSIM 제휴 링크 클릭 { provider, region }.
+  "esim_click",
 ] as const;
 export type FeatureEventName = (typeof FEATURE_EVENT_NAMES)[number];
 
