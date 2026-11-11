@@ -9,7 +9,7 @@ import { ptDateString } from "./mapsBudget";
 const STATUS_KEY = "course-build:status";
 
 /** human/bot=방문, stale=직전 버전 서빙, sync=직전 버전이 없어 사용자 요청이 동기로 새 버전을 만든 횟수, botRebuild=검색 로봇 요청이 재생성을 일으킨 횟수(설계상 항상 0). */
-export type CourseCounterKind = "human" | "bot" | "internal" | "api" | "stale" | "sync" | "botRebuild";
+export type CourseCounterKind = "human" | "bot" | "internal" | "api" | "stale" | "sync" | "botRebuild" | "blogLanding";
 export function courseCounterKey(kind: CourseCounterKind, now = new Date()): string {
   return `course-build-day:${kind}:${ptDateString(now)}`;
 }
@@ -185,6 +185,8 @@ export interface CourseBuildHealth {
   indexed: { total: number; fresh: number; missing: number } | null;
   /** 오늘 코스 요청의 출처 분포 — human=사람(브라우저+Accept-Language+화면), bot=수집기, internal=TraduleAutoPipeline 등 우리 서버, api=브라우저가 아닌 직접 호출. */
   visitsBySource: { human: number | null; bot: number | null; internal: number | null; api: number | null };
+  /** 오늘 블로그(utm_source=maeilg) 링크로 코스 페이지에 들어온 사람 방문 수 — 사람 방문(human)의 일부. */
+  blogLandingToday: number | null;
   /** 오늘 User-Agent(앞 60자) 상위 10. */
   topUserAgents: Array<{ userAgent: string; count: number }> | null;
 }
@@ -212,7 +214,7 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
       return null;
     }
   };
-  const [status, stale, human, bot, sync, botRebuild, versionProgress, internal, api, topUserAgents] = await Promise.all([
+  const [status, stale, human, bot, sync, botRebuild, versionProgress, internal, api, blogLanding, topUserAgents] = await Promise.all([
     read(STATUS_KEY),
     read(courseCounterKey("stale", now)),
     read(courseCounterKey("human", now)),
@@ -222,6 +224,7 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     getVersionProgress(ttlMs, indexed),
     read(courseCounterKey("internal", now)),
     read(courseCounterKey("api", now)),
+    read(courseCounterKey("blogLanding", now)),
     topUa(),
   ]);
   const str = (v: unknown) => (typeof v === "string" ? v : null);
@@ -245,6 +248,7 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     versionProgress,
     indexed: versionProgress ? { total: versionProgress.total, fresh: versionProgress.onCurrent, missing: versionProgress.total - versionProgress.onCurrent } : null,
     visitsBySource: { human: count(human), bot: count(bot), internal: count(internal), api: count(api) },
+    blogLandingToday: count(blogLanding),
     topUserAgents,
   };
 }
