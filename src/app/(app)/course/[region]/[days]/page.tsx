@@ -27,6 +27,8 @@ import {
 import { CourseCtaLink } from "@/components/CourseCtaLink";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
 import { LodgingAffiliateLinks } from "@/components/LodgingAffiliateLinks";
+import { TicketLink } from "@/components/TicketLink";
+import { hasTicketLink, ticketLinkUrl } from "@/lib/ticketAffiliate";
 import { EsimAffiliateLinks } from "@/components/EsimAffiliateLinks";
 import { esimAffiliateLinks } from "@/lib/travelpayoutsEsim";
 import { lodgingAffiliateProviders } from "@/lib/lodgingAffiliate";
@@ -294,6 +296,7 @@ export default async function CoursePage({ params }: { params: Promise<CoursePag
                   <div>
                     <p className="text-[14px] font-medium text-slate-800 dark:text-slate-100">{spot.name}</p>
                     <p className="text-[12.5px] text-slate-500 dark:text-slate-400">{buildSpotDescription(spot)}</p>
+                    {hasTicketLink(spot) && ticketLinkUrl(spot, region) && <TicketLink url={ticketLinkUrl(spot, region) as string} region={region} spot={spot.name} />}
                   </div>
                 </li>
               ))}

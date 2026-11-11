@@ -33,6 +33,8 @@ export const FEATURE_EVENT_NAMES = [
   "lodging_click",
   // DIRECTION.md 백로그 — 해외 색인 코스 페이지 eSIM 제휴 링크 클릭 { provider, region }.
   "esim_click",
+  // DIRECTION.md 백로그 — 코스 페이지 명소별 입장권(Klook 검색) 링크 클릭 { provider, region, spot }.
+  "ticket_click",
 ] as const;
 export type FeatureEventName = (typeof FEATURE_EVENT_NAMES)[number];
 
