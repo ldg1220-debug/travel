@@ -92,6 +92,8 @@ export function resetConfirmedCoursePagesMemo(): void {
 export interface RelatedCourseLinks {
   sameRegion: ConfirmedCoursePage[];
   sameCountry: ConfirmedCoursePage[];
+  /** 다른 나라·광역의 확인된 코스(지역당 1개, 최대 4개) — 같은 나라 링크가 없는 단독 지역 페이지도 허브 밖으로 이어지게. */
+  otherDestinations: ConfirmedCoursePage[];
 }
 
 /**
@@ -117,7 +119,15 @@ export function pickRelatedCourseLinks(
       if (!prev || Math.abs(p.days - current.days) < Math.abs(prev.days - current.days)) byRegion.set(p.region, p);
     }
   }
-  return { sameRegion, sameCountry: [...byRegion.values()].sort((a, b) => a.region.localeCompare(b.region, "ko")).slice(0, limits.sameCountry) };
+  const sameCountry = [...byRegion.values()].sort((a, b) => a.region.localeCompare(b.region, "ko")).slice(0, limits.sameCountry);
+  const others = new Map<string, ConfirmedCoursePage>();
+  for (const p of confirmed) {
+    if (p.region === current.region || (parent && parentOf(p.region) === parent)) continue;
+    const prev = others.get(p.region);
+    if (!prev || Math.abs(p.days - current.days) < Math.abs(prev.days - current.days)) others.set(p.region, p);
+  }
+  const otherDestinations = [...others.values()].sort((a, b) => a.region.localeCompare(b.region, "ko")).slice(0, 4);
+  return { sameRegion, sameCountry, otherDestinations };
 }
 
 interface RegionMeta {

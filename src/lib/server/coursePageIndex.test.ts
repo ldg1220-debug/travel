@@ -52,10 +52,18 @@ describe("pickRelatedCourseLinks", () => {
     const links = pickRelatedCourseLinks({ region: "오사카", days: 3 }, confirmed, parent);
     expect(links.sameRegion.map((p) => p.days)).toEqual([4, 2]);
     expect(links.sameCountry.map((p) => `${p.region}/${p.days}`)).toEqual(["교토/5", "도쿄/3"]);
+    expect(links.otherDestinations.map((p) => `${p.region}/${p.days}`)).toEqual(["시드니/3"]);
+  });
+
+  it("같은 나라가 없는 단독 지역도 다른 여행지 코스(지역당 1개·최대 4개)로 이어진다", () => {
+    const confirmed = ["가", "나", "다", "라", "마", "바"].map((r) => page(r, 3));
+    const links = pickRelatedCourseLinks({ region: "가", days: 3 }, confirmed, (r) => r);
+    expect(links.sameCountry).toEqual([]);
+    expect(links.otherDestinations.map((p) => p.region)).toEqual(["나", "다", "라", "마"]);
   });
 
   it("확인된 조합이 없으면 링크도 없다(404가 될 수 있는 페이지로 걸지 않는다)", () => {
-    expect(pickRelatedCourseLinks({ region: "오사카", days: 3 }, [], parent)).toEqual({ sameRegion: [], sameCountry: [] });
+    expect(pickRelatedCourseLinks({ region: "오사카", days: 3 }, [], parent)).toEqual({ sameRegion: [], sameCountry: [], otherDestinations: [] });
   });
 });
 
