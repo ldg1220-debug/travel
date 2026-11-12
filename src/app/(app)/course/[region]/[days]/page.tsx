@@ -324,7 +324,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
       {/* 해외 코스만 — 각 사 홈페이지로 가는 제휴 링크(특정 상품 추천 아님). */}
       {resolveScope(region) !== "domestic" && <EsimAffiliateLinks region={region} links={esimAffiliateLinks("course_page_esim")} />}
 
-      {(related.sameRegion.length > 0 || related.sameCountry.length > 0) && (
+      {(related.sameRegion.length > 0 || related.sameCountry.length > 0 || related.otherDestinations.length > 0) && (
         <nav aria-label="관련 코스" className="mt-8 border-t border-slate-100 pt-4 dark:border-slate-800">
           {related.sameRegion.length > 0 && (
             <div>
@@ -345,6 +345,20 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
               <p className="mb-2 text-[13px] font-semibold text-slate-700 dark:text-slate-200">같은 나라·지역의 다른 코스</p>
               <ul className="flex flex-wrap gap-2">
                 {related.sameCountry.map((p) => (
+                  <li key={`${p.region}-${p.days}`}>
+                    <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
+                      {p.region} {dayDisplayLabel(p.region, p.days)}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {related.otherDestinations.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-[13px] font-semibold text-slate-700 dark:text-slate-200">다른 여행지 코스</p>
+              <ul className="flex flex-wrap gap-2">
+                {related.otherDestinations.map((p) => (
                   <li key={`${p.region}-${p.days}`}>
                     <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
                       {p.region} {dayDisplayLabel(p.region, p.days)}
