@@ -112,11 +112,13 @@ describe("courseBuildStatus", () => {
       if (key === "course-build-day:bot:2026-10-21") return { rows: [{ payload: { count: 400 } }] };
       if (key === "course-build-day:internal:2026-10-21") return { rows: [{ payload: { count: 30 } }] };
       if (key === "course-build-day:api:2026-10-21") return { rows: [{ payload: { count: 150 } }] };
+      if (key === "course-build-day:blogLanding:2026-10-21") return { rows: [{ payload: { count: 3 } }] };
       if (sql.includes("left(cache_key")) return { rows: [{ cache_key: "course-ua:2026-10-21:python-requests/2.31", n: 90 }] };
       return { rows: [] };
     });
     const s = await getCourseBuildStatus(45, NOW);
     expect(s.visitsBySource).toEqual({ human: 12, bot: 400, internal: 30, api: 150 });
+    expect(s.blogLandingToday).toBe(3);
     expect(s.topUserAgents).toEqual([{ userAgent: "python-requests/2.31", count: 90 }]);
   });
 

@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { classifyVisit } from "@/lib/botUserAgent";
 import { isIndexedCourse } from "@/lib/indexedCourses";
 import { recordCourseVisit } from "@/lib/server/courseVisits";
+import { bumpCourseCounter } from "@/lib/server/courseBuildStatus";
 import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -199,9 +200,21 @@ export async function generateMetadata({ params }: { params: Promise<CoursePageP
   };
 }
 
-export default async function CoursePage({ params }: { params: Promise<CoursePageParams> }) {
+export default async function CoursePage({ params, searchParams }: { params: Promise<CoursePageParams>; searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const raw = await params;
   const loaded = await loadCoursePage(normalizeParam(raw.region), normalizeParam(raw.days));
+  // DIRECTION.md 백로그 — 블로그(maeilg.com) CTA 의 utm_source=maeilg 로 들어온 사람 방문을 health courseBuild.blogLandingToday 로 센다.
+  if (loaded.kind === "ok" || loaded.kind === "preparing") {
+    try {
+      const utm = (await searchParams)?.utm_source;
+      if ((Array.isArray(utm) ? utm[0] : utm) === "maeilg") {
+        const h = await headers();
+        if (classifyVisit(h.get("user-agent"), h.get("accept-language"), "page") === "human") await bumpCourseCounter("blogLanding");
+      }
+    } catch {
+      // 집계 실패는 페이지를 막지 않는다
+    }
+  }
   if (loaded.kind === "redirect") permanentRedirect(loaded.to);
   if (loaded.kind === "preparing") {
     const label = dayDisplayLabel(loaded.region, loaded.days);
