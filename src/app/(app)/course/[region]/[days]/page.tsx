@@ -279,6 +279,8 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
           alt={`${region} ${daysLabel} 코스 동선 지도`}
           width={1200}
           height={630}
+          fetchPriority="high"
+          decoding="async"
           className="mt-4 w-full rounded-2xl border border-slate-200 dark:border-slate-700"
         />
       )}

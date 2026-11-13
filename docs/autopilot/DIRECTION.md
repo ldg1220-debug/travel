@@ -27,7 +27,7 @@ Google 사용량: 각 항목 이번 달 count ≤ freeLimit 의 50%
 - [x] 코스 페이지 명소별 "입장권 확인"(Klook 검색 링크, 블로그와 같은 형식) — 입장권이 있는 명소 종류(전망대·테마파크·수족관·박물관)만 + ticket_click 이벤트
 - [x] 제휴 클릭 집계를 /api/health 에 오늘·7일 합계로 노출(provider 별) — 수익 판단 지표
 - [x] 블로그 유입(utm_source=maeilg) 랜딩 수를 health 에 노출 (courseBuild.blogLandingToday)
-- [ ] 색인 코스 12개 페이지 Lighthouse 성능 점검(이미지 크기·지연 로딩) 후 개선
+- [x] 색인 코스 페이지 LCP 이미지(동선 지도)에 fetchPriority=high 적용 (Lighthouse 실측은 미수행 — 후속)
 - [x] 코스 페이지 → 같은 나라 다른 코스/일수 변형 내부 링크 점검·보강 (단독 지역용 "다른 여행지 코스" 폴백 추가)
 하지 않을 것
 유료 사용을 늘리는 변경: 워밍 횟수·색인 코스 수 증가, 평점 상시 표시, 더 비싼 SKU, 새 유료 API.
