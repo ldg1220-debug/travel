@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { classifyVisit } from "@/lib/botUserAgent";
 import { isIndexedCourse } from "@/lib/indexedCourses";
 import { recordCourseVisit } from "@/lib/server/courseVisits";
-import { bumpCourseCounter } from "@/lib/server/courseBuildStatus";
+import { bumpCourseCounter, recordCoursePageVisit } from "@/lib/server/courseBuildStatus";
 import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -207,9 +207,10 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   if (loaded.kind === "ok" || loaded.kind === "preparing") {
     try {
       const utm = (await searchParams)?.utm_source;
-      if ((Array.isArray(utm) ? utm[0] : utm) === "maeilg") {
-        const h = await headers();
-        if (classifyVisit(h.get("user-agent"), h.get("accept-language"), "page") === "human") await bumpCourseCounter("blogLanding");
+      const h = await headers();
+      if (classifyVisit(h.get("user-agent"), h.get("accept-language"), "page") === "human") {
+        await recordCoursePageVisit(`${normalizeParam(raw.region)}/${normalizeParam(raw.days)}`); // health courseBuild.topCoursePagesToday
+        if ((Array.isArray(utm) ? utm[0] : utm) === "maeilg") await bumpCourseCounter("blogLanding");
       }
     } catch {
       // 집계 실패는 페이지를 막지 않는다
