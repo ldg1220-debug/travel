@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
-import { bumpCourseCounter, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordUserAgent, userAgentKey, warmSourceFrom, recordAnchorReport, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
+import { bumpCourseCounter, coursePageVisitKey, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordUserAgent, userAgentKey, warmSourceFrom, recordAnchorReport, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
 
 const NOW = new Date("2026-10-21T12:00:00Z"); // 태평양 10/21
 
@@ -120,6 +120,16 @@ describe("courseBuildStatus", () => {
     expect(s.visitsBySource).toEqual({ human: 12, bot: 400, internal: 30, api: 150 });
     expect(s.blogLandingToday).toBe(3);
     expect(s.topUserAgents).toEqual([{ userAgent: "python-requests/2.31", count: 90 }]);
+  });
+
+  it("코스 페이지별 사람 방문 키·집계(topCoursePagesToday)", async () => {
+    expect(coursePageVisitKey("도쿄/3", NOW)).toBe("course-page:2026-10-21:도쿄/3");
+    queryMock.mockImplementation(async (rawSql: unknown) => {
+      if (String(rawSql).includes("like $1")) return { rows: [{ cache_key: "course-page:2026-10-21:도쿄/3", n: 5 }] };
+      return { rows: [] };
+    });
+    const s = await getCourseBuildStatus(45, NOW);
+    expect(s.topCoursePagesToday).toEqual([{ path: "도쿄/3", count: 5 }]);
   });
 
   // 작업지시서 2026-10-27 "워밍 하루 2회" §1② — 워밍 호출 출처

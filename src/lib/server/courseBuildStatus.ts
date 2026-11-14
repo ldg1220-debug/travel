@@ -47,10 +47,28 @@ export async function recordUserAgent(userAgent: string | null | undefined, now 
   }
 }
 
-/** 이틀 넘은 User-Agent 카운터를 지운다(워밍 크론이 부른다). */
+export function coursePageVisitKey(path: string, now = new Date()): string {
+  return `course-page:${ptDateString(now)}:${path.trim().slice(0, 80)}`;
+}
+
+/** 오늘 코스 페이지(/course/{지역}/{일수})별 사람 방문 수를 센다 — 어느 색인 코스가 실제로 보이는지 확인하는 용도. */
+export async function recordCoursePageVisit(path: string, now = new Date()): Promise<void> {
+  try {
+    await pool.query(
+      `insert into place_candidate_cache (cache_key, payload) values ($1, jsonb_build_object('count', 1))
+       on conflict (cache_key) do update
+         set payload = jsonb_build_object('count', coalesce((place_candidate_cache.payload->>'count')::int, 0) + 1), created_at = now()`,
+      [coursePageVisitKey(path, now)],
+    );
+  } catch (err) {
+    console.error("[courseBuildStatus] page visit counter failed:", err);
+  }
+}
+
+/** 이틀 넘은 User-Agent·코스 페이지 방문 카운터를 지운다(워밍 크론이 부른다). */
 export async function purgeOldUserAgents(): Promise<void> {
   try {
-    await pool.query(`delete from place_candidate_cache where cache_key like 'course-ua:%' and created_at < now() - interval '2 days'`);
+    await pool.query(`delete from place_candidate_cache where (cache_key like 'course-ua:%' or cache_key like 'course-page:%') and created_at < now() - interval '2 days'`);
   } catch (err) {
     console.error("[courseBuildStatus] ua purge failed:", err);
   }
@@ -187,6 +205,8 @@ export interface CourseBuildHealth {
   visitsBySource: { human: number | null; bot: number | null; internal: number | null; api: number | null };
   /** 오늘 블로그(utm_source=maeilg) 링크로 코스 페이지에 들어온 사람 방문 수 — 사람 방문(human)의 일부. */
   blogLandingToday: number | null;
+  /** 오늘 코스 페이지별 사람 방문 상위 10 (path = "지역/일수"). */
+  topCoursePagesToday: Array<{ path: string; count: number }> | null;
   /** 오늘 User-Agent(앞 60자) 상위 10. */
   topUserAgents: Array<{ userAgent: string; count: number }> | null;
 }
@@ -214,7 +234,20 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
       return null;
     }
   };
-  const [status, stale, human, bot, sync, botRebuild, versionProgress, internal, api, blogLanding, topUserAgents] = await Promise.all([
+  const topPages = async (): Promise<Array<{ path: string; count: number }> | null> => {
+    try {
+      const prefix = `course-page:${ptDateString(now)}:`;
+      const r = await pool.query<{ cache_key: string; n: number | null }>(
+        `select cache_key, (payload->>'count')::int as n from place_candidate_cache where cache_key like $1 order by n desc nulls last limit 10`,
+        [`${prefix}%`],
+      );
+      return r.rows.map((row) => ({ path: row.cache_key.slice(prefix.length), count: row.n ?? 0 }));
+    } catch (err) {
+      console.error("[courseBuildStatus] top pages failed:", err);
+      return null;
+    }
+  };
+  const [status, stale, human, bot, sync, botRebuild, versionProgress, internal, api, blogLanding, topUserAgents, topCoursePagesToday] = await Promise.all([
     read(STATUS_KEY),
     read(courseCounterKey("stale", now)),
     read(courseCounterKey("human", now)),
@@ -226,6 +259,7 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     read(courseCounterKey("api", now)),
     read(courseCounterKey("blogLanding", now)),
     topUa(),
+    topPages(),
   ]);
   const str = (v: unknown) => (typeof v === "string" ? v : null);
   const count = (p: Record<string, unknown> | null) => (p == null ? null : typeof p.count === "number" ? p.count : 0);
@@ -249,6 +283,7 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     indexed: versionProgress ? { total: versionProgress.total, fresh: versionProgress.onCurrent, missing: versionProgress.total - versionProgress.onCurrent } : null,
     visitsBySource: { human: count(human), bot: count(bot), internal: count(internal), api: count(api) },
     blogLandingToday: count(blogLanding),
+    topCoursePagesToday,
     topUserAgents,
   };
 }
