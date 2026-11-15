@@ -5,7 +5,7 @@ import { purgeOldUserAgents, recordWarmRun, warmSourceFrom } from "@/lib/server/
 import { runWithMapsSource } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
-import { getCourseBrief, mapWithConcurrency, pickStaleTasks, type CourseDays, type WarmTask } from "@/lib/server/courseBrief";
+import { getCourseBrief, isFreshBriefPayload, mapWithConcurrency, pickStaleTasks, type CourseDays, type WarmTask } from "@/lib/server/courseBrief";
 
 /**
  * Vercel Cron(vercel.json, 하루 1회) — 블로그 파이프라인이 실제로 쓸
@@ -91,7 +91,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   // 지역끼리는 병렬(WARM_CONCURRENCY), 한 지역의 일수는 순서대로 — 같은 후보 풀을 동시에 두 번 만들지 않는다. 워밍 호출은 mapsBudget 에서 "warm" 출처로 센다.
   const results = await runWithMapsSource("warm", () =>
     mapWithConcurrency(regionGroups, WARM_CONCURRENCY, async (group) => {
-      const out: Array<{ region: string; days: CourseDays; ok: boolean; spots?: number; rated?: number }> = [];
+      const out: Array<{ region: string; days: CourseDays; ok: boolean; spots?: number; rated?: number; cacheable?: boolean }> = [];
       for (const { region, days } of group) {
         if (Date.now() - startedAt > WARM_START_DEADLINE_MS) {
           skipped++;
@@ -99,7 +99,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
         }
         try {
           const brief = await getCourseBrief(region, days, PER_REGION_ENRICH_BUDGET_MS);
-          out.push({ region, days, ok: true, spots: brief.spots.length });
+          out.push({ region, days, ok: true, spots: brief.spots.length, cacheable: isFreshBriefPayload(brief) }); // cacheable=false 면 캐시에 저장되지 않아 색인 missing 으로 남는다
         } catch (err) {
           console.error(`[warm-course-brief] ${region}(${days}일) 실패:`, err);
           out.push({ region, days, ok: false });
@@ -120,7 +120,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
 
   await purgeOldUserAgents(); // 이틀 넘은 User-Agent 카운터 정리
   const source = warmSourceFrom(request.headers.get("user-agent"), request.headers.get("x-warm-source"));
-  await recordWarmRun(`처리 ${warmed.length}건(성공 ${warmed.filter((w) => w.ok).length}) · 색인 대상 ${indexedTasks.length} · 갱신 대상 ${expiring.length} · 지역 ${regionGroups.length}`, new Date(), source); // health courseBuild.lastWarm*
+  await recordWarmRun(`처리 ${warmed.length}건(성공 ${warmed.filter((w) => w.ok).length} · 저장대상 ${warmed.filter((w) => w.cacheable).length}) · 색인 대상 ${indexedTasks.length} · 갱신 대상 ${expiring.length} · 지역 ${regionGroups.length}`, new Date(), source); // health courseBuild.lastWarm*
 
   // 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" §2 — 보관 기간이 지난 Places 유래 캐시 행(이름·평점 26h+2h · 좌표 30일)을 지운다.
   const purged = await purgeExpiredPlacesCache().catch((err) => {
