@@ -104,7 +104,7 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
           continue;
         }
         try {
-          const brief = await getCourseBrief(region, days, PER_REGION_ENRICH_BUDGET_MS);
+          const brief = await getCourseBrief(region, days, PER_REGION_ENRICH_BUDGET_MS, { refresh: true }); // refresh 없이 부르면 캐시 히트로 created_at 이 안 바뀌어 26h 뒤 만료 → 색인 missing (2026-11-16)
           out.push({ region, days, ok: true, spots: brief.spots.length, cacheable: isFreshBriefPayload(brief) }); // cacheable=false 면 캐시에 저장되지 않아 색인 missing 으로 남는다
         } catch (err) {
           console.error(`[warm-course-brief] ${region}(${days}일) 실패:`, err);
