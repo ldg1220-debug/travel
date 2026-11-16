@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ENABLED_COURSE_PAGES,
+  withSearchParams,
   ENABLED_COURSE_PAGE_REGIONS,
   buildCourseBreadcrumbJsonLd,
   buildCourseDescription,
@@ -302,5 +303,15 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
     expect(buildSpotDescription(spot({ toNextMode: "car", toNextMinutes: 20, toNextFallback: "driving" }))).toContain("대중교통 정보가 없어 차량 기준 참고값");
     expect(buildSpotDescription(spot({ toNextMode: "car", toNextMinutes: 20, toNextSource: "straight" }))).toContain("직선거리 추정");
     expect(buildSpotDescription(spot({ toNextMode: "car", toNextMinutes: 20, toNextSource: "route" }))).not.toContain("추정");
+  });
+});
+
+describe("withSearchParams", () => {
+  it("쿼리가 없으면 그대로", () => {
+    expect(withSearchParams("/course/a/b")).toBe("/course/a/b");
+    expect(withSearchParams("/course/a/b", {})).toBe("/course/a/b");
+  });
+  it("utm 을 유지한다", () => {
+    expect(withSearchParams("/course/a/b", { utm_source: "maeilg", x: ["1", "2"], y: undefined })).toBe("/course/a/b?utm_source=maeilg&x=1&x=2");
   });
 });

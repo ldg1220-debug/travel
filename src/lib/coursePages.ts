@@ -390,3 +390,16 @@ export function buildRegionHubJsonLd(region: string, days: readonly CourseDays[]
     ],
   };
 }
+
+/** 정규 슬러그로 리다이렉트할 때 원래 쿼리(utm_* 등)를 유지한 목적지를 만든다 — 블로그 유입 집계가 끊기지 않게. */
+export function withSearchParams(to: string, searchParams?: Record<string, string | string[] | undefined>): string {
+  if (!searchParams) return to;
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(searchParams)) {
+    if (v === undefined) continue;
+    for (const item of Array.isArray(v) ? v : [v]) qs.append(k, item);
+  }
+  const s = qs.toString();
+  if (!s) return to;
+  return to + (to.includes("?") ? "&" : "?") + s;
+}

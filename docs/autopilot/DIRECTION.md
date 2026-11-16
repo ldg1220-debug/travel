@@ -29,6 +29,7 @@ Google 사용량: 각 항목 이번 달 count ≤ freeLimit 의 50%
 - [x] 블로그 유입(utm_source=maeilg) 랜딩 수를 health 에 노출 (courseBuild.blogLandingToday)
 - [x] 색인 코스 페이지 LCP 이미지(동선 지도)에 fetchPriority=high 적용 (Lighthouse 실측은 미수행 — 후속)
 - [x] 코스 페이지 → 같은 나라 다른 코스/일수 변형 내부 링크 점검·보강 (단독 지역용 "다른 여행지 코스" 폴백 추가)
+- [x] 코스 페이지 정규 리다이렉트에서 utm 쿼리 유지 (블로그 유입 집계 누락 방지)
 하지 않을 것
 유료 사용을 늘리는 변경: 워밍 횟수·색인 코스 수 증가, 평점 상시 표시, 더 비싼 SKU, 새 유료 API.
 Google 콘텐츠(이름·평점·리뷰·설명)를 약관보다 오래 저장하거나 블로그로 내보내기.

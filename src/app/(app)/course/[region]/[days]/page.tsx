@@ -24,6 +24,7 @@ import {
   courseRegionHubPath,
   dayDisplayLabel,
   groupSpotsByDay,
+  withSearchParams,
 } from "@/lib/coursePages";
 import { CourseCtaLink } from "@/components/CourseCtaLink";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
@@ -216,7 +217,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
       // 집계 실패는 페이지를 막지 않는다
     }
   }
-  if (loaded.kind === "redirect") permanentRedirect(loaded.to);
+  if (loaded.kind === "redirect") permanentRedirect(withSearchParams(loaded.to, await searchParams));
   if (loaded.kind === "preparing") {
     const label = dayDisplayLabel(loaded.region, loaded.days);
     return (
