@@ -3701,6 +3701,8 @@ export interface AnchorReport {
   dropped: Array<{ name: string; stage: string; reason: string }>;
   /** 최종 코스의 날별 식사(식당) 수 — 하루 식사 최소 1 이 지켜졌는지 확인용(카페는 세지 않는다). */
   mealsPerDay?: number[];
+  /** 날별 종일시설 포함 여부 — mealsPerDay 0 이 시설 날(정상)인지 식당 후보 부족인지 구분용. */
+  facilityDays?: boolean[];
 }
 
 const compactLandmark = (s: string) => s.replace(/\s+/g, "").toLowerCase();
@@ -4841,7 +4843,8 @@ export async function buildBrief(
   if (indexedCourse) {
     const mealsPerDay = routedDays.map((d) => d.stops.filter(isRestaurantStop).length);
     console.log(`[day-meals] region=${region} final mealsPerDay=[${mealsPerDay.join(",")}]`);
-    void recordAnchorReport({ ...landmarkTrace.finish(allSpots.map((x) => x.name)), mealsPerDay }); // health courseBuild.lastAnchorReport
+    const facilityDays = routedDays.map((d) => d.stops.some(isDayFacility));
+    void recordAnchorReport({ ...landmarkTrace.finish(allSpots.map((x) => x.name)), mealsPerDay, facilityDays }); // health courseBuild.lastAnchorReport
   }
   console.log(`[courseBrief] path=assembled ${scope}/${region} dayCounts=[${dayTotals.map((d) => d.spotCount).join(",")}] spots=${allSpots.length} km=${round1(totalDistanceKm)} cacheable=${isCacheableBrief(allSpots, style, days)}`);
   if (isCacheableBrief(allSpots, style, days)) {
