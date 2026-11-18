@@ -321,6 +321,15 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
           </section>
         ))}
       </div>
+      {/* 긴 페이지를 끝까지 읽은 사람을 위한 두 번째 진입점 — 같은 링크, placement 로만 구분한다. */}
+      <CourseCtaLink
+        region={region}
+        days={brief.days}
+        placement="bottom"
+        className="mt-5 flex h-11 w-full items-center justify-center rounded-2xl bg-brand-700 text-[14px] font-semibold text-white transition-colors hover:bg-brand-800"
+      >
+        이 코스로 내 일정 만들기
+      </CourseCtaLink>
       {/* 평점은 코스에 없다 — 이름·위치가 Google 콘텐츠라 출처만 밝힌다(작업지시서 2026-10-20). */}
       <GoogleAttribution variant="place" className="mt-3" />
 

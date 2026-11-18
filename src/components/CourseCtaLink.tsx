@@ -17,11 +17,11 @@ import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
  * 평범한 <a>라 클릭 핸들러가 없어도 항상 정상 이동한다(추적 실패가
  * 이동을 막지 않는다).
  */
-export function CourseCtaLink({ region, days, className, children }: { region: string; days: number; className?: string; children: React.ReactNode }) {
+export function CourseCtaLink({ region, days, className, children, placement = "top" }: { region: string; days: number; className?: string; children: React.ReactNode; placement?: "top" | "bottom" }) {
   return (
     <a
       href={`/api/content/course-open?region=${encodeURIComponent(region)}&days=${days}`}
-      onClick={() => trackFeatureEvent("course_page_cta_click", "course", { region, days })}
+      onClick={() => trackFeatureEvent("course_page_cta_click", "course", { region, days, placement })}
       className={className}
     >
       {children}
