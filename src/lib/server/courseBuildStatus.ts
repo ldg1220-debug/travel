@@ -112,6 +112,7 @@ export interface AnchorReportRecord {
   placed: string[];
   dropped: Array<{ name: string; stage: string; reason: string }>;
   mealsPerDay?: number[];
+  facilityDays?: boolean[];
 }
 export async function recordAnchorReport(report: AnchorReportRecord): Promise<void> {
   await mergeStatus({ lastAnchorReport: report });
