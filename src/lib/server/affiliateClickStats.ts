@@ -15,6 +15,8 @@ export interface AffiliateClickStats {
   rows: AffiliateClickRow[];
   today: number;
   last7d: number;
+  /** 코스 페이지 "내 일정 만들기" CTA(course_page_cta_click) placement(top/bottom) 별 오늘·7일 클릭 수 — 저장 흐름 진입 지표. */
+  courseCta: { placement: string; today: number; last7d: number }[];
 }
 
 /** /api/health 용 — 읽기 전용 집계 1쿼리. 실패하면 null(health 자체는 막지 않는다). */
@@ -31,8 +33,18 @@ export async function getAffiliateClickStats(): Promise<AffiliateClickStats | nu
         order by 1, 2`,
       [[...AFFILIATE_CLICK_EVENTS]],
     );
+    const c = await pool.query<{ placement: string | null; today: string; last7d: string }>(
+      `select coalesce(props->>'placement', 'top') as placement,
+              count(*) filter (where (created_at at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date) as today,
+              count(*) as last7d
+         from feature_events
+        where event = 'course_page_cta_click' and created_at >= now() - interval '7 days'
+        group by 1
+        order by 1`,
+    );
+    const courseCta = c.rows.map((x) => ({ placement: x.placement ?? "top", today: Number(x.today), last7d: Number(x.last7d) }));
     const rows = r.rows.map((x) => ({ event: x.event, provider: x.provider ?? "unknown", today: Number(x.today), last7d: Number(x.last7d) }));
-    return { rows, today: rows.reduce((s, x) => s + x.today, 0), last7d: rows.reduce((s, x) => s + x.last7d, 0) };
+    return { rows, today: rows.reduce((s, x) => s + x.today, 0), last7d: rows.reduce((s, x) => s + x.last7d, 0), courseCta };
   } catch (err) {
     console.error("[affiliateClickStats] failed:", err);
     return null;
