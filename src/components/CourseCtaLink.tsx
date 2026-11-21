@@ -21,7 +21,14 @@ export function CourseCtaLink({ region, days, className, children, placement = "
   return (
     <a
       href={`/api/content/course-open?region=${encodeURIComponent(region)}&days=${days}`}
-      onClick={() => trackFeatureEvent("course_page_cta_click", "course", { region, days, placement })}
+      onClick={() => {
+        // 블로그(maeilg.com) CTA 로 들어온 방문자인지 — utm 은 코스 페이지 URL 에 유지된다.
+        let fromBlog = false;
+        try {
+          fromBlog = new URLSearchParams(window.location.search).get("utm_source") === "maeilg";
+        } catch {}
+        trackFeatureEvent("course_page_cta_click", "course", fromBlog ? { region, days, placement, fromBlog } : { region, days, placement });
+      }}
       className={className}
     >
       {children}

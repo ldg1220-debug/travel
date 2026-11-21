@@ -17,6 +17,8 @@ export interface AffiliateClickStats {
   last7d: number;
   /** 코스 페이지 "내 일정 만들기" CTA(course_page_cta_click) placement(top/bottom) 별 오늘·7일 클릭 수 — 저장 흐름 진입 지표. */
   courseCta: { placement: string; today: number; last7d: number }[];
+  /** course_page_cta_click 중 블로그 유입(props.fromBlog) 오늘·7일 클릭 수. */
+  courseCtaFromBlog: { today: number; last7d: number };
   /** 저장 흐름 단계별(코스 CTA → 복사 클릭 → 복사 완료 → 계획 저장) 오늘·7일 이벤트 수 — 어디서 막히는지 보는 지표. */
   saveFunnel: { event: string; today: number; last7d: number }[];
 }
@@ -47,6 +49,13 @@ export async function getAffiliateClickStats(): Promise<AffiliateClickStats | nu
         group by 1
         order by 1`,
     );
+    const b = await pool.query<{ today: string; last7d: string }>(
+      `select count(*) filter (where (created_at at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date) as today,
+              count(*) as last7d
+         from feature_events
+        where event = 'course_page_cta_click' and props->>'fromBlog' = 'true' and created_at >= now() - interval '7 days'`,
+    );
+    const courseCtaFromBlog = { today: Number(b.rows[0]?.today ?? 0), last7d: Number(b.rows[0]?.last7d ?? 0) };
     const f = await pool.query<{ event: string; today: string; last7d: string }>(
       `select event,
               count(*) filter (where (created_at at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date) as today,
@@ -62,7 +71,7 @@ export async function getAffiliateClickStats(): Promise<AffiliateClickStats | nu
     });
     const courseCta = c.rows.map((x) => ({ placement: x.placement ?? "top", today: Number(x.today), last7d: Number(x.last7d) }));
     const rows = r.rows.map((x) => ({ event: x.event, provider: x.provider ?? "unknown", today: Number(x.today), last7d: Number(x.last7d) }));
-    return { rows, today: rows.reduce((s, x) => s + x.today, 0), last7d: rows.reduce((s, x) => s + x.last7d, 0), courseCta, saveFunnel };
+    return { rows, today: rows.reduce((s, x) => s + x.today, 0), last7d: rows.reduce((s, x) => s + x.last7d, 0), courseCta, courseCtaFromBlog, saveFunnel };
   } catch (err) {
     console.error("[affiliateClickStats] failed:", err);
     return null;
