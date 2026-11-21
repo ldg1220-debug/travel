@@ -30,7 +30,6 @@ import {
   Sparkles,
   CalendarRange,
   Heart,
-  Eye,
   ExternalLink,
   X,
   Leaf,
@@ -1581,7 +1580,7 @@ function SearchResults({
           {/* "여행자들의 루트"는 실제 유저가 만든 게 아니라 트레쥴 큐레이션
               템플릿이라 route.author 배지를 "트레쥴 큐레이션"으로 바꾼
               것과 같은 이유로 문구를 맞춤. */}
-          <SectionHeader icon={Crown} iconClass="text-amber-500" title={`"${query}" 인기 루트`} caption="좋아요 · 조회수가 높은 트레쥴 큐레이션 루트" />
+          <SectionHeader icon={Crown} iconClass="text-amber-500" title={`"${query}" 인기 루트`} caption="트레쥴이 엮은 큐레이션 루트" />
           <div className="-mt-6 mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
             {routes.map((route) => (
               <RouteTemplateCard key={route.id} route={route} onAdd={() => onPreviewRoute(route)} onPreview={() => onPreviewRoute(route)} />
@@ -2096,12 +2095,7 @@ function RouteTemplateCard({ route, onAdd, onPreview }: { route: DiscoverRoute; 
         <h3 className="relative mt-3 text-lg font-bold text-white">{route.title}</h3>
         <p className="relative text-[12.5px] text-white/85">{route.subtitle}</p>
         <div className="relative mt-3 flex items-center gap-3 text-[11.5px] font-semibold text-white/90">
-          <span className="flex items-center gap-1">
-            <Heart size={12} /> {fmt(route.likes)}
-          </span>
-          <span className="flex items-center gap-1">
-            <Eye size={12} /> {fmt(route.views)}
-          </span>
+          {/* 작업지시서 2026-11-22 ④ — 좋아요·조회는 실제 집계가 아닌 시드 값이라 화면에서 뺐다. */}
           {/* route.author was previously shown as "by 방콕러버" — these
               routes are hand-curated by 트레쥴, not submitted by that named
               person, so a fabricated username there reads as fake social
@@ -2172,12 +2166,6 @@ function RoutePreviewModal({ route, onClose, onAdd }: { route: DiscoverRoute; on
             <h3 className="mt-2 text-lg font-bold text-slate-900">{route.title}</h3>
             <p className="text-[13px] text-slate-500">{route.subtitle}</p>
             <div className="mt-2 flex items-center gap-3 text-[12px] font-medium text-slate-500">
-              <span className="flex items-center gap-1">
-                <Heart size={12} /> {fmt(route.likes)}
-              </span>
-              <span className="flex items-center gap-1">
-                <Eye size={12} /> {fmt(route.views)}
-              </span>
               <span className="flex items-center gap-1">
                 <Clock size={12} /> {route.duration}
               </span>

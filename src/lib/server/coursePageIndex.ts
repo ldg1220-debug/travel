@@ -3,7 +3,9 @@ import { pool } from "./db";
 import { COURSE_ALGO_VERSION, isSupportedRegion, resolveScope, type CourseBrief, type CourseDays } from "./courseBrief";
 import { judgeCourseBrief } from "./coursePageGate";
 import { flatRegions, styleForRegion } from "@/lib/discoverData";
-import { pickRepresentativeSpots } from "@/lib/coursePages";
+import { pickRepresentativeSpotObjects } from "@/lib/coursePages";
+import { hasHangul } from "@/lib/placeDisplayName";
+import { displaySpot, resolveKoreanNames } from "./placeDisplayNames";
 import { regionTypicalDays, typicalDayRank } from "@/lib/regionTypicalDays";
 import { isIndexedCourse } from "@/lib/indexedCourses";
 
@@ -36,7 +38,7 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
     // payload 전체 대신 판정에 필요한 필드만 SQL에서 뽑는다(spots 각 항목의 name·category·order·beach).
     const result = await pool.query<{ region: string | null; days: string | null; created_at: Date; spots: unknown; totalDistanceKm: string | null; imageUrl: string | null }>(
       `select payload->>'region' as region, payload->>'days' as days, created_at,
-              (select coalesce(jsonb_agg(jsonb_build_object('name', s->'name', 'category', s->'category', 'order', s->'order', 'beach', s->'beach', 'lodging', s->'lodging')), '[]'::jsonb)
+              (select coalesce(jsonb_agg(jsonb_build_object('name', s->'name', 'category', s->'category', 'order', s->'order', 'beach', s->'beach', 'lodging', s->'lodging', 'placeId', s->'placeId')), '[]'::jsonb)
                  from jsonb_array_elements(case when jsonb_typeof(payload->'spots') = 'array' then payload->'spots' else '[]'::jsonb end) s) as spots,
               payload->>'totalDistanceKm' as "totalDistanceKm", payload->>'imageUrl' as "imageUrl"
          from place_candidate_cache
@@ -44,6 +46,7 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
       [`content-brief:%:v${COURSE_ALGO_VERSION}`, String(PLACES_CONTENT_TTL_MS)],
     );
     const value: ConfirmedCoursePage[] = [];
+    const repCandidates = new Map<ConfirmedCoursePage, CourseBrief["spots"]>();
     for (const row of result.rows) {
       const days = Number(row.days);
       if (!row.region || !Number.isInteger(days) || days < 1 || days > 7 || !Array.isArray(row.spots)) continue;
@@ -51,12 +54,19 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
       const spots = row.spots as CourseBrief["spots"];
       if (judgeCourseBrief({ spots }, row.region, days as CourseDays) != null) continue;
       const km = row.totalDistanceKm != null ? Number(row.totalDistanceKm) : null;
-      value.push({
+      const page: ConfirmedCoursePage = {
         region: row.region,
         days: days as CourseDays,
         lastModified: new Date(row.created_at),
-        info: { spotCount: spots.length, totalDistanceKm: km != null && Number.isFinite(km) ? km : null, imageUrl: row.imageUrl || null, reps: pickRepresentativeSpots(spots, 2) },
-      });
+        info: { spotCount: spots.length, totalDistanceKm: km != null && Number.isFinite(km) ? km : null, imageUrl: row.imageUrl || null, reps: [] },
+      };
+      // 대표 장소 후보(명소 카테고리만) — 한글 표기를 붙인 뒤 한글 이름만 2곳 고른다(작업지시서 2026-11-22 ①③).
+      repCandidates.set(page, pickRepresentativeSpotObjects(spots, 6));
+      value.push(page);
+    }
+    const ko = await resolveKoreanNames([...repCandidates.values()].flat().map((s) => ({ placeId: s.placeId ?? "", name: s.name })));
+    for (const [page, cands] of repCandidates) {
+      page.info!.reps = cands.map((c) => displaySpot(c, c.placeId ? ko.get(c.placeId) : undefined).name).filter(hasHangul).slice(0, 2);
     }
     // 버전과 무관한 기록(courseSitemapKey) — 캐시 버전이 올라가 위 목록이 비어도 사이트맵에서 빠지지 않는다.
     // 같은 (지역, 일수)는 더 최근 시각을 쓴다. 작업지시서 2026-10-08 "#300 검증" §3①.

@@ -825,3 +825,13 @@ CREATE INDEX IF NOT EXISTS lodging_cta_events_product_idx ON lodging_cta_events 
 INSERT INTO users (name, email)
 VALUES ('트레쥴 콘텐츠', 'content@tradule.co.kr')
 ON CONFLICT (email) DO NOTHING;
+
+-- 장소 표시 이름(한글 표기) — 작업지시서 2026-11-22 "첫 화면 장소 이름". 이름에 한글이 없는(한자·로마자만) 해외 장소를
+-- place_id 기준으로 한 번만 한글 표기로 만들어 두고 재사용한다(표시 단계에서 적용 — 코스 캐시·COURSE_ALGO_VERSION 과 무관).
+-- 저장하는 것은 우리가 만든 한글 표기뿐이다(Google 원문 이름·평점·리뷰는 저장하지 않는다).
+CREATE TABLE IF NOT EXISTS place_display_names (
+  place_id TEXT PRIMARY KEY,
+  name_ko TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE place_display_names ENABLE ROW LEVEL SECURITY;
