@@ -1,5 +1,6 @@
 "use client";
 
+import { regionImageFor, spotImageCredit } from "@/lib/spotImages";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -145,11 +146,12 @@ function ScrapbookPageInner() {
     () => new Map(myPosts.filter((p) => p.itineraryId != null && p.images.length > 0).map((p) => [p.itineraryId as number, p.images[0]])),
     [myPosts],
   );
-  const coverSrcForPlan = (plan: SavedPlan): string | null => {
+  // 작업지시서 2026-11-22 "사진 사용량" §1④ — 후기에 올린 사진 → 지역 대표 이미지(자체 이미지, 출처 표기) → 그라데이션. Google 사진 검색은 하지 않는다.
+  const coverForPlan = (plan: SavedPlan): { src: string | null; credit: string | null } => {
     const uploaded = plan.remoteId != null ? coverByItineraryId.get(plan.remoteId) : undefined;
-    if (uploaded) return uploaded;
-    if (!plan.currentCity) return null;
-    return `/api/discover/spot-photo?q=${encodeURIComponent(`${plan.currentCity} 여행`)}`;
+    if (uploaded) return { src: uploaded, credit: null };
+    const region = regionImageFor(plan.currentCity);
+    return region ? { src: region.url, credit: spotImageCredit(region) } : { src: null, credit: null };
   };
   // 계획 하나엔 후기가 최대 하나뿐이라(trip_posts_user_itinerary_key), 계획의
   // remoteId로 그 계획의 후기를 바로 찾을 수 있다 — "다녀온 여행" 카드를
@@ -367,7 +369,8 @@ function ScrapbookPageInner() {
                       <TripCard
                         key={`plan-${item.plan.id}`}
                         plan={item.plan}
-                        coverSrc={coverSrcForPlan(item.plan)}
+                        coverSrc={coverForPlan(item.plan).src}
+                        coverCredit={coverForPlan(item.plan).credit}
                         variant="written"
                         confirming={confirmDeleteId === item.plan.id}
                         reviewSyncing={syncingPlanId === item.plan.id}
@@ -395,7 +398,8 @@ function ScrapbookPageInner() {
                   <TripCard
                     key={plan.id}
                     plan={plan}
-                    coverSrc={coverSrcForPlan(plan)}
+                    coverSrc={coverForPlan(plan).src}
+                    coverCredit={coverForPlan(plan).credit}
                     variant="notWritten"
                     confirming={confirmDeleteId === plan.id}
                     reviewSyncing={syncingPlanId === plan.id}
@@ -548,6 +552,7 @@ function NewPostChooser({
 function TripCard({
   plan,
   coverSrc,
+  coverCredit,
   variant,
   confirming,
   reviewSyncing,
@@ -561,6 +566,7 @@ function TripCard({
   plan: SavedPlan;
   /** A real photo to use as the card cover — the linked trip post's own uploaded photo if there is one, else a live representative-place lookup. Null falls back to the plain gradient. */
   coverSrc: string | null;
+  coverCredit: string | null;
   /** "written"(다녀온 여행 탭 — 후기 있음)만 도착 스탬프가 붙는다. "notWritten"(여행 계획 탭)은 스탬프 없음 — 그 자체가 상태 구분자. */
   variant: "written" | "notWritten";
   confirming: boolean;
@@ -596,6 +602,11 @@ function TripCard({
             <div className="absolute inset-0 opacity-25 [background-image:radial-gradient(circle_at_25%_20%,white,transparent_45%)]" />
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
+          {hasPhoto && coverCredit && (
+            <span title={coverCredit} className="pointer-events-none absolute bottom-1 right-2 max-w-[60%] truncate text-[9px] text-white/80">
+              {coverCredit}
+            </span>
+          )}
 
           <div className="absolute right-3 top-3">
             <Badge className={`gap-1 border-none text-[11px] font-semibold backdrop-blur ${isShared ? "bg-white/85 text-success-700" : "bg-black/35 text-white"}`}>

@@ -2,6 +2,7 @@
 
 import { GoogleAttribution } from "@/components/GoogleAttribution";
 import { pushSafely } from "@/lib/documentNavigation";
+import { regionImageFor, spotImageCredit, spotImageFor, type SpotImage } from "@/lib/spotImages";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -77,24 +78,12 @@ const AI_RADIUS_OPTIONS: { minutes: CourseTravelRadius; label: string }[] = [
   { minutes: 0, label: "제한없음" },
 ];
 
-// ── representative photo behind a scope/region tile — live Google Places
-// lookup by name (same /api/discover/spot-photo proxy CourseSpotCard's
-// no-photoName fallback already uses), gracefully falling back to a plain
-// gradient if the API has no key or no match for that query. A bare
-// gradient with nothing else on it reads as a failed image load rather
-// than a deliberate placeholder (same issue discover's SpotCard had), so a
-// centered pin watermark goes on top — same fallback language as
-// CourseSpotCard/discover's SpotCard use elsewhere in the app.
-//
-// 실측(v2 UI 확인 과정에서 부수적으로 발견)에서 이 폴백이 있어도 타일이
-// "회색 그라데이션으로 비어 보인다"는 피드백을 받았다 — SpotCard와 같은
-// text-white/40이었는데, 여기 호출부들은 전부 그 위에 텍스트 가독성용
-// 검은 그라데이션(bg-gradient-to-t from-black/45~55)을 한 겹 더 얹어서,
-// 같은 40% 흰색이라도 SpotCard보다 실제로 훨씬 흐리게 보인다. 크기와
-// 불투명도를 올려 그 위에서도 눈에 띄게 했다. ──
-function TilePhoto({ query, className }: { query: string; className?: string }) {
+// ── scope/지역 타일 뒤의 대표 이미지 — 작업지시서 2026-11-22 "사진 사용량" §1③: 고정 타일이라 Google 사진을 부르지 않고 자체 이미지
+// (src/data/spotImages.ts, Wikimedia Commons · 출처 표기)를 쓴다. 이미지가 없는 지역은 그라데이션 + 핀 아이콘 타일이다.
+// 그 위에 텍스트 가독성용 검은 그라데이션이 한 겹 더 얹히므로 아이콘은 크고 진하게(text-white/80) 둔다. ──
+function TilePhoto({ image, className }: { image?: SpotImage; className?: string }) {
   const [failed, setFailed] = useState(false);
-  if (failed) {
+  if (!image || failed) {
     return (
       <div className={`flex items-center justify-center bg-gradient-to-br from-brand-500 to-brand-pink-600 ${className ?? ""}`}>
         <MapPin size={36} className="text-white/80" />
@@ -102,14 +91,13 @@ function TilePhoto({ query, className }: { query: string; className?: string }) 
     );
   }
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- /api/discover/spot-photo proxy
-    <img
-      src={`/api/discover/spot-photo?q=${encodeURIComponent(query)}`}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-      className={`object-cover ${className ?? ""}`}
-    />
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element -- Wikimedia Commons 썸네일(출처 표기 포함) */}
+      <img src={image.url} alt="" loading="lazy" onError={() => setFailed(true)} className={`object-cover ${className ?? ""}`} />
+      <span title={spotImageCredit(image)} className="pointer-events-none absolute bottom-1 right-1.5 z-10 max-w-[70%] truncate text-[8.5px] leading-4 text-white/80">
+        {spotImageCredit(image)}
+      </span>
+    </>
   );
 }
 
@@ -528,8 +516,8 @@ export function CourseBuilderPage() {
           <div className="flex flex-1 items-center justify-center">
             <div className="grid w-full grid-cols-2 gap-5">
               {([
-                { key: "domestic" as const, label: "국내 여행", flag: "🇰🇷", desc: "카카오맵 기준 실제 장소", photoQuery: "경복궁 야경" },
-                { key: "overseas" as const, label: "해외 여행", flag: "🌐", desc: "구글맵 기준 실제 장소·평점", photoQuery: "파리 에펠탑 야경" },
+                { key: "domestic" as const, label: "국내 여행", flag: "🇰🇷", desc: "카카오맵 기준 실제 장소" },
+                { key: "overseas" as const, label: "해외 여행", flag: "🌐", desc: "구글맵 기준 실제 장소·평점" },
               ]).map((s) => (
                 <button
                   key={s.key}
@@ -537,7 +525,7 @@ export function CourseBuilderPage() {
                   className="group relative flex flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
                 >
                   <div className="relative h-48 w-full sm:h-72">
-                    <TilePhoto query={s.photoQuery} className="absolute inset-0 h-full w-full" />
+                    <TilePhoto image={s.key === "domestic" ? spotImageFor("d-f1") : spotImageFor("o-fr1")} className="absolute inset-0 h-full w-full" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
                     <span className="absolute left-4 top-4 text-4xl drop-shadow-md">{s.flag}</span>
                   </div>
@@ -562,7 +550,7 @@ export function CourseBuilderPage() {
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md"
                 >
                   <div className="relative h-36 w-full sm:h-44">
-                    <TilePhoto query={`${r.label} 여행`} className="absolute inset-0 h-full w-full" />
+                    <TilePhoto image={regionImageFor(r.label)} className="absolute inset-0 h-full w-full" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
                     <span className="absolute left-3 top-3 text-2xl drop-shadow-md">{r.emoji ?? "📍"}</span>
                   </div>
@@ -579,7 +567,7 @@ export function CourseBuilderPage() {
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md"
                 >
                   <div className="relative h-20 w-full sm:h-24">
-                    <TilePhoto query={`${path[path.length - 1]} ${c.label}`} className="absolute inset-0 h-full w-full" />
+                    <TilePhoto image={regionImageFor(c.label)} className="absolute inset-0 h-full w-full" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/45 to-transparent" />
                     {/* 위 두 단계(scope/1차 드릴)는 큰 이모지 오버레이가 있는데
                         여기만 없어서, 사진 조회가 실패하면(짧은 지명은 Places
@@ -1394,7 +1382,6 @@ function SlotResults({
             key={place.id}
             place={place}
             slot={slot}
-            city={city}
             picked={pickedIds.includes(place.id)}
             onToggle={() => onToggle(place)}
             onOpenDetail={() => onOpenDetail(place)}
@@ -1418,31 +1405,22 @@ function SlotResults({
   );
 }
 
-// ── one course pick card — mirrors /discover's LivePlaceCard styling
-// (photo + rating row + slot badge) so 코스 만들기 doesn't look like a
-// stripped-down version of 여행 계획짜기. Kakao Local (국내) results never
-// carry a `photoName` the way Google Places ones do, so this falls back to
-// /api/discover/spot-photo's live name+city lookup — the same fallback
-// discover's own curated SpotCard uses — instead of a bare gradient+pin. ──
+// ── one course pick card — mirrors /discover's LivePlaceCard styling (icon tile + rating row + slot badge).
+// 작업지시서 2026-11-22 "사진 사용량" §1⑤ — 후보 목록의 첫 화면엔 사진을 요청하지 않고 카테고리 아이콘만 둔다. 사진은 카드를 눌러
+// 상세(PlaceDetailOverlay)를 열 때만 받는다. ──
 function CourseSpotCard({
   place,
   slot,
-  city,
   picked,
   onToggle,
   onOpenDetail,
 }: {
   place: Place;
   slot: CourseSlot;
-  city: string;
   picked: boolean;
   onToggle: () => void;
   onOpenDetail: () => void;
 }) {
-  const [photoFailed, setPhotoFailed] = useState(false);
-  const photoSrc = place.photoName
-    ? `/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=400`
-    : `/api/discover/spot-photo?q=${encodeURIComponent(`${place.name} ${city}`)}`;
 
   return (
     <div
@@ -1452,21 +1430,8 @@ function CourseSpotCard({
     >
       <button onClick={onOpenDetail} className="block w-full text-left">
         <div className="relative flex h-24 items-center justify-center bg-gradient-to-br from-emerald-400 to-teal-500">
-          {!photoFailed ? (
-            // eslint-disable-next-line @next/next/no-img-element -- /api/places/photo or /api/discover/spot-photo proxy
-            <img
-              src={photoSrc}
-              alt={place.name}
-              loading="lazy"
-              onError={() => setPhotoFailed(true)}
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-          ) : (
-            <>
-              <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
-              <CordixIcon name="pin" size={22} className="text-white/90" />
-            </>
-          )}
+          <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
+          <CordixIcon name="pin" size={22} className="text-white/90" />
           <span className="absolute right-1.5 top-1.5 rounded-full bg-white/85 px-1.5 py-0.5 text-[9.5px] font-semibold text-slate-700 backdrop-blur">
             {slot.emoji} {slot.label}
           </span>

@@ -73,6 +73,7 @@ import type { Place, PlaceIcon, Region } from "@/lib/types";
 import { bookingProviders, isLodging, hasAffiliateLink } from "@/lib/affiliates";
 import { liveCategoryBucket, type LiveBucketKey } from "@/lib/liveCategoryBucket";
 import { haversineDistanceMeters } from "@/lib/geo";
+import { spotImageCredit, spotImageFor } from "@/lib/spotImages";
 
 // Always client-only — see RoutePreviewMap.tsx / lib/maps/mapResize.ts.
 const RoutePreviewMap = dynamic(() => import("./RoutePreviewMap"), { ssr: false });
@@ -1847,9 +1848,9 @@ function SpotCard({
   onOpenDetail: () => void;
 }) {
   const Icon = SPOT_ICONS[spot.iconKey];
-  // Representative photo resolved live by name+city (see
-  // /api/discover/spot-photo) — 404/no-key/no-match just falls back to
-  // the curated gradient, so the card never shows a broken image.
+  // 작업지시서 2026-11-22 "사진 사용량" §1③ — 고정 카드는 Google 사진을 부르지 않고 자체 이미지(Wikimedia Commons, 출처·라이선스 표기)를 쓴다.
+  // 이미지가 없는 카드(라이브 스팟 포함)는 아이콘 타일로 둔다 — 방문자마다 사진 API 를 부르지 않는다.
+  const spotImage = spotImageFor(spot.id);
   const [photoFailed, setPhotoFailed] = useState(false);
   // discoverLiveBrowse.ts가 라이브 스팟에 매기는 id 접두사 — 큐레이션
   // 스팟과 구분해서 배지 문구를 다르게 준다(확정사항 A, #173 후속 검증).
@@ -1861,21 +1862,26 @@ function SpotCard({
     >
       <div className={`relative h-28 bg-gradient-to-br ${spot.gradient}`}>
         <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
-        {!photoFailed && (
-          // eslint-disable-next-line @next/next/no-img-element -- remote Places photo behind our own redirect proxy; see LivePlaceCard
-          <img
-            src={`/api/discover/spot-photo?q=${encodeURIComponent(`${spot.name} ${spot.region.split(" · ").join(" ")}`)}`}
-            alt={spot.name}
-            loading="lazy"
-            onError={() => setPhotoFailed(true)}
-            className="absolute inset-0 h-full w-full object-cover"
-          />
+        {spotImage && !photoFailed && (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element -- Wikimedia Commons 썸네일(출처 표기 포함), next/image 최적화 대상 아님 */}
+            <img
+              src={spotImage.url}
+              alt={spot.name}
+              loading="lazy"
+              onError={() => setPhotoFailed(true)}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <span title={spotImageCredit(spotImage)} className="pointer-events-none absolute bottom-1 right-1.5 max-w-[70%] truncate rounded bg-black/35 px-1 text-[8.5px] leading-4 text-white/90">
+              {spotImageCredit(spotImage)}
+            </span>
+          </>
         )}
         {/* No live photo matched this spot's name — a bare gradient reads as
             a broken/missing image, especially sitting next to cards that do
             have a real photo. A large centered glyph makes the no-photo
             state look like a deliberate illustrated tile instead. */}
-        {photoFailed && (
+        {(!spotImage || photoFailed) && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <Icon size={40} className="text-white/40" />
           </div>
@@ -1943,12 +1949,8 @@ function LivePlaceCard({
   const lodging = isLodging(place.category);
   const providers = lodging ? bookingProviders(place.name, region, undefined, place.category, place.address) : [];
   const showAffiliate = hasAffiliateLink(providers);
-  // Kakao Local (국내) search never returns a photo of its own — unlike
-  // Google Places, its keyword API has no photo field at all. Falls back to
-  // the same live name+address lookup SpotCard uses for curated spots with
-  // no photo of their own (/api/discover/spot-photo); 404/no-match just
-  // reverts to the gradient placeholder below, same as SpotCard.
-  const [photoFailed, setPhotoFailed] = useState(false);
+  // Kakao Local (국내) 검색은 사진이 없다 — 작업지시서 2026-11-22 §1②: 이름·주소 문자열로 사진을 찾던 폴백(/api/discover/spot-photo?q=)은 없앴고,
+  // 사진이 없는 후보는 아래 아이콘 타일로 둔다(상세를 열면 PlaceDetailOverlay 가 그 장소의 사진을 받는다).
   return (
     <div
       onClick={onOpenDetail}
@@ -1963,15 +1965,6 @@ function LivePlaceCard({
             src={`/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=640`}
             alt={place.name}
             loading="lazy"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : !photoFailed ? (
-          // eslint-disable-next-line @next/next/no-img-element -- /api/discover/spot-photo proxy, see SpotCard
-          <img
-            src={`/api/discover/spot-photo?q=${encodeURIComponent(`${place.name} ${place.address ?? ""}`.trim())}`}
-            alt={place.name}
-            loading="lazy"
-            onError={() => setPhotoFailed(true)}
             className="absolute inset-0 h-full w-full object-cover"
           />
         ) : (

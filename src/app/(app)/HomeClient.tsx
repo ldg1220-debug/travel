@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useItineraryStore } from "@/store/itineraryStore";
 import { fetchFeed, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
+import { regionImageFor, spotImageCredit } from "@/lib/spotImages";
 import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 import { activePlanCityLabel, classifyPlan, deriveTripStatus, hasCompletedTrip, ROUTE_OPTIMIZED_ONCE_KEY, type PlanBadge, type TripStatus } from "@/lib/tripStatus";
 import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
@@ -452,13 +453,12 @@ function PlanStatusPill({ status }: { status: PlanBadge }) {
   return <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${className}`}>{label}</span>;
 }
 
-/** 저장된 계획 카드의 커버 — 첫 스팟 사진을 시도하고, 실패하면 계획 id로
- * 해시한 고정 색 + 워터마크 아이콘으로 대체한다(#163의 카테고리 아이콘
- * 워터마크 폴백과 같은 패턴 — 빈 회색 박스 대신 "의도된 타일"처럼 보이게). */
+/** 저장된 계획 카드의 커버 — 작업지시서 2026-11-22 "사진 사용량" §1④: 장소·제목으로 사진을 검색하지 않는다.
+ * 그 계획 지역의 자체 대표 이미지(출처 표기 포함)를 쓰고, 없으면 계획 id 로 해시한 고정 색 + 워터마크 아이콘이다. */
 function PlanCover({ plan }: { plan: SavedPlan }) {
   const [failed, setFailed] = useState(false);
-  const firstItemName = plan.items[0]?.name;
-  if (!firstItemName || failed) {
+  const image = regionImageFor(plan.currentCity);
+  if (!image || failed) {
     return (
       <div className="flex h-full w-full items-center justify-center" style={{ backgroundColor: colorForId(plan.id) }}>
         <CordixIcon name="suitcase" size={28} stroke="#fff" className="opacity-50" />
@@ -466,14 +466,13 @@ function PlanCover({ plan }: { plan: SavedPlan }) {
     );
   }
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- remote Places photo behind our own redirect proxy, same as SpotCard
-    <img
-      src={`/api/discover/spot-photo?q=${encodeURIComponent(`${firstItemName} ${plan.currentCity || plan.name}`)}`}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-      className="h-full w-full object-cover"
-    />
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element -- Wikimedia Commons 썸네일(출처 표기 포함) */}
+      <img src={image.url} alt="" loading="lazy" onError={() => setFailed(true)} className="h-full w-full object-cover" />
+      <span title={spotImageCredit(image)} className="pointer-events-none absolute bottom-0.5 right-1 max-w-[90%] truncate text-[7px] leading-3 text-white/80">
+        {spotImageCredit(image)}
+      </span>
+    </>
   );
 }
 
