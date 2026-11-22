@@ -13,6 +13,11 @@ describe("robots", () => {
     expect("/api/blob/course-maps/overseas/오사카/3/v33.png".startsWith("/api/")).toBe(true);
   });
 
+  it("/api/health 만 허용하고 /api/ 차단은 유지한다", () => {
+    expect(rules.allow).toContain("/api/health");
+    expect(rules.disallow).toContain("/api/");
+  });
+
   it("후기 사진 등 다른 /api/blob/ 은 허용 목록에 없다", () => {
     expect(rules.allow.some((a) => "/api/blob/trip-posts/1.png".startsWith(a) && a !== "/")).toBe(false);
   });

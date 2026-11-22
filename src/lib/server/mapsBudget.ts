@@ -78,7 +78,8 @@ export function mapsOpsKey(sku: MapsSku, now = new Date()): string {
 
 /** 일 단위 페이싱을 거는 SKU — 평점(Enterprise)을 월중 내내 쓰도록 월 예산을 날짜에 나눠 쓴다. */
 // text-pro 는 작업지시서 2026-10-20 "#331 검증" §2① — 코스 후보 검색이 Pro 로 옮겨 오면서 하루 300 이 이어지면 월 4,500 이 월말 전에 바닥난다(10/30 전후). Enterprise 와 같은 일 페이싱을 건다.
-export const PACED_SKUS: ReadonlySet<MapsSku> = new Set<MapsSku>(["text-enterprise", "details-enterprise", "text-pro"]);
+// photos 는 작업지시서 2026-11-22 "photos 호출 경로별 계측·일일 페이싱" — 새 글·코스 없이도 월 사용이 늘어(11/22 600/1000) 월 90% 에 닿아 남은 기간 사진이 모두 사라지는 걸 막는다.
+export const PACED_SKUS: ReadonlySet<MapsSku> = new Set<MapsSku>(["text-enterprise", "details-enterprise", "text-pro", "photos"]);
 /** 오늘 상한의 최소값 — 월 예산이 거의 바닥이어도 하루 이만큼은 쓴다. */
 export const DAILY_PACING_MIN = 10;
 /** 워밍 크론이 쓸 수 있는 오늘 상한의 비율 — 나머지는 사용자 요청용으로 남긴다. */
@@ -99,10 +100,10 @@ export function runWithMapsSource<T>(source: MapsCallSource, fn: () => Promise<T
 /**
  * 사용자 출처("user") 호출의 경로 — 작업지시서 2026-11-03 "text-pro user 일일 상한 소진" §1①. health todayBySource 에 `user:{경로}` 로 나뉘어 나온다.
  *  search=/api/places/search(검색창·내 주변·장소 탐색) · spot-photo=/api/discover/spot-photo(명소 사진 조회) · course-sync=코스 페이지/API 가 직전 버전 없이 동기로 만든 후보 검색 ·
- *  pipeline=AutoPipeline 장소 매핑 · other=경로 표시가 없는 호출.
+ *  pipeline=AutoPipeline 장소 매핑 · place-photo=/api/places/photo(검색 결과 photoName 으로 사진 조회, 작업지시서 2026-11-22) · other=경로 표시가 없는 호출.
  */
-export type MapsUserRoute = "search" | "spot-photo" | "course-sync" | "pipeline" | "other";
-export const MAPS_USER_ROUTES: readonly MapsUserRoute[] = ["search", "spot-photo", "course-sync", "pipeline", "other"];
+export type MapsUserRoute = "search" | "spot-photo" | "course-sync" | "pipeline" | "place-photo" | "other";
+export const MAPS_USER_ROUTES: readonly MapsUserRoute[] = ["search", "spot-photo", "course-sync", "pipeline", "place-photo", "other"];
 const routeContext = new AsyncLocalStorage<MapsUserRoute>();
 /** fn 안의 사용자 출처 Places 호출을 route 로 센다(출처가 warm·rebuild 면 경로는 세지 않는다). */
 export function runWithMapsRoute<T>(route: MapsUserRoute, fn: () => Promise<T>): Promise<T> {
@@ -114,6 +115,39 @@ export function currentMapsRoute(): MapsUserRoute {
 /** 사용자 출처 호출이면 경로별 카운터를 올리거나(+1) 되돌린다(-1). 백그라운드 출처는 세지 않는다. */
 async function bumpRoute(name: MapsSku | MapsDailyAgg, delta: 1 | -1, now: Date): Promise<void> {
   if (currentMapsSource() === "user") await bump(mapsRouteDayKey(name, currentMapsRoute(), now), delta);
+}
+
+/**
+ * photos 호출을 일으킨 화면 — 작업지시서 2026-11-22 §1②. 사진 URL 에 쿼리를 붙이면 CDN 캐시 키가 화면별로 갈라져 같은 장소가 화면 수만큼 다시 과금되므로,
+ * 쿼리 대신 브라우저가 이미지 요청에 실어 보내는 Referer(페이지 경로)로 화면을 가른다. CDN 캐시 히트는 서버에 오지 않으므로 "실제로 과금된 호출"만 센다.
+ */
+export type PhotoScreen = "home" | "discover" | "scrapbook" | "course" | "other";
+export const PHOTO_SCREENS: readonly PhotoScreen[] = ["home", "discover", "scrapbook", "course", "other"];
+export function photoScreenFromReferer(referer: string | null | undefined): PhotoScreen {
+  if (!referer) return "other";
+  let path: string;
+  try {
+    path = new URL(referer).pathname;
+  } catch {
+    return "other";
+  }
+  if (path === "/") return "home";
+  for (const s of ["discover", "scrapbook", "course"] as const) {
+    if (path === `/${s}` || path.startsWith(`/${s}/`)) return s;
+  }
+  return "other";
+}
+const screenContext = new AsyncLocalStorage<PhotoScreen>();
+/** fn 안의 photos 호출을 screen 별로 센다. */
+export function runWithPhotoScreen<T>(screen: PhotoScreen, fn: () => Promise<T>): Promise<T> {
+  return screenContext.run(screen, fn);
+}
+/** 화면별 오늘 photos 호출 수 키 — `/api/health` 의 maps.photosByScreenToday. */
+export function photoScreenDayKey(screen: PhotoScreen, now = new Date()): string {
+  return `maps-ops-day-screen:photos:${screen}:${ptDateString(now)}`;
+}
+async function bumpPhotoScreen(sku: MapsSku, delta: 1 | -1, now: Date): Promise<void> {
+  if (sku === "photos" && currentMapsSource() === "user") await bump(photoScreenDayKey(screenContext.getStore() ?? "other", now), delta);
 }
 
 /** 지금 호출의 출처(워밍 크론이면 "warm", 그 밖엔 "user"). */
@@ -282,6 +316,7 @@ export async function reserveMapsOp(sku: MapsSku, now = new Date()): Promise<{ a
         await bump(mapsSourceDayKey(sku, currentMapsSource(), now), 1);
         await bumpRoute(sku, 1, now);
       }
+      await bumpPhotoScreen(sku, 1, now);
       return { allowed: true, count: r.rows[0].n, limit };
     }
     if (aggReserved && agg) {
@@ -348,6 +383,7 @@ export async function releaseMapsOp(sku: MapsSku, now = new Date()): Promise<voi
       await bump(mapsSourceDayKey(sku, currentMapsSource(), now), -1);
       await bumpRoute(sku, -1, now);
     }
+    await bumpPhotoScreen(sku, -1, now);
     const agg = aggFor(sku);
     if (agg) {
       await bump(mapsDayKey(agg, now), -1);
@@ -465,7 +501,12 @@ export interface MapsDailyUsage {
   quotaResetAt: string;
   quotaResetAtKst: string;
 }
-export type MapsUsage = Record<MapsSku, MapsSkuUsage> & { textSearchAll: MapsDailyUsage; getPlaceAll: MapsDailyUsage };
+export type MapsUsage = Record<MapsSku, MapsSkuUsage> & {
+  textSearchAll: MapsDailyUsage;
+  getPlaceAll: MapsDailyUsage;
+  /** 오늘 화면별 photos 호출 수(사용자 출처, 과금된 호출만 — CDN 캐시 히트 제외). 화면은 Referer 경로로 가른다. */
+  photosByScreenToday: Record<PhotoScreen, number | null>;
+};
 
 async function dailyUsage(agg: MapsDailyAgg, now: Date): Promise<MapsDailyUsage> {
   const [todayCount, flag] = await Promise.all([readCounter(mapsDayKey(agg, now)), readCounter(mapsQuota429Key(agg, now))]);
@@ -497,7 +538,13 @@ export async function getMapsUsage(now = new Date()): Promise<MapsUsage> {
     }),
   );
   const [textSearchAll, getPlaceAll] = await Promise.all([dailyUsage("text-search-all", now), dailyUsage("get-place-all", now)]);
-  return { ...(Object.fromEntries(skus.map((s, i) => [s, rows[i]])) as Record<MapsSku, MapsSkuUsage>), textSearchAll, getPlaceAll };
+  const screens = await Promise.all(PHOTO_SCREENS.map(async (sc) => [sc, await readCounter(photoScreenDayKey(sc, now))] as const));
+  return {
+    ...(Object.fromEntries(skus.map((s, i) => [s, rows[i]])) as Record<MapsSku, MapsSkuUsage>),
+    textSearchAll,
+    getPlaceAll,
+    photosByScreenToday: Object.fromEntries(screens) as Record<PhotoScreen, number | null>,
+  };
 }
 
 // ------------------------------------------------------------------------------------------------

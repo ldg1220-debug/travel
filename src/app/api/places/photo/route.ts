@@ -1,4 +1,4 @@
-import { reserveMapsOp } from "@/lib/server/mapsBudget";
+import { photoScreenFromReferer, reserveMapsOp, runWithMapsRoute, runWithPhotoScreen } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
@@ -13,7 +13,12 @@ export const dynamic = "force-dynamic";
  * (skipHttpRedirect=true → JSON instead of a 302) and redirects the
  * browser there; the final image URL needs no key at all.
  */
-export const GET = withApiErrorHandling(async (request: NextRequest) => {
+// 작업지시서 2026-11-22 §1① — health todayBySource["user:place-photo"] 로 센다. 화면은 Referer 경로로 가른다(쿼리를 붙이면 CDN 캐시 키가 갈라진다).
+export const GET = withApiErrorHandling((request: NextRequest) =>
+  runWithMapsRoute("place-photo", () => runWithPhotoScreen(photoScreenFromReferer(request.headers.get("referer")), () => handlePlacePhoto(request))),
+);
+
+async function handlePlacePhoto(request: NextRequest): Promise<NextResponse> {
   const name = request.nextUrl.searchParams.get("name") ?? "";
   const width = Math.min(Math.max(Number(request.nextUrl.searchParams.get("w")) || 640, 64), 1600);
   // Strict shape check — this proxy must only ever relay Places photo
@@ -48,4 +53,4 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
     // to spare Google (and our quota) repeat lookups for a day.
     headers: { "Cache-Control": "public, max-age=86400" },
   });
-});
+}

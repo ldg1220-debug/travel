@@ -26,6 +26,11 @@ describe("GET /api/health", () => {
     expect(body.ok).toBe(true);
     expect(body.warnings[0]).toContain("blob limit");
   });
+  // 작업지시서 2026-11-22 §1③ — 검색 색인 방지.
+  it("응답에 X-Robots-Tag: noindex 가 붙는다", async () => {
+    getMock.mockResolvedValue(null);
+    expect((await GET()).headers.get("x-robots-tag")).toBe("noindex");
+  });
   it("DB 가 실패하면 Blob 이 정상이어도 503 · ok false", async () => {
     getMock.mockResolvedValue(null);
     queryMock.mockRejectedValue(new Error("db down"));

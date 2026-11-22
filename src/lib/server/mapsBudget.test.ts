@@ -344,3 +344,22 @@ describe("콘솔 하루 상한 집계 (text-search-all · get-place-all)", () =>
     expect(await chooseGuardedMask("text", "places.id")).toBeNull(); // 오늘 남은 IDs Only 호출도 skip
   });
 });
+
+// 작업지시서 2026-11-22 — photos 일 페이싱 · 화면 분류
+describe("photos 페이싱 · 화면 분류", () => {
+  it("photos 는 페이싱 SKU 다", async () => {
+    const { PACED_SKUS } = await import("./mapsBudget");
+    expect(PACED_SKUS.has("photos")).toBe(true);
+  });
+  it("Referer 경로로 화면을 가른다", async () => {
+    const { photoScreenFromReferer } = await import("./mapsBudget");
+    expect(photoScreenFromReferer("https://www.tradule.co.kr/")).toBe("home");
+    expect(photoScreenFromReferer("https://www.tradule.co.kr/?utm=x")).toBe("home");
+    expect(photoScreenFromReferer("https://www.tradule.co.kr/discover")).toBe("discover");
+    expect(photoScreenFromReferer("https://www.tradule.co.kr/scrapbook")).toBe("scrapbook");
+    expect(photoScreenFromReferer("https://www.tradule.co.kr/course/osaka/3")).toBe("course");
+    expect(photoScreenFromReferer("https://www.tradule.co.kr/courses-x")).toBe("other");
+    expect(photoScreenFromReferer(null)).toBe("other");
+    expect(photoScreenFromReferer("not a url")).toBe("other");
+  });
+});
