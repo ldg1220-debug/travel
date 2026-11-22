@@ -8,6 +8,7 @@ import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
 import { GoogleAttribution } from "@/components/GoogleAttribution";
+import { applyDisplayNames } from "@/lib/server/placeDisplayNames";
 import { getCourseBrief, peekBrief, resolveScope, UnsupportedRegionError, type CourseBrief, type CourseDays } from "@/lib/server/courseBrief";
 import { fetchRelatedTripPosts } from "@/lib/server/coursePageLinks";
 import { CoursePageUnavailableError, judgeCourseBrief, resolveCoursePageRoute } from "@/lib/server/coursePageGate";
@@ -166,6 +167,8 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
     const pool = brief.poolStats ? ` pool=cache:${brief.poolStats.cache}/google:${brief.poolStats.google} candidates=${brief.poolStats.candidates}` : "";
     return { kind: "missing", reason: `${rejected}${pool}`, permanent: false };
   }
+  // 작업지시서 2026-11-22 ①② — 캐시된 브리프는 그대로 두고 표시 단계에서 이름만 정리·한글 병기한다.
+  brief = await applyDisplayNames(brief).catch(() => brief);
   return { kind: "ok", brief, region: route.region, days: route.days, indexed };
 });
 

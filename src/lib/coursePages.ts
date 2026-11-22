@@ -1,3 +1,4 @@
+import { hasHangul } from "./placeDisplayName";
 import { altLabelFor } from "./regionTypicalDaysData";
 import type { CourseBrief, CourseBriefSpot, CourseDays } from "./server/courseBrief";
 
@@ -264,24 +265,29 @@ export function buildCourseTouristTripJsonLd(
 // 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다. 트레쥴 자체를 검색에 노출합니다" §3 — 검색 품질.
 
 const SITE_ORIGIN = "https://www.tradule.co.kr";
-// 대표 명소 후보에서 빼는 카테고리 버킷(liveCategoryBucket) — 식사·카페·술집·숙소는 "코스의 간판"이 아니다.
-const NON_LANDMARK_BUCKETS = new Set(["음식점", "카페", "술집", "숙소", "스파", "선착장"]);
-const NON_LANDMARK_NAME = /선착장|페리|터미널|\bjetty\b|\bferry\b|스파|마사지|\bspa\b|massage|호텔|\bhotel\b/i;
+// 대표 명소 후보 — 작업지시서 2026-11-22 ③: 명소/랜드마크 카테고리만 쓴다(허용 목록). 식사·카페·술집·숙소·스파·선착장·섬·기타는 "코스의 간판"이 아니다.
+const LANDMARK_CATEGORIES = new Set(["관광지", "테마파크", "사원·성당", "해변", "수족관", "동물원", "전망대", "공원", "명소/유적"]);
+// 카테고리가 관광지로 잡혀도 간판이 못 되는 업체·조합 이름 — 투어업체·스파·호텔·페리·상점가 조합(진흥조합·상인회).
+const NON_LANDMARK_NAME = /선착장|페리|터미널|\bjetty\b|\bferry\b|스파|마사지|\bspa\b|massage|호텔|\bhotel\b|진흥조합|상인회|상점가\s?조합|협동조합|투어|\btours?\b|\badventures?\b|island\s?hopping|아일랜드\s?호핑|\bagency\b|여행사|레스토랑|\brestaurant\b|식당|카페|\bcafe\b|\bcoffee\b/i;
 
 /** 코스 페이지 경로(인코딩 일관) — canonical·사이트맵·내부 링크가 모두 이 함수를 쓴다. */
 export function courseCanonicalPath(region: string, days: CourseDays): string {
   return `/course/${encodeURIComponent(region)}/${encodeURIComponent(daysToLabel(days))}`;
 }
 
-/** 코스 순서(order)상 앞선 대표 명소 이름 n곳 — 식사·카페·숙소·선착장·스파는 뺀다. 같은 이름은 한 번만. (평점이 없으므로 평점순이 아니다 — 작업지시서 2026-10-20) */
-export function pickRepresentativeSpots(spots: readonly CourseBriefSpot[], n: number): string[] {
+/** 대표 명소 후보 스팟 n곳(코스 순서) — 명소 카테고리만, 같은 이름은 한 번만. requireHangul 이면 한글이 없는 이름은 뺀다(표시 이름 적용 뒤에 쓴다). */
+export function pickRepresentativeSpotObjects<S extends CourseBriefSpot>(spots: readonly S[], n: number, opts: { requireHangul?: boolean } = {}): S[] {
   const seen = new Set<string>();
   return [...spots]
-    .filter((s) => !NON_LANDMARK_BUCKETS.has(s.category) && !NON_LANDMARK_NAME.test(s.name) && !s.lodging)
+    .filter((s) => LANDMARK_CATEGORIES.has(s.category) && !NON_LANDMARK_NAME.test(s.name) && !s.lodging && (!opts.requireHangul || hasHangul(s.name)))
     .sort((a, b) => a.order - b.order)
     .filter((s) => (seen.has(s.name) ? false : (seen.add(s.name), true)))
-    .slice(0, n)
-    .map((s) => s.name);
+    .slice(0, n);
+}
+
+/** 코스 순서(order)상 앞선 대표 명소 이름 n곳 — 명소 카테고리만, 한글 없는 이름은 뺀다(홈 카드·제목·meta 용). (평점이 없으므로 평점순이 아니다 — 작업지시서 2026-10-20) */
+export function pickRepresentativeSpots(spots: readonly CourseBriefSpot[], n: number): string[] {
+  return pickRepresentativeSpotObjects(spots, n, { requireHangul: true }).map((s) => s.name);
 }
 
 /** "{지역} {N박M일} 코스 — {N}곳 · {대표1}·{대표2} | 트레쥴" — 일수 표기는 URL 라벨(daysToLabel)과 같다(6·7일은 "5박6일"·"5박7일"). */
