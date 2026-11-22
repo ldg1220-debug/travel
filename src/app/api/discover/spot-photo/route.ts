@@ -1,6 +1,7 @@
-import { chooseGuardedMask, photoScreenFromReferer, reserveMapsOp, runWithMapsRoute, runWithPhotoScreen, settleGuarded } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, photoScreenFromReferer, releaseMapsOp, reserveMapsOp, runWithMapsRoute, runWithPhotoScreen, settleGuarded } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { checkRateLimit } from "@/lib/server/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,41 @@ function rememberPhotoName(q: string, photoName: string | null): void {
   photoNameMemo.set(q, photoName);
 }
 
+// 작업지시서 2026-11-22 §1① — photoUri 도 1일 TTL 로 메모해 둔다. 적중하면 Google 을 부르지 않으므로 photos/text-pro 카운터도 올리지 않는다(없으면 같은 q 를 다시 요청할 때마다 photos 가 실제로 다시 나간다).
+const PHOTO_URI_TTL_MS = 24 * 60 * 60 * 1000;
+const photoUriMemo = new Map<string, { uri: string; at: number }>();
+
+function rememberPhotoUri(q: string, uri: string): void {
+  if (photoUriMemo.size >= MEMO_MAX) {
+    const oldestKey = photoUriMemo.keys().next().value;
+    if (oldestKey !== undefined) photoUriMemo.delete(oldestKey);
+  }
+  photoUriMemo.set(q, { uri, at: Date.now() });
+}
+
+// 작업지시서 2026-11-22 §1② — 열린 엔드포인트 잠금. 거절은 "사진 없음"(404)으로 응답해 클라이언트가 플레이스홀더로 떨어지게 하되, 같은 URL 의 정상 응답을 CDN 이 404 로 오염시키지 않도록 no-store.
+const DENY_HEADERS = { "Cache-Control": "no-store" };
+const BOT_UA = /bot|crawl|spider|slurp|bingpreview|facebookexternalhit|headless|python-requests|curl\/|wget\/|go-http-client|axios|node-fetch|undici/i;
+const IP_LIMIT_PER_MIN = 30;
+
+/** 우리 화면에서 <img> 로 불린 요청인가 — Sec-Fetch-Site 가 same-origin 이거나 Referer 호스트가 이 요청의 호스트와 같을 때만 true. */
+function isOwnPageRequest(request: NextRequest): boolean {
+  const site = request.headers.get("sec-fetch-site");
+  if (site === "same-origin") return true;
+  if (site && site !== "none") return false;
+  const referer = request.headers.get("referer");
+  if (!referer) return false;
+  try {
+    return new URL(referer).host === request.nextUrl.host;
+  } catch {
+    return false;
+  }
+}
+
+function clientIp(request: NextRequest): string {
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+}
+
 // 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" — 사진 참조는 Places 콘텐츠라 CDN 캐시도 하루로(원래 7일).
 const CACHE_HEADERS = { "Cache-Control": "public, max-age=86400, s-maxage=86400" };
 
@@ -46,8 +82,22 @@ async function handleSpotPhoto(request: NextRequest): Promise<NextResponse> {
   const q = (request.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 80);
   if (!q) return NextResponse.json({ error: "missing q" }, { status: 400 });
 
+  if (BOT_UA.test(request.headers.get("user-agent") ?? "") || !isOwnPageRequest(request)) {
+    return NextResponse.json({ error: "not allowed" }, { status: 404, headers: DENY_HEADERS });
+  }
+
+  const cachedUri = photoUriMemo.get(q);
+  if (cachedUri) {
+    if (Date.now() - cachedUri.at < PHOTO_URI_TTL_MS) return NextResponse.redirect(cachedUri.uri, { headers: CACHE_HEADERS });
+    photoUriMemo.delete(q);
+  }
+
   const apiKey = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "no api key" }, { status: 404, headers: CACHE_HEADERS });
+
+  // 여기부터는 Google 로 실제 요청이 나갈 수 있는 경로 — IP 당 분당 상한(DB 장애 시엔 막지 않는다).
+  const underLimit = await checkRateLimit(`spot-photo:${clientIp(request)}`, IP_LIMIT_PER_MIN, 60).catch(() => true);
+  if (!underLimit) return NextResponse.json({ error: "rate limited" }, { status: 404, headers: DENY_HEADERS });
 
   let photoName = photoNameMemo.get(q);
   // 작업지시서 2026-10-14 "Places 호출 비용" §2 — 검색(Text Search Pro)과 사진(Photos)은 월 한도 가드를 거친다. 닿으면 사진 없음(플레이스홀더)로 짧게 응답한다.
@@ -80,9 +130,13 @@ async function handleSpotPhoto(request: NextRequest): Promise<NextResponse> {
     `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=480&skipHttpRedirect=true`,
     { headers: { "X-Goog-Api-Key": apiKey }, cache: "no-store" },
   );
-  if (!media.ok) return NextResponse.json({ error: "photo fetch failed" }, { status: 404, headers: CACHE_HEADERS });
+  if (!media.ok) {
+    if (media.status === 429 || media.status >= 500) await releaseMapsOp("photos"); // Google 이 처리하지 않은 호출은 카운트를 되돌린다
+    return NextResponse.json({ error: "photo fetch failed" }, { status: 404, headers: CACHE_HEADERS });
+  }
   const { photoUri } = (await media.json()) as { photoUri?: string };
   if (!photoUri) return NextResponse.json({ error: "no photo uri" }, { status: 404, headers: CACHE_HEADERS });
+  rememberPhotoUri(q, photoUri);
 
   return NextResponse.redirect(photoUri, { headers: CACHE_HEADERS });
 }
