@@ -67,6 +67,6 @@ export async function GET() {
       affiliateClicks,
       checkedAt: new Date().toISOString(),
     },
-    { status: ok ? 200 : 503, headers: { "cache-control": "no-store" } },
+    { status: ok ? 200 : 503, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } },
   );
 }

@@ -1,4 +1,4 @@
-import { chooseGuardedMask, reserveMapsOp, runWithMapsRoute, settleGuarded } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, photoScreenFromReferer, reserveMapsOp, runWithMapsRoute, runWithPhotoScreen, settleGuarded } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 
@@ -37,7 +37,10 @@ function rememberPhotoName(q: string, photoName: string | null): void {
 const CACHE_HEADERS = { "Cache-Control": "public, max-age=86400, s-maxage=86400" };
 
 // 작업지시서 2026-11-03 §1① — 이 라우트의 Places 호출은 health todayBySource["user:spot-photo"] 로 센다.
-export const GET = withApiErrorHandling((request: NextRequest) => runWithMapsRoute("spot-photo", () => handleSpotPhoto(request)));
+export const GET = withApiErrorHandling((request: NextRequest) =>
+  runWithMapsRoute("spot-photo", () => runWithPhotoScreen(photoScreenFromReferer(request.headers.get("referer")), () => handleSpotPhoto(request))),
+);
+// 작업지시서 2026-11-22 §1② — 화면별 호출 수는 Referer 경로로 센다(health maps.photosByScreenToday). ?from= 쿼리는 CDN 캐시 키를 화면별로 갈라 같은 장소를 화면 수만큼 다시 과금하므로 붙이지 않는다(★).
 
 async function handleSpotPhoto(request: NextRequest): Promise<NextResponse> {
   const q = (request.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 80);
