@@ -9,7 +9,7 @@ import { Calendar, Check, ChevronRight, Heart, Plus, Search, Sparkles, X } from 
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { Input } from "@/components/ui/input";
 import { useItineraryStore } from "@/store/itineraryStore";
-import { fetchFeed, type FeedPost } from "@/lib/api";
+import { fetchFeed, fetchMyTripPosts, type FeedPost } from "@/lib/api";
 import { formatDateLabel } from "@/lib/timeline";
 import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 import { activePlanCityLabel, classifyPlan, deriveTripStatus, hasCompletedTrip, ROUTE_OPTIMIZED_ONCE_KEY, type PlanBadge, type TripStatus } from "@/lib/tripStatus";
@@ -452,13 +452,12 @@ function PlanStatusPill({ status }: { status: PlanBadge }) {
   return <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${className}`}>{label}</span>;
 }
 
-/** 저장된 계획 카드의 커버 — 첫 스팟 사진을 시도하고, 실패하면 계획 id로
- * 해시한 고정 색 + 워터마크 아이콘으로 대체한다(#163의 카테고리 아이콘
- * 워터마크 폴백과 같은 패턴 — 빈 회색 박스 대신 "의도된 타일"처럼 보이게). */
-function PlanCover({ plan }: { plan: SavedPlan }) {
+/** 저장된 계획 카드의 커버 — 계획에 연결된 후기에 올린 사진(coverSrc)이 있으면 그걸 쓰고,
+ * 없으면 계획 id로 해시한 고정 색 + 워터마크 아이콘. 제목·도시로 Google 사진을 검색하지
+ * 않는다(작업지시서 2026-11-22 ④ — 엉뚱한 사진·방문마다 과금). */
+function PlanCover({ plan, coverSrc }: { plan: SavedPlan; coverSrc?: string }) {
   const [failed, setFailed] = useState(false);
-  const firstItemName = plan.items[0]?.name;
-  if (!firstItemName || failed) {
+  if (!coverSrc || failed) {
     return (
       <div className="flex h-full w-full items-center justify-center" style={{ backgroundColor: colorForId(plan.id) }}>
         <CordixIcon name="suitcase" size={28} stroke="#fff" className="opacity-50" />
@@ -466,14 +465,8 @@ function PlanCover({ plan }: { plan: SavedPlan }) {
     );
   }
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- remote Places photo behind our own redirect proxy, same as SpotCard
-    <img
-      src={`/api/discover/spot-photo?q=${encodeURIComponent(`${firstItemName} ${plan.currentCity || plan.name}`)}`}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-      className="h-full w-full object-cover"
-    />
+    // eslint-disable-next-line @next/next/no-img-element -- 사용자가 올린 후기 사진(/api/blob/…)
+    <img src={coverSrc} alt="" loading="lazy" onError={() => setFailed(true)} className="h-full w-full object-cover" />
   );
 }
 
@@ -486,7 +479,21 @@ function PlanCover({ plan }: { plan: SavedPlan }) {
  */
 function TripListSection() {
   const router = useRouter();
+  const { data: session } = useSession();
+  const userId = session?.user?.id;
   const [mounted, setMounted] = useState(false);
+  // 계획에 연결된 후기의 첫 사진 — 커버로 쓴다(없으면 아이콘). Google 사진 검색은 하지 않는다.
+  const [coverByItineraryId, setCoverByItineraryId] = useState<Map<number, string>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    fetchMyTripPosts().then((posts) => {
+      if (cancelled) return;
+      setCoverByItineraryId(new Map(posts.filter((p) => p.itineraryId != null && p.images.length > 0).map((p) => [p.itineraryId as number, p.images[0]])));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 0);
     return () => clearTimeout(t);
@@ -605,7 +612,7 @@ function TripListSection() {
                   return (
                     <button key={plan.id} onClick={() => openPlan(plan)} className="group overflow-hidden rounded-2xl border border-slate-200/70 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:bg-slate-900">
                       <div className="relative h-20">
-                        <PlanCover plan={plan} />
+                        <PlanCover plan={plan} coverSrc={plan.remoteId != null ? coverByItineraryId.get(plan.remoteId) : undefined} />
                         <div className="absolute right-1.5 top-1.5">
                           <PlanStatusPill status={badge} />
                         </div>
