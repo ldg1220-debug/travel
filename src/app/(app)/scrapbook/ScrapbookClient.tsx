@@ -138,18 +138,15 @@ function ScrapbookPageInner() {
     [myPosts],
   );
   // 대표 사진 소스 — 그 계획으로 쓴 여행 후기에 실제 업로드한 사진이
-  // 있으면 그걸 우선 쓰고(제일 진짜 같은 사진), 없으면 계획의 도시로
-  // 실시간 장소 사진을 하나 찾아온다(코스 만들기 타일과 같은 방식). 실패하면
-  // TripCard가 알아서 기존 그라디언트 커버로 되돌아간다.
+  // 있으면 그걸 쓰고, 없으면 TripCard 가 그라디언트 커버를 쓴다.
   const coverByItineraryId = useMemo(
     () => new Map(myPosts.filter((p) => p.itineraryId != null && p.images.length > 0).map((p) => [p.itineraryId as number, p.images[0]])),
     [myPosts],
   );
   const coverSrcForPlan = (plan: SavedPlan): string | null => {
     const uploaded = plan.remoteId != null ? coverByItineraryId.get(plan.remoteId) : undefined;
-    if (uploaded) return uploaded;
-    if (!plan.currentCity) return null;
-    return `/api/discover/spot-photo?q=${encodeURIComponent(`${plan.currentCity} 여행`)}`;
+    // 작업지시서 2026-11-23 — 도시명으로 Google 사진을 검색하지 않는다(방문마다 photos·text-pro 과금). 없으면 그라디언트 커버.
+    return uploaded ?? null;
   };
   // 계획 하나엔 후기가 최대 하나뿐이라(trip_posts_user_itinerary_key), 계획의
   // remoteId로 그 계획의 후기를 바로 찾을 수 있다 — "다녀온 여행" 카드를
