@@ -1948,7 +1948,7 @@ function LivePlaceCard({
   // the same live name+address lookup SpotCard uses for curated spots with
   // no photo of their own (/api/discover/spot-photo); 404/no-match just
   // reverts to the gradient placeholder below, same as SpotCard.
-  const [photoFailed, setPhotoFailed] = useState(false);
+  // 작업지시서 2026-11-22 §1⑤ — photoName 이 없는 라이브 후보는 목록에서 spot-photo 를 부르지 않고 아이콘만 보인다.
   return (
     <div
       onClick={onOpenDetail}
@@ -1963,15 +1963,6 @@ function LivePlaceCard({
             src={`/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=640`}
             alt={place.name}
             loading="lazy"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : !photoFailed ? (
-          // eslint-disable-next-line @next/next/no-img-element -- /api/discover/spot-photo proxy, see SpotCard
-          <img
-            src={`/api/discover/spot-photo?q=${encodeURIComponent(`${place.name} ${place.address ?? ""}`.trim())}`}
-            alt={place.name}
-            loading="lazy"
-            onError={() => setPhotoFailed(true)}
             className="absolute inset-0 h-full w-full object-cover"
           />
         ) : (

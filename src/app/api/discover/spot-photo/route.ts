@@ -72,6 +72,20 @@ function clientIp(request: NextRequest): string {
 // 작업지시서 2026-10-14 "Google Places 데이터 보관 기간 점검" — 사진 참조는 Places 콘텐츠라 CDN 캐시도 하루로(원래 7일).
 const CACHE_HEADERS = { "Cache-Control": "public, max-age=86400, s-maxage=86400" };
 
+// 작업지시서 2026-11-22 §6 — 307/302 는 Vercel CDN 이 캐시하지 않아(실측) 같은 화면이 매번 함수를 실행했다. photoUri 의 이미지를 직접 받아 200 으로 내려 CDN 1일 캐시(s-maxage=86400)가 걸리게 한다. 이미지 받기에 실패하면 예전처럼 리다이렉트.
+async function photoResponse(uri: string): Promise<NextResponse> {
+  try {
+    const img = await fetch(uri, { cache: "no-store" });
+    const type = img.headers.get("content-type") ?? "";
+    if (img.ok && type.startsWith("image/")) {
+      return new NextResponse(await img.arrayBuffer(), { status: 200, headers: { ...CACHE_HEADERS, "Content-Type": type } });
+    }
+  } catch {
+    // 아래 리다이렉트로
+  }
+  return NextResponse.redirect(uri, { headers: CACHE_HEADERS });
+}
+
 // 작업지시서 2026-11-03 §1① — 이 라우트의 Places 호출은 health todayBySource["user:spot-photo"] 로 센다.
 export const GET = withApiErrorHandling((request: NextRequest) =>
   runWithMapsRoute("spot-photo", () => runWithPhotoScreen(photoScreenFromReferer(request.headers.get("referer")), () => handleSpotPhoto(request))),
@@ -88,7 +102,7 @@ async function handleSpotPhoto(request: NextRequest): Promise<NextResponse> {
 
   const cachedUri = photoUriMemo.get(q);
   if (cachedUri) {
-    if (Date.now() - cachedUri.at < PHOTO_URI_TTL_MS) return NextResponse.redirect(cachedUri.uri, { headers: CACHE_HEADERS });
+    if (Date.now() - cachedUri.at < PHOTO_URI_TTL_MS) return photoResponse(cachedUri.uri);
     photoUriMemo.delete(q);
   }
 
@@ -138,5 +152,5 @@ async function handleSpotPhoto(request: NextRequest): Promise<NextResponse> {
   if (!photoUri) return NextResponse.json({ error: "no photo uri" }, { status: 404, headers: CACHE_HEADERS });
   rememberPhotoUri(q, photoUri);
 
-  return NextResponse.redirect(photoUri, { headers: CACHE_HEADERS });
+  return photoResponse(photoUri);
 }
