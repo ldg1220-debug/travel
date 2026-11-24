@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { reserve, rate } = vi.hoisted(() => ({
+const { reserve, rate, today, chooseMask } = vi.hoisted(() => ({
+  today: vi.fn(async (): Promise<number | null> => 0),
+  chooseMask: vi.fn(async () => ({ mask: "places.photos" })),
   reserve: vi.fn(async () => ({ allowed: true, count: 1, limit: 100 })),
   rate: vi.fn(async () => true),
 }));
 vi.mock("@/lib/server/mapsBudget", () => ({
-  chooseGuardedMask: vi.fn(async () => ({ mask: "places.photos" })),
+  chooseGuardedMask: chooseMask,
+  mapsBudgetLimit: () => 900,
+  readMapsOps: vi.fn(async () => 100),
+  readMapsOpsToday: today,
+  todayLimitFor: vi.fn(async () => 33),
   photoScreenFromReferer: () => "other",
   reserveMapsOp: reserve,
   releaseMapsOp: vi.fn(async () => {}),
@@ -41,6 +47,9 @@ describe("/api/discover/spot-photo", () => {
     vi.stubEnv("GOOGLE_PLACES_API_KEY", "k");
     fetchMock.mockReset();
     reserve.mockClear();
+    chooseMask.mockClear();
+    today.mockReset();
+    today.mockResolvedValue(0);
     rate.mockReset();
     rate.mockResolvedValue(true);
   });
@@ -72,5 +81,24 @@ describe("/api/discover/spot-photo", () => {
     const googleCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("places.googleapis.com"));
     expect(googleCalls).toHaveLength(2); // searchText 1 + media 1, 두 번째 요청은 0
     expect(reserve).toHaveBeenCalledTimes(1);
+  });
+
+  it("photos 일 한도가 찬 상태의 새 q: searchText 0회·text-pro 기록 0·404", async () => {
+    today.mockResolvedValue(33);
+    googleOk("capped-q");
+    const res = await GET(req("capped-q", own));
+    expect(res.status).toBe(404);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=600");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(chooseMask).not.toHaveBeenCalled();
+    expect(reserve).not.toHaveBeenCalled();
+  });
+
+  it("한도 수치를 못 읽으면(DB 장애) 검색을 진행한다", async () => {
+    today.mockResolvedValue(null);
+    googleOk("dbfail-q");
+    const res = await GET(req("dbfail-q", own));
+    expect(res.status).toBe(200);
+    expect(chooseMask).toHaveBeenCalledTimes(1);
   });
 });

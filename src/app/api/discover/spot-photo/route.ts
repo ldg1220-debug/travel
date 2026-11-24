@@ -1,4 +1,4 @@
-import { chooseGuardedMask, photoScreenFromReferer, releaseMapsOp, reserveMapsOp, runWithMapsRoute, runWithPhotoScreen, settleGuarded } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, mapsBudgetLimit, photoScreenFromReferer, readMapsOps, readMapsOpsToday, releaseMapsOp, reserveMapsOp, runWithMapsRoute, runWithPhotoScreen, settleGuarded, todayLimitFor } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { checkRateLimit } from "@/lib/server/rateLimit";
@@ -86,6 +86,18 @@ async function photoResponse(uri: string): Promise<NextResponse> {
   return NextResponse.redirect(uri, { headers: CACHE_HEADERS });
 }
 
+// 작업지시서 2026-11-24 — 사진(photos) 오늘·월 한도에 이미 닿았는지(예약 없이 읽기만). 숫자를 못 읽으면(DB 장애) false → 기존대로 검색 진행.
+async function photosCapped(): Promise<boolean> {
+  try {
+    const [today, month, todayLimit] = await Promise.all([readMapsOpsToday("photos"), readMapsOps("photos"), todayLimitFor("photos")]);
+    if (today != null && todayLimit != null && today >= todayLimit) return true;
+    if (month != null && month >= mapsBudgetLimit("photos")) return true;
+  } catch {
+    // 읽기 실패는 막지 않는다
+  }
+  return false;
+}
+
 // 작업지시서 2026-11-03 §1① — 이 라우트의 Places 호출은 health todayBySource["user:spot-photo"] 로 센다.
 export const GET = withApiErrorHandling((request: NextRequest) =>
   runWithMapsRoute("spot-photo", () => runWithPhotoScreen(photoScreenFromReferer(request.headers.get("referer")), () => handleSpotPhoto(request))),
@@ -117,6 +129,8 @@ async function handleSpotPhoto(request: NextRequest): Promise<NextResponse> {
   // 작업지시서 2026-10-14 "Places 호출 비용" §2 — 검색(Text Search Pro)과 사진(Photos)은 월 한도 가드를 거친다. 닿으면 사진 없음(플레이스홀더)로 짧게 응답한다.
   const BUDGET_SKIP = { "Cache-Control": "public, max-age=600" };
   if (photoName === undefined) {
+    // 작업지시서 2026-11-24 — 어차피 photos 단계에서 막힐 요청이면 text-pro 를 쓰지 않는다.
+    if (await photosCapped()) return NextResponse.json({ error: "photo budget exhausted" }, { status: 404, headers: BUDGET_SKIP });
     const guarded = await chooseGuardedMask("text", "places.photos");
     if (!guarded) return NextResponse.json({ error: "photo budget exhausted" }, { status: 404, headers: BUDGET_SKIP });
     const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
