@@ -252,6 +252,23 @@ export async function todayLimitFor(sku: MapsSku, now = new Date()): Promise<num
   return dailyPacingLimit(monthLimit, month - (today ?? 0), daysRemainingInMonth(now));
 }
 
+/**
+ * 예약 없이 "지금 이 SKU 를 더 쓸 여유가 있는가"만 본다(작업지시서 2026-11-24 #388).
+ * 월 한도·오늘 페이싱 상한에 이미 닿았을 때만 false. 숫자를 못 읽으면(DB 장애) 기존 동작 유지를 위해 true.
+ * 호출 직전 가드(reserveMapsOp)를 대체하지 않는다 — 앞선 비싼 호출(검색)을 헛되이 쓰지 않으려는 사전 확인용.
+ */
+export async function hasMapsHeadroom(sku: MapsSku, now = new Date()): Promise<boolean> {
+  const limit = mapsBudgetLimit(sku);
+  if (limit <= 0) return false;
+  const [month, today] = await Promise.all([readMapsOps(sku, now), readMapsOpsToday(sku, now)]);
+  if (month == null) return true;
+  if (month >= limit) return false;
+  if (PACED_SKUS.has(sku) && today != null) {
+    return today < dailyPacingLimit(limit, month - today, daysRemainingInMonth(now));
+  }
+  return true;
+}
+
 async function bump(key: string, delta: 1 | -1): Promise<void> {
   await pool.query(
     `insert into place_candidate_cache (cache_key, payload) values ($1, jsonb_build_object('count', greatest($2::int, 0)))

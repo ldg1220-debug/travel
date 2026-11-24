@@ -1,4 +1,4 @@
-import { chooseGuardedMask, photoScreenFromReferer, releaseMapsOp, reserveMapsOp, runWithMapsRoute, runWithPhotoScreen, settleGuarded } from "@/lib/server/mapsBudget";
+import { chooseGuardedMask, hasMapsHeadroom, photoScreenFromReferer, releaseMapsOp, reserveMapsOp, runWithMapsRoute, runWithPhotoScreen, settleGuarded } from "@/lib/server/mapsBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { checkRateLimit } from "@/lib/server/rateLimit";
@@ -117,6 +117,8 @@ async function handleSpotPhoto(request: NextRequest): Promise<NextResponse> {
   // 작업지시서 2026-10-14 "Places 호출 비용" §2 — 검색(Text Search Pro)과 사진(Photos)은 월 한도 가드를 거친다. 닿으면 사진 없음(플레이스홀더)로 짧게 응답한다.
   const BUDGET_SKIP = { "Cache-Control": "public, max-age=600" };
   if (photoName === undefined) {
+    // 작업지시서 2026-11-24 #388 — 검색(text-pro)을 쓰기 전에 사진(photos) 오늘·월 한도부터 본다. 사진을 못 받을 거면 검색만 헛되이 쓰이기 때문.
+    if (!(await hasMapsHeadroom("photos"))) return NextResponse.json({ error: "photo budget exhausted" }, { status: 404, headers: BUDGET_SKIP });
     const guarded = await chooseGuardedMask("text", "places.photos");
     if (!guarded) return NextResponse.json({ error: "photo budget exhausted" }, { status: 404, headers: BUDGET_SKIP });
     const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
