@@ -1427,7 +1427,6 @@ function SlotResults({
 function CourseSpotCard({
   place,
   slot,
-  city,
   picked,
   onToggle,
   onOpenDetail,
@@ -1440,9 +1439,8 @@ function CourseSpotCard({
   onOpenDetail: () => void;
 }) {
   const [photoFailed, setPhotoFailed] = useState(false);
-  const photoSrc = place.photoName
-    ? `/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=400`
-    : `/api/discover/spot-photo?q=${encodeURIComponent(`${place.name} ${city}`)}`;
+  // 작업지시서 2026-11-22 §1⑤ — photoName 이 없는 후보는 목록에서 spot-photo 를 부르지 않고 아이콘만 보인다(사진은 상세에서).
+  const photoSrc = place.photoName ? `/api/places/photo?name=${encodeURIComponent(place.photoName)}&w=400` : null;
 
   return (
     <div
@@ -1452,8 +1450,8 @@ function CourseSpotCard({
     >
       <button onClick={onOpenDetail} className="block w-full text-left">
         <div className="relative flex h-24 items-center justify-center bg-gradient-to-br from-emerald-400 to-teal-500">
-          {!photoFailed ? (
-            // eslint-disable-next-line @next/next/no-img-element -- /api/places/photo or /api/discover/spot-photo proxy
+          {photoSrc && !photoFailed ? (
+            // eslint-disable-next-line @next/next/no-img-element -- /api/places/photo proxy
             <img
               src={photoSrc}
               alt={place.name}

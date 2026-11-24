@@ -29,7 +29,9 @@ function googleOk(q: string) {
   fetchMock.mockImplementation(async (url: string) =>
     String(url).includes("searchText")
       ? new Response(JSON.stringify({ places: [{ photos: [{ name: `places/x/photos/${q}` }] }] }), { status: 200 })
-      : new Response(JSON.stringify({ photoUri: "https://lh3.example/p.jpg" }), { status: 200 }),
+      : String(url).includes("lh3.example")
+        ? new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "image/jpeg" } })
+        : new Response(JSON.stringify({ photoUri: "https://lh3.example/p.jpg" }), { status: 200 }),
   );
 }
 
@@ -64,9 +66,11 @@ describe("/api/discover/spot-photo", () => {
     googleOk("memo-q");
     const a = await GET(req("memo-q", own));
     const b = await GET(req("memo-q", own));
-    expect(a.status).toBe(307);
-    expect(b.status).toBe(307);
-    expect(fetchMock).toHaveBeenCalledTimes(2); // searchText 1 + media 1, 두 번째 요청은 0
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(a.headers.get("cache-control")).toContain("s-maxage=86400");
+    const googleCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("places.googleapis.com"));
+    expect(googleCalls).toHaveLength(2); // searchText 1 + media 1, 두 번째 요청은 0
     expect(reserve).toHaveBeenCalledTimes(1);
   });
 });
