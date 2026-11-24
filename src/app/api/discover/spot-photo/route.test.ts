@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { reserve, rate } = vi.hoisted(() => ({
+const { reserve, rate, headroom } = vi.hoisted(() => ({
+  headroom: vi.fn(async () => true),
   reserve: vi.fn(async () => ({ allowed: true, count: 1, limit: 100 })),
   rate: vi.fn(async () => true),
 }));
 vi.mock("@/lib/server/mapsBudget", () => ({
   chooseGuardedMask: vi.fn(async () => ({ mask: "places.photos" })),
   photoScreenFromReferer: () => "other",
+  hasMapsHeadroom: headroom,
   reserveMapsOp: reserve,
   releaseMapsOp: vi.fn(async () => {}),
   runWithMapsRoute: (_r: string, fn: () => Promise<unknown>) => fn(),
@@ -41,6 +43,8 @@ describe("/api/discover/spot-photo", () => {
     vi.stubEnv("GOOGLE_PLACES_API_KEY", "k");
     fetchMock.mockReset();
     reserve.mockClear();
+    headroom.mockReset();
+    headroom.mockResolvedValue(true);
     rate.mockReset();
     rate.mockResolvedValue(true);
   });
@@ -72,5 +76,17 @@ describe("/api/discover/spot-photo", () => {
     const googleCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("places.googleapis.com"));
     expect(googleCalls).toHaveLength(2); // searchText 1 + media 1, 두 번째 요청은 0
     expect(reserve).toHaveBeenCalledTimes(1);
+  });
+
+  it("photos 한도에 닿은 상태의 새 q: 검색(text-pro) 0회·404, 여유가 있으면 기존대로", async () => {
+    googleOk("capped-q");
+    headroom.mockResolvedValue(false);
+    const res = await GET(req("capped-q", own));
+    expect(res.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(reserve).not.toHaveBeenCalled();
+    headroom.mockResolvedValue(true);
+    expect((await GET(req("capped-q", own))).status).toBe(200);
+    expect(headroom).toHaveBeenCalledWith("photos");
   });
 });
