@@ -55,6 +55,7 @@ import { useUserLocation } from "@/lib/useUserLocation";
 import { LIVE_SORTS, sortPlaces, type LiveSortKey } from "@/lib/placeSort";
 import { formatDateLabelShort, hourFromTime, pad2, todayISODate, TIMELINE_HOURS } from "@/lib/timeline";
 import { SEASON_LABEL, isPlaceholderSpot } from "@/lib/discoverData";
+import { getDiscoverSpotImage, spotCardPhotoSrc } from "@/lib/discoverSpotImages";
 import { colorForId } from "@/lib/placeStyle";
 import { useRecentSearches } from "@/lib/useRecentSearches";
 import { useBackButtonClose } from "@/lib/useBackButtonClose";
@@ -1847,10 +1848,13 @@ function SpotCard({
   onOpenDetail: () => void;
 }) {
   const Icon = SPOT_ICONS[spot.iconKey];
-  // Representative photo resolved live by name+city (see
-  // /api/discover/spot-photo) — 404/no-key/no-match just falls back to
-  // the curated gradient, so the card never shows a broken image.
+  // 큐레이션 스팟은 저장소 고정 이미지(public/discover/spots, 출처는
+  // discoverSpotImages.ts)만 쓰고 spot-photo(Google)를 부르지 않는다(#382 ③).
+  // 라이브(live:) 스팟만 이름+도시 조회로 대표 사진을 찾는다. 사진이 없거나
+  // 로드에 실패하면 그라디언트+아이콘 타일 — 깨진 이미지는 보이지 않는다.
   const [photoFailed, setPhotoFailed] = useState(false);
+  const photoSrc = spotCardPhotoSrc(spot);
+  const credit = getDiscoverSpotImage(spot);
   // discoverLiveBrowse.ts가 라이브 스팟에 매기는 id 접두사 — 큐레이션
   // 스팟과 구분해서 배지 문구를 다르게 준다(확정사항 A, #173 후속 검증).
   const isLive = spot.id.startsWith("live:");
@@ -1861,10 +1865,10 @@ function SpotCard({
     >
       <div className={`relative h-28 bg-gradient-to-br ${spot.gradient}`}>
         <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_30%_20%,white,transparent_40%)]" />
-        {!photoFailed && (
-          // eslint-disable-next-line @next/next/no-img-element -- remote Places photo behind our own redirect proxy; see LivePlaceCard
+        {photoSrc && !photoFailed && (
+          // eslint-disable-next-line @next/next/no-img-element -- 고정 정적 파일 또는 live 스팟의 redirect proxy; see LivePlaceCard
           <img
-            src={`/api/discover/spot-photo?q=${encodeURIComponent(`${spot.name} ${spot.region.split(" · ").join(" ")}`)}`}
+            src={photoSrc}
             alt={spot.name}
             loading="lazy"
             onError={() => setPhotoFailed(true)}
@@ -1875,10 +1879,22 @@ function SpotCard({
             a broken/missing image, especially sitting next to cards that do
             have a real photo. A large centered glyph makes the no-photo
             state look like a deliberate illustrated tile instead. */}
-        {photoFailed && (
+        {(!photoSrc || photoFailed) && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <Icon size={40} className="text-white/40" />
           </div>
+        )}
+        {credit && photoSrc && !photoFailed && (
+          <a
+            href={credit.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title={`사진: ${credit.credit} · ${credit.license} (Wikimedia Commons)`}
+            className="absolute bottom-1 right-1 max-w-[70%] truncate rounded bg-black/40 px-1 py-px text-[8px] leading-tight text-white/90 backdrop-blur-sm"
+          >
+            {credit.credit} · {credit.license}
+          </a>
         )}
         <div className="absolute right-2 top-2">
           <Badge className="border-none bg-white/85 text-[10px] font-semibold text-slate-700 backdrop-blur">
