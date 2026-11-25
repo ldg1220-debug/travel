@@ -286,3 +286,44 @@ describe("fetchLandmarkCandidates — 방콕 이름 사전", () => {
     expect(dictQueries().length).toBe(before);
   });
 });
+
+// 작업지시서 2026-11-26 (하노이) — 사전 명소가 풀 맨 앞 · 이름 검색 ≤6회 · 캐시 뒤 0회 · 입구·주차은 본 장소로 안 잡힘
+describe("fetchLandmarkCandidates — 하노이 이름 사전", () => {
+  beforeEach(() => {
+    cache.clear();
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key");
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const query = (JSON.parse(init.body) as { textQuery: string }).textQuery;
+        const dictName = (REQUIRED_LANDMARK_NAMES["하노이"] ?? []).find((name) => query.includes(name));
+        const lat = 21.0 + n++ * 0.001;
+        const mk = (id: string, text: string) => ({ id, displayName: { text }, location: { latitude: lat, longitude: 105.85 }, primaryType: "tourist_attraction" });
+        // 호수는 부분 이름(입구·주차)이 먼저 나오고 본 장소가 뒤에 나온다
+        const places =
+          dictName === "호안끼엠 호수" ? [mk("h-gate", "호안끼엠 호수 입구"), mk("h-park", "호안끼엠 호수 주차장"), mk("h-lake", "호안끼엠 호수")]
+          : dictName === "문묘" ? [mk("v-1", "문묘(반미에우)")]
+          : dictName ? [mk(`t-${dictName}`, dictName)]
+          : [mk("g1", "바익마 사원")];
+        return { ok: true, status: 200, json: async () => ({ places }) };
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  const queries = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => (JSON.parse((c[1] as { body: string }).body) as { textQuery: string }).textQuery);
+  const dictQueries = () => queries().filter((q) => (REQUIRED_LANDMARK_NAMES["하노이"] ?? []).some((nm) => q.includes(nm)));
+
+  it("사전 명소가 일반 검색 결과보다 앞 · 본 장소가 잡힘 · 이름 검색 최대 6회 · 캐시 뒤 0회", async () => {
+    const pool = await fetchLandmarkCandidates("overseas", "하노이");
+    expect(pool.slice(0, 6).map((p) => p.name)).toEqual(["호안끼엠 호수", "문묘(반미에우)", "호찌민 묘소", "탕롱황성", "36거리", "롯데센터 전망대"]);
+    expect(dictQueries().length).toBeLessThanOrEqual(6);
+    const before = dictQueries().length;
+    await fetchLandmarkCandidates("overseas", "하노이");
+    expect(dictQueries().length).toBe(before);
+  });
+});
