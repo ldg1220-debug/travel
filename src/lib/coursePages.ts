@@ -228,6 +228,18 @@ export function buildSpotDescription(spot: CourseBriefSpot): string {
  * 생성부만 여기 두고 페이지 컴포넌트는 JSON.stringify해 <script
  * type="application/ld+json">에 넣기만 한다.
  */
+const PLACE_JSONLD_TYPE: Record<string, string> = {
+  음식점: "Restaurant",
+  카페: "CafeOrCoffeeShop",
+  술집: "BarOrPub",
+  숙소: "LodgingBusiness",
+};
+
+/** 작업지시서 2026-11-26 — 한글 종류(spot.category) → schema.org 유형. 그 밖은 TouristAttraction. */
+export function placeJsonLdType(category: string): string {
+  return PLACE_JSONLD_TYPE[category] ?? "TouristAttraction";
+}
+
 export function buildCourseItemListJsonLd(brief: Pick<CourseBrief, "spots">): Record<string, unknown> {
   return {
     "@context": "https://schema.org",
@@ -236,7 +248,7 @@ export function buildCourseItemListJsonLd(brief: Pick<CourseBrief, "spots">): Re
       "@type": "ListItem",
       position: spot.order,
       item: {
-        "@type": "TouristAttraction",
+        "@type": placeJsonLdType(spot.category),
         name: spot.name,
         // 작업지시서 2026-10-13 Search Console "리뷰 스니펫" 심각 오류 — aggregateRating 을 넣지 않는다. TouristAttraction 은 리뷰 스니펫 상위 유형이 아니고,
         // 이 평점은 Google Places 에서 가져온 남의 평점이라 "사용자에게서 직접 수집한 평점만" 마크업하라는 지침에도 어긋난다(유형을 LocalBusiness 로 바꿔도 마찬가지).
