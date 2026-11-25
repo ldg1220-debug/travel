@@ -19,4 +19,13 @@ describe("matchesLandmarkName", () => {
     expect(matchesLandmarkName("왓포", "왓 포")).toBe(true);
     expect(matchesLandmarkName("왓 아룬", "왓 아룬")).toBe(true);
   });
+
+  it("하노이: 괄호 병기 표기는 일치, 호수 입구·주차 부분 지점은 불일치", () => {
+    expect(matchesLandmarkName("문묘(반미에우)", "문묘")).toBe(true);
+    expect(matchesLandmarkName("36거리(구시가지)", "36거리")).toBe(true);
+    expect(matchesLandmarkName("탕롱황성(昇龍皇城)", "탕롱황성")).toBe(true);
+    expect(matchesLandmarkName("호안끼엠 호수", "호안끼엠 호수")).toBe(true);
+    expect(matchesLandmarkName("호안끼엠 호수 입구", "호안끼엠 호수")).toBe(false);
+    expect(matchesLandmarkName("호안끼엠 호수 주차장", "호안끼엠 호수")).toBe(false);
+  });
 });

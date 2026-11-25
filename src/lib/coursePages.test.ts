@@ -326,6 +326,19 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
     expect(buildCourseTitle({ region: "방콕", days: 4, spots })).not.toContain("프라 쑤멘 요새");
   });
 
+  it("이름 사전 지역(하노이)은 바익마 사원보다 사전 명소가 대표 — 홈 카드·제목", () => {
+    const spots = [
+      spot({ name: "바익마 사원", category: "사원·성당", order: 1 }),
+      spot({ name: "호안끼엠 호수 입구", category: "관광지", order: 2 }),
+      spot({ name: "36거리(구시가지)", category: "관광지", order: 3 }),
+      spot({ name: "문묘(반미에우)", category: "관광지", order: 4 }),
+    ];
+    const picked = pickRepresentativeSpots(spots, 2, "하노이");
+    expect(picked).toEqual(["문묘(반미에우)", "36거리(구시가지)"]);
+    expect(picked).not.toContain("바익마 사원");
+    expect(buildCourseTitle({ region: "하노이", days: 4, spots })).not.toContain("바익마 사원");
+  });
+
   it("대표 명소는 식당·카페·숙소·선착장을 빼고 코스 순서대로 뽑는다", () => {
     expect(pickRepresentativeSpots(brief.spots, 3)).toEqual(["오사카 성", "도톤보리", "유니버설 스튜디오 재팬"]);
     expect(pickRepresentativeSpots([spot({ name: "제셀톤 선착장", category: "관광지" }), spot({ name: "Poin Spa", category: "기타" })], 2)).toEqual([]);
