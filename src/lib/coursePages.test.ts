@@ -339,6 +339,23 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
     expect(buildCourseTitle({ region: "하노이", days: 4, spots })).not.toContain("바익마 사원");
   });
 
+  it("이름 사전 지역(후쿠오카)은 나가하마·스사키 공원보다 사전 명소가 대표 — 홈 카드·제목", () => {
+    const spots = [
+      spot({ name: "나가하마 공원", category: "공원", order: 1 }),
+      spot({ name: "스사키 공원", category: "공원", order: 2 }),
+      spot({ name: "후쿠오카 성 조견로", category: "관광지", order: 3 }),
+      spot({ name: "나카스 포장마차 거리", category: "관광지", order: 4 }),
+      spot({ name: "후쿠오카 타워", category: "관광지", order: 5 }),
+    ];
+    const picked = pickRepresentativeSpots(spots, 2, "후쿠오카");
+    expect(picked).toEqual(["후쿠오카 타워", "나카스 포장마차 거리"]);
+    expect(picked).not.toContain("나가하마 공원");
+    expect(picked).not.toContain("스사키 공원");
+    const title = buildCourseTitle({ region: "후쿠오카", days: 3, spots });
+    expect(title).not.toContain("나가하마 공원");
+    expect(title).not.toContain("스사키 공원");
+  });
+
   it("대표 명소는 식당·카페·숙소·선착장을 빼고 코스 순서대로 뽑는다", () => {
     expect(pickRepresentativeSpots(brief.spots, 3)).toEqual(["오사카 성", "도톤보리", "유니버설 스튜디오 재팬"]);
     expect(pickRepresentativeSpots([spot({ name: "제셀톤 선착장", category: "관광지" }), spot({ name: "Poin Spa", category: "기타" })], 2)).toEqual([]);

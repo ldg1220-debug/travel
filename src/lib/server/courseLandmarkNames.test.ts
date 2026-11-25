@@ -327,3 +327,43 @@ describe("fetchLandmarkCandidates — 하노이 이름 사전", () => {
     expect(dictQueries().length).toBe(before);
   });
 });
+
+// 작업지시서 2026-11-26 (후쿠오카) — 사전 명소가 풀 맨 앞 · 이름 검색 ≤6회 · 캐시 뒤 0회 · 조견로 같은 부분 지점은 본 장소로 안 잡힘
+describe("fetchLandmarkCandidates — 후쿠오카 이름 사전", () => {
+  beforeEach(() => {
+    cache.clear();
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key");
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const query = (JSON.parse(init.body) as { textQuery: string }).textQuery;
+        const dictName = (REQUIRED_LANDMARK_NAMES["후쿠오카"] ?? []).find((name) => query.includes(name));
+        const lat = 33.59 + n++ * 0.001;
+        const mk = (id: string, text: string) => ({ id, displayName: { text }, location: { latitude: lat, longitude: 130.4 }, primaryType: "tourist_attraction" });
+        const places =
+          dictName === "오호리 공원" ? [mk("o-park", "오호리 공원 주차장"), mk("o-1", "오호리 공원")]
+          : dictName === "나카스 포장마차" ? [mk("n-1", "나카스 포장마차 거리")]
+          : dictName ? [mk(`t-${dictName}`, dictName)]
+          : [mk("g1", "나가하마 공원")];
+        return { ok: true, status: 200, json: async () => ({ places }) };
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  const queries = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => (JSON.parse((c[1] as { body: string }).body) as { textQuery: string }).textQuery);
+  const dictQueries = () => queries().filter((q) => (REQUIRED_LANDMARK_NAMES["후쿠오카"] ?? []).some((nm) => q.includes(nm)));
+
+  it("사전 명소가 일반 검색 결과보다 앞 · 본 장소가 잡힘 · 이름 검색 최대 6회 · 캐시 뒤 0회", async () => {
+    const pool = await fetchLandmarkCandidates("overseas", "후쿠오카");
+    expect(pool.slice(0, 6).map((p) => p.name)).toEqual(["오호리 공원", "캐널시티 하카타", "구시다 신사", "다자이후 텐만구", "후쿠오카 타워", "나카스 포장마차 거리"]);
+    expect(dictQueries().length).toBeLessThanOrEqual(6);
+    const before = dictQueries().length;
+    await fetchLandmarkCandidates("overseas", "후쿠오카");
+    expect(dictQueries().length).toBe(before);
+  });
+});
