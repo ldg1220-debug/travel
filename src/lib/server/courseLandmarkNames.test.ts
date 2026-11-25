@@ -141,3 +141,34 @@ describe("fetchLandmarkCandidates — 해외 지역(타이베이) 이름 사전"
     expect(queries.filter((q) => (REQUIRED_LANDMARK_NAMES["타이베이"] ?? []).some((nm) => q.includes(nm))).length).toBe(5);
   });
 });
+
+// 작업지시서 2026-11-25 (세부) — 사전 명소가 풀 맨 앞 · 이름 검색 ≤5회
+describe("fetchLandmarkCandidates — 세부 이름 사전", () => {
+  beforeEach(() => {
+    cache.clear();
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key");
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const query = (JSON.parse(init.body) as { textQuery: string }).textQuery;
+        const named = (REQUIRED_LANDMARK_NAMES["세부"] ?? []).find((name) => query.includes(name));
+        const places = named
+          ? [{ id: `c-${named}`, displayName: { text: named }, location: { latitude: 10.29 + n++ * 0.001, longitude: 123.9 }, primaryType: "tourist_attraction" }]
+          : [{ id: "g1", displayName: { text: "디 패밀리 파크" }, location: { latitude: 10.35, longitude: 123.88 }, primaryType: "park" }];
+        return { ok: true, status: 200, json: async () => ({ places }) };
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("사전 명소가 일반 검색 결과보다 앞 · 이름 검색 최대 5회", async () => {
+    const pool = await fetchLandmarkCandidates("overseas", "세부");
+    expect(pool.slice(0, 5).map((p) => p.name)).toEqual(["산토니뇨 성당", "마젤란 십자가", "산 페드로 요새", "탑스 언덕 전망대", "도교 사원"]);
+    const queries = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => (JSON.parse((c[1] as { body: string }).body) as { textQuery: string }).textQuery);
+    expect(queries.filter((q) => (REQUIRED_LANDMARK_NAMES["세부"] ?? []).some((nm) => q.includes(nm))).length).toBeLessThanOrEqual(5);
+  });
+});
