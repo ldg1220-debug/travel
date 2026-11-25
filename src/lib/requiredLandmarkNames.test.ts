@@ -28,4 +28,13 @@ describe("matchesLandmarkName", () => {
     expect(matchesLandmarkName("호안끼엠 호수 입구", "호안끼엠 호수")).toBe(false);
     expect(matchesLandmarkName("호안끼엠 호수 주차장", "호안끼엠 호수")).toBe(false);
   });
+
+  it("후쿠오카: 거리 병기는 일치, 입구·주차·부분 지점은 불일치", () => {
+    expect(matchesLandmarkName("나카스 포장마차 거리", "나카스 포장마차")).toBe(true);
+    expect(matchesLandmarkName("캐널시티 하카타", "캐널시티 하카타")).toBe(true);
+    expect(matchesLandmarkName("오호리 공원 주차장", "오호리 공원")).toBe(false);
+    expect(matchesLandmarkName("구시다 신사 입구", "구시다 신사")).toBe(false);
+    expect(matchesLandmarkName("후쿠오카 성 조견로", "후쿠오카 타워")).toBe(false);
+    expect(matchesLandmarkName("나가하마 공원", "오호리 공원")).toBe(false);
+  });
 });
