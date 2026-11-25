@@ -47,4 +47,17 @@ describe("matchesLandmarkName", () => {
     expect(matchesLandmarkName("만모 사원 매표소", "만모 사원")).toBe(false);
     expect(matchesLandmarkName("SKY100 홍콩 전망대", "빅토리아 피크")).toBe(false);
   });
+
+  it("오사카: 쓰텐카쿠 전망대는 일치, 역·입구·주차장·매표소·정류장은 불일치", () => {
+    expect(matchesLandmarkName("쓰텐카쿠 전망대", "쓰텐카쿠")).toBe(true);
+    expect(matchesLandmarkName("오사카 성", "오사카 성")).toBe(true);
+    expect(matchesLandmarkName("우메다 스카이 빌딩", "우메다 스카이 빌딩")).toBe(true);
+    expect(matchesLandmarkName("구로몬 시장", "구로몬 시장")).toBe(true);
+    expect(matchesLandmarkName("오사카 성 입구", "오사카 성")).toBe(false);
+    expect(matchesLandmarkName("오사카 성 주차장", "오사카 성")).toBe(false);
+    expect(matchesLandmarkName("오사카 성 매표소", "오사카 성")).toBe(false);
+    expect(matchesLandmarkName("오사카 성 정류장", "오사카 성")).toBe(false);
+    expect(matchesLandmarkName("신사이바시 역", "신사이바시")).toBe(false);
+    expect(matchesLandmarkName("도톤보리 입구", "도톤보리")).toBe(false);
+  });
 });
