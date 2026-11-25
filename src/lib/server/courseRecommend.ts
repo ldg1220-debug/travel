@@ -4,7 +4,7 @@ import { PLACES_CONTENT_TTL_MS } from "./placesRetention";
 import { regionSelfNames } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
 import { pool } from "@/lib/server/db";
-import { REQUIRED_LANDMARK_NAMES } from "@/lib/requiredLandmarkNames";
+import { REQUIRED_LANDMARK_NAMES, matchesLandmarkName } from "@/lib/requiredLandmarkNames";
 import type { Place } from "@/lib/types";
 
 /**
@@ -1272,8 +1272,7 @@ export { REQUIRED_LANDMARK_NAMES };
 const compactName = (s: string) => s.toLowerCase().replace(/\s+/g, "");
 /** 이 지역의 필수 대표 명소(이름 사전) 이름과 같은 곳인가 — 공백·대소문자를 무시한 부분 일치. */
 export function matchesRequiredLandmark(region: string, name: string): boolean {
-  const c = compactName(name);
-  return (REQUIRED_LANDMARK_NAMES[region] ?? []).some((n) => c.includes(compactName(n)));
+  return (REQUIRED_LANDMARK_NAMES[region] ?? []).some((n) => matchesLandmarkName(name, n));
 }
 
 export async function fetchLandmarkCandidates(
@@ -1313,7 +1312,7 @@ export async function fetchLandmarkCandidates(
           failStatus = status;
           onFailure?.(status);
         });
-        const hit = hits.find((p) => compactName(p.name).includes(compactName(name)));
+        const hit = hits.find((p) => matchesLandmarkName(p.name, name));
         if (!hit) {
           const reason = failStatus != null ? `search-failed(status=${failStatus})` : hits.length === 0 ? "no-results" : `no-name-match(first=${hits[0].name})`;
           namedLog.set(name, { hit: "none", reason });

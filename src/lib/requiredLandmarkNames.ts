@@ -1,6 +1,6 @@
 /**
  * 지역별 꼭 들어가야 하는 대표 명소 이름 사전 — 서버(앵커 선정)와 대표 장소 표기(홈 카드·제목·meta)가 함께 쓴다(클라이언트 안전: 의존성 없음).
- * 작업지시서 2026-10-28 §1⑦ (경주) · 2026-10-29 §2② (제주·부산) · 2026-11-25 (타이베이 — 해외 색인 코스 첫 사전 · 세부 · 다낭 · 도쿄).
+ * 작업지시서 2026-10-28 §1⑦ (경주) · 2026-10-29 §2② (제주·부산) · 2026-11-25 (타이베이 — 해외 색인 코스 첫 사전 · 세부 · 다낭 · 도쿄 · 방콕).
  */
 export const REQUIRED_LANDMARK_NAMES: Readonly<Record<string, readonly string[]>> = {
   경주: ["불국사", "석굴암", "첨성대", "대릉원", "동궁과 월지", "월정교"], // 월정교 = 작업지시서 2026-10-30 §2② — 첨성대·대릉원·동궁과 월지와 같은 시내 권역 날로 묶는다
@@ -15,4 +15,18 @@ export const REQUIRED_LANDMARK_NAMES: Readonly<Record<string, readonly string[]>
   다낭: ["미케 해변", "린응사", "다낭 대성당", "오행산", "한시장", "드래곤 브리지"],
   // 작업지시서 2026-11-25 (도쿄) — 도쿄부청사 유적 같은 작은 표지석이 대표로 나오지 않게
   도쿄: ["센소지", "메이지 신궁", "시부야 스크램블 교차로", "도쿄 스카이트리", "신주쿠 교엔", "우에노 공원"],
+  // 작업지시서 2026-11-25 (방콕) — 프라 쑤멘 요새가 대표로 나오지 않게. 왓 포·왓 아룬은 "동쪽 입구"·"조망 골목" 같은 부분 이름이 아니라 본 사원이 잡혀야 한다(isNamePartOnly)
+  방콕: ["방콕 왕궁", "왓 포", "왓 아룬", "카오산로드", "짜뚜짝 주말시장", "아이콘시암"],
 };
+
+const compactLandmark = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+/** 사전 이름 뒤·앞에 입구·조망 같은 부분 지점 표현이 붙은 이름("왓 포 동쪽 입구", "왓아룬 조망 골목") — 본 장소가 아니다. */
+const PART_ONLY_SUFFIX = /입구|출구|조망|골목|\bgate\b|\bentrance\b|주차|매표/i;
+
+/** 이름이 사전 이름을 포함하되(공백·대소문자 무시) 입구·조망 골목 같은 부분 지점이 아니면 true. */
+export function matchesLandmarkName(name: string, dictName: string): boolean {
+  const c = compactLandmark(name);
+  const d = compactLandmark(dictName);
+  if (!c.includes(d)) return false;
+  return !PART_ONLY_SUFFIX.test(c.replace(d, ""));
+}
