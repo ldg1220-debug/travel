@@ -37,4 +37,14 @@ describe("matchesLandmarkName", () => {
     expect(matchesLandmarkName("후쿠오카 성 조견로", "후쿠오카 타워")).toBe(false);
     expect(matchesLandmarkName("나가하마 공원", "오호리 공원")).toBe(false);
   });
+
+  it("홍콩: 피크 트램 정류장·입구·주차장·매표소는 불일치, 본 장소는 일치", () => {
+    expect(matchesLandmarkName("빅토리아 피크", "빅토리아 피크")).toBe(true);
+    expect(matchesLandmarkName("스타페리", "스타페리")).toBe(true);
+    expect(matchesLandmarkName("피크 트램 정류장", "빅토리아 피크")).toBe(false);
+    expect(matchesLandmarkName("빅토리아 피크 입구", "빅토리아 피크")).toBe(false);
+    expect(matchesLandmarkName("빅토리아 피크 주차장", "빅토리아 피크")).toBe(false);
+    expect(matchesLandmarkName("만모 사원 매표소", "만모 사원")).toBe(false);
+    expect(matchesLandmarkName("SKY100 홍콩 전망대", "빅토리아 피크")).toBe(false);
+  });
 });

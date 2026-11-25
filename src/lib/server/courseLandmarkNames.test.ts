@@ -367,3 +367,42 @@ describe("fetchLandmarkCandidates — 후쿠오카 이름 사전", () => {
     expect(dictQueries().length).toBe(before);
   });
 });
+
+// 작업지시서 2026-11-26 (홍콩) — 사전 명소가 풀 맨 앞 · 이름 검색 ≤6회 · 캐시 뒤 0회
+describe("fetchLandmarkCandidates — 홍콩 이름 사전", () => {
+  beforeEach(() => {
+    cache.clear();
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key");
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const query = (JSON.parse(init.body) as { textQuery: string }).textQuery;
+        const dictName = (REQUIRED_LANDMARK_NAMES["홍콩"] ?? []).find((name) => query.includes(name));
+        const lat = 22.28 + n++ * 0.001;
+        const mk = (id: string, text: string) => ({ id, displayName: { text }, location: { latitude: lat, longitude: 114.16 }, primaryType: "tourist_attraction" });
+        const places =
+          dictName === "빅토리아 피크" ? [mk("p-tram", "피크 트램 정류장"), mk("p-1", "빅토리아 피크")]
+          : dictName ? [mk(`t-${dictName}`, dictName)]
+          : [mk("g1", "SKY100 홍콩 전망대")];
+        return { ok: true, status: 200, json: async () => ({ places }) };
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  const queries = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => (JSON.parse((c[1] as { body: string }).body) as { textQuery: string }).textQuery);
+  const dictQueries = () => queries().filter((q) => (REQUIRED_LANDMARK_NAMES["홍콩"] ?? []).some((nm) => q.includes(nm)));
+
+  it("사전 명소가 일반 검색 결과보다 앞 · 본 장소가 잡힘 · 이름 검색 최대 6회 · 캐시 뒤 0회", async () => {
+    const pool = await fetchLandmarkCandidates("overseas", "홍콩");
+    expect(pool.slice(0, 6).map((p) => p.name)).toEqual(["빅토리아 피크", "스타의 거리", "스타페리", "만모 사원", "템플스트리트 야시장", "빅토리아 하버"]);
+    expect(dictQueries().length).toBeLessThanOrEqual(6);
+    const before = dictQueries().length;
+    await fetchLandmarkCandidates("overseas", "홍콩");
+    expect(dictQueries().length).toBe(before);
+  });
+});

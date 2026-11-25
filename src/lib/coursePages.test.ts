@@ -356,6 +356,21 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
     expect(title).not.toContain("스사키 공원");
   });
 
+  it("이름 사전 지역(홍콩)은 SKY100 보다 사전 명소가 대표 — 홈 카드·제목", () => {
+    const spots = [
+      spot({ name: "빅토리아 하버", category: "관광지", order: 1 }),
+      spot({ name: "SKY100 홍콩 전망대", category: "전망대", order: 2 }),
+      spot({ name: "피크 트램 정류장", category: "관광지", order: 3 }),
+      spot({ name: "빅토리아 피크", category: "전망대", order: 4 }),
+      spot({ name: "스타페리", category: "관광지", order: 5 }),
+    ];
+    const picked = pickRepresentativeSpots(spots, 2, "홍콩");
+    // 스타페리는 NON_LANDMARK_NAME(페리)에 걸려 대표 후보에서 빠진다 — 기존 규칙, 본 작업 범위 밖
+    expect(picked).toEqual(["빅토리아 피크", "빅토리아 하버"]);
+    expect(picked[0]).not.toBe("SKY100 홍콩 전망대");
+    expect(buildCourseTitle({ region: "홍콩", days: 3, spots })).toContain("빅토리아 피크");
+  });
+
   it("대표 명소는 식당·카페·숙소·선착장을 빼고 코스 순서대로 뽑는다", () => {
     expect(pickRepresentativeSpots(brief.spots, 3)).toEqual(["오사카 성", "도톤보리", "유니버설 스튜디오 재팬"]);
     expect(pickRepresentativeSpots([spot({ name: "제셀톤 선착장", category: "관광지" }), spot({ name: "Poin Spa", category: "기타" })], 2)).toEqual([]);
