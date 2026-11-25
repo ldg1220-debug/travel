@@ -172,3 +172,40 @@ describe("fetchLandmarkCandidates — 세부 이름 사전", () => {
     expect(queries.filter((q) => (REQUIRED_LANDMARK_NAMES["세부"] ?? []).some((nm) => q.includes(nm))).length).toBeLessThanOrEqual(5);
   });
 });
+
+// 작업지시서 2026-11-25 (다낭) — 사전 명소가 풀 맨 앞 · 이름 검색 ≤6회
+describe("fetchLandmarkCandidates — 다낭 이름 사전", () => {
+  beforeEach(() => {
+    cache.clear();
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key");
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const query = (JSON.parse(init.body) as { textQuery: string }).textQuery;
+        const named = (REQUIRED_LANDMARK_NAMES["다낭"] ?? []).find((name) => query.includes(name));
+        const places = named
+          ? [{ id: `d-${named}`, displayName: { text: named }, location: { latitude: 16.05 + n++ * 0.001, longitude: 108.22 }, primaryType: "tourist_attraction" }]
+          : [{ id: "g1", displayName: { text: "팝럼사 (法林寺)" }, location: { latitude: 16.06, longitude: 108.23 }, primaryType: "place_of_worship" }];
+        return { ok: true, status: 200, json: async () => ({ places }) };
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  const names = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => (JSON.parse((c[1] as { body: string }).body) as { textQuery: string }).textQuery);
+  const dictQueries = () => names().filter((q) => (REQUIRED_LANDMARK_NAMES["다낭"] ?? []).some((nm) => q.includes(nm)));
+
+  it("사전 명소가 일반 검색 결과보다 앞 · 이름 검색 최대 6회 · 캐시 뒤 0회 · 바나힐 제외", async () => {
+    const pool = await fetchLandmarkCandidates("overseas", "다낭");
+    expect(pool.slice(0, 6).map((p) => p.name)).toEqual(["미케 해변", "린응사", "다낭 대성당", "오행산", "한시장", "드래곤 브리지"]);
+    expect(dictQueries().length).toBeLessThanOrEqual(6);
+    expect(REQUIRED_LANDMARK_NAMES["다낭"]).not.toContain("바나힐");
+    const before = dictQueries().length;
+    await fetchLandmarkCandidates("overseas", "다낭");
+    expect(dictQueries().length).toBe(before);
+  });
+});
