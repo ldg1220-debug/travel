@@ -61,7 +61,7 @@ export async function fetchConfirmedCoursePages(): Promise<ConfirmedCoursePage[]
         info: { spotCount: spots.length, totalDistanceKm: km != null && Number.isFinite(km) ? km : null, imageUrl: row.imageUrl || null, reps: [] },
       };
       // 대표 장소 후보(명소 카테고리만) — 한글 표기를 붙인 뒤 한글 이름만 2곳 고른다(작업지시서 2026-11-22 ①③).
-      repCandidates.set(page, pickRepresentativeSpotObjects(spots, 6));
+      repCandidates.set(page, pickRepresentativeSpotObjects(spots, 6, { region: row.region }));
       value.push(page);
     }
     const ko = await resolveKoreanNames([...repCandidates.values()].flat().map((s) => ({ placeId: s.placeId ?? "", name: s.name })));

@@ -4,6 +4,7 @@ import { PLACES_CONTENT_TTL_MS } from "./placesRetention";
 import { regionSelfNames } from "@/lib/discoverData";
 import { colorForId } from "@/lib/placeStyle";
 import { pool } from "@/lib/server/db";
+import { REQUIRED_LANDMARK_NAMES } from "@/lib/requiredLandmarkNames";
 import type { Place } from "@/lib/types";
 
 /**
@@ -1267,12 +1268,7 @@ export async function fetchAreaCandidates(
  * 지역별 꼭 들어가야 하는 대표 명소 이름 사전 — 작업지시서 2026-10-28 §1⑦ (경주: 불국사 · 석굴암 · 첨성대 · 대릉원 · 동궁과 월지). 일반 "관광 명소" 검색에 빠지는 경우가 있어
  * 이름으로 한 번씩 검색(지역·이름별 캐시, 26시간)해 풀의 맨 앞(사전 순서 = 우선순위)에 둔다. 앵커 선정(상위 days 곳)이 이 순서를 따른다.
  */
-export const REQUIRED_LANDMARK_NAMES: Readonly<Record<string, readonly string[]>> = {
-  경주: ["불국사", "석굴암", "첨성대", "대릉원", "동궁과 월지", "월정교"], // 월정교 = 작업지시서 2026-10-30 §2② — 첨성대·대릉원·동궁과 월지와 같은 시내 권역 날로 묶는다
-  // 작업지시서 2026-10-29 §2② — 국내 색인 코스(제주·부산)도 같은 방식
-  제주: ["성산일출봉", "우도", "섭지코지", "협재해수욕장", "천지연폭포", "만장굴", "오설록 티뮤지엄", "용두암"],
-  부산: ["해운대해수욕장", "광안리해수욕장", "감천문화마을", "자갈치시장", "해동용궁사", "태종대", "흰여울문화마을", "송도해상케이블카"],
-};
+export { REQUIRED_LANDMARK_NAMES };
 const compactName = (s: string) => s.toLowerCase().replace(/\s+/g, "");
 /** 이 지역의 필수 대표 명소(이름 사전) 이름과 같은 곳인가 — 공백·대소문자를 무시한 부분 일치. */
 export function matchesRequiredLandmark(region: string, name: string): boolean {

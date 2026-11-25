@@ -266,6 +266,18 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
     ],
   };
 
+  it("이름 사전 지역(타이베이)은 사전 명소를 코스 순서보다 먼저 대표로 쓴다 — 홈 카드·제목·meta", () => {
+    const spots = [
+      spot({ name: "인성원", category: "관광지", order: 1 }),
+      spot({ name: "용러 시장", category: "관광지", order: 2 }),
+      spot({ name: "중정기념당", category: "관광지", order: 3 }),
+      spot({ name: "타이베이 101", category: "관광지", order: 4 }),
+    ];
+    expect(pickRepresentativeSpots(spots, 2, "타이베이")).toEqual(["타이베이 101", "중정기념당"]);
+    expect(pickRepresentativeSpots(spots, 2)).toEqual(["인성원", "용러 시장"]); // 사전 없는 지역은 코스 순서 그대로
+    expect(buildCourseTitle({ region: "타이베이", days: 3, spots })).toContain("타이베이 101·중정기념당");
+  });
+
   it("대표 명소는 식당·카페·숙소·선착장을 빼고 코스 순서대로 뽑는다", () => {
     expect(pickRepresentativeSpots(brief.spots, 3)).toEqual(["오사카 성", "도톤보리", "유니버설 스튜디오 재팬"]);
     expect(pickRepresentativeSpots([spot({ name: "제셀톤 선착장", category: "관광지" }), spot({ name: "Poin Spa", category: "기타" })], 2)).toEqual([]);

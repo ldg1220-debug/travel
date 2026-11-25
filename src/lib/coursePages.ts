@@ -1,4 +1,5 @@
 import { hasHangul } from "./placeDisplayName";
+import { REQUIRED_LANDMARK_NAMES } from "./requiredLandmarkNames";
 import { altLabelFor } from "./regionTypicalDaysData";
 import type { CourseBrief, CourseBriefSpot, CourseDays } from "./server/courseBrief";
 
@@ -276,30 +277,37 @@ export function courseCanonicalPath(region: string, days: CourseDays): string {
 }
 
 /** 대표 명소 후보 스팟 n곳(코스 순서) — 명소 카테고리만, 같은 이름은 한 번만. requireHangul 이면 한글이 없는 이름은 뺀다(표시 이름 적용 뒤에 쓴다). */
-export function pickRepresentativeSpotObjects<S extends CourseBriefSpot>(spots: readonly S[], n: number, opts: { requireHangul?: boolean } = {}): S[] {
+export function pickRepresentativeSpotObjects<S extends CourseBriefSpot>(spots: readonly S[], n: number, opts: { requireHangul?: boolean; region?: string } = {}): S[] {
   const seen = new Set<string>();
+  // 작업지시서 2026-11-25 — 이름 사전이 있는 지역은 사전 명소를 사전 순서로 먼저 쓴다(홈 카드·제목·meta). 나머지는 코스 순서.
+  const dict = (opts.region ? REQUIRED_LANDMARK_NAMES[opts.region] : undefined) ?? [];
+  const compact = (x: string) => x.toLowerCase().replace(/\s+/g, "");
+  const dictRank = (name: string) => {
+    const i = dict.findIndex((d) => compact(name).includes(compact(d)));
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
   return [...spots]
     .filter((s) => LANDMARK_CATEGORIES.has(s.category) && !NON_LANDMARK_NAME.test(s.name) && !s.lodging && (!opts.requireHangul || hasHangul(s.name)))
-    .sort((a, b) => a.order - b.order)
+    .sort((a, b) => dictRank(a.name) - dictRank(b.name) || a.order - b.order)
     .filter((s) => (seen.has(s.name) ? false : (seen.add(s.name), true)))
     .slice(0, n);
 }
 
-/** 코스 순서(order)상 앞선 대표 명소 이름 n곳 — 명소 카테고리만, 한글 없는 이름은 뺀다(홈 카드·제목·meta 용). (평점이 없으므로 평점순이 아니다 — 작업지시서 2026-10-20) */
-export function pickRepresentativeSpots(spots: readonly CourseBriefSpot[], n: number): string[] {
-  return pickRepresentativeSpotObjects(spots, n, { requireHangul: true }).map((s) => s.name);
+/** 코스 순서(order)상 앞선 대표 명소 이름 n곳 — 명소 카테고리만, 한글 없는 이름은 뺀다(홈 카드·제목·meta 용). 이름 사전이 있는 지역(region)은 사전 명소가 먼저. (평점이 없으므로 평점순이 아니다 — 작업지시서 2026-10-20) */
+export function pickRepresentativeSpots(spots: readonly CourseBriefSpot[], n: number, region?: string): string[] {
+  return pickRepresentativeSpotObjects(spots, n, { requireHangul: true, region }).map((s) => s.name);
 }
 
 /** "{지역} {N박M일} 코스 — {N}곳 · {대표1}·{대표2} | 트레쥴" — 일수 표기는 URL 라벨(daysToLabel)과 같다(6·7일은 "5박6일"·"5박7일"). */
 export function buildCourseTitle(brief: Pick<CourseBrief, "region" | "days" | "spots">): string {
-  const reps = pickRepresentativeSpots(brief.spots, 2);
+  const reps = pickRepresentativeSpots(brief.spots, 2, brief.region);
   const repPart = reps.length > 0 ? ` · ${reps.join("·")}` : "";
   return `${brief.region} ${dayDisplayLabel(brief.region, brief.days)} 코스 — ${brief.spots.length}곳${repPart} | 트레쥴`;
 }
 
 /** "{지역} {일수} 코스: {대표 3곳}. 일자별 동선 지도 · 이동 시간 · 평점 정리." */
 export function buildCourseDescription(brief: Pick<CourseBrief, "region" | "days" | "spots">): string {
-  const reps = pickRepresentativeSpots(brief.spots, 3);
+  const reps = pickRepresentativeSpots(brief.spots, 3, brief.region);
   const repPart = reps.length > 0 ? `: ${reps.join(", ")}` : "";
   return `${brief.region} ${dayDisplayLabel(brief.region, brief.days)} 코스${repPart}. 일자별 동선 지도 · 이동 시간 정리.`;
 }
