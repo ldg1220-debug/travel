@@ -21,7 +21,7 @@ export const REQUIRED_LANDMARK_NAMES: Readonly<Record<string, readonly string[]>
 
 const compactLandmark = (s: string) => s.toLowerCase().replace(/\s+/g, "");
 /** 사전 이름 뒤·앞에 입구·조망 같은 부분 지점 표현이 붙은 이름("왓 포 동쪽 입구", "왓아룬 조망 골목") — 본 장소가 아니다. */
-const PART_ONLY_SUFFIX = /입구|출구|조망|골목|전망|뷰포인트|뷰\)|\bview\b|\bgate\b|\bentrance\b|주차|매표/i;
+const PART_ONLY_SUFFIX = /입구|출구|조망|골목|\bgate\b|\bentrance\b|주차|매표/i;
 
 /** 이름이 사전 이름을 포함하되(공백·대소문자 무시) 입구·조망 골목 같은 부분 지점이 아니면 true. */
 export function matchesLandmarkName(name: string, dictName: string): boolean {
