@@ -48,9 +48,21 @@ async function handlePlacePhoto(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "no photo uri" }, { status: 404 });
   }
 
-  return NextResponse.redirect(data.photoUri, {
-    // The redirect target is short-lived but the mapping is stable enough
-    // to spare Google (and our quota) repeat lookups for a day.
-    headers: { "Cache-Control": "public, max-age=86400" },
-  });
+  return photoResponse(data.photoUri);
+}
+
+// 작업지시서 2026-11-25 — 307/302 는 Vercel CDN 이 캐시하지 않아 같은 사진이 보일 때마다 함수·Google 호출이 났다(health photos 월 69%).
+// 이미지를 직접 받아 200 + s-maxage=86400(1일, Places 콘텐츠 보관 기준)으로 내려 CDN 이 캐시하게 한다. 실패하면 예전처럼 리다이렉트.
+const CACHE_HEADERS = { "Cache-Control": "public, max-age=86400, s-maxage=86400" };
+async function photoResponse(uri: string): Promise<NextResponse> {
+  try {
+    const img = await fetch(uri, { cache: "no-store" });
+    const type = img.headers.get("content-type") ?? "";
+    if (img.ok && type.startsWith("image/")) {
+      return new NextResponse(await img.arrayBuffer(), { status: 200, headers: { ...CACHE_HEADERS, "Content-Type": type } });
+    }
+  } catch {
+    // 아래 리다이렉트로
+  }
+  return NextResponse.redirect(uri, { headers: CACHE_HEADERS });
 }
