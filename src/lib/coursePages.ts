@@ -1,5 +1,5 @@
 import { hasHangul } from "./placeDisplayName";
-import { REQUIRED_LANDMARK_NAMES } from "./requiredLandmarkNames";
+import { REQUIRED_LANDMARK_NAMES, matchesLandmarkName } from "./requiredLandmarkNames";
 import { altLabelFor } from "./regionTypicalDaysData";
 import type { CourseBrief, CourseBriefSpot, CourseDays } from "./server/courseBrief";
 
@@ -281,9 +281,8 @@ export function pickRepresentativeSpotObjects<S extends CourseBriefSpot>(spots: 
   const seen = new Set<string>();
   // 작업지시서 2026-11-25 — 이름 사전이 있는 지역은 사전 명소를 사전 순서로 먼저 쓴다(홈 카드·제목·meta). 나머지는 코스 순서.
   const dict = (opts.region ? REQUIRED_LANDMARK_NAMES[opts.region] : undefined) ?? [];
-  const compact = (x: string) => x.toLowerCase().replace(/\s+/g, "");
   const dictRank = (name: string) => {
-    const i = dict.findIndex((d) => compact(name).includes(compact(d)));
+    const i = dict.findIndex((d) => matchesLandmarkName(name, d));
     return i < 0 ? Number.MAX_SAFE_INTEGER : i;
   };
   return [...spots]

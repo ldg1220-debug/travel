@@ -313,6 +313,19 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
     expect(buildCourseTitle({ region: "도쿄", days: 3, spots })).not.toContain("도쿄부청사 유적");
   });
 
+  it("이름 사전 지역(방콕)은 프라 쑤멘 요새보다 사전 명소가 대표 — 입구·조망 골목은 사전 명소가 아니다", () => {
+    const spots = [
+      spot({ name: "프라 쑤멘 요새", category: "관광지", order: 1 }),
+      spot({ name: "왓 포 동쪽 입구", category: "관광지", order: 2 }),
+      spot({ name: "왓아룬 조망 골목(골목뷰) Night view point watarun", category: "관광지", order: 3 }),
+      spot({ name: "방콕 왕궁", category: "관광지", order: 4 }),
+      spot({ name: "왓 포", category: "사원·성당", order: 5 }),
+    ];
+    const picked = pickRepresentativeSpots(spots, 2, "방콕");
+    expect(picked).toEqual(["방콕 왕궁", "왓 포"]);
+    expect(buildCourseTitle({ region: "방콕", days: 4, spots })).not.toContain("프라 쑤멘 요새");
+  });
+
   it("대표 명소는 식당·카페·숙소·선착장을 빼고 코스 순서대로 뽑는다", () => {
     expect(pickRepresentativeSpots(brief.spots, 3)).toEqual(["오사카 성", "도톤보리", "유니버설 스튜디오 재팬"]);
     expect(pickRepresentativeSpots([spot({ name: "제셀톤 선착장", category: "관광지" }), spot({ name: "Poin Spa", category: "기타" })], 2)).toEqual([]);
