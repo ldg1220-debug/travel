@@ -109,3 +109,35 @@ describe("isWholeParkOrMountain", () => {
   ])("$name 는 장소가 아니다", (p) => expect(isWholeParkOrMountain(p)).toBe(true));
   it.each([{ name: "성산일출봉" }, { name: "용두암" }, { name: "남산서울타워" }, { name: "천지연폭포" }])("$name 는 장소다", (p) => expect(isWholeParkOrMountain(p)).toBe(false));
 });
+
+// 작업지시서 2026-11-25 — 해외 색인 코스(타이베이)도 이름 사전 명소가 풀 맨 앞(앵커 우선)
+describe("fetchLandmarkCandidates — 해외 지역(타이베이) 이름 사전", () => {
+  beforeEach(() => {
+    cache.clear();
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key");
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const query = (JSON.parse(init.body) as { textQuery: string }).textQuery;
+        const named = (REQUIRED_LANDMARK_NAMES["타이베이"] ?? []).find((name) => query.includes(name));
+        const places = named
+          ? [{ id: `t-${named}`, displayName: { text: named }, location: { latitude: 25.0 + n++ * 0.01, longitude: 121.5 }, primaryType: "tourist_attraction" }]
+          : [{ id: "g1", displayName: { text: "인성원" }, location: { latitude: 25.05, longitude: 121.52 }, primaryType: "tourist_attraction" }];
+        return { ok: true, status: 200, json: async () => ({ places }) };
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("사전 명소가 사전 순서대로 일반 검색 결과보다 앞에 온다 · 이름 검색은 최대 5회", async () => {
+    const pool = await fetchLandmarkCandidates("overseas", "타이베이");
+    expect(pool.slice(0, 5).map((p) => p.name)).toEqual(["타이베이 101", "국립고궁박물원", "중정기념당", "스린 야시장", "용산사"]);
+    expect(pool.slice(0, 5).map((p) => p.searchRank)).toEqual([0, 1, 2, 3, 4]);
+    const queries = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => (JSON.parse((c[1] as { body: string }).body) as { textQuery: string }).textQuery);
+    expect(queries.filter((q) => (REQUIRED_LANDMARK_NAMES["타이베이"] ?? []).some((nm) => q.includes(nm))).length).toBe(5);
+  });
+});

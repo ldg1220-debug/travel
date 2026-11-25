@@ -4580,9 +4580,11 @@ async function ensureCityLandmarkAnchors(
   const deficit = Math.max(0, minTotal - flat.length);
   // 작업지시서 2026-10-20 "#331 검증" §3⑥ — 평점이 없으니 랜드마크 질의 순위(tourist_attraction 관련도·인지도)가 인기 신호다. 대표 랜드마크를 코스 전체에 최소 days 곳(하루 1곳씩) 포함한다.
   // 작업지시서 2026-10-29 §2③ — 이름 사전이 있는 국내 색인 지역은 하루 2곳꼴(사전 수 + 1 이하)로 늘리고, 섬·동서로 퍼진 지역(제주)을 위해 반경을 넓힌다.
-  const dictLen = scope === "domestic" ? (REQUIRED_LANDMARK_NAMES[region]?.length ?? 0) : 0;
+  // 작업지시서 2026-11-25 — 해외 색인 코스(타이베이)도 이름 사전을 쓴다. 사전 이름 검색은 fetchLandmarkCandidates 가 scope 와 무관하게 캐시(26시간)·페이싱 안에서 한다.
+  const dictLen = REQUIRED_LANDMARK_NAMES[region]?.length ?? 0;
+  const domesticDict = scope === "domestic" && dictLen > 0;
   const anchorCount = dictLen > 0 ? Math.max(CITY_ANCHOR_COUNT, Math.min(days * 2, dictLen + 1)) : trackedPool.length > 0 ? Math.max(CITY_ANCHOR_COUNT, days + 2) : Math.max(CITY_ANCHOR_COUNT, days);
-  const rankedPicks = pickLandmarkAnchors(candidates, flat, anchorCount + deficit, Math.max(CITY_ANCHOR_POOL_SIZE, anchorCount + deficit + 3), dictLen > 0 ? DICT_REGION_ANCHOR_MAX_KM : CITY_ANCHOR_MAX_DISTANCE_KM);
+  const rankedPicks = pickLandmarkAnchors(candidates, flat, anchorCount + deficit, Math.max(CITY_ANCHOR_POOL_SIZE, anchorCount + deficit + 3), domesticDict ? DICT_REGION_ANCHOR_MAX_KM : CITY_ANCHOR_MAX_DISTANCE_KM);
   // 이름 사전 지역은 사전의 명소를 사전 순서로 먼저 뽑는다 — 사전 명소의 searchRank(사전 순서)가 일반 랜드마크 검색 순위와 섞여 일부(월정교)가 앵커 수 안에 못 드는 일이 있었다(작업지시서 2026-10-30 "#348 검증" §2①).
   const dictPicks =
     dictLen > 0
@@ -4594,7 +4596,7 @@ async function ensureCityLandmarkAnchors(
   console.log(`[courseBrief] path=city-anchors ${region} before=${flat.length} minTotal=${minTotal} deficit=${deficit} candidates=${candidates.length} anchors=${picked.map((a) => a.name).join(", ") || "none"} pool=[${candidates.slice(0, 10).map((p, i) => `${i + 1}:${p.name}`).join(" | ")}]`);
   if (picked.length === 0) return dayStops;
   // 작업지시서 2026-10-29 "#342 검증" §2① — 이름 사전이 있는 국내 지역은 앵커를 먼저 권역(군집)별 날에 배정한다(날마다 따로 얹으면 하루 거리 한도를 앵커가 무시한다).
-  if (dictLen > 0 && dayStops.length >= 2) {
+  if (domesticDict && dayStops.length >= 2) {
     const anchorStops = picked.map((a) => ({ ...a, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: 14, meal: false }) as FinalStop);
     const maxKm = daySpreadLimitKm(region);
     const assigned = assignDaysByAnchorClusters(dayStops, anchorStops, region, maxKm, candidates);
@@ -4602,9 +4604,9 @@ async function ensureCityLandmarkAnchors(
     return topUpDaysFromAreas(assigned, region, maxKm, DICT_REGION_MIN_PER_DAY, (center, kind) => fetchAreaCandidates(region, center, (maxKm * 1000) / 2, kind, onCandidateFetchFailure));
   }
   // 해외 색인 코스: 같은 권역의 앵커는 같은 날(종일시설 날 제외) — 일수만큼 군집으로 강제로 나눈다(작업지시서 2026-10-30 §3①).
-  if (trackedPool.length > 0 && dayStops.length >= 2) {
+  if ((trackedPool.length > 0 || dictLen > 0) && dayStops.length >= 2) {
     const anchorStops = picked.map((a) => ({ ...a, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: 14, meal: false }) as FinalStop);
-    const trackedNames = trackedPool.map((p) => p.name);
+    const trackedNames = dictLen > 0 ? [...(REQUIRED_LANDMARK_NAMES[region] ?? [])] : trackedPool.map((p) => p.name);
     return assignDaysByAnchorClusters(dayStops, anchorStops, region, 8, [], { isLandmark: (x) => trackedNames.some((t) => landmarkNameMatches(x.name ?? "", t)), forceSplit: true });
   }
   return placeCityAnchors(dayStops, picked, deficit);
