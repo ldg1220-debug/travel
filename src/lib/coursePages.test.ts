@@ -300,6 +300,19 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
     expect(buildCourseTitle({ region: "다낭", days: 4, spots })).toContain("미케 해변·다낭 오행산");
   });
 
+  it("이름 사전 지역(도쿄)은 도쿄부청사 유적보다 사전 명소가 대표 — 홈 카드·제목", () => {
+    const spots = [
+      spot({ name: "도쿄부청사 유적", category: "관광지", order: 1 }),
+      spot({ name: "도쿄 타워", category: "전망대", order: 2 }),
+      spot({ name: "도쿄 스카이트리", category: "전망대", order: 3 }),
+      spot({ name: "센소지", category: "사원·성당", order: 4 }),
+    ];
+    const picked = pickRepresentativeSpots(spots, 2, "도쿄");
+    expect(picked).toEqual(["센소지", "도쿄 스카이트리"]);
+    expect(picked).not.toContain("도쿄부청사 유적");
+    expect(buildCourseTitle({ region: "도쿄", days: 3, spots })).not.toContain("도쿄부청사 유적");
+  });
+
   it("대표 명소는 식당·카페·숙소·선착장을 빼고 코스 순서대로 뽑는다", () => {
     expect(pickRepresentativeSpots(brief.spots, 3)).toEqual(["오사카 성", "도톤보리", "유니버설 스튜디오 재팬"]);
     expect(pickRepresentativeSpots([spot({ name: "제셀톤 선착장", category: "관광지" }), spot({ name: "Poin Spa", category: "기타" })], 2)).toEqual([]);
