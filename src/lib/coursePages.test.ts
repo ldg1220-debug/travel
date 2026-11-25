@@ -289,6 +289,17 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
     expect(buildCourseTitle({ region: "세부", days: 4, spots })).toContain("산토니뇨 성당·마젤란 십자가");
   });
 
+  it("이름 사전 지역(다낭)은 작은 사찰보다 사전 명소가 대표 — 홈 카드·제목", () => {
+    const spots = [
+      spot({ name: "팝럼사 (法林寺)", category: "사원·성당", order: 1 }),
+      spot({ name: "3D 아트 인 파래다이스 뮤지엄", category: "관광지", order: 2 }),
+      spot({ name: "다낭 오행산", category: "관광지", order: 3 }),
+      spot({ name: "미케 해변", category: "해변", order: 4 }),
+    ];
+    expect(pickRepresentativeSpots(spots, 2, "다낭")).toEqual(["미케 해변", "다낭 오행산"]);
+    expect(buildCourseTitle({ region: "다낭", days: 4, spots })).toContain("미케 해변·다낭 오행산");
+  });
+
   it("대표 명소는 식당·카페·숙소·선착장을 빼고 코스 순서대로 뽑는다", () => {
     expect(pickRepresentativeSpots(brief.spots, 3)).toEqual(["오사카 성", "도톤보리", "유니버설 스튜디오 재팬"]);
     expect(pickRepresentativeSpots([spot({ name: "제셀톤 선착장", category: "관광지" }), spot({ name: "Poin Spa", category: "기타" })], 2)).toEqual([]);
