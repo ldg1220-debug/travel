@@ -371,6 +371,17 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
     expect(buildCourseTitle({ region: "홍콩", days: 3, spots })).toContain("빅토리아 피크");
   });
 
+  it("이름 사전 지역(오사카)은 사전 명소가 대표 — 오사카 성이 1번", () => {
+    const spots = [
+      spot({ name: "쓰텐카쿠 전망대", category: "전망대", order: 1 }),
+      spot({ name: "오사카 성", category: "관광지", order: 2 }),
+      spot({ name: "신사이바시", category: "관광지", order: 3 }),
+    ];
+    const picked = pickRepresentativeSpots(spots, 2, "오사카");
+    expect(picked[0]).toBe("오사카 성");
+    expect(buildCourseTitle({ region: "오사카", days: 3, spots })).toContain("오사카 성");
+  });
+
   it("대표 명소는 식당·카페·숙소·선착장을 빼고 코스 순서대로 뽑는다", () => {
     expect(pickRepresentativeSpots(brief.spots, 3)).toEqual(["오사카 성", "도톤보리", "유니버설 스튜디오 재팬"]);
     expect(pickRepresentativeSpots([spot({ name: "제셀톤 선착장", category: "관광지" }), spot({ name: "Poin Spa", category: "기타" })], 2)).toEqual([]);
@@ -378,7 +389,7 @@ describe("검색 품질 — 제목·설명·대표 명소·canonical·일자 카
 
   it("title: '{지역} {일수} 코스 — {N}곳 · {대표1}·{대표2} | 트레쥴', description: 대표 3곳 + 고정 문구", () => {
     expect(buildCourseTitle(brief)).toBe("오사카 2박3일 코스 — 6곳 · 오사카 성·도톤보리 | 트레쥴");
-    expect(buildCourseDescription(brief)).toBe("오사카 2박3일 코스: 오사카 성, 도톤보리, 유니버설 스튜디오 재팬. 일자별 동선 지도 · 이동 시간 정리.");
+    expect(buildCourseDescription(brief)).toBe("오사카 2박3일 코스: 오사카 성, 도톤보리, 쓰텐카쿠. 일자별 동선 지도 · 이동 시간 정리.");
     // 6·7일은 URL 라벨과 같은 "5박6일"·"5박7일"
     expect(buildCourseTitle({ ...brief, region: "세부", days: 7 })).toContain("세부 5박7일 코스");
   });
