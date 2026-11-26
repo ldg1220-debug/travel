@@ -673,7 +673,7 @@ export function CourseBuilderPage() {
               })}
             </div>
             <div className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              <span className="shrink-0 text-[11.5px] font-medium text-slate-400">이동 반경</span>
+              <span className="shrink-0 text-[11.5px] font-medium text-slate-500">이동 반경</span>
               {AI_RADIUS_OPTIONS.map((r) => {
                 const active = aiRadius === r.minutes;
                 return (
@@ -784,7 +784,7 @@ export function CourseBuilderPage() {
                       </button>
                     ))}
                   </div>
-                  <p className="mt-1 text-[10.5px] text-slate-400">위 &ldquo;이동 반경&rdquo;이 실제로 얼마나 먼 거리인지는 이동 방법에 따라 달라져요.</p>
+                  <p className="mt-1 text-[10.5px] text-slate-500">위 &ldquo;이동 반경&rdquo;이 실제로 얼마나 먼 거리인지는 이동 방법에 따라 달라져요.</p>
                 </div>
 
                 {aiDays === 1 ? (
@@ -808,7 +808,7 @@ export function CourseBuilderPage() {
                           className="w-full min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-brand-500"
                         />
                       </div>
-                      <p className="mt-1 text-[10.5px] text-slate-400">
+                      <p className="mt-1 text-[10.5px] text-slate-500">
                         둘 다 입력하면 그 시간 안에서 코스를 짜요. 비워두면 기본 골격(오전~밤)을 써요.
                       </p>
                     </div>
@@ -830,7 +830,7 @@ export function CourseBuilderPage() {
                     <div className="space-y-1.5">
                       <p className="text-[11px] font-semibold text-slate-500">숙소 (선택)</p>
                       <AnchorRow label="숙소" anchor={aiLodgingAnchor} onPick={() => setAnchorPickerOpen("lodging")} onClear={() => setAiLodgingAnchor(null)} />
-                      <p className="text-[10.5px] text-slate-400">정해두면 매일 아침 출발·저녁 복귀 지점으로 자동으로 쓰여요.</p>
+                      <p className="text-[10.5px] text-slate-500">정해두면 매일 아침 출발·저녁 복귀 지점으로 자동으로 쓰여요.</p>
                     </div>
 
                     <div className="space-y-1.5">
@@ -843,7 +843,7 @@ export function CourseBuilderPage() {
                         aria-label="도착 시각"
                         className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[13px] outline-none focus:border-brand-500"
                       />
-                      <p className="text-[10.5px] text-slate-400">비워두면 숙소를 시작 지점으로, 하루 전체를 기본 골격으로 짜요.</p>
+                      <p className="text-[10.5px] text-slate-500">비워두면 숙소를 시작 지점으로, 하루 전체를 기본 골격으로 짜요.</p>
                     </div>
 
                     <div className="space-y-1.5">
@@ -940,7 +940,7 @@ export function CourseBuilderPage() {
             </button>
 
             {/* slot tabs with pick count */}
-            <p className="mb-2 text-[12px] font-medium text-slate-400">또는 카테고리별로 직접 골라보세요</p>
+            <p className="mb-2 text-[12px] font-medium text-slate-500">또는 카테고리별로 직접 골라보세요</p>
             <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {COURSE_SLOTS.map((s) => {
                 const count = (picks[s.key] ?? []).length;
@@ -986,11 +986,11 @@ export function CourseBuilderPage() {
                     <div key={`${slot.key}-${place.id}`} className="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2">
                       <span className="text-base">{slot.emoji}</span>
                       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-800">{place.name}</span>
-                      <span className="shrink-0 text-[11px] text-slate-400">{slot.label}</span>
+                      <span className="shrink-0 text-[11px] text-slate-500">{slot.label}</span>
                       <button
                         onClick={() => togglePick(slot.key, place)}
                         aria-label={`${place.name} 코스에서 빼기`}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-200"
                       >
                         <X size={13} />
                       </button>
@@ -1022,7 +1022,7 @@ export function CourseBuilderPage() {
           <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-lg font-bold">코스를 어떻게 담을까요?</h3>
-              <button onClick={() => setFinishOpen(false)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+              <button onClick={() => setFinishOpen(false)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
                 <X size={16} />
               </button>
             </div>
@@ -1061,13 +1061,13 @@ export function CourseBuilderPage() {
               <h3 className="flex items-center gap-1.5 text-lg font-bold">
                 <Sparkles size={18} className="text-brand-600" /> {aiCity} AI 추천 동선
               </h3>
-              <button onClick={() => setAiCourse(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+              <button onClick={() => setAiCourse(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
                 <X size={16} />
               </button>
             </div>
             {aiCourse.length === 0 ? (
               <div className="px-5 py-12 text-center">
-                <p className="text-[13px] text-slate-400">
+                <p className="text-[13px] text-slate-500">
                   동선이 비어 있어요. (실제 추천은 배포 환경에서 동작합니다)
                 </p>
                 <Button onClick={runAiRecommend} disabled={aiLoading} variant="outline" className="mt-4 h-10 rounded-xl border-slate-300 text-sm font-semibold">
@@ -1108,7 +1108,7 @@ export function CourseBuilderPage() {
               <h3 className="flex items-center gap-1.5 text-lg font-bold">
                 <Sparkles size={18} className="text-brand-600" /> {aiCity} {aiDays}일 AI 추천 동선
               </h3>
-              <button onClick={() => setAiMultiCourse(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+              <button onClick={() => setAiMultiCourse(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
                 <X size={16} />
               </button>
             </div>
@@ -1132,7 +1132,7 @@ export function CourseBuilderPage() {
 
             {aiMultiCourse.every((d) => d.stops.length === 0) ? (
               <div className="px-5 py-12 text-center">
-                <p className="text-[13px] text-slate-400">동선이 비어 있어요. (실제 추천은 배포 환경에서 동작합니다)</p>
+                <p className="text-[13px] text-slate-500">동선이 비어 있어요. (실제 추천은 배포 환경에서 동작합니다)</p>
                 <Button onClick={runAiRecommend} disabled={aiLoading} variant="outline" className="mt-4 h-10 rounded-xl border-slate-300 text-sm font-semibold">
                   다시 추천
                 </Button>
@@ -1181,7 +1181,7 @@ export function CourseBuilderPage() {
           <div className="relative w-full max-w-[360px] rounded-3xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-slate-900">Day 1 시작일</h3>
-              <button onClick={() => setMultiDatePickerOpen(false)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+              <button onClick={() => setMultiDatePickerOpen(false)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
                 <X size={16} />
               </button>
             </div>
@@ -1206,7 +1206,7 @@ export function CourseBuilderPage() {
               <h3 className="text-[15px] font-bold text-slate-900">
                 {anchorPickerOpen === "lodging" ? "숙소" : anchorPickerOpen === "start" ? (aiDays > 1 ? "도착 지점" : "시작 위치") : aiDays > 1 ? "출발 지점" : "종료 위치"} 검색
               </h3>
-              <button onClick={() => setAnchorPickerOpen(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+              <button onClick={() => setAnchorPickerOpen(null)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
                 <X size={16} />
               </button>
             </div>
@@ -1233,11 +1233,11 @@ export function CourseBuilderPage() {
           <div className="relative w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-1 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-slate-900">{aiCity} 숙소 예약</h3>
-              <button onClick={() => setLodgingOpen(false)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+              <button onClick={() => setLodgingOpen(false)} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
                 <X size={16} />
               </button>
             </div>
-            {hasAffiliateLink(lodgingProviders) && <AffiliateDisclosureNote className="mb-3 text-[11px] text-slate-400" />}
+            {hasAffiliateLink(lodgingProviders) && <AffiliateDisclosureNote className="mb-3 text-[11px] text-slate-500" />}
             <div className="mt-3 space-y-2">
               {lodgingProviders.map((p) => (
                 <a
@@ -1351,12 +1351,12 @@ function SlotResults({
   };
 
   if (isFetching && !data) {
-    return <p className="py-16 text-center text-[13px] text-slate-400">{slot.label} 찾는 중…</p>;
+    return <p className="py-16 text-center text-[13px] text-slate-500">{slot.label} 찾는 중…</p>;
   }
   const results = [...(data?.places ?? []), ...morePlaces];
   if (results.length === 0) {
     return (
-      <p className="py-16 text-center text-[13px] text-slate-400">
+      <p className="py-16 text-center text-[13px] text-slate-500">
         이 지역의 {slot.label} 결과를 불러오지 못했어요. (실제 검색은 배포 환경에서 동작합니다)
       </p>
     );
@@ -1476,10 +1476,10 @@ function CourseSpotCard({
           <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
             <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />
             {place.rating.toFixed(1)}
-            {place.reviewCount != null && <span className="font-normal text-slate-400">· {place.reviewCount.toLocaleString()}</span>}
+            {place.reviewCount != null && <span className="font-normal text-slate-500">· {place.reviewCount.toLocaleString()}</span>}
           </p>
         ) : place.address ? (
-          <p className="mt-0.5 truncate text-[11px] text-slate-400">{place.address}</p>
+          <p className="mt-0.5 truncate text-[11px] text-slate-500">{place.address}</p>
         ) : null}
         <button
           onClick={onToggle}
@@ -1531,7 +1531,7 @@ function CourseTimelineList({
             <div key={`empty-${item.slot.slotKey}`} className="relative flex items-center gap-3 py-2">
               <span className="absolute -left-4 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white border-dashed bg-slate-200" />
               <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-slate-300">{pad2(item.slot.hour)}:00</span>
-              <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">
+              <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-500">
                 {item.slot.slotLabel} · 조건에 맞는 곳을 못 찾았어요
               </p>
             </div>
@@ -1547,13 +1547,13 @@ function CourseTimelineList({
         return (
           <div key={stop.slotKey} className="relative flex items-center gap-3 py-2">
             <span className={`absolute -left-4 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white ${isAnchor ? "bg-slate-700" : stop.meal ? "bg-amber-400" : "bg-brand-600"}`} />
-            <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-slate-400">{pad2(stop.hour)}:00</span>
+            <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-slate-500">{pad2(stop.hour)}:00</span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-[13.5px] font-semibold text-slate-800">
                 {stop.meal && <span className="mr-1 text-amber-500">🍴</span>}
                 {rerolling ? "다른 곳 찾는 중…" : stop.name}
               </p>
-              <p className="truncate text-[11px] text-slate-400">
+              <p className="truncate text-[11px] text-slate-500">
                 {stop.slotLabel}
                 {stop.rating != null && ` · ⭐ ${stop.rating.toFixed(1)}`}
               </p>
@@ -1569,7 +1569,7 @@ function CourseTimelineList({
                   onClick={() => onReroll(stop.slotKey)}
                   disabled={rerolling}
                   aria-label={`${stop.slotLabel} 다른 곳 추천`}
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-brand-600 disabled:opacity-40"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-brand-600 disabled:opacity-40"
                 >
                   <RefreshCw size={14} className={rerolling ? "animate-spin" : ""} />
                 </button>
@@ -1577,7 +1577,7 @@ function CourseTimelineList({
                   onClick={() => onRemove(stop.slotKey)}
                   disabled={rerolling}
                   aria-label={`${stop.slotLabel} 빼기`}
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-red-500 disabled:opacity-40"
+                  className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-red-500 disabled:opacity-40"
                 >
                   <X size={14} />
                 </button>
@@ -1607,7 +1607,7 @@ function AnchorRow({
       {anchor ? (
         <>
           <span className="min-w-0 flex-1 truncate rounded-lg bg-white px-2.5 py-1.5 text-[12.5px] font-medium text-slate-700 ring-1 ring-slate-200">{anchor.name}</span>
-          <button onClick={onClear} aria-label={`${label} 위치 지우기`} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200">
+          <button onClick={onClear} aria-label={`${label} 위치 지우기`} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-200">
             <X size={13} />
           </button>
         </>
@@ -1615,7 +1615,7 @@ function AnchorRow({
         <button
           type="button"
           onClick={onPick}
-          className="flex-1 rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-left text-[12px] text-slate-400 hover:border-brand-400 hover:text-brand-600"
+          className="flex-1 rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-left text-[12px] text-slate-500 hover:border-brand-400 hover:text-brand-600"
         >
           장소 검색…
         </button>

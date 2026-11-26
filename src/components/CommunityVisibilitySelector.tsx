@@ -89,15 +89,15 @@ export function CommunityVisibilitySelector({
           <div className="relative flex max-h-[70vh] w-full max-w-sm flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3.5">
               <p className="text-[14px] font-bold text-slate-800">공개할 트래블 메이트 선택</p>
-              <button onClick={() => setPickerOpen(false)} aria-label="닫기" className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+              <button onClick={() => setPickerOpen(false)} aria-label="닫기" className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
                 <X size={15} />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-3">
               {loadingFollowers ? (
-                <p className="py-8 text-center text-[12.5px] text-slate-400">불러오는 중…</p>
+                <p className="py-8 text-center text-[12.5px] text-slate-500">불러오는 중…</p>
               ) : !followers || followers.length === 0 ? (
-                <p className="py-8 text-center text-[12.5px] text-slate-400">아직 나를 팔로우하는 사람이 없어요</p>
+                <p className="py-8 text-center text-[12.5px] text-slate-500">아직 나를 팔로우하는 사람이 없어요</p>
               ) : (
                 <div className="space-y-1">
                   {followers.map((f) => (

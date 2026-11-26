@@ -88,7 +88,7 @@ export function WordmarkText({ neon = false, className = "" }: { neon?: boolean;
       } ${className}`}
     >
       Tradule
-      <span className={`not-italic text-[0.55em] font-light tracking-normal ${neon ? "text-cyan-200/80" : "text-slate-400"}`}>
+      <span className={`not-italic text-[0.55em] font-light tracking-normal ${neon ? "text-cyan-200/80" : "text-slate-500"}`}>
         트레쥴
       </span>
     </span>

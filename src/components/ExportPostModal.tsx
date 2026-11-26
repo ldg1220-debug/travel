@@ -329,7 +329,7 @@ export function ExportPostModal({
           <button
             onClick={onClose}
             aria-label="닫기"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <X size={16} />
           </button>
@@ -378,7 +378,7 @@ export function ExportPostModal({
               <pre className="mb-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[12.5px] leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                 {scheduleText}
               </pre>
-              {generatingScheduleImage && <p className="text-[11px] text-slate-400">일정 이미지 만드는 중…</p>}
+              {generatingScheduleImage && <p className="text-[11px] text-slate-500">일정 이미지 만드는 중…</p>}
               {scheduleImageUrl && (
                 <PhotoRow
                   photos={[{ url: scheduleImageUrl, label: "일정 이미지" }]}
@@ -387,7 +387,7 @@ export function ExportPostModal({
                   onCopy={handleCopyPhoto}
                 />
               )}
-              {scheduleImageFailed && <p className="text-[11px] text-slate-400">일정 이미지는 못 만들었어요 — 텍스트는 그대로 복사할 수 있어요</p>}
+              {scheduleImageFailed && <p className="text-[11px] text-slate-500">일정 이미지는 못 만들었어요 — 텍스트는 그대로 복사할 수 있어요</p>}
             </div>
           )}
 
@@ -470,7 +470,7 @@ export function ExportPostModal({
               </button>
             </div>
           </div>
-          <p className="text-[11px] leading-relaxed text-slate-400">
+          <p className="text-[11px] leading-relaxed text-slate-500">
             티스토리는 자동 등록 기능이 막혀 있어(2024년 API 종료) 복사한 텍스트를 직접 붙여넣어야 해요. 네이버는
             제목·링크까지만 채워지니, 본문은 위 섹션을 순서대로 복사해 붙여넣어 완성해주세요.
           </p>

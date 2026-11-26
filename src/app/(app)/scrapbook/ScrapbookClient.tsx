@@ -338,7 +338,7 @@ function ScrapbookPageInner() {
                 )}
                 {t.label}
                 {(t.key === "written" ? writtenItems.length : notWrittenTrips.length) > 0 && (
-                  <span className="ml-1.5 text-[11px] font-normal text-slate-400">
+                  <span className="ml-1.5 text-[11px] font-normal text-slate-500">
                     {t.key === "written" ? writtenItems.length : notWrittenTrips.length}
                   </span>
                 )}
@@ -473,13 +473,13 @@ function NewPostChooser({
             <button
               onClick={() => setPicking(false)}
               aria-label="뒤로"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
             >
               <ChevronLeft size={17} />
             </button>
           )}
           <h3 className="flex-1 text-lg font-bold">{picking ? "어떤 계획인가요?" : "여행 후기 쓰기"}</h3>
-          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
             <X size={16} />
           </button>
         </div>
@@ -496,7 +496,7 @@ function NewPostChooser({
               </span>
               <span className="min-w-0">
                 <span className="block text-[13.5px] font-semibold text-slate-800">계획 불러오기</span>
-                <span className="block text-[12px] text-slate-400">{plans.length > 0 ? "저장된 계획에서 장소를 가져와요" : "저장된 계획이 없어요"}</span>
+                <span className="block text-[12px] text-slate-500">{plans.length > 0 ? "저장된 계획에서 장소를 가져와요" : "저장된 계획이 없어요"}</span>
               </span>
             </button>
             <button
@@ -508,7 +508,7 @@ function NewPostChooser({
               </span>
               <span className="min-w-0">
                 <span className="block text-[13.5px] font-semibold text-slate-800">완전 새로 작성</span>
-                <span className="block text-[12px] text-slate-400">계획 없이 자유롭게 — 장소는 검색해서 추가해요</span>
+                <span className="block text-[12px] text-slate-500">계획 없이 자유롭게 — 장소는 검색해서 추가해요</span>
               </span>
             </button>
           </div>
@@ -524,7 +524,7 @@ function NewPostChooser({
                   className="flex w-full flex-col items-start gap-0.5 rounded-xl border border-slate-100 px-3.5 py-2.5 text-left transition-colors hover:border-brand-200 hover:bg-brand-50/60"
                 >
                   <span className="w-full truncate text-[13.5px] font-semibold text-slate-800">{plan.name}</span>
-                  <span className="w-full truncate text-[11.5px] text-slate-400">
+                  <span className="w-full truncate text-[11.5px] text-slate-500">
                     {dateLabel} · {tripRouteLabel(plan)}
                   </span>
                 </button>
@@ -650,7 +650,7 @@ function TripCard({
                 <button onClick={onDeleteConfirm} className="text-[12.5px] font-semibold text-rose-500">
                   삭제
                 </button>
-                <button onClick={onDeleteCancel} className="text-[12.5px] text-slate-400">
+                <button onClick={onDeleteCancel} className="text-[12.5px] text-slate-500">
                   취소
                 </button>
               </div>

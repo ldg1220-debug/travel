@@ -29,7 +29,7 @@ export function AdminUsersSection() {
   }, [isRoot]);
 
   if (status !== "loading" && !isRoot) {
-    return <p className="mt-10 text-center text-[13px] text-slate-400">관리자 지정은 대표 계정만 할 수 있어요.</p>;
+    return <p className="mt-10 text-center text-[13px] text-slate-500">관리자 지정은 대표 계정만 할 수 있어요.</p>;
   }
 
   const toggleAdmin = async (u: AdminUserRow) => {
@@ -47,7 +47,7 @@ export function AdminUsersSection() {
 
   return (
     <div className="mx-auto max-w-lg">
-      <p className="text-[12.5px] text-slate-400">
+      <p className="text-[12.5px] text-slate-500">
         닉네임으로 사용자를 찾아 관리자 권한을 주거나 뺏을 수 있어요. 관리자는 신고 처리·계정 정지·대시보드 열람이
         가능해요.
       </p>
@@ -74,9 +74,9 @@ export function AdminUsersSection() {
 
       <div className="mt-4 divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
         {users == null ? (
-          <p className="px-4 py-8 text-center text-[13px] text-slate-400">불러오는 중…</p>
+          <p className="px-4 py-8 text-center text-[13px] text-slate-500">불러오는 중…</p>
         ) : users.length === 0 ? (
-          <p className="px-4 py-8 text-center text-[13px] text-slate-400">찾는 사용자가 없어요</p>
+          <p className="px-4 py-8 text-center text-[13px] text-slate-500">찾는 사용자가 없어요</p>
         ) : (
           users.map((u) => {
             const isRootUser = isRootAdmin(u.email);
@@ -96,7 +96,7 @@ export function AdminUsersSection() {
                     {isRootUser && <span className="ml-1.5 rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">대표</span>}
                     {u.isBanned && <span className="ml-1.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">정지됨</span>}
                   </p>
-                  <p className="text-[11px] text-slate-400">가입 {formatDate(u.createdAt)}</p>
+                  <p className="text-[11px] text-slate-500">가입 {formatDate(u.createdAt)}</p>
                 </div>
                 {isRootUser ? (
                   <span className="shrink-0 text-[11.5px] text-slate-300">해제 불가</span>

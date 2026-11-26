@@ -67,12 +67,12 @@ export function TmeInvitePage() {
     return (
       <div className="flex min-h-full flex-col items-center justify-center bg-slate-50 px-6 text-center dark:bg-slate-950">
         <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">초대 링크를 찾을 수 없어요</p>
-        <p className="mt-1 text-[13px] text-slate-400">링크가 잘못됐거나 탈퇴한 사용자일 수 있어요.</p>
+        <p className="mt-1 text-[13px] text-slate-500">링크가 잘못됐거나 탈퇴한 사용자일 수 있어요.</p>
       </div>
     );
   }
   if (!profile) {
-    return <div className="flex min-h-full items-center justify-center bg-slate-50 text-[13px] text-slate-400 dark:bg-slate-950">불러오는 중…</div>;
+    return <div className="flex min-h-full items-center justify-center bg-slate-50 text-[13px] text-slate-500 dark:bg-slate-950">불러오는 중…</div>;
   }
 
   return (
@@ -96,12 +96,12 @@ export function TmeInvitePage() {
         <div className="mb-6 mt-5 flex items-center justify-center gap-8">
           <span className="text-center">
             <span className="block text-[15px] font-bold text-slate-800 dark:text-slate-100">{profile.followingCount}</span>
-            <span className="block text-[11.5px] text-slate-400">트래블 메이트</span>
+            <span className="block text-[11.5px] text-slate-500">트래블 메이트</span>
           </span>
         </div>
 
         {isSelf ? (
-          <p className="text-[13px] text-slate-400">내 초대 링크예요 — 카카오톡으로 친구에게 공유해보세요.</p>
+          <p className="text-[13px] text-slate-500">내 초대 링크예요 — 카카오톡으로 친구에게 공유해보세요.</p>
         ) : profile.isFriend ? (
           <p className="text-[13.5px] font-semibold text-brand-600">이미 서로 트래블 메이트예요 🎉</p>
         ) : profile.isFollowing ? (
@@ -149,7 +149,7 @@ export function TmeInvitePage() {
 
         {actionError && <p className="mt-2.5 text-[12px] text-rose-500">{actionError}</p>}
 
-        <button onClick={() => router.push("/")} className="mt-4 text-[12.5px] font-semibold text-slate-400 hover:text-slate-600">
+        <button onClick={() => router.push("/")} className="mt-4 text-[12.5px] font-semibold text-slate-500 hover:text-slate-600">
           트레쥴 둘러보기
         </button>
       </div>

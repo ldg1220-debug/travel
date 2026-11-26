@@ -710,7 +710,7 @@ export function DiscoverPage() {
         {/* ── SEARCH + SEGMENTED TOGGLE ── */}
         <section className="mb-8">
           <div className="relative">
-            <CordixIcon name="search" size={20} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <CordixIcon name="search" size={20} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
             <Input
               value={queryInput}
               onChange={(e) => setQueryInput(e.target.value)}
@@ -729,7 +729,7 @@ export function DiscoverPage() {
                 <button
                   onClick={clearSearch}
                   aria-label="검색어 지우기"
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-600"
                 >
                   <X size={16} />
                 </button>
@@ -749,11 +749,11 @@ export function DiscoverPage() {
             {searchFocused && recentSearches.length > 0 && (
               <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
                 <div className="mb-1 flex items-center justify-between px-2 pt-1">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">최근 검색어</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">최근 검색어</span>
                   <button
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={clearRecent}
-                    className="text-[11px] font-medium text-slate-400 hover:text-slate-600"
+                    className="text-[11px] font-medium text-slate-500 hover:text-slate-600"
                   >
                     전체 삭제
                   </button>
@@ -767,7 +767,7 @@ export function DiscoverPage() {
                   >
                     <Clock size={13} className="text-slate-300" />
                     <span className="min-w-0 flex-1 truncate">{r.q}</span>
-                    <span className="shrink-0 text-[10.5px] text-slate-400">{r.scope === "domestic" ? "🇰🇷 국내" : "🌐 해외"}</span>
+                    <span className="shrink-0 text-[10.5px] text-slate-500">{r.scope === "domestic" ? "🇰🇷 국내" : "🌐 해외"}</span>
                   </button>
                 ))}
               </div>
@@ -804,7 +804,7 @@ export function DiscoverPage() {
                   setRegionOpen(false);
                   setRegionPath([]);
                 }}
-                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                   !seasonCheck && !hotCheck && regionPath.length === 0
                     ? "border-slate-900 bg-slate-900 text-white"
                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
@@ -816,7 +816,7 @@ export function DiscoverPage() {
               <button
                 onClick={() => setSeasonCheck((v) => !v)}
                 aria-pressed={seasonCheck}
-                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                   seasonCheck ? "border-amber-500 bg-amber-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                 }`}
               >
@@ -830,7 +830,7 @@ export function DiscoverPage() {
               <button
                 onClick={() => setHotCheck((v) => !v)}
                 aria-pressed={hotCheck}
-                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                   hotCheck ? "border-rose-500 bg-rose-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                 }`}
               >
@@ -845,7 +845,7 @@ export function DiscoverPage() {
               <button
                 onClick={() => setRegionOpen((v) => !v)}
                 aria-pressed={regionOpen || regionPath.length > 0}
-                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                   regionOpen || regionPath.length > 0
                     ? "border-brand-700 bg-brand-700 text-white"
                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
@@ -861,7 +861,7 @@ export function DiscoverPage() {
               원탭 재검색 버튼 줄 (검색 전 브라우즈 화면에서만) */}
           {!isSearching && !expandedSection && recentSearches.length > 0 && (
             <div className="mt-4 flex items-center gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-slate-400">
+              <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-slate-500">
                 <Clock size={12} /> 최근 검색
               </span>
               {recentSearches.map((r) => (
@@ -1086,7 +1086,7 @@ export function DiscoverPage() {
                 </div>
                 <button
                   onClick={() => setChoosingFolder(false)}
-                  className="mt-4 w-full text-center text-[12px] font-medium text-slate-400 hover:text-slate-600"
+                  className="mt-4 w-full text-center text-[12px] font-medium text-slate-500 hover:text-slate-600"
                 >
                   뒤로
                 </button>
@@ -1220,7 +1220,7 @@ function SectionHeader({
       {onSeeAll && (
         <button
           onClick={onSeeAll}
-          className="flex items-center gap-0.5 text-[13px] font-semibold text-slate-400 transition-colors hover:text-slate-700"
+          className="flex min-h-11 items-center gap-0.5 text-[13px] font-semibold text-slate-500 transition-colors hover:text-slate-700"
         >
           전체보기 <ChevronRight size={15} />
         </button>
@@ -1282,7 +1282,7 @@ function ExpandedSection({
         <div>
           <h2 className="text-xl font-bold tracking-tight">{meta.title}</h2>
           {kind === "lodging" && (
-            <p className="text-[12px] text-slate-400">{regionPath.length > 0 ? `${regionPath[regionPath.length - 1]} 인기 숙소 순위` : "전체 지역 인기 숙소 순위 — 지역을 눌러 좁혀보세요"}</p>
+            <p className="text-[12px] text-slate-500">{regionPath.length > 0 ? `${regionPath[regionPath.length - 1]} 인기 숙소 순위` : "전체 지역 인기 숙소 순위 — 지역을 눌러 좁혀보세요"}</p>
           )}
         </div>
       </div>
@@ -1537,7 +1537,7 @@ function SearchResults({
 
   const isInitialLoading = isFetching && !data;
   if (isInitialLoading) {
-    return <div className="py-20 text-center text-sm text-slate-400">&ldquo;{query}&rdquo; 검색 중…</div>;
+    return <div className="py-20 text-center text-sm text-slate-500">&ldquo;{query}&rdquo; 검색 중…</div>;
   }
   if (!data) return null;
 
@@ -1548,13 +1548,13 @@ function SearchResults({
   const hasLiveResults = Boolean(liveResults && liveResults.length > 0);
 
   if (routes.length === 0 && total === 0 && !isRefetching && !hasLiveResults && isLiveInitialLoading) {
-    return <div className="py-20 text-center text-sm text-slate-400">&ldquo;{query}&rdquo; 검색 중…</div>;
+    return <div className="py-20 text-center text-sm text-slate-500">&ldquo;{query}&rdquo; 검색 중…</div>;
   }
   if (routes.length === 0 && total === 0 && !isRefetching && !hasLiveResults && !isLiveInitialLoading) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-20 text-center">
         <p className="text-sm text-slate-500">&ldquo;{query}&rdquo;에 대한 결과가 없어요.</p>
-        <p className="mt-1 text-[12px] text-slate-400">다른 지역이나 명소 이름으로 검색해보세요.</p>
+        <p className="mt-1 text-[12px] text-slate-500">다른 지역이나 명소 이름으로 검색해보세요.</p>
       </div>
     );
   }
@@ -1605,7 +1605,7 @@ function SearchResults({
                 <button
                   key={c.key}
                   onClick={() => handleCategoryClick(c.key)}
-                  className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                  className={`inline-flex min-h-11 shrink-0 items-center rounded-full border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
                     active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                   }`}
                 >
@@ -1642,7 +1642,7 @@ function SearchResults({
               ))}
             </div>
           ) : groupedSpots.length === 0 ? (
-            <p className="mt-8 text-center text-[13px] text-slate-400">이 카테고리에는 결과가 없어요.</p>
+            <p className="mt-8 text-center text-[13px] text-slate-500">이 카테고리에는 결과가 없어요.</p>
           ) : (
             <div className="mt-6 space-y-8">
               {groupedSpots.map(([tag, tagSpots]) => {
@@ -1651,9 +1651,9 @@ function SearchResults({
                   <div key={tag}>
                     {categoryFilter === "all" && (
                       <div className="mb-3 flex items-center gap-1.5 text-[13px] font-bold text-slate-700">
-                        <TagIcon size={14} className="text-slate-400" />
+                        <TagIcon size={14} className="text-slate-500" />
                         {tag}
-                        <span className="text-[11px] font-medium text-slate-400">{tagSpots.length}</span>
+                        <span className="text-[11px] font-medium text-slate-500">{tagSpots.length}</span>
                       </div>
                     )}
                     <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -1712,7 +1712,7 @@ function SearchResults({
           오해하지 않도록 — 큐레이션 섹션이 이미 그려진 상태(위 초기 로딩
           가드는 통과)라도 실시간 쪽은 별도로 로딩 중일 수 있다. */}
       {page === 1 && isLiveInitialLoading && !hasLiveResults && (
-        <p className="py-3 text-center text-[12.5px] text-slate-400">실시간 검색 결과 불러오는 중…</p>
+        <p className="py-3 text-center text-[12.5px] text-slate-500">실시간 검색 결과 불러오는 중…</p>
       )}
 
       {/* ── ③ 그 외 종합 — 실시간(Google/Kakao) 전체 결과, 맨 마지막 ── */}
@@ -1772,7 +1772,7 @@ function SearchResults({
                   className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11.5px] font-medium text-slate-600 transition-colors hover:border-success-300 hover:text-success-600"
                 >
                   <g.icon size={12} />
-                  {g.label} <span className="text-slate-400">{g.places.length}</span>
+                  {g.label} <span className="text-slate-500">{g.places.length}</span>
                 </button>
               ))}
             </div>
@@ -1782,9 +1782,9 @@ function SearchResults({
             {liveBuckets.map((g) => (
               <div key={g.key} id={`live-bucket-${g.key}`} className="scroll-mt-20">
                 <div className="mb-3 flex items-center gap-1.5 text-[13px] font-bold text-slate-700 dark:text-slate-200">
-                  <g.icon size={14} className="text-slate-400" />
+                  <g.icon size={14} className="text-slate-500" />
                   {g.label}
-                  <span className="text-[11px] font-medium text-slate-400">{g.places.length}</span>
+                  <span className="text-[11px] font-medium text-slate-500">{g.places.length}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                   {g.places.map((place) => (
@@ -1996,7 +1996,7 @@ function LivePlaceCard({
       <div className="px-3 pb-3 pt-3">
         <p className="truncate text-sm font-bold text-slate-900">
           {place.name}
-          {place.nativeName && <span className="ml-1 font-normal text-slate-400">({place.nativeName})</span>}
+          {place.nativeName && <span className="ml-1 font-normal text-slate-500">({place.nativeName})</span>}
         </p>
         {place.address && (
           <p className="mt-0.5 line-clamp-1 flex items-center gap-1 text-[11px] text-slate-500">
@@ -2009,14 +2009,14 @@ function LivePlaceCard({
               <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" className="shrink-0" />
               {place.rating.toFixed(1)}
               {place.reviewCount != null && (
-                <span className="truncate font-normal text-slate-400">· 리뷰 {fmt(place.reviewCount)}</span>
+                <span className="truncate font-normal text-slate-500">· 리뷰 {fmt(place.reviewCount)}</span>
               )}
               {place.priceLevel != null && place.priceLevel > 0 && (
                 <span className="shrink-0 font-semibold text-success-600">· {"₩".repeat(place.priceLevel)}</span>
               )}
             </span>
           ) : (
-            <span className="text-[10.5px] font-medium text-slate-400">실제 지도 데이터</span>
+            <span className="text-[10.5px] font-medium text-slate-500">실제 지도 데이터</span>
           )}
           <span className="flex shrink-0 items-center gap-1">
             {place.googleMapsUri && (
@@ -2044,11 +2044,11 @@ function LivePlaceCard({
         </div>
         {lodging && providers.length > 0 && (
           <div className="mt-2 border-t border-slate-100 pt-2">
-            <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-slate-400">
+            <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-slate-500">
               <CordixIcon name="bed" size={11} className="text-brand-500" /> 최저가 예약
-              {showAffiliate && <span className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-400">제휴</span>}
+              {showAffiliate && <span className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-500">제휴</span>}
             </div>
-            {showAffiliate && <AffiliateDisclosureNote className="mb-1 text-[9px] font-normal text-slate-400" />}
+            {showAffiliate && <AffiliateDisclosureNote className="mb-1 text-[9px] font-normal text-slate-500" />}
             <div className="flex flex-wrap gap-1">
               {providers.map((p) => (
                 <a
@@ -2119,7 +2119,7 @@ function RouteTemplateCard({ route, onAdd, onPreview }: { route: DiscoverRoute; 
           {route.stops.map((stop, i) => (
             <div key={i} className="relative flex items-center gap-3 py-1.5">
               <span className="z-10 h-3 w-3 rounded-full border-2 border-white bg-brand-500 shadow-sm ring-1 ring-slate-200" />
-              <span className="w-12 shrink-0 text-[11px] font-semibold tabular-nums text-slate-400">
+              <span className="w-12 shrink-0 text-[11px] font-semibold tabular-nums text-slate-500">
                 {stop.time}
               </span>
               <span className="truncate text-[13px] font-medium text-slate-700">{stop.name}</span>
@@ -2128,7 +2128,7 @@ function RouteTemplateCard({ route, onAdd, onPreview }: { route: DiscoverRoute; 
         </div>
 
         <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
-          <span className="text-[12px] text-slate-400">전체 경로 보기</span>
+          <span className="text-[12px] text-slate-500">전체 경로 보기</span>
           <Button
             onClick={(e) => {
               e.stopPropagation();
@@ -2185,7 +2185,7 @@ function RoutePreviewModal({ route, onClose, onAdd }: { route: DiscoverRoute; on
                   <span className="z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-700 text-[10px] font-bold text-white ring-2 ring-white">
                     {i + 1}
                   </span>
-                  <span className="w-12 shrink-0 text-[11px] font-semibold tabular-nums text-slate-400">{stop.time}</span>
+                  <span className="w-12 shrink-0 text-[11px] font-semibold tabular-nums text-slate-500">{stop.time}</span>
                   <span className="truncate text-[13px] font-medium text-slate-700">{stop.name}</span>
                 </div>
               ))}
@@ -2231,7 +2231,7 @@ function RouteDateModal({ route, onClose, onConfirm }: { route: DiscoverRoute; o
               <CalendarRange size={18} />
             </span>
             <div className="min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{route.duration}</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{route.duration}</p>
               <p className="truncate text-[15px] font-semibold leading-tight">{route.title}</p>
             </div>
           </div>

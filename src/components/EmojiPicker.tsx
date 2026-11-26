@@ -182,7 +182,7 @@ function EmojiPickerSheet({ onSelect, onClose }: { onSelect: (emoji: string) => 
           <button
             onClick={onClose}
             aria-label="닫기"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <X size={16} />
           </button>
@@ -237,7 +237,7 @@ export function EmojiPickerButton({ onSelect, className, label }: { onSelect: (e
         type="button"
         onClick={() => setOpen(true)}
         aria-label="이모지 추가"
-        className={className ?? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"}
+        className={className ?? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"}
       >
         <span aria-hidden>🙂</span>
         {label && <span>{label}</span>}

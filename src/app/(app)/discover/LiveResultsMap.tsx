@@ -49,10 +49,10 @@ export default function LiveResultsMap(props: LiveResultsMapProps) {
   const isLoaded = domestic ? kakaoLoaded : googleLoaded;
 
   if (loadError) {
-    return <div className="flex h-full items-center justify-center text-xs text-slate-400">지도를 불러오지 못했어요.</div>;
+    return <div className="flex h-full items-center justify-center text-xs text-slate-500">지도를 불러오지 못했어요.</div>;
   }
   if (!isLoaded) {
-    return <div className="flex h-full items-center justify-center text-xs text-slate-400">지도 불러오는 중…</div>;
+    return <div className="flex h-full items-center justify-center text-xs text-slate-500">지도 불러오는 중…</div>;
   }
   return domestic ? <LiveResultsMapKakao {...props} /> : <LiveResultsMapGoogle {...props} />;
 }
@@ -163,7 +163,7 @@ function LiveResultsMapGoogle({ places, selectedId, onSelect, onOpenDetail, hove
               <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
                 <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />
                 {hovered.rating.toFixed(1)}
-                {hovered.reviewCount != null && <span className="font-normal text-slate-400">· 리뷰 {hovered.reviewCount.toLocaleString()}</span>}
+                {hovered.reviewCount != null && <span className="font-normal text-slate-500">· 리뷰 {hovered.reviewCount.toLocaleString()}</span>}
               </p>
             )}
           </div>
@@ -179,13 +179,13 @@ function LiveResultsMapGoogle({ places, selectedId, onSelect, onOpenDetail, hove
         >
           <div className="min-w-[170px] max-w-[230px] px-1 py-0.5">
             <p className="text-[13px] font-semibold leading-snug text-slate-900">{selected.name}</p>
-            {selected.address && <p className="mt-0.5 line-clamp-1 text-[10.5px] text-slate-400">{selected.address}</p>}
+            {selected.address && <p className="mt-0.5 line-clamp-1 text-[10.5px] text-slate-500">{selected.address}</p>}
             {selected.rating != null && (
               <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
                 <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" />
                 {selected.rating.toFixed(1)}
                 {selected.reviewCount != null && (
-                  <span className="font-normal text-slate-400">· 리뷰 {selected.reviewCount.toLocaleString()}</span>
+                  <span className="font-normal text-slate-500">· 리뷰 {selected.reviewCount.toLocaleString()}</span>
                 )}
               </p>
             )}
@@ -290,7 +290,7 @@ function LiveResultsMapKakao({ places, selectedId, onSelect, onOpenDetail, hover
               <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
                 <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />
                 {hovered.rating.toFixed(1)}
-                {hovered.reviewCount != null && <span className="font-normal text-slate-400">· 리뷰 {hovered.reviewCount.toLocaleString()}</span>}
+                {hovered.reviewCount != null && <span className="font-normal text-slate-500">· 리뷰 {hovered.reviewCount.toLocaleString()}</span>}
               </p>
             )}
           </div>
@@ -306,13 +306,13 @@ function LiveResultsMapKakao({ places, selectedId, onSelect, onOpenDetail, hover
                 ✕
               </button>
             </div>
-            {selected.address && <p className="mt-0.5 line-clamp-1 text-[10.5px] text-slate-400">{selected.address}</p>}
+            {selected.address && <p className="mt-0.5 line-clamp-1 text-[10.5px] text-slate-500">{selected.address}</p>}
             {selected.rating != null && (
               <p className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-slate-600">
                 <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" />
                 {selected.rating.toFixed(1)}
                 {selected.reviewCount != null && (
-                  <span className="font-normal text-slate-400">· 리뷰 {selected.reviewCount.toLocaleString()}</span>
+                  <span className="font-normal text-slate-500">· 리뷰 {selected.reviewCount.toLocaleString()}</span>
                 )}
               </p>
             )}

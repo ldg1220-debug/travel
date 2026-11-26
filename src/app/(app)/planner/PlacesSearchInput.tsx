@@ -76,7 +76,7 @@ export function PlacesSearchInput({ region, onSelect, surface = "planner" }: Pla
   return (
     <div className="relative">
       <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-        <Search size={14} className="shrink-0 text-slate-400" />
+        <Search size={14} className="shrink-0 text-slate-500" />
         <input
           value={query}
           onChange={(e) => {
@@ -87,7 +87,7 @@ export function PlacesSearchInput({ region, onSelect, surface = "planner" }: Pla
           placeholder="장소 검색… (예: 카이유칸 근처 맛집)"
           className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-slate-400"
         />
-        {showLoading && <Loader2 size={14} className="shrink-0 animate-spin text-slate-400" />}
+        {showLoading && <Loader2 size={14} className="shrink-0 animate-spin text-slate-500" />}
       </div>
 
       {open && visibleResults.length > 0 && (
@@ -104,10 +104,10 @@ export function PlacesSearchInput({ region, onSelect, surface = "planner" }: Pla
                     카페"가 "★4.5 해유관"보다 위에 보여도 구분이 안 된다
                     (작업지시서 2026-09-09 "계획 탭 지도에서 장소 정보가
                     좌표만 나옵니다" §4) — 카테고리를 같이 보여준다. */}
-                <p className="truncate text-[10.5px] text-slate-400">{liveCategoryBucket(p.category)}</p>
+                <p className="truncate text-[10.5px] text-slate-500">{liveCategoryBucket(p.category)}</p>
               </div>
               {p.rating != null && (
-                <span className="shrink-0 text-right text-[11px] tabular-nums text-slate-400">
+                <span className="shrink-0 text-right text-[11px] tabular-nums text-slate-500">
                   <span className="block">★{p.rating.toFixed(1)}</span>
                   {p.reviewCount != null && <span className="block text-[10px]">{p.reviewCount.toLocaleString()}</span>}
                 </span>
@@ -118,7 +118,7 @@ export function PlacesSearchInput({ region, onSelect, surface = "planner" }: Pla
       )}
 
       {open && !showLoading && trimmedQuery && visibleResults.length === 0 && (
-        <div className="absolute inset-x-0 top-full z-30 mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[12px] text-slate-400 shadow-lg">
+        <div className="absolute inset-x-0 top-full z-30 mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[12px] text-slate-500 shadow-lg">
           검색 결과가 없어요.
         </div>
       )}

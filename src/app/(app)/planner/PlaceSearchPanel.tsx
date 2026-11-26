@@ -89,7 +89,7 @@ export function PlaceSearchPanel({ region, onRegionChange, onSelect }: PlaceSear
       </div>
 
       <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-        <Search size={14} className="shrink-0 text-slate-400" />
+        <Search size={14} className="shrink-0 text-slate-500" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -99,7 +99,7 @@ export function PlaceSearchPanel({ region, onRegionChange, onSelect }: PlaceSear
           placeholder="장소 이름을 검색해보세요"
           className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-slate-400"
         />
-        {status === "loading" && <Loader2 size={14} className="shrink-0 animate-spin text-slate-400" />}
+        {status === "loading" && <Loader2 size={14} className="shrink-0 animate-spin text-slate-500" />}
       </div>
 
       {status === "error" && <p className="text-[12px] text-red-600">에러: {errorMessage}</p>}
@@ -107,7 +107,7 @@ export function PlaceSearchPanel({ region, onRegionChange, onSelect }: PlaceSear
       {places !== null && status !== "loading" && (
         <div className="space-y-2">
           {places.length === 0 ? (
-            <p className="text-center text-[12px] text-slate-400">검색 결과가 없어요.</p>
+            <p className="text-center text-[12px] text-slate-500">검색 결과가 없어요.</p>
           ) : (
             places.map((p) => (
               <button

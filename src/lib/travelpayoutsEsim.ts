@@ -42,7 +42,7 @@ const ESIM_PROVIDERS: EsimProviderDef[] = [
   // yesim.app을 가리키는 것도 확인했지만(다른 도메인이라 그것도 안 씀)
   // 그 이유로 yesim.tech/ko/(같은 도메인의 한국어 경로, 한국어·추적
   // 파라미터 정상 부착 확인됨)를 쓴다.
-  { key: "yesim", label: "Yesim", brand: "#00b894", rateLabel: "eSIM 최대 18%", campaignId: "224", p: "5998", homepage: "https://yesim.tech/ko/" },
+  { key: "yesim", label: "Yesim", brand: "#00795f", rateLabel: "eSIM 최대 18%", campaignId: "224", p: "5998", homepage: "https://yesim.tech/ko/" },
 ];
 
 export interface EsimLink {

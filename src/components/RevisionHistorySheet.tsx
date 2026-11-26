@@ -87,23 +87,23 @@ export function RevisionHistorySheet({
           <button
             onClick={onClose}
             aria-label="닫기"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <X size={16} />
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-2">
-          {revisions == null && !loadError && <p className="py-6 text-center text-[12.5px] text-slate-400">불러오는 중…</p>}
+          {revisions == null && !loadError && <p className="py-6 text-center text-[12.5px] text-slate-500">불러오는 중…</p>}
           {loadError && <p className="py-6 text-center text-[12.5px] text-rose-500">변경 내역을 불러오지 못했어요</p>}
           {revisions != null && revisions.length === 0 && (
-            <p className="py-6 text-center text-[12.5px] text-slate-400">아직 저장된 변경 내역이 없어요</p>
+            <p className="py-6 text-center text-[12.5px] text-slate-500">아직 저장된 변경 내역이 없어요</p>
           )}
           {revisions?.map((rev) => (
             <div key={rev.id} className="border-b border-slate-50 py-2.5 last:border-0 dark:border-slate-800">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] font-semibold text-slate-700 dark:text-slate-200">{rev.title}</p>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-500">
                     {formatRevisionTimestamp(rev.createdAt)} · {rev.itemCount}곳
                     {rev.createdBy === "restore" && <span className="ml-1 text-amber-600">· 되돌리기 전 상태</span>}
                   </p>
@@ -117,7 +117,7 @@ export function RevisionHistorySheet({
                     >
                       {restoringId === rev.id ? "되돌리는 중…" : "확인"}
                     </button>
-                    <button onClick={() => setConfirmId(null)} className="text-[11.5px] text-slate-400">
+                    <button onClick={() => setConfirmId(null)} className="text-[11.5px] text-slate-500">
                       취소
                     </button>
                   </div>
@@ -133,7 +133,7 @@ export function RevisionHistorySheet({
               {confirmId === rev.id && (
                 <div className="mt-2 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
                   <p className="mb-1 text-[11px] font-semibold text-slate-500">이 내용으로 돌아갑니다</p>
-                  {previewLoading && <p className="text-[11.5px] text-slate-400">불러오는 중…</p>}
+                  {previewLoading && <p className="text-[11.5px] text-slate-500">불러오는 중…</p>}
                   {!previewLoading && preview && (
                     <ol className="space-y-0.5">
                       {preview.placesData.slice(0, 8).map((item) => (
@@ -142,7 +142,7 @@ export function RevisionHistorySheet({
                         </li>
                       ))}
                       {preview.placesData.length > 8 && (
-                        <li className="text-[11px] text-slate-400">외 {preview.placesData.length - 8}곳</li>
+                        <li className="text-[11px] text-slate-500">외 {preview.placesData.length - 8}곳</li>
                       )}
                     </ol>
                   )}

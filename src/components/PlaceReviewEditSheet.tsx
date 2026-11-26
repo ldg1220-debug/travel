@@ -116,7 +116,7 @@ export function PlaceReviewEditSheet({
       <div className="relative flex max-h-[90%] w-full max-w-md flex-col overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="truncate text-base font-bold">{place.name}</h3>
-          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
             <X size={16} />
           </button>
         </div>
@@ -140,10 +140,10 @@ export function PlaceReviewEditSheet({
           />
           <EmojiPickerButton
             onSelect={insertEmoji}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-base text-slate-400 hover:border-brand-400 hover:text-brand-700"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-base text-slate-500 hover:border-brand-400 hover:text-brand-700"
           />
         </div>
-        <p className="mb-3 text-right text-[11px] text-slate-400">{content.length}/50</p>
+        <p className="mb-3 text-right text-[11px] text-slate-500">{content.length}/50</p>
 
         <div className="mb-4 flex flex-wrap gap-2">
           {images.map((url, i) => (
@@ -162,7 +162,7 @@ export function PlaceReviewEditSheet({
             </div>
           ))}
           {images.length < MAX_IMAGES && (
-            <label className="flex h-16 w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-500">
+            <label className="flex h-16 w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border border-dashed border-slate-300 text-slate-500 hover:border-brand-400 hover:text-brand-500">
               {uploading ? <Loader2 size={16} className="animate-spin" /> : <CordixIcon name="camera" size={16} />}
               <span className="text-[9px]">{images.length}/{MAX_IMAGES}</span>
               <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} disabled={uploading} />

@@ -11,6 +11,6 @@
  * 때)는 렌더하지 않는다 — 수수료가 없는데 있다고 표시하는 것도
  * 부정확하다는 작업지시서 지적 그대로.
  */
-export function AffiliateDisclosureNote({ className = "text-[11px] text-slate-400" }: { className?: string }) {
+export function AffiliateDisclosureNote({ className = "text-[11px] text-slate-500" }: { className?: string }) {
   return <p className={className}>일부 링크는 제휴 링크로, 예약 시 트레쥴에 수수료가 지급될 수 있어요.</p>;
 }

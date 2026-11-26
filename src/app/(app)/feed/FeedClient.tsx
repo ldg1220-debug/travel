@@ -94,7 +94,7 @@ export function FeedPage() {
         </div>
 
         <div className="mb-4 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5">
-          <Search size={15} className="shrink-0 text-slate-400" />
+          <Search size={15} className="shrink-0 text-slate-500" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -132,10 +132,10 @@ export function FeedPage() {
         </div>
 
         {loading ? (
-          <div className="py-24 text-center text-[13px] text-slate-400">불러오는 중…</div>
+          <div className="py-24 text-center text-[13px] text-slate-500">불러오는 중…</div>
         ) : posts.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center">
-            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
               <CordixIcon name="feed-announce" size={24} />
             </span>
             <p className="text-sm font-semibold text-slate-700">
@@ -145,7 +145,7 @@ export function FeedPage() {
                   ? "조건에 맞는 후기가 없어요"
                   : "아직 공개된 후기가 없어요"}
             </p>
-            <p className="mt-1 text-[13px] text-slate-400">
+            <p className="mt-1 text-[13px] text-slate-500">
               {scope === "following"
                 ? "관심 있는 사람과 트래블 메이트를 맺으면 여기서 후기를 모아볼 수 있어요."
                 : query || region !== "all"
@@ -171,7 +171,7 @@ export function FeedPage() {
             <button
               onClick={loadMore}
               disabled={loadingMore}
-              className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-60"
+              className="flex min-h-11 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-60"
             >
               {loadingMore && <Loader2 size={13} className="animate-spin" />} 더 보기
             </button>
@@ -210,9 +210,9 @@ function FeedCard({ post, onOpen, onOpenProfile }: { post: FeedPost; onOpen: () 
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[12px] font-bold text-brand-600">
           {post.region === "domestic" ? "국내" : post.region === "international" ? "해외" : "여행"}
-          {post.tripTitle && <span className="font-medium text-slate-400"> · {post.tripTitle}</span>}
+          {post.tripTitle && <span className="font-medium text-slate-500"> · {post.tripTitle}</span>}
         </span>
-        <span className="shrink-0 text-[11.5px] text-slate-400">{formatDateLabel(post.createdAt.slice(0, 10))}</span>
+        <span className="shrink-0 text-[11.5px] text-slate-500">{formatDateLabel(post.createdAt.slice(0, 10))}</span>
       </div>
 
       <div className="flex gap-3">

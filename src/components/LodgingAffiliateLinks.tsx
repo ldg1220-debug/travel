@@ -13,7 +13,7 @@ export function LodgingAffiliateLinks({ region, providers, surface = "course" }:
   return (
     <section aria-label={`${region} 숙소 보기`} className="mt-8 border-t border-slate-100 pt-4 dark:border-slate-800">
       <p className="mb-1 text-[13px] font-semibold text-slate-700 dark:text-slate-200">{region} 숙소 보기</p>
-      <AffiliateDisclosureNote className="mb-2 text-[11px] text-slate-400" />
+      <AffiliateDisclosureNote className="mb-2 text-[11px] text-slate-500" />
       <ul className="flex flex-wrap gap-2">
         {providers.map((p) => (
           <li key={p.key}>

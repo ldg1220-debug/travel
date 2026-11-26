@@ -103,7 +103,7 @@ export function MonthCalendar({ selected, onSelect, accentColor = "#111827", mar
 
       <div className="grid grid-cols-7 gap-y-1">
         {WEEKDAY_LABELS.map((w) => (
-          <span key={w} className="text-center text-[10px] font-semibold text-slate-400">
+          <span key={w} className="text-center text-[10px] font-semibold text-slate-500">
             {w}
           </span>
         ))}

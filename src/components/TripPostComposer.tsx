@@ -340,13 +340,13 @@ export function TripPostComposer({
       <div className="relative flex max-h-[90%] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="truncate text-lg font-bold">여행 후기 쓰기</h3>
-          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
             <X size={16} />
           </button>
         </div>
 
         {loading ? (
-          <div className="py-16 text-center text-[13px] text-slate-400">불러오는 중…</div>
+          <div className="py-16 text-center text-[13px] text-slate-500">불러오는 중…</div>
         ) : (
           <>
             <input
@@ -376,7 +376,7 @@ export function TripPostComposer({
                 </div>
               ))}
               {images.length < MAX_IMAGES && (
-                <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-500">
+                <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-500 hover:border-brand-400 hover:text-brand-500">
                   {uploading ? <Loader2 size={18} className="animate-spin" /> : <CordixIcon name="camera" size={18} />}
                   <span className="text-[10px]">{images.length}/{MAX_IMAGES}</span>
                   <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} disabled={uploading} />
@@ -451,7 +451,7 @@ export function TripPostComposer({
               )}
 
               {places.length === 0 ? (
-                <p className="rounded-2xl bg-slate-50 p-3 text-center text-[12.5px] text-slate-400">
+                <p className="rounded-2xl bg-slate-50 p-3 text-center text-[12.5px] text-slate-500">
                   아직 담긴 장소가 없어요 — 검색해서 추가해보세요
                 </p>
               ) : (
@@ -468,7 +468,7 @@ export function TripPostComposer({
                               <CordixIcon name="star" size={11} stroke="#fbbf24" accent="#fbbf24" /> {existing.rating.toFixed(1)}
                             </span>
                           ) : (
-                            <span className="shrink-0 text-slate-400">작성하기</span>
+                            <span className="shrink-0 text-slate-500">작성하기</span>
                           )}
                         </button>
                         {isExtra && (
@@ -591,14 +591,14 @@ function PlaceSearchBox({
         ))}
       </div>
       <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
-        <CordixIcon name="search" size={14} className="shrink-0 text-slate-400" />
+        <CordixIcon name="search" size={14} className="shrink-0 text-slate-500" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="장소 검색"
           className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
         />
-        {loading && <Loader2 size={13} className="shrink-0 animate-spin text-slate-400" />}
+        {loading && <Loader2 size={13} className="shrink-0 animate-spin text-slate-500" />}
       </div>
       {visibleResults.length > 0 && (
         <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">

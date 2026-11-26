@@ -9,7 +9,7 @@ export function TermsBody() {
   return (
     <>
       <h1 className="text-2xl font-bold tracking-tight">이용약관</h1>
-      <p className="mt-1 text-[12.5px] text-slate-400">시행일자: 2026년 7월 28일</p>
+      <p className="mt-1 text-[12.5px] text-slate-500">시행일자: 2026년 7월 28일</p>
 
       <div className="mt-6 space-y-7 text-[13.5px] leading-relaxed text-slate-700 dark:text-slate-300 [&_h2]:text-[15px] [&_h2]:font-bold [&_h2]:text-slate-900 dark:[&_h2]:text-slate-100 [&_ul]:mt-1.5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
           <section>

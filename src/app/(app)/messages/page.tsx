@@ -58,11 +58,11 @@ export default function MessagesPage() {
 
         {status !== "loading" && !session?.user ? (
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center dark:border-slate-800 dark:bg-slate-900/40">
-            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 dark:bg-slate-800">
+            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 dark:bg-slate-800">
               <CordixIcon name="message" size={24} />
             </span>
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">로그인이 필요해요</p>
-            <p className="mt-1 text-[13px] text-slate-400">트래블 메이트와 메시지를 주고받으려면 로그인해주세요.</p>
+            <p className="mt-1 text-[13px] text-slate-500">트래블 메이트와 메시지를 주고받으려면 로그인해주세요.</p>
             <button
               onClick={() => setLoginOpen(true)}
               className="mt-5 rounded-full bg-brand-700 px-5 py-2 text-[13px] font-semibold text-white hover:bg-brand-800"
@@ -71,14 +71,14 @@ export default function MessagesPage() {
             </button>
           </div>
         ) : conversations == null ? (
-          <div className="py-24 text-center text-[13px] text-slate-400">불러오는 중…</div>
+          <div className="py-24 text-center text-[13px] text-slate-500">불러오는 중…</div>
         ) : conversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center dark:border-slate-800 dark:bg-slate-900/40">
-            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 dark:bg-slate-800">
+            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 dark:bg-slate-800">
               <CordixIcon name="message" size={24} />
             </span>
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">아직 주고받은 메시지가 없어요</p>
-            <p className="mt-1 text-[13px] text-slate-400">트래블 메이트의 프로필에서 메시지를 보내보세요.</p>
+            <p className="mt-1 text-[13px] text-slate-500">트래블 메이트의 프로필에서 메시지를 보내보세요.</p>
           </div>
         ) : (
           <div className="space-y-1">
@@ -99,11 +99,11 @@ export default function MessagesPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <p className="truncate text-[14px] font-bold text-slate-900 dark:text-slate-100">{c.nickname ?? "여행자"}</p>
-                    <span className="shrink-0 text-[11px] text-slate-400">{relativeTime(c.lastMessageAt)}</span>
+                    <span className="shrink-0 text-[11px] text-slate-500">{relativeTime(c.lastMessageAt)}</span>
                   </div>
                   <p
                     className={`truncate text-[13px] ${
-                      c.unreadCount > 0 ? "font-semibold text-slate-700 dark:text-slate-200" : "text-slate-400"
+                      c.unreadCount > 0 ? "font-semibold text-slate-700 dark:text-slate-200" : "text-slate-500"
                     }`}
                   >
                     {c.lastSenderId === Number(session?.user?.id) ? "나: " : ""}

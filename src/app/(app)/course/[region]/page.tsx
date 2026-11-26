@@ -49,10 +49,10 @@ export default async function RegionHubPage({ params }: { params: Promise<Params
   const pages = (await fetchConfirmedCoursePages()).filter((p) => p.region === region).sort((a, b) => a.days - b.days);
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-6">
+    <div className="mx-auto max-w-2xl px-4 py-6 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] md:pb-6">
       {pages.length > 0 && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(buildRegionHubJsonLd(region, pages.map((p) => p.days))) }} />}
       <TravelpayoutsDriveScript />
-      <nav aria-label="breadcrumb" className="text-[12px] text-slate-400">
+      <nav aria-label="breadcrumb" className="text-[12px] text-slate-500">
         <Link href="/" className="hover:underline">트레쥴</Link> › <Link href={COURSE_HUB_PATH} className="hover:underline">여행 코스 모음</Link> › <span>{region}</span>
       </nav>
       <h1 className="mt-3 text-2xl font-bold text-slate-900 dark:text-slate-100">{region} 여행 코스</h1>

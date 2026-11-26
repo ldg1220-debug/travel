@@ -67,7 +67,7 @@ export function FolderChips({ value, onChange }: { value: string | undefined; on
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="flex items-center gap-0.5 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-[12px] font-medium text-slate-400 hover:border-brand-400 hover:text-brand-600"
+          className="flex items-center gap-0.5 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-[12px] font-medium text-slate-500 hover:border-brand-400 hover:text-brand-600"
         >
           <Plus size={11} /> 새 폴더
         </button>

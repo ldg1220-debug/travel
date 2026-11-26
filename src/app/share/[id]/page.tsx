@@ -47,7 +47,7 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
       style={{ paddingTop: "calc(2.5rem + env(safe-area-inset-top, 0px))", paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom, 0px))" }}
     >
       <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-6">
-        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">
+        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">
           {itinerary.region === "domestic" ? "🇰🇷 국내" : "✈️ 해외"} · shared itinerary
         </div>
         <h1 className="text-2xl font-bold text-slate-900 mt-1">{itinerary.title}</h1>
