@@ -134,10 +134,14 @@ export function roundUpTo5(minutes: number): number {
   return Math.ceil(minutes / 5) * 5;
 }
 
+/** 종일 시설(테마파크 등) 스팟의 머무름 시간(분) — 09:00 시작 시 17:00 종료. 시설 날의 동반 스팟(저녁 식당 등)은 이 뒤로 이어진다. */
+export const FACILITY_DAY_DURATION_MINUTES = 480;
+
 /** 하루치 스팟을 09:00부터 순서대로 배치한 ItineraryItem[]로 변환한다. */
 export function scheduleDay(spots: CourseBriefSpot[], date: string, idPrefix: string, generatedAt: string = new Date().toISOString()): ItineraryItem[] {
   let clock = START_HOUR * 60;
   return spots.map((spot, i) => {
+    const duration = spot.facilityDay ? FACILITY_DAY_DURATION_MINUTES : DEFAULT_DURATION_MINUTES;
     const hour = Math.floor(clock / 60) % 24;
     const minute = clock % 60;
     const item: ItineraryItem = {
@@ -152,13 +156,13 @@ export function scheduleDay(spots: CourseBriefSpot[], date: string, idPrefix: st
       name: spot.name,
       date,
       time: formatTime(hour, minute),
-      durationMinutes: DEFAULT_DURATION_MINUTES,
+      durationMinutes: duration,
       coordinates: { lat: spot.lat, lng: spot.lng },
       ...(spot.category ? { category: spot.category } : {}),
       planSchemaVersion: PLAN_SCHEMA_VERSION,
       generatedAt,
     };
-    clock = roundUpTo5(clock + DEFAULT_DURATION_MINUTES + (spot.toNextMinutes ?? 0));
+    clock = roundUpTo5(clock + duration + (spot.toNextMinutes ?? 0));
     return item;
   });
 }
