@@ -1253,7 +1253,12 @@ export function optimizeDayOrder(stopsIn: FinalStop[], opts: { preferFirst?: (s:
   }
   const entry = (u: FinalStop[]) => u[0];
   const exit = (u: FinalStop[]) => u[u.length - 1];
-  const unitCost = (order: FinalStop[][]): number => {
+  // 작업지시서 2026-11-26 "제주 하루 span" §3 — 섬 묶음은 그날 마지막으로 고정하고, 나머지 순서를 "섬 묶음까지 이은 경로"가 가장 짧도록 고른다.
+  // (예전엔 거리만 보고 순서를 정한 뒤 섬 묶음을 끝으로 옮겨, 만장굴 → 우도처럼 선착장(성산)에서 멀어졌다가 되돌아가는 경로가 나왔다.)
+  const islandUnit = [...units].reverse().find((u) => u.some(isIsland));
+  const searchUnits = islandUnit ? units.filter((u) => u !== islandUnit) : units;
+  const unitCost = (orderIn: FinalStop[][]): number => {
+    const order = islandUnit ? [...orderIn, islandUnit] : orderIn;
     let cost = 0;
     let prev: FinalStop | undefined = head;
     for (const u of order) {
@@ -1267,10 +1272,10 @@ export function optimizeDayOrder(stopsIn: FinalStop[], opts: { preferFirst?: (s:
 
   let best: FinalStop[][];
   const prefer = opts.preferFirst;
-  if (units.length <= DAY_ORDER_EXHAUSTIVE_MAX) {
-    const perms = permutations(units);
+  if (searchUnits.length <= DAY_ORDER_EXHAUSTIVE_MAX) {
+    const perms = permutations(searchUnits);
     let bestCost = Infinity;
-    best = units;
+    best = searchUnits;
     for (const perm of perms) {
       const c = unitCost(perm);
       if (c < bestCost - 1e-9) {
@@ -1278,7 +1283,7 @@ export function optimizeDayOrder(stopsIn: FinalStop[], opts: { preferFirst?: (s:
         best = perm;
       }
     }
-    if (prefer && !head && !prefer(entry(best[0]))) {
+    if (prefer && !head && best.length > 0 && !prefer(entry(best[0]))) {
       let alt: FinalStop[][] | null = null;
       let altCost = Infinity;
       for (const perm of perms) {
@@ -1293,11 +1298,11 @@ export function optimizeDayOrder(stopsIn: FinalStop[], opts: { preferFirst?: (s:
     }
   } else {
     // 최근접 이웃(가장 좋은 시작점) + 2-opt — 구간 뒤집기로 더 짧아지지 않을 때까지.
-    let nn: FinalStop[][] = units;
+    let nn: FinalStop[][] = searchUnits;
     let nnCost = Infinity;
-    for (let start = 0; start < units.length; start++) {
-      const remaining = units.filter((_, i) => i !== start);
-      const order = [units[start]];
+    for (let start = 0; start < searchUnits.length; start++) {
+      const remaining = searchUnits.filter((_, i) => i !== start);
+      const order = [searchUnits[start]];
       while (remaining.length > 0) {
         const from = head && order.length === 0 ? head : exit(order[order.length - 1]);
         let bi = 0;
@@ -1335,8 +1340,7 @@ export function optimizeDayOrder(stopsIn: FinalStop[], opts: { preferFirst?: (s:
 
   // 섬에서 돌아오는 배는 출발한 선착장으로 온다 — 섬 다음에 다른 스팟이 있으면 배편이 섬→그 스팟으로 잡힌다.
   // 작업지시서 2026-10-13 "#312 검증" §3: 선착장→섬 묶음(마지막 섬 묶음)은 그날 마지막(숙소 제외)에 둔다.
-  const lastIslandUnit = [...best].reverse().find((u) => u.some(isIsland));
-  if (lastIslandUnit && best[best.length - 1] !== lastIslandUnit) best = [...best.filter((u) => u !== lastIslandUnit), lastIslandUnit];
+  if (islandUnit) best = [...best, islandUnit];
   const result = [...(head ? [head] : []), ...best.flat(), ...lodging];
   if (hasStopAfterIsland(stops) && !hasStopAfterIsland(result)) return result;
   // 규칙 위반이 줄면 거리가 늘어도 새 순서, 늘면 현재 순서 — 같을 때만 예전처럼 "더 짧을 때만" 바꾼다.
@@ -3806,6 +3810,7 @@ export function ensureMinLandmarks(
   region: string,
   onSkip?: (name: string, reason: string) => void,
 ): FinalStop[][] {
+  const strict = isStrictSpanRegion(region);
   const days = dayGroups.map((d) => [...d]);
   const present = (name: string) => days.flat().some((s) => landmarkNameMatches(s.name ?? "", name));
   let have = trackedNames.filter(present).length;
@@ -3824,6 +3829,11 @@ export function ensureMinLandmarks(
     const stop = { ...p, slotKey: "landmark-anchor", slotLabel: "대표 명소", hour: 14, meal: false } as FinalStop;
     const open = days.filter((d) => !d.some(isDayFacility) && !d.some(isFerryIsland));
     const near = open.filter((d) => d.length === 0 || d.every((o) => haversineKm(o, stop) <= maxKm));
+    // 엄격 지역(제주)은 한도 안의 날이 없으면 넣지 않는다 — 가까운 날로 억지로 넣어 하루 폭이 15km 를 넘기던 문제(작업지시서 2026-11-26).
+    if (strict && near.length === 0) {
+      onSkip?.(name, "no-day-within-span-limit");
+      continue;
+    }
     const target = (near.length > 0 ? near : open).sort((a, b) => haversineKm(stop, centroidOf(a.length ? a : [stop])) - haversineKm(stop, centroidOf(b.length ? b : [stop])))[0];
     if (!target) {
       onSkip?.(name, "no-open-day");
@@ -3845,6 +3855,32 @@ export function ensureMinLandmarks(
     have += 1;
   }
   return days;
+}
+
+/** 하루 한도를 못 지키면 대표 명소라도 뺄 만큼 한도를 엄격히 지키는 지역 — 작업지시서 2026-11-26 "제주 하루 span". 그 밖의 지역은 기존 동작 그대로. */
+export function isStrictSpanRegion(region: string | undefined): boolean {
+  return region === "제주";
+}
+
+/** 하루 안 스팟 간 최대 직선거리(km). */
+export function daySpanKm(stops: readonly GeoPoint[]): number {
+  let m = 0;
+  for (let i = 0; i < stops.length; i++) for (let j = i + 1; j < stops.length; j++) m = Math.max(m, haversineKm(stops[i], stops[j]));
+  return m;
+}
+
+/** 하루 한도(maxKm)를 넘는 날을 `[day-span]` 로그로 남긴다(지역·일차·km). 넘는 날 수를 돌려준다. */
+export function logDaySpan(region: string, dayGroups: readonly (readonly FinalStop[])[], maxKm: number): number {
+  let over = 0;
+  dayGroups.forEach((d, i) => {
+    if (d.some(isDayFacility)) return;
+    const km = daySpanKm(d);
+    if (km > maxKm + 1e-9) {
+      over += 1;
+      console.warn(`[day-span] region=${region} day=${i + 1} km=${km.toFixed(1)} limit=${maxKm} stops=[${d.map((x) => x.name).join(" → ")}]`);
+    }
+  });
+  return over;
 }
 
 /** 국내 하루 스팟 간 최대 직선거리(km) — 작업지시서 2026-10-29 §2④. 제주는 섬이 넓어 15km. */
@@ -3884,7 +3920,24 @@ export function enforceDayCompactness(dayGroups: FinalStop[][], maxKm: number, m
         break;
       }
     }
-    if (!handled) break;
+    // 작업지시서 2026-11-26 "제주 하루 span" §2 — 옮길 날도 없고 뺄 수 있는 일반 스팟도 없으면(남은 게 전부 앵커·사전 명소) 예전엔 여기서 멈춰 한도 초과(오설록~용두암 31km)가 그대로 남았다.
+    // 엄격 지역은 배 여행 묶음이 아닌 명소 중 "뺐을 때 하루 폭이 가장 크게 줄고(같으면 인기 낮은)" 것을 뺀다. 하루 2곳은 남기고 총량 minTotal 은 지킨다.
+    if (!handled && isStrictSpanRegion(region) && day.length > 2 && total - 1 >= minTotal) {
+      const without = (s: FinalStop) => daySpanKm(day.filter((o) => o !== s));
+      const victim = day
+        .filter((s) => !isBoatTripStop(s) && !s.meal)
+        .sort((a, b) => without(a) - without(b) || popularity(a) - popularity(b))[0];
+      if (victim && without(victim) < spread(day)) {
+        console.log(`[day-span] region=${region} day=${idx + 1} 한도 ${maxKm}km 초과(${spread(day).toFixed(1)}km) — 옮길 날이 없어 ${victim.name} 제외`);
+        day.splice(day.indexOf(victim), 1);
+        total -= 1;
+        handled = true;
+      }
+    }
+    if (!handled) {
+      if (isStrictSpanRegion(region)) console.warn(`[day-span] region=${region} day=${idx + 1} km=${spread(day).toFixed(1)} limit=${maxKm} — 옮기거나 뺄 스팟이 없어 한도 초과로 남김`);
+      break;
+    }
   }
   return days;
 }
@@ -3958,7 +4011,7 @@ export function redistributeThinResortDays(dayGroups: FinalStop[][]): FinalStop[
  * 그대로 둔다 — 새 후보는 여기서 찾지 않는다(휴양형 앵커 단계가 볼거리 없는
  * 날을 먼저 채우는 쪽을 맡는다, placeResortAnchors).
  */
-export function balanceSightsAcrossDays(dayGroups: FinalStop[][]): FinalStop[][] {
+export function balanceSightsAcrossDays(dayGroups: FinalStop[][], maxSpanKm?: number): FinalStop[][] {
   const result = dayGroups.map((stops) => [...stops]);
   for (const recipient of result) {
     if (recipient.some(isSightStop)) continue;
@@ -3969,7 +4022,11 @@ export function balanceSightsAcrossDays(dayGroups: FinalStop[][]): FinalStop[][]
       .filter((d) => d !== recipient && d.filter(isSightStop).length >= 2)
       .sort((a, b) => b.filter(isSightStop).length - a.filter(isSightStop).length);
     for (const donor of donors) {
-      const movableIdx = donor.reduce<number[]>((acc, s, idx) => (isSightStop(s) && !isBoatTripStop(s) && !isDayFacility(s) && s.slotKey !== "landmark-anchor" ? [...acc, idx] : acc), []);
+      const movableIdx = donor.reduce<number[]>(
+        (acc, s, idx) =>
+          isSightStop(s) && !isBoatTripStop(s) && !isDayFacility(s) && s.slotKey !== "landmark-anchor" && (maxSpanKm == null || recipient.every((o) => haversineKm(o, s) <= maxSpanKm)) ? [...acc, idx] : acc,
+        [],
+      );
       if (movableIdx.length === 0) continue;
       const pickIdx = movableIdx.reduce((best, idx) => (popularity(donor[idx]) < popularity(donor[best]) ? idx : best));
       const [moved] = donor.splice(pickIdx, 1);
@@ -4013,8 +4070,8 @@ const CITY_REBALANCE_MAX_KM = 15; // 받는 날 중심에서 이 이상 먼 스�
  * 않는다. 기증일은 항상 CITY_DAY_MIN(2)곳을 남긴다. 각 이동은 표 제곱합을
  * 줄이므로 반드시 끝난다. 바뀐 날만 최근접 이웃 순으로 다시 정렬한다.
  */
-export function rebalanceCityDays(dayGroups: FinalStop[][]): FinalStop[][] {
-  const moved = moveCityStops(dayGroups);
+export function rebalanceCityDays(dayGroups: FinalStop[][], maxSpanKm?: number): FinalStop[][] {
+  const moved = moveCityStops(dayGroups, maxSpanKm);
   // 작업지시서 2026-09-30 "#290 검증" §2 — 재배분은 스팟을 "옮기기만" 해야
   // 한다. 총합이나 구성이 달라지면 결과를 버리고 입력을 그대로 돌려준다
   // (스팟을 조용히 잃는 것보다 재배분을 포기하는 쪽이 안전하다).
@@ -4199,7 +4256,7 @@ export function enforceFacilityDayCompanions(dayGroups: FinalStop[][], minTotal:
   return { days: result.map((d, i) => (d.length === dayGroups[i].length && d.every((s, k) => s === dayGroups[i][k]) ? d : orderByNearestNeighbor(d))), moved, dropped };
 }
 
-function moveCityStops(dayGroups: FinalStop[][]): FinalStop[][] {
+function moveCityStops(dayGroups: FinalStop[][], maxSpanKm?: number): FinalStop[][] {
   if (dayGroups.length < 2) return dayGroups;
   const result = dayGroups.map((d) => [...d]);
   const changed = new Set<number>();
@@ -4225,6 +4282,8 @@ function moveCityStops(dayGroups: FinalStop[][]): FinalStop[][] {
           if (facility && (recipient.length >= 2 || !isValidFacilityCompanion(stop, facility))) return; // 시설 날 동반은 1곳까지
           const toRecipient = haversineKm(stop, center);
           if (toRecipient > CITY_REBALANCE_MAX_KM) return;
+          // 하루 한도(maxSpanKm)가 있으면 받는 날의 모든 스팟과 한도 안이어야 한다 — 지키지 못하면 옮기지 않는다.
+          if (maxSpanKm != null && !recipient.every((o) => haversineKm(o, stop) <= maxSpanKm)) return;
           const nearestInDonor = donor.reduce((m, o) => (o === stop ? m : Math.min(m, haversineKm(stop, o))), Infinity);
           const score = toRecipient - (Number.isFinite(nearestInDonor) ? nearestInDonor : 0);
           if (score < bestScore) {
@@ -4355,7 +4414,8 @@ function balanceCityDayGroups(dayGroupsIn: FinalStop[][], minTotal: number, regi
     if (remote.length > 0) console.log(`[courseBrief] path=city-remote region=${region} 코스 중심 기준 원거리로 뺀 스팟: ${remote.map((s) => s.name).join(", ")}`);
     dayGroups = days;
   }
-  const moved = rebalanceCityDays(dayGroups);
+  const spanKm = isStrictSpanRegion(region) ? daySpreadLimitKm(region) : undefined;
+  const moved = rebalanceCityDays(dayGroups, spanKm);
   // 작업지시서 2026-10-01 "#292 검증" §2 — 도시형도 하루 볼거리(식사·카페·스파·숙소 아님)
   // 1곳 이상. 볼거리 2곳 이상인 날에서 가장 덜 인기 있는 것을 옮긴다(balanceSightsAcrossDays
   // 재사용 — 선착장·섬·종일시설은 옮기지 않는다).
@@ -4365,7 +4425,7 @@ function balanceCityDayGroups(dayGroupsIn: FinalStop[][], minTotal: number, regi
   if (companions.moved.length > 0 || companions.dropped.length > 0) {
     console.log(`[courseBrief] path=city-facility ${region} 시설 날 동반 정리 moved=[${companions.moved.map((s) => s.name).join(", ")}] dropped=[${companions.dropped.map((s) => s.name).join(", ")}]`);
   }
-  const { days, trimmed } = capCityDaySizes(balanceSightsAcrossDays(companions.days), minTotal);
+  const { days, trimmed } = capCityDaySizes(balanceSightsAcrossDays(companions.days, spanKm), minTotal);
   if (trimmed.length > 0) console.log(`[courseBrief] path=city-cap ${region} 하루 최대 초과로 뺀 스팟: ${trimmed.map((s) => s.name).join(", ")}`);
   return days;
 }
@@ -4792,6 +4852,7 @@ export async function buildBrief(
     }
     // 구성이 바뀐 날만 순서를 다시 계산한다(같은 구성의 날은 이미 라우팅된 순서 그대로 — 재라우팅 방지).
     const sameMembers = (a: FinalStop[], b: FinalStop[]) => a.length === b.length && a.every((s) => b.some((o) => o.id === s.id));
+    if (scope === "domestic" && isStrictSpanRegion(region)) logDaySpan(region, rebalanced, spreadKm);
     const after = rebalanced.map((stops, i) => (sameMembers(stops, before[i]) ? before[i] : orderDaysWithLog(`${scope}/${region}(post-route)`, [stops], (st) => hasRatingHint(scope, region, st))[0]));
     const changed = after.map((stops, i) => stops.map((s) => s.id).join("|") !== before[i].map((s) => s.id).join("|"));
     console.log(`[courseBrief] path=post-route-rebalance ${scope}/${region} routed=${counts(before)} after=${counts(after)} changed=[${changed.join(",")}]`);

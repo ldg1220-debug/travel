@@ -3844,3 +3844,74 @@ describe("월정교 누락 수정", () => {
     log.mockRestore();
   });
 });
+
+// 작업지시서 2026-11-26 "제주 2박3일 — 하루 15km 초과 · 우도 되돌아가기"
+import { daySpanKm as daySpanKmV2, enforceDayCompactness as enforceCompactV2, ensureMinLandmarks as ensureMinLandmarksV2, isStrictSpanRegion, logDaySpan, optimizeDayOrder as optimizeOrderV2, pathKm as pathKmV2, rebalanceCityDays as rebalanceCityV2 } from "./courseBrief";
+
+describe("제주 하루 span · 우도 순서 (운영 실측 좌표 9곳)", () => {
+  const at = (id: string, lat: number, lng: number, extra: Partial<FinalStop> = {}) => stop(id, lat, lng, { name: id, ...extra });
+  const seopji = at("섭지코지", 33.424, 126.931);
+  const ilchul = at("성산 일출봉", 33.458, 126.943);
+  const syun = at("슌식당", 33.46, 126.93, { meal: true, category: "restaurant" });
+  const manjang = at("만장굴", 33.528, 126.771);
+  const udo = at("우도", 33.504, 126.954, { slotKey: "landmark-anchor", category: "island" });
+  const osulloc = at("오설록 티 뮤지엄", 33.306, 126.289, { slotKey: "landmark-anchor" });
+  const hyeopjae = at("협재해수욕장", 33.394, 126.239, { slotKey: "landmark-anchor" });
+  const yongdu = at("용두암", 33.516, 126.512, { slotKey: "landmark-anchor" });
+  const seogwipo = at("천지연폭포", 33.247, 126.554);
+
+  it("우도 날: 섬은 마지막이고, 되돌아가는 예전 순서(38.6km)보다 짧다", () => {
+    const old = [seopji, ilchul, syun, manjang, udo];
+    const out = optimizeOrderV2(old);
+    expect(out[out.length - 1].id).toBe(udo.id);
+    expect(out.map((s) => s.id).sort()).toEqual(old.map((s) => s.id).sort());
+    expect(pathKmV2(out)).toBeLessThan(pathKmV2(old) - 5);
+    expect(out[0].id).toBe(manjang.id); // 먼 만장굴에서 시작해 성산 쪽(선착장)으로 끝난다
+  });
+
+  it("제주: 오설록·협재·용두암이 한 날이면 한도(15km)를 넘는 용두암을 뺀다", () => {
+    const days = [[seopji, ilchul, syun, udo], [osulloc, hyeopjae, yongdu], [seogwipo, at("올레시장", 33.25, 126.56)]];
+    expect(daySpanKmV2(days[1])).toBeGreaterThan(15);
+    const out = enforceCompactV2(days, 15, 0, "제주");
+    for (const d of out) expect(daySpanKmV2(d)).toBeLessThanOrEqual(15);
+    expect(out[1].map((s) => s.id)).toEqual([osulloc.id, hyeopjae.id]);
+  });
+
+  it("제주 외 지역(부산)은 기존 동작 그대로 — 앵커뿐인 날은 한도를 넘어도 둔다", () => {
+    const day = [osulloc, hyeopjae, yongdu];
+    expect(enforceCompactV2([day], 8, 0, "부산")[0]).toHaveLength(3);
+    expect(isStrictSpanRegion("부산")).toBe(false);
+    expect(isStrictSpanRegion("제주")).toBe(true);
+  });
+
+  it("총량이 최소 이하면 제주도 빼지 않고 [day-span] 로그로 남긴다", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const day = [osulloc, hyeopjae, yongdu];
+    const out = enforceCompactV2([day], 15, 3, "제주");
+    expect(out[0]).toHaveLength(3);
+    expect(warn.mock.calls.some((c) => String(c[0]).startsWith("[day-span] region=제주 day=1"))).toBe(true);
+    expect(logDaySpan("제주", out, 15)).toBe(1);
+    warn.mockRestore();
+  });
+
+  it("ensureMinLandmarks: 제주는 한도 안의 날이 없으면 용두암을 억지로 넣지 않는다(경주는 기존대로 넣는다)", () => {
+    const pool = [place("y", { name: "용두암", lat: 33.516, lng: 126.512 })];
+    const days = [[seopji, ilchul], [osulloc, hyeopjae]];
+    const skips: string[] = [];
+    const jeju = ensureMinLandmarksV2(days, ["용두암"], pool, 1, 15, "제주", (_n, r) => skips.push(r));
+    expect(jeju.flat().some((s) => s.name === "용두암")).toBe(false);
+    expect(skips).toContain("no-day-within-span-limit");
+    const other = ensureMinLandmarksV2(days, ["용두암"], pool, 1, 15, "경주");
+    expect(other.flat().some((s) => s.name === "용두암")).toBe(true);
+  });
+
+  it("rebalanceCityDays: 한도를 주면 받는 날 스팟과 한도 밖인 스팟은 옮기지 않는다", () => {
+    const east = [seopji, ilchul, syun, manjang, udo].map((s) => ({ ...s }));
+    const west = [at("w1", 33.39, 126.24), at("w2", 33.31, 126.29)];
+    const free = rebalanceCityV2([east, west]);
+    expect(free.flat()).toHaveLength(7);
+    const limited = rebalanceCityV2([east, west], 15);
+    for (const d of limited) expect(daySpanKmV2(d)).toBeLessThanOrEqual(daySpanKmV2(east));
+    expect(limited[1].every((s) => s.id.startsWith("w"))).toBe(true);
+  });
+});
