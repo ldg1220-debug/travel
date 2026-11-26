@@ -68,4 +68,8 @@ describe("classifyVisit", () => {
   it("브라우저 앱 토큰(Claude/3.x)은 사람", () => {
     expect(classifyVisit("Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Claude/3.4.0 Chrome/130 Electron/33 Safari/537.36", "en-US", "page")).toBe("human");
   });
+  it("Cowork 점검 UA 끝의 ` TraduleAutoPipeline/cowork` 는 internal", () => {
+    const ua = "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36 TraduleAutoPipeline/cowork";
+    expect(classifyVisit(ua, "ko-KR,ko;q=0.9", "page")).toBe("internal");
+  });
 });
