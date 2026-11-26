@@ -1064,6 +1064,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     const dates = (sharedData?.placesData ?? []).map((i) => i.date).sort();
     return dates.length === 0 ? 1 : daysBetweenInclusive(dates[0], dates[dates.length - 1]);
   })();
+  const COPY_LOGIN_REASON = "이 계획을 담아가려면 로그인해주세요.";
   const runCopyShared = async (token: string, choice: CopyPlanChoice = {}) => {
     setCopyingShared(true);
     const result = await copySharedItineraryToPlan(token, choice).catch(() => null);
@@ -1096,6 +1097,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // 시트에서 날짜(또는 미정)를 고른 뒤 — 비로그인이면 선택값을 함께 남기고 로그인시킨다(날짜 선택 → 로그인 → 담기 순서에서 선택값 유지, §1④).
   const handleCopyChoice = (choice: CopyPlanChoice) => {
     if (!shareToken) return;
+    trackFeatureEvent("plan_copy_choice", "planner", { source: "itinerary", undated: Boolean(choice.undated) });
     setDateSheet(null);
     if (!session?.user) {
       try {
@@ -1104,7 +1106,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
         // 프라이빗 모드 등으로 sessionStorage를 못 쓰면 그냥 매번 다시
         // 눌러야 할 뿐 — 로그인 자체는 계속 진행한다.
       }
-      setLoginReason("이 계획을 담아가려면 로그인해주세요.");
+      trackFeatureEvent("plan_copy_login_shown", "planner", { source: "itinerary" });
+      setLoginReason(COPY_LOGIN_REASON);
       setLoginOpen(true);
       return;
     }
@@ -3333,7 +3336,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           />
         )}
 
-        {loginOpen && <LoginModal reason={loginReason ?? undefined} onClose={() => setLoginOpen(false)} />}
+        {loginOpen && <LoginModal reason={loginReason ?? undefined} eventReason={loginReason === COPY_LOGIN_REASON ? "plan_copy" : undefined} onClose={() => setLoginOpen(false)} />}
       </div>
 
       <DragOverlay>
