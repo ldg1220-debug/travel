@@ -72,7 +72,7 @@ export function HomePage() {
         <div className="mb-8 flex flex-wrap gap-2">
           <Link
             href="/course"
-            className="inline-flex items-center gap-1.5 rounded-full border border-brand-100 bg-brand-50 px-3.5 py-1.5 text-[12.5px] font-semibold text-brand-700 transition-colors hover:bg-brand-100 dark:border-brand-600/20 dark:bg-brand-600/10 dark:text-brand-400"
+            className="relative inline-flex items-center gap-1.5 rounded-full border border-brand-100 bg-brand-50 px-3.5 py-1.5 text-[12.5px] before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] font-semibold text-brand-700 transition-colors hover:bg-brand-100 dark:border-brand-600/20 dark:bg-brand-600/10 dark:text-brand-400"
           >
             <Sparkles size={13} /> AI 코스 추천
           </Link>
@@ -408,8 +408,8 @@ function OnboardingStepper() {
       <div className="mb-2.5 flex items-center gap-2">
         <Sparkles size={15} className="shrink-0 text-brand-600" />
         <p className="text-[13px] font-bold text-slate-700 dark:text-slate-200">Tradule 처음이신가요?</p>
-        <p className="text-[12px] text-slate-500">4단계로 첫 여행 계획을 완성해요</p>
-        <button onClick={dismiss} aria-label="안내 닫기" className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+        <p className="text-[12px] text-slate-600 dark:text-slate-400">4단계로 첫 여행 계획을 완성해요</p>
+        <button onClick={dismiss} aria-label="안내 닫기" className="relative ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-600 before:absolute before:-inset-2.5 before:content-[''] hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800">
           <X size={13} />
         </button>
       </div>
@@ -425,13 +425,13 @@ function OnboardingStepper() {
                   ? "bg-success-500 text-white"
                   : s.n === nextStep.n
                     ? "bg-gradient-to-br from-brand-600 to-brand-pink-600 text-white"
-                    : "bg-slate-100 text-slate-500 dark:bg-slate-800"
+                    : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
               }`}
             >
               {s.done ? <Check size={13} /> : s.n}
             </div>
             <p className="mt-2 text-[13px] font-bold tracking-tight text-slate-900 dark:text-slate-100">{s.title}</p>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{s.desc}</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">{s.desc}</p>
           </div>
         ))}
       </div>

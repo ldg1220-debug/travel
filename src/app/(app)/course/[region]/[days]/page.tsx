@@ -394,7 +394,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
             {relatedPosts.map((post) => (
               <li key={post.id}>
                 {/* Drive가 로드된 문서(이 페이지)에서 토큰 민감 목적지(/trip)로 가는 링크는 전체 문서 이동 — documentNavigation.ts */}
-                <a href={`/trip/${post.id}`} className="text-[13px] text-brand-700 hover:underline dark:text-brand-400">
+                <a href={`/trip/${post.id}`} className="inline-flex min-h-11 items-center text-[13px] text-brand-700 hover:underline dark:text-brand-400">
                   {post.title}
                 </a>
               </li>
