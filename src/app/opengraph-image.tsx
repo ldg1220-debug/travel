@@ -21,7 +21,7 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 export default async function Image() {
-  const wordmarkData = await readFile(join(process.cwd(), "public/brand/tradule-wordmark.png"), "base64");
+  const wordmarkData = await readFile(join(process.cwd(), "public/brand/tradule-wordmark-og.png"), "base64");
   const wordmarkSrc = `data:image/png;base64,${wordmarkData}`;
 
   return new ImageResponse(

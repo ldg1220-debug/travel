@@ -119,7 +119,9 @@ export default function RootLayout({
             파일에 옮겨뒀다. */}
       </head>
       <body className="h-full bg-slate-200 dark:bg-slate-950">
-        {/* Fetch the brand logo ASAP so it's ready for the splash (React hoists this to <head>). */}
+        {/* Fetch the brand logo ASAP so it's ready for the splash (React hoists this to <head>).
+            로고는 ~25KB 로 줄였으므로(2026-11-26 logo-weight-lcp) preload 유지 — 코스 LCP(동선 지도)와
+            대역폭을 다투지 않는다. 다시 무거워지면 brand-assets.test.ts 가 막는다. */}
         <link rel="preload" href="/brand/tradule-logo.png" as="image" />
         <ServiceWorkerRegister />
         <SplashScreen />

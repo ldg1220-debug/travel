@@ -27,6 +27,12 @@ const LOGO_SRC: Record<"full" | "wordmark", Record<"dark" | "light" | "neon", st
   },
 };
 
+/** 파일 실제 픽셀 크기(레티나용으로 줄인 사본). width/height 속성으로 레이아웃 이동을 막는다. CSS(h-* w-auto)가 표시 크기를 정한다. */
+const LOGO_SIZE: Record<"full" | "wordmark", Record<"dark" | "light" | "neon", { w: number; h: number }>> = {
+  full: { dark: { w: 362, h: 448 }, light: { w: 364, h: 448 }, neon: { w: 364, h: 448 } },
+  wordmark: { dark: { w: 376, h: 88 }, light: { w: 376, h: 88 }, neon: { w: 376, h: 88 } },
+};
+
 export function BrandLogo({
   fallback,
   imgClassName,
@@ -63,6 +69,8 @@ export function BrandLogo({
       ref={ref}
       src={LOGO_SRC[form][variant]}
       alt={alt}
+      width={LOGO_SIZE[form][variant].w}
+      height={LOGO_SIZE[form][variant].h}
       loading="eager"
       fetchPriority="high"
       onError={() => setFailed(true)}
