@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { pool } from "@/lib/server/db";
 import { checkRateLimit } from "@/lib/server/rateLimit";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
+import { shouldSkipTrackingRequest } from "@/lib/server/trackSource";
 
 /**
  * Conversion tracking for the planner's "숙소 예약" CTA (src/lib/affiliates.ts).
@@ -44,6 +45,9 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
   if (body.product !== undefined && !VALID_PRODUCTS.has(body.product)) {
     return NextResponse.json({ error: "invalid product" }, { status: 400 });
   }
+
+  // 로봇·Cowork 점검(internal)은 저장하지 않는다 — 클라이언트에는 정상 응답.
+  if (shouldSkipTrackingRequest(request)) return NextResponse.json({ ok: true });
 
   const session = await auth();
   const userId = session?.user?.id != null ? Number(session.user.id) : null;

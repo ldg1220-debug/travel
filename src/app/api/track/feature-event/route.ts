@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { checkRateLimit } from "@/lib/server/rateLimit";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { logFeatureEvent } from "@/lib/server/featureEvents";
+import { shouldSkipTrackingRequest } from "@/lib/server/trackSource";
 import { FEATURE_EVENT_NAMES, FEATURE_EVENT_SURFACES } from "@/lib/featureEvents";
 
 // 임의 문자열이 그대로 컬럼에 들어가므로(event/surface는 자유 텍스트가
@@ -37,6 +38,9 @@ export const POST = withApiErrorHandling(async (request: NextRequest) => {
   if (propsJson.length > PROPS_MAX_BYTES) {
     return NextResponse.json({ error: "props too large" }, { status: 400 });
   }
+
+  // 로봇·Cowork 점검(internal)은 저장하지 않는다 — 클라이언트에는 정상 응답.
+  if (shouldSkipTrackingRequest(request)) return NextResponse.json({ ok: true });
 
   const session = await auth();
   const userId = session?.user?.id != null ? Number(session.user.id) : null;
