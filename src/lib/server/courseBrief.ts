@@ -3537,24 +3537,54 @@ export async function ensureDayMeals(
     const center = facility ? { lat: facility.lat, lng: facility.lng } : centroidOf(day);
     const all = days.flat();
     const list = await fetchArea(center, "restaurant").catch(() => []);
-    const pick = list
-      .filter((p) => isEatingPlaceType((p.category ?? "").toLowerCase()) && !isCafePlace(p) && !isAlreadyInCourse(p, all) && !all.some((o) => isDuplicateStop(o, p as FinalStop, region)) && day.every((o) => haversineKm(o, p) <= radiusKm))
+    const eligible = list.filter((p) => isEatingPlaceType((p.category ?? "").toLowerCase()) && !isCafePlace(p) && !isAlreadyInCourse(p, all) && !all.some((o) => isDuplicateStop(o, p as FinalStop, region)));
+    let pick = eligible
+      .filter((p) => day.every((o) => haversineKm(o, p) <= radiusKm))
       .sort((a, b) => haversineKm(a, center) - haversineKm(b, center) || popularityOf(b) - popularityOf(a))[0];
+    // 스팟끼리 radiusKm 보다 멀리 떨어진 날(제주형) — "모든 스팟 이내" 후보가 없으면 가장 가까운 스팟 radiusKm 이내로 완화하고 그 인접 스팟 사이에 넣는다. 종일시설 날은 완화하지 않는다.
+    const nearestKm = (p: Place) => Math.min(...day.map((o) => haversineKm(o, p)));
+    let relaxed = false;
+    if (!pick && !facility) {
+      pick = eligible.filter((p) => nearestKm(p) <= radiusKm).sort((a, b) => nearestKm(a) - nearestKm(b) || popularityOf(b) - popularityOf(a))[0];
+      relaxed = !!pick;
+    }
     if (!pick) {
-      console.log(`[day-meals] region=${region} day=${dayIdx + 1} action=none candidates=${list.length} (식당 후보 없음 또는 한도·검색 실패)`);
+      console.log(`[day-meals] region=${region} day=${dayIdx + 1} action=none reason=no-candidate candidates=${list.length} eligible=${eligible.length} (식당 후보 없음 또는 한도·검색 실패)`);
       continue;
     }
+    let overflow = false;
     if (day.length >= CITY_DAY_MAX && !facility) {
       const sights = day.filter(isDaySight);
-      const victim = sights.length > 2 ? sights.filter((x) => x.slotKey !== "landmark-anchor" && !matchesRequiredLandmark(region, x.name ?? "")).sort((a, b) => popularity(a) - popularity(b))[0] : undefined;
-      if (!victim) {
-        console.log(`[day-meals] region=${region} day=${dayIdx + 1} action=skip-full`);
+      const removable = sights.filter((x) => x.slotKey !== "landmark-anchor" && !matchesRequiredLandmark(region, x.name ?? ""));
+      const victim = sights.length > 2 ? removable.sort((a, b) => popularity(a) - popularity(b))[0] : undefined;
+      if (victim) {
+        day.splice(day.indexOf(victim), 1);
+      } else if (removable.length === 0) {
+        // 뺄 비앵커·비사전 명소가 하나도 없다 — 대표 명소는 지키고 한도를 1곳 넘겨(6곳) 식당을 넣는다.
+        overflow = true;
+      } else {
+        console.log(`[day-meals] region=${region} day=${dayIdx + 1} action=skip-full reason=few-sights`);
         continue;
       }
-      day.splice(day.indexOf(victim), 1);
     }
-    day.push(areaStop(pick, "restaurant", facility ? 1 : 0));
-    console.log(`[day-meals] region=${region} day=${dayIdx + 1} action=added name=${pick.name}${facility ? " (facility-dinner)" : ""}`);
+    if (relaxed) {
+      // 인접 스팟 사이 중 우회가 가장 적은 자리
+      let bestAt = day.length;
+      let bestCost = Infinity;
+      for (let i = 0; i <= day.length; i++) {
+        const prev = day[i - 1];
+        const next = day[i];
+        const cost = prev && next ? haversineKm(prev, pick) + haversineKm(pick, next) - haversineKm(prev, next) : haversineKm((prev ?? next)!, pick);
+        if (cost < bestCost) {
+          bestCost = cost;
+          bestAt = i;
+        }
+      }
+      day.splice(bestAt, 0, areaStop(pick, "restaurant", 0));
+    } else {
+      day.push(areaStop(pick, "restaurant", facility ? 1 : 0));
+    }
+    console.log(`[day-meals] region=${region} day=${dayIdx + 1} action=added name=${pick.name}${facility ? " (facility-dinner)" : ""}${relaxed ? " (relaxed-near-spot)" : ""}${overflow ? " (over-limit-6)" : ""}`);
   }
   return days;
 }
