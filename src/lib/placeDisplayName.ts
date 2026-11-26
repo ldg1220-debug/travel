@@ -13,10 +13,38 @@ export function hasHangul(name: string): boolean {
  * 앞부분이 2글자 미만이면 원래 이름을 둔다. 붙은 하이픈("Coca-Cola")·공백 없는 대시는 건드리지 않는다.
  */
 export function stripNameTail(name: string): string {
-  const idx = name.search(/\s[-–—]\s/);
-  if (idx < 0) return name;
-  const head = name.slice(0, idx).trim();
-  return head.length >= 2 ? head : name;
+  const sepped = stripNameSeparator(name);
+  const idx = sepped.search(/\s[-–—]\s/);
+  if (idx < 0) return sepped;
+  const head = sepped.slice(0, idx).trim();
+  return head.length >= 2 ? head : sepped;
+}
+
+/** 검색어로 붙는 업종·지역 일반어(소문자). 이 단어들만으로 된 조각은 상호가 아니다. */
+const GENERIC_TERMS = new Set([
+  "맛집", "추천", "한식당", "한식", "식당", "레스토랑", "카페", "맛집추천", "현지인", "베스트", "인기", "유명",
+  "korean", "bbq", "restaurant", "restaurants", "best", "food", "cafe", "top", "hotel",
+  "다낭", "하노이", "호치민", "나트랑", "푸꾸옥", "방콕", "치앙마이", "파타야", "도쿄", "오사카", "교토", "후쿠오카", "삿포로", "오키나와", "제주", "제주도", "서울", "부산", "세부", "보라카이", "마닐라", "싱가포르", "홍콩", "마카오", "타이베이", "대만", "괌", "사이판", "발리", "쿠알라룸푸르", "코타키나발루",
+]);
+
+function isGenericToken(t: string): boolean {
+  return GENERIC_TERMS.has(t.toLowerCase());
+}
+
+/**
+ * "ㅣ"·"|"·"｜" 로 검색어를 이어 붙인 이름 정리 — 조각으로 나눠 지역·업종 일반어만인 조각을 버리고 첫 조각을 쓴다(다 버려지면 첫 조각).
+ * 고른 조각 끝의 일반어("국제시장 다낭 맛집" → "국제시장")도 뗀다. 결과가 2글자 미만이면 원래 이름. 구분자가 없으면 그대로.
+ */
+export function stripNameSeparator(name: string): string {
+  if (!/[ㅣ|｜]/.test(name)) return name;
+  const pieces = name.split(/[ㅣ|｜]/).map((p) => p.trim()).filter(Boolean);
+  if (pieces.length === 0) return name;
+  const kept = pieces.filter((p) => !p.split(/\s+/).every(isGenericToken));
+  const chosen = kept[0] ?? pieces[0];
+  const tokens = chosen.split(/\s+/);
+  while (tokens.length > 1 && isGenericToken(tokens[tokens.length - 1])) tokens.pop();
+  const result = tokens.join(" ").trim();
+  return result.length >= 2 ? result : name;
 }
 
 /** "{한글} ({원문})" — 한글 표기가 원문과 같거나 비었으면 한글(또는 원문)만. */

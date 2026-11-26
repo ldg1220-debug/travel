@@ -17,6 +17,11 @@ describe("표시 이름 (작업지시서 2026-11-22)", () => {
     expect(stripNameTail("Awakening Cafe Tokyo - Shibuya")).toBe("Awakening Cafe Tokyo");
     expect(stripNameTail("Coca-Cola Store")).toBe("Coca-Cola Store");
     expect(stripNameTail("A - Long Tail")).toBe("A - Long Tail");
+    expect(stripNameTail("다낭 맛집 한식당ㅣ독도(dokdo)")).toBe("독도(dokdo)");
+    expect(stripNameTail("국제시장 다낭 맛집ㅣKOREAN BBQㅣNhà hàng Chợ Hàn Quốc")).toBe("국제시장");
+    expect(stripNameTail("Blue Wave | Best Restaurant")).toBe("Blue Wave");
+    expect(stripNameTail("OO 치킨")).toBe("OO 치킨");
+    expect(stripNameTail("다낭 맛집ㅣ추천")).toBe("다낭");
   });
   it("한글 표기 병기", () => {
     expect(formatKoreanDisplay("5·4광장", "五四广场")).toBe("5·4광장 (五四广场)");
