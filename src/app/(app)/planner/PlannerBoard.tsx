@@ -44,7 +44,7 @@ import { AffiliateDisclosureNote } from "@/components/AffiliateDisclosureNote";
 import { bookingProviders, hasAffiliateLink } from "@/lib/affiliates";
 import { EsimAffiliateLinks } from "@/components/EsimAffiliateLinks";
 import { esimAffiliateLinks } from "@/lib/travelpayoutsEsim";
-import { lodgingAffiliateProviders, mergeLodgingProviders, nextIsoDate, stayDatesFromItems } from "@/lib/lodgingAffiliate";
+import { resolveLodgingCity, lodgingAffiliateProviders, mergeLodgingProviders, nextIsoDate, stayDatesFromItems } from "@/lib/lodgingAffiliate";
 import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { LoginModal } from "@/components/LoginModal";
@@ -227,6 +227,10 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   const places = useItineraryStore((s) => s.places);
   const activeDate = useItineraryStore((s) => s.activeDate);
   const currentCity = useItineraryStore((s) => s.currentCity);
+  const viewerModeActive = useItineraryStore((s) => s.viewerModeActive);
+  const viewerPlanTitle = useItineraryStore((s) => s.viewerPlanTitle);
+  // 공유 계획을 보는 중이면 그 계획의 도시, 아니면 내 currentCity. 기본값 "새 여행"/미확인이면 "" → 숙소 링크·버튼이 숨는다.
+  const lodgingCity = resolveLodgingCity({ viewerMode: viewerModeActive, viewerTitle: viewerPlanTitle, currentCity }) ?? "";
   const setActiveDate = useItineraryStore((s) => s.setActiveDate);
   const items = useItineraryStore((s) => s.items);
   const isHourTaken = useItineraryStore((s) => s.isHourTaken);
@@ -749,9 +753,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // 작업지시서 2026-10-30 — Travelpayouts 제휴 링크(Agoda · Trip.com · Booking.com, 일본은 Rakuten)를 먼저, 기존 직접 제휴 링크는 뒤에, 커미션 없는 네이버는 맨 아래.
   // 계획의 날짜가 있으면 체크인/체크아웃에 실린다(날짜 미정이면 생략).
   const lodgingProviders = useMemo(() => {
-    if (!currentCity) return [];
-    return mergeLodgingProviders(lodgingAffiliateProviders({ city: currentCity, region, ...stayDatesFromItems(items), today: todayISODate() }), bookingProviders(currentCity, region));
-  }, [currentCity, region, items]);
+    if (!lodgingCity) return [];
+    return mergeLodgingProviders(lodgingAffiliateProviders({ city: lodgingCity, region, ...stayDatesFromItems(items), today: todayISODate() }), bookingProviders(lodgingCity, region));
+  }, [lodgingCity, region, items]);
   // Travelpayouts Drive 스니펫을 이 페이지가 실제로 제휴 링크를 보여줄
   // 때만 불러온다 — 작업지시서 2026-09-11 "계획 탭 동선을 실제 경로로"
   // §4: 계획 탭은 도시에 따라 숙소 제휴 링크가 있을 수도, 없을 수도 있어
@@ -776,17 +780,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
     return { dayNumber: dayNumber > 0 ? dayNumber : undefined, coords, dates: undated ? {} : { checkIn: activeDate, checkOut: nextIsoDate(activeDate) } };
   }, [items, activeDate]);
   const pickerProviders = useMemo(() => {
-    if (!currentCity) return [];
+    if (!lodgingCity) return [];
     if (lodgingPickerPlacement !== "timeline") return lodgingProviders;
     return mergeLodgingProviders(
-      lodgingAffiliateProviders({ city: currentCity, region, ...nearbyDay.dates, coords: nearbyDay.coords, day: nearbyDay.dayNumber, today: todayISODate() }),
-      bookingProviders(currentCity, region),
+      lodgingAffiliateProviders({ city: lodgingCity, region, ...nearbyDay.dates, coords: nearbyDay.coords, day: nearbyDay.dayNumber, today: todayISODate() }),
+      bookingProviders(lodgingCity, region),
     );
-  }, [currentCity, region, lodgingPickerPlacement, lodgingProviders, nearbyDay]);
+  }, [lodgingCity, region, lodgingPickerPlacement, lodgingProviders, nearbyDay]);
   const openLodgingPicker = (placement: "header" | "timeline") => {
-    if (!currentCity) return;
+    if (!lodgingCity) return;
     setLodgingPickerPlacement(placement);
-    logLodgingCtaEvent("open", placement, currentCity, region);
+    logLodgingCtaEvent("open", placement, lodgingCity, region);
   };
   const budgetBreakdownItems = useMemo(() => {
     if (budgetBreakdownScope == null) return [];
@@ -2436,8 +2440,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                         승인된 제휴 프로그램이 하나도 없으면(lodgingProviders
                         가 빈 배열, affiliates.ts 참고) 이 CTA 자체를 숨긴다 —
                         눌러도 빈 팝업만 뜨는 걸 막기 위함. */}
-                    {currentCity && lodgingProviders.length > 0 && (
-                      <button onClick={() => openLodgingPicker("header")} aria-label={`${currentCity} 숙소 예약`}>
+                    {lodgingCity && lodgingProviders.length > 0 && (
+                      <button onClick={() => openLodgingPicker("header")} aria-label={`${lodgingCity} 숙소 예약`}>
                         <Badge className="gap-1 rounded-full border-brand-200 bg-brand-50 px-2.5 py-1 text-[13px] font-bold text-brand-800 hover:bg-brand-100">
                           <CordixIcon name="bed" size={13} stroke="#732A00" accent="#732A00" />
                           숙소 예약
@@ -2606,7 +2610,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   더 맞는 자리에도 같은 CTA를 하나 더 둔다(상단 배지와
                   나란히 — 어느 쪽이 더 잘 눌리는지는 logLodgingCtaEvent로
                   비교). */}
-              {!monthViewOpen && schedule.length >= 2 && currentCity && lodgingProviders.length > 0 && (
+              {!monthViewOpen && schedule.length >= 2 && lodgingCity && lodgingProviders.length > 0 && (
                 <div className="px-4 pb-1 pt-2">
                   <button
                     onClick={() => openLodgingPicker("timeline")}
@@ -2619,7 +2623,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       <span className="block text-[13px] font-bold text-brand-800">
                         {dayLabel(activeDate)} 일정 근처 숙소 보기
                       </span>
-                      <span className="block text-[11.5px] text-brand-700/80">{currentCity}에서 예약 가능한 숙소를 확인해보세요</span>
+                      <span className="block text-[11.5px] text-brand-700/80">{lodgingCity}에서 예약 가능한 숙소를 확인해보세요</span>
                     </span>
                     <ChevronRight size={16} className="shrink-0 text-brand-500" />
                   </button>
@@ -3113,14 +3117,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             (PR #204/#205) hasAffiliateLink가 항상 true는 아니다 — 배지·
             대가성 고지 둘 다 실제 제휴 링크가 하나라도 있을 때만 뜨게
             조건부로 둔다. */}
-        {lodgingPickerPlacement && currentCity && pickerProviders.length > 0 && (
+        {lodgingPickerPlacement && lodgingCity && pickerProviders.length > 0 && (
           <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center">
             <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setLodgingPickerPlacement(null)} />
             <div className="relative w-full max-w-sm rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="flex items-center gap-1.5 text-[15px] font-bold text-slate-900">
                   <CordixIcon name="bed" size={16} className="text-brand-600" />
-                  {currentCity} 숙소 예약
+                  {lodgingCity} 숙소 예약
                   {hasAffiliateLink(pickerProviders) && (
                     <span className="rounded bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-500">제휴</span>
                   )}
@@ -3144,7 +3148,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     // sponsored+nofollow per Google's affiliate-link policy; noreferrer for privacy.
                     rel={p.isAffiliate ? "sponsored nofollow noreferrer" : "nofollow noreferrer"}
                     onClick={() => {
-                      logLodgingCtaEvent("click", lodgingPickerPlacement, currentCity, region, p.label, p.isAffiliate);
+                      logLodgingCtaEvent("click", lodgingPickerPlacement, lodgingCity, region, p.label, p.isAffiliate);
                       trackFeatureEvent("lodging_click", "planner", {
                         provider: p.key,
                         region,
@@ -3163,7 +3167,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
               </div>
               {/* 해외 계획만 — 숙소 다음 준비물인 데이터 eSIM. 각 사 홈페이지로만 보낸다(코스 페이지와 같은 링크·이벤트, surface 만 planner). */}
               {!isDomestic && (
-                <EsimAffiliateLinks region={currentCity} links={esimAffiliateLinks("planner_esim")} surface="planner" className="mt-4 border-t border-slate-100 pt-3" />
+                <EsimAffiliateLinks region={lodgingCity} links={esimAffiliateLinks("planner_esim")} surface="planner" className="mt-4 border-t border-slate-100 pt-3" />
               )}
             </div>
           </div>

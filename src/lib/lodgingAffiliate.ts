@@ -90,6 +90,25 @@ export interface LodgingRequest {
 
 const isIso = (s: string | undefined): s is string => Boolean(s) && /^\d{4}-\d{2}-\d{2}$/.test(s as string);
 
+/** 스토어 기본 도시 라벨 — 도시가 정해지지 않았다는 뜻이라 숙소 링크에 쓰면 안 된다. */
+export const DEFAULT_CITY_LABEL = "새 여행";
+
+/**
+ * 숙소 링크·문구에 쓸 도시. 공유 계획을 보는 중이면 그 계획 제목에 들어 있는 도시(예: "다낭 여행 코스" → 다낭), 내 계획이면 currentCity.
+ * 알 수 없으면(비었거나 기본값 "새 여행", 공유 계획 제목에서 못 찾음) null — 호출부는 숙소 링크·버튼을 숨긴다(일반 호텔 첫 화면으로 보내지 않는다).
+ */
+export function resolveLodgingCity(opts: { viewerMode: boolean; viewerTitle?: string | null; currentCity?: string | null }): string | null {
+  const usable = (c: string | null | undefined): string | null => {
+    const t = c?.trim();
+    return t && t !== DEFAULT_CITY_LABEL ? t : null;
+  };
+  if (!opts.viewerMode) return usable(opts.currentCity);
+  const title = opts.viewerTitle ?? "";
+  const names = [...flatRegions("overseas"), ...flatRegions("domestic")].map((r) => r.name).filter((n) => n && title.includes(n));
+  names.sort((a, b) => b.length - a.length);
+  return names[0] ?? null;
+}
+
 /** 도시가 일본인가 — 라쿠텐 트래블은 일본 한정. */
 export function isJapanCity(city: string): boolean {
   const hit = flatRegions("overseas").find((r) => r.name === city);
