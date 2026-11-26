@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isStaleContentPlan, roundUpTo5, scheduleDay, splitByDay } from "./route";
+import { FACILITY_DAY_DURATION_MINUTES, isStaleContentPlan, roundUpTo5, scheduleDay, splitByDay } from "./route";
 import { shiftISODate } from "@/lib/timeline";
 import type { CourseBriefSpot } from "@/lib/server/courseBrief";
 
@@ -100,6 +100,30 @@ describe("scheduleDay — 실제 placeId · 분류 · 5분 단위 시작 시각"
     for (const it of items) expect(Number(it.time.split(":")[1]) % 5).toBe(0);
     // 09:00 + 60(체류) + 17 = 10:17 → 10:20, +60+13 = 11:33 → 11:35 ...
     expect(items.map((i) => i.time).slice(0, 3)).toEqual(["09:00", "10:20", "11:35"]);
+  });
+});
+
+// 작업지시서 2026-11-26 "종일 시설이 09:00 · 60분으로 들어감".
+describe("scheduleDay — 종일 시설 날", () => {
+  const facility = (order: number, toNext: number | null): CourseBriefSpot => ({ ...spot(3, order, toNext), facilityDay: true });
+
+  it("gives a lone facility spot a long stay", () => {
+    const [a] = scheduleDay([facility(1, null)], "2026-11-26", "content-0");
+    expect(a.time).toBe("09:00");
+    expect(a.durationMinutes).toBe(FACILITY_DAY_DURATION_MINUTES);
+    expect(a.durationMinutes).toBeGreaterThanOrEqual(360);
+  });
+
+  it("starts the companion after the facility ends, on a 5-minute step", () => {
+    const [a, b] = scheduleDay([facility(1, 23), spot(3, 2, null)], "2026-11-26", "content-0");
+    expect(a.durationMinutes).toBe(FACILITY_DAY_DURATION_MINUTES);
+    expect(b.time).toBe("17:25"); // 09:00 + 480 + 23 = 17:23 → 17:25
+    expect(b.durationMinutes).toBe(60);
+  });
+
+  it("leaves normal days unchanged", () => {
+    const items = scheduleDay([spot(1, 1, 17), spot(1, 2, null)], "2026-11-26", "content-0");
+    expect(items.map((i) => [i.time, i.durationMinutes])).toEqual([["09:00", 60], ["10:20", 60]]);
   });
 });
 
