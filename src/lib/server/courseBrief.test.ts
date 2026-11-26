@@ -3724,6 +3724,38 @@ describe("색인 코스 마무리", () => {
     expect(out[2]).toHaveLength(2);
     expect(calls).toHaveLength(2); // 일반 날 1회 + 종일시설 날 1회(시설에서 3km 안 후보가 없어 그대로)
   });
+
+  it("ensureDayMeals: 5곳이 모두 사전·앵커 명소인 날은 앵커를 빼지 않고 6곳으로 식당 1곳을 넣는다", async () => {
+    const day = [
+      plain("a", "광안리해수욕장", 35.1532, 129.1187),
+      plain("b", "태종대유원지", 35.0517, 129.087),
+      plain("c", "흰여울문화마을", 35.0786, 129.0431),
+      plain("d", "자갈치시장", 35.0967, 129.0306),
+      plain("e", "감천문화마을", 35.0975, 129.0106),
+    ].map((x) => ({ ...x, slotKey: "landmark-anchor" }) as FinalStop);
+    const out = await ensureDayMeals([day], "부산", 15, async () => [place("r", { name: "자갈치 횟집", lat: 35.097, lng: 129.031, category: "restaurant", searchRank: 0 })]);
+    expect(out[0]).toHaveLength(6);
+    expect(out[0].filter((x) => x.slotKey === "landmark-anchor")).toHaveLength(5);
+    expect(out[0].some((x) => x.name === "자갈치 횟집" && x.meal)).toBe(true);
+  });
+
+  it("ensureDayMeals: 스팟끼리 30km 떨어진 제주형 날 — 인접 스팟 근처 식당을 그 사이에 넣는다", async () => {
+    const day = [plain("a", "협재해수욕장", 33.394, 126.239), plain("b", "용두암", 33.516, 126.511)];
+    const out = await ensureDayMeals([day], "제주", 15, async () => [
+      place("far", { name: "먼 식당", lat: 33.2, lng: 126.375, category: "restaurant", searchRank: 0 }),
+      place("near", { name: "바다 횟집", lat: 33.514, lng: 126.5, category: "restaurant", searchRank: 1 }),
+    ]);
+    expect(out[0].map((x) => x.name)).toEqual(["협재해수욕장", "바다 횟집", "용두암"]);
+    expect(out[0][1].meal).toBe(true);
+  });
+
+  it("ensureDayMeals: 이미 식당이 있는 날·후보가 전부 먼 종일시설 날은 변화 없다", async () => {
+    const withMeal = [plain("a", "협재", 33.394, 126.239), stop("m", 33.39, 126.24, { name: "해녀의집", category: "restaurant", meal: true })];
+    const fac = [stop("park", 33.3, 126.3, { name: "에버랜드", category: "amusement_park", reviewCount: 90000 })];
+    const out = await ensureDayMeals([withMeal, fac], "제주", 15, async () => [place("r", { name: "먼 식당", lat: 33.5, lng: 126.9, category: "restaurant", searchRank: 0 })]);
+    expect(out[0]).toHaveLength(2);
+    expect(out[1]).toHaveLength(1);
+  });
 });
 
 // 작업지시서 2026-10-30 "경주 야경 명소 배치 · 경주월드 종일시설 · 오사카 1일차 식사 · 종단 접두어"
