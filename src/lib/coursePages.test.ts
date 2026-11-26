@@ -236,6 +236,25 @@ describe("JSON-LD builders (§4)", () => {
     expect(JSON.stringify(jsonLd)).not.toContain("aggregateRating");
   });
 
+  it.each([
+    ["음식점", "Restaurant"],
+    ["카페", "CafeOrCoffeeShop"],
+    ["술집", "BarOrPub"],
+    ["숙소", "LodgingBusiness"],
+    ["관광지", "TouristAttraction"],
+    ["해변", "TouristAttraction"],
+  ])("category %s → @type %s (aggregateRating·review 없음, position·geo 유지)", (category, type) => {
+    const jsonLd = buildCourseItemListJsonLd({ spots: [spot({ order: 3, category })] }) as {
+      itemListElement: { position: number; item: Record<string, unknown> }[];
+    };
+    const el = jsonLd.itemListElement[0];
+    expect(el.item["@type"]).toBe(type);
+    expect(el.position).toBe(3);
+    expect(el.item.geo).toMatchObject({ "@type": "GeoCoordinates" });
+    expect(el.item).not.toHaveProperty("aggregateRating");
+    expect(el.item).not.toHaveProperty("review");
+  });
+
   it("builds a TouristTrip wrapping the same itinerary", () => {
     const brief = { region: "경주", days: 3 as const, spots: [spot()], imageUrl: "https://example.com/map.png" };
     const jsonLd = buildCourseTouristTripJsonLd(brief, "설명") as { "@type": string; name: string; image: string };
