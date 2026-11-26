@@ -2567,7 +2567,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       >
                         확인
                       </button>
-                      <button onClick={() => setClearConfirmOpen(false)} className="text-[13.5px] text-slate-400">
+                      <button onClick={() => setClearConfirmOpen(false)} className="text-[13.5px] text-slate-500">
                         취소
                       </button>
                     </div>
@@ -2660,7 +2660,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       <div className={`text-[12px] font-semibold ${isFirst ? "text-slate-900" : "text-slate-500"}`}>
                         {dayLabel(date)}
                       </div>
-                      <div className="text-[10px] text-slate-400 tabular-nums">
+                      <div className="text-[10px] text-slate-500 tabular-nums">
                         {count}개 장소
                       </div>
                       {dayBudgetByCurrency.length > 0 && (
@@ -2698,7 +2698,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     {TIMELINE_HOURS.map((h) => (
                       <div
                         key={h}
-                        className="flex items-start justify-end pr-2 pt-0.5 text-[10.5px] font-semibold tabular-nums text-slate-400"
+                        className="flex items-start justify-end pr-2 pt-0.5 text-[10.5px] font-semibold tabular-nums text-slate-500"
                         style={{ height: slotHeight }}
                       >
                         {pad2(h)}:00
@@ -3058,14 +3058,14 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 <button
                   onClick={() => setBudgetBreakdownScope(null)}
                   aria-label="닫기"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
                 >
                   <X size={16} />
                 </button>
               </div>
 
               {budgetBreakdownItems.length === 0 ? (
-                <p className="py-8 text-center text-[13px] text-slate-400">등록된 예산이 없어요</p>
+                <p className="py-8 text-center text-[13px] text-slate-500">등록된 예산이 없어요</p>
               ) : (
                 <>
                   <div className="max-h-[50vh] space-y-2 overflow-y-auto">
@@ -3073,7 +3073,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                       <div key={i.id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2.5">
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[13.5px] font-semibold text-slate-800">{i.name}</p>
-                          <p className="text-[11.5px] text-slate-400">
+                          <p className="text-[11.5px] text-slate-500">
                             {budgetBreakdownScope === "all" ? `${dayLabel(i.date)} · ` : ""}
                             {i.time}
                           </p>
@@ -3117,19 +3117,19 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   <CordixIcon name="bed" size={16} className="text-brand-600" />
                   {currentCity} 숙소 예약
                   {hasAffiliateLink(pickerProviders) && (
-                    <span className="rounded bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-400">제휴</span>
+                    <span className="rounded bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-500">제휴</span>
                   )}
                 </h3>
                 <button
                   onClick={() => setLodgingPickerPlacement(null)}
                   aria-label="닫기"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
                 >
                   <X size={16} />
                 </button>
               </div>
               <p className="mb-3 text-[12.5px] text-slate-500">이 여행 지역 기준으로 숙소를 검색해요.</p>
-              {hasAffiliateLink(pickerProviders) && <AffiliateDisclosureNote className="mb-3 text-[11px] text-slate-400" />}
+              {hasAffiliateLink(pickerProviders) && <AffiliateDisclosureNote className="mb-3 text-[11px] text-slate-500" />}
               <div className="grid grid-cols-1 gap-2">
                 {pickerProviders.map((p) => (
                   <a
@@ -3365,7 +3365,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 <button
                   onClick={() => setCapturedPreviewUrl(null)}
                   aria-label="닫기"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   <X size={16} />
                 </button>

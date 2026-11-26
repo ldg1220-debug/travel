@@ -87,13 +87,13 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
         <button
           onClick={onClose}
           aria-label="닫기"
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
         >
           <X size={16} />
         </button>
 
         {!profile ? (
-          <p className="py-16 text-center text-[13px] text-slate-400">불러오는 중…</p>
+          <p className="py-16 text-center text-[13px] text-slate-500">불러오는 중…</p>
         ) : (
           <div className="flex flex-col items-center pt-2">
             <div className="mb-3 flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-brand-600 to-brand-pink-600 text-2xl font-bold text-white">
@@ -109,7 +109,7 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
             {/* 트래블 메이트는 상호 관계라 카운트는 하나 — 팔로워/팔로잉 구분이 없다. */}
             <div className="mb-5 text-center">
               <span className="block text-[15px] font-bold text-slate-800 dark:text-slate-100">{profile.followingCount}</span>
-              <span className="block text-[11.5px] text-slate-400">트래블 메이트</span>
+              <span className="block text-[11.5px] text-slate-500">트래블 메이트</span>
             </div>
 
             {!isSelf && profile.isFriend && (
@@ -170,7 +170,7 @@ export function UserProfileSheet({ userId, onClose, onChange }: { userId: number
             {!isSelf && (
               <button
                 onClick={() => (requireLogin() ? undefined : setReportOpen(true))}
-                className="mt-3 text-[11.5px] text-slate-400 hover:text-slate-500 hover:underline dark:hover:text-slate-300"
+                className="mt-3 text-[11.5px] text-slate-500 hover:text-slate-700 hover:underline dark:hover:text-slate-300"
               >
                 신고하기
               </button>

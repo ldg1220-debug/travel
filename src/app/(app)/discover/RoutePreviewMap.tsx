@@ -25,10 +25,10 @@ export default function RoutePreviewMap({ stops }: { stops: DiscoverRouteStop[] 
   const isLoaded = domestic ? kakaoLoaded : googleLoaded;
 
   if (loadError) {
-    return <div className="flex h-full items-center justify-center text-xs text-slate-400">지도를 불러오지 못했어요.</div>;
+    return <div className="flex h-full items-center justify-center text-xs text-slate-500">지도를 불러오지 못했어요.</div>;
   }
   if (!isLoaded) {
-    return <div className="flex h-full items-center justify-center text-xs text-slate-400">지도 로딩 중…</div>;
+    return <div className="flex h-full items-center justify-center text-xs text-slate-500">지도 로딩 중…</div>;
   }
   return domestic ? <RoutePreviewMapKakao stops={stops} /> : <RoutePreviewMapGoogle stops={stops} />;
 }

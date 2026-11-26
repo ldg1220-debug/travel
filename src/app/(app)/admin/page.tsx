@@ -47,7 +47,7 @@ function AnnouncementForm() {
           className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
         />
         <div className="mt-2 flex items-center justify-between">
-          <span className="text-[11px] text-slate-400">
+          <span className="text-[11px] text-slate-500">
             {message.length}/{ANNOUNCEMENT_MAX_LENGTH}
           </span>
           <button
@@ -90,9 +90,9 @@ function formatDateTime(iso: string): string {
 function StatCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-      <p className="text-[12px] font-medium text-slate-400">{label}</p>
+      <p className="text-[12px] font-medium text-slate-500">{label}</p>
       <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{value.toLocaleString()}</p>
-      {sub && <p className="mt-0.5 text-[11px] text-slate-400">{sub}</p>}
+      {sub && <p className="mt-0.5 text-[11px] text-slate-500">{sub}</p>}
     </div>
   );
 }
@@ -102,7 +102,7 @@ function SignupTrendChart({ trend }: { trend: AdminStats["signupTrend"] }) {
   const max = Math.max(1, ...trend.map((t) => t.count));
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-      <p className="text-[12px] font-medium text-slate-400">최근 14일 가입 추이</p>
+      <p className="text-[12px] font-medium text-slate-500">최근 14일 가입 추이</p>
       <div className="mt-3 flex h-24 items-end gap-1">
         {trend.map((t) => (
           <div key={t.date} className="group relative flex-1">
@@ -116,7 +116,7 @@ function SignupTrendChart({ trend }: { trend: AdminStats["signupTrend"] }) {
           </div>
         ))}
       </div>
-      <div className="mt-1.5 flex justify-between text-[10px] text-slate-400">
+      <div className="mt-1.5 flex justify-between text-[10px] text-slate-500">
         <span>{formatDate(trend[0].date)}</span>
         <span>{formatDate(trend[trend.length - 1].date)}</span>
       </div>
@@ -166,7 +166,7 @@ function AdminDashboardContent() {
     <div className="min-h-full bg-slate-50 px-4 pb-24 pt-6 dark:bg-slate-950 sm:px-6">
       <div className="mx-auto max-w-3xl">
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">관리자 대시보드</h1>
-        <p className="mt-0.5 text-[12.5px] text-slate-400">
+        <p className="mt-0.5 text-[12.5px] text-slate-500">
           유입(가입)과 활성 사용자, 서비스 이용량을 확인할 수 있어요. 비로그인 방문 수는 대략적인 집계치예요(더
           정확한 수치는 Vercel Analytics에서 확인하실 수 있어요).
         </p>
@@ -197,7 +197,7 @@ function AdminDashboardContent() {
             <AdminUsersSection />
           </div>
         ) : loading || !stats ? (
-          <p className="mt-10 text-center text-[13px] text-slate-400">불러오는 중…</p>
+          <p className="mt-10 text-center text-[13px] text-slate-500">불러오는 중…</p>
         ) : (
           <div className="mt-5 space-y-5">
             <AnnouncementForm />
@@ -222,7 +222,7 @@ function AdminDashboardContent() {
             <section>
               <h2 className="mb-2 text-[13px] font-semibold text-slate-500">
                 활성 사용자
-                <span className="ml-1.5 font-normal text-slate-400">(대략 5분 단위로 집계돼요)</span>
+                <span className="ml-1.5 font-normal text-slate-500">(대략 5분 단위로 집계돼요)</span>
               </h2>
               <div className="grid grid-cols-3 gap-2.5">
                 <StatCard label="최근 24시간" value={stats.activeUsers.last1} />
@@ -235,7 +235,7 @@ function AdminDashboardContent() {
             <section>
               <h2 className="mb-2 text-[13px] font-semibold text-slate-500">
                 방문자
-                <span className="ml-1.5 font-normal text-slate-400">(비로그인, 개인 식별 정보 없이 조회 수만 집계)</span>
+                <span className="ml-1.5 font-normal text-slate-500">(비로그인, 개인 식별 정보 없이 조회 수만 집계)</span>
               </h2>
               <div className="grid grid-cols-3 gap-2.5">
                 <StatCard label="오늘" value={stats.anonymousVisits.today} />
@@ -260,7 +260,7 @@ function AdminDashboardContent() {
             <section>
               <h2 className="mb-2 text-[13px] font-semibold text-slate-500">
                 기능 사용
-                <span className="ml-1.5 font-normal text-slate-400">(비로그인 포함 세션 기준, 최근 90일까지만 보관)</span>
+                <span className="ml-1.5 font-normal text-slate-500">(비로그인 포함 세션 기준, 최근 90일까지만 보관)</span>
               </h2>
               <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
                 {stats.featureEvents.map((f) => (
@@ -271,11 +271,11 @@ function AdminDashboardContent() {
                     <div className="flex shrink-0 gap-4 text-right">
                       <div>
                         <p className="text-[13px] font-semibold tabular-nums text-slate-900 dark:text-white">{f.last7.toLocaleString()}</p>
-                        <p className="text-[10px] text-slate-400">7일 · 세션 {f.uniqueSessions7.toLocaleString()}</p>
+                        <p className="text-[10px] text-slate-500">7일 · 세션 {f.uniqueSessions7.toLocaleString()}</p>
                       </div>
                       <div>
                         <p className="text-[13px] font-semibold tabular-nums text-slate-900 dark:text-white">{f.last30.toLocaleString()}</p>
-                        <p className="text-[10px] text-slate-400">30일 · 세션 {f.uniqueSessions30.toLocaleString()}</p>
+                        <p className="text-[10px] text-slate-500">30일 · 세션 {f.uniqueSessions30.toLocaleString()}</p>
                       </div>
                     </div>
                   </div>
@@ -287,13 +287,13 @@ function AdminDashboardContent() {
             {stats.emptySearchQueries.length > 0 && (
               <section>
                 <h2 className="mb-2 text-[13px] font-semibold text-slate-500">
-                  빈 결과 검색어 상위 10<span className="ml-1.5 font-normal text-slate-400">(최근 30일)</span>
+                  빈 결과 검색어 상위 10<span className="ml-1.5 font-normal text-slate-500">(최근 30일)</span>
                 </h2>
                 <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
                   {stats.emptySearchQueries.map((q) => (
                     <div key={q.query} className="flex items-center justify-between gap-3 px-4 py-2.5">
                       <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-800 dark:text-slate-100">{q.query}</p>
-                      <p className="shrink-0 text-[12px] tabular-nums text-slate-400">{q.count.toLocaleString()}회</p>
+                      <p className="shrink-0 text-[12px] tabular-nums text-slate-500">{q.count.toLocaleString()}회</p>
                     </div>
                   ))}
                 </div>
@@ -305,7 +305,7 @@ function AdminDashboardContent() {
               <h2 className="mb-2 text-[13px] font-semibold text-slate-500">최근 가입한 사용자</h2>
               <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
                 {stats.recentSignups.length === 0 ? (
-                  <p className="px-4 py-6 text-center text-[13px] text-slate-400">아직 가입자가 없어요</p>
+                  <p className="px-4 py-6 text-center text-[13px] text-slate-500">아직 가입자가 없어요</p>
                 ) : (
                   stats.recentSignups.map((u) => (
                     <div key={u.id} className="flex items-center gap-3 px-4 py-2.5">
@@ -318,7 +318,7 @@ function AdminDashboardContent() {
                         </div>
                       )}
                       <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-800 dark:text-slate-100">{u.name}</p>
-                      <p className="shrink-0 text-[11px] tabular-nums text-slate-400">{formatDateTime(u.createdAt)}</p>
+                      <p className="shrink-0 text-[11px] tabular-nums text-slate-500">{formatDateTime(u.createdAt)}</p>
                     </div>
                   ))
                 )}

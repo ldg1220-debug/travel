@@ -85,7 +85,7 @@ export function CommunityPage() {
         </div>
 
         <div className="mb-4 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5">
-          <Search size={15} className="shrink-0 text-slate-400" />
+          <Search size={15} className="shrink-0 text-slate-500" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -117,7 +117,7 @@ export function CommunityPage() {
         </div>
 
         {loading ? (
-          <div className="py-24 text-center text-[13px] text-slate-400">불러오는 중…</div>
+          <div className="py-24 text-center text-[13px] text-slate-500">불러오는 중…</div>
         ) : posts.length === 0 ? (
           <EmptyStateCard
             icon={<CordixIcon name="group" size={28} />}
@@ -142,7 +142,7 @@ export function CommunityPage() {
             <button
               onClick={loadMore}
               disabled={loadingMore}
-              className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-60"
+              className="flex min-h-11 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-60"
             >
               {loadingMore && <Loader2 size={13} className="animate-spin" />} 더 보기
             </button>
@@ -182,7 +182,7 @@ function CommunityPostCard({ post, onOpen, onOpenProfile }: { post: CommunityPos
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[12px] font-bold text-brand-600">{communityCategoryLabel(post.category)}</span>
-        <span className="shrink-0 text-[11.5px] text-slate-400">{formatDateLabel(post.createdAt.slice(0, 10))}</span>
+        <span className="shrink-0 text-[11.5px] text-slate-500">{formatDateLabel(post.createdAt.slice(0, 10))}</span>
       </div>
 
       <div className="flex gap-3">
@@ -206,7 +206,7 @@ function CommunityPostCard({ post, onOpen, onOpenProfile }: { post: CommunityPos
           </button>
           <h3 className="truncate text-[15.5px] font-bold tracking-tight text-slate-900">{post.title}</h3>
           <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-slate-500">{post.content}</p>
-          {post.commentCount > 0 && <p className="mt-1.5 text-[11.5px] font-semibold text-slate-400">댓글 {post.commentCount}</p>}
+          {post.commentCount > 0 && <p className="mt-1.5 text-[11.5px] font-semibold text-slate-500">댓글 {post.commentCount}</p>}
         </div>
         {post.images[0] && (
           // eslint-disable-next-line @next/next/no-img-element -- uploaded blob URL

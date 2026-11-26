@@ -188,7 +188,7 @@ export default function PlannerKakaoMap({
                     {liveCategoryBucket(clickedPlace.place.category)}
                   </p>
                 )}
-                {clickedPlace.place.address && <p className="truncate text-[10.5px] text-slate-400">{clickedPlace.place.address}</p>}
+                {clickedPlace.place.address && <p className="truncate text-[10.5px] text-slate-500">{clickedPlace.place.address}</p>}
               </button>
               <button onClick={onCloseClickedPlace} className="shrink-0 text-slate-300 hover:text-slate-500" aria-label="닫기">
                 ✕

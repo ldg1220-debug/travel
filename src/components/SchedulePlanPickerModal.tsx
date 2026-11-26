@@ -117,7 +117,7 @@ export function SchedulePlanPickerModal({
                   >
                     <span className="truncate">
                       {plan.name}
-                      {isActive && <span className="ml-1.5 text-[11px] font-medium text-slate-400">(현재)</span>}
+                      {isActive && <span className="ml-1.5 text-[11px] font-medium text-slate-500">(현재)</span>}
                     </span>
                     {isActive && <Check size={16} className="shrink-0" />}
                   </button>

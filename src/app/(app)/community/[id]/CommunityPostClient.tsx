@@ -137,13 +137,13 @@ export function CommunityPostDetailPage() {
     return (
       <div className="flex min-h-full flex-col items-center justify-center bg-slate-50 px-6 text-center">
         <p className="text-sm font-semibold text-slate-700">글을 찾을 수 없어요</p>
-        <p className="mt-1 text-[13px] text-slate-400">비공개 글이거나 삭제되었을 수 있어요.</p>
+        <p className="mt-1 text-[13px] text-slate-500">비공개 글이거나 삭제되었을 수 있어요.</p>
       </div>
     );
   }
 
   if (!post) {
-    return <div className="flex min-h-full items-center justify-center bg-slate-50 text-[13px] text-slate-400">불러오는 중…</div>;
+    return <div className="flex min-h-full items-center justify-center bg-slate-50 text-[13px] text-slate-500">불러오는 중…</div>;
   }
 
   return (
@@ -183,7 +183,7 @@ export function CommunityPostDetailPage() {
         )}
 
         <div className="mb-1 flex items-center justify-between gap-2">
-          <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">
+          <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-500">
             <span className="font-semibold text-brand-600">{communityCategoryLabel(post.category)}</span>
             {" · "}
             <button onClick={() => setProfileUserId(post.authorId)} className="font-semibold text-slate-600 hover:underline">
@@ -192,7 +192,7 @@ export function CommunityPostDetailPage() {
             {` · ${formatDateLabel(post.createdAt.slice(0, 10))}`}
           </p>
           {!isOwner && (
-            <button onClick={handleOpenReport} aria-label="신고하기" className="shrink-0 text-[11px] text-slate-400 hover:text-slate-500 hover:underline">
+            <button onClick={handleOpenReport} aria-label="신고하기" className="shrink-0 text-[11px] text-slate-500 hover:text-slate-700 hover:underline">
               신고
             </button>
           )}
@@ -209,7 +209,7 @@ export function CommunityPostDetailPage() {
                 visibleToUserIds={post.visibleToUserIds}
                 onVisibleToUserIdsChange={(ids) => handleChangeVisibility(post.visibility, ids)}
               />
-              {togglingVisibility && <p className="mt-1 text-[11px] text-slate-400">변경 중…</p>}
+              {togglingVisibility && <p className="mt-1 text-[11px] text-slate-500">변경 중…</p>}
             </div>
             <div className="flex gap-2">
               <button
@@ -255,7 +255,7 @@ export function CommunityPostDetailPage() {
             onClick={handleToggleLike}
             disabled={likeBusy}
             aria-label="좋아요"
-            className={`flex h-10 items-center justify-center gap-1.5 rounded-2xl border px-4 text-[13px] font-semibold transition-colors disabled:opacity-60 ${
+            className={`flex h-11 items-center justify-center gap-1.5 rounded-2xl border px-4 text-[13px] font-semibold transition-colors disabled:opacity-60 ${
               post.isLiked ? "border-rose-200 bg-rose-50 text-rose-500" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
             }`}
           >

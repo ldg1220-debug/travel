@@ -83,9 +83,9 @@ export function TripPostComments({
       <p className="mb-2 text-[13px] font-bold text-slate-700">댓글{comments && comments.length > 0 ? ` ${comments.length}` : ""}</p>
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3">
         {comments == null ? (
-          <p className="py-2 text-center text-[12.5px] text-slate-400">불러오는 중…</p>
+          <p className="py-2 text-center text-[12.5px] text-slate-500">불러오는 중…</p>
         ) : comments.length === 0 ? (
-          <p className="py-2 text-center text-[12.5px] text-slate-400">아직 댓글이 없어요</p>
+          <p className="py-2 text-center text-[12.5px] text-slate-500">아직 댓글이 없어요</p>
         ) : (
           comments.map((c) => (
             <div key={c.id} className="flex items-start gap-2">
@@ -100,7 +100,7 @@ export function TripPostComments({
               <div className="min-w-0 flex-1">
                 <p className="text-[12.5px] leading-snug text-slate-700">
                   <span className="font-semibold">{c.authorName ?? "여행자"}</span>{" "}
-                  <span className="text-[11px] text-slate-400">{relativeTime(c.createdAt)}</span>
+                  <span className="text-[11px] text-slate-500">{relativeTime(c.createdAt)}</span>
                 </p>
                 <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-slate-600">{c.content}</p>
               </div>

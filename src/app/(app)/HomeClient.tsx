@@ -61,7 +61,7 @@ export function HomePage() {
           }}
           className="relative mb-3"
         >
-          <Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
           <Input
             value={homeQuery}
             onChange={(e) => setHomeQuery(e.target.value)}
@@ -203,13 +203,13 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 onClick={() => goToPlan(state.trip)}
-                className="inline-flex items-center gap-1 rounded-full bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-blue-900 transition-colors hover:bg-blue-50"
+                className="inline-flex min-h-11 items-center gap-1 rounded-full bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-blue-900 transition-colors hover:bg-blue-50"
               >
                 {state.trip.kind === "ongoing" ? "오늘 일정 보기" : "이어서 짜기"} <ChevronRight size={14} />
               </button>
               <button
                 onClick={goToNewPlan}
-                className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3.5 py-1.5 text-[12.5px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+                className="inline-flex min-h-11 items-center gap-1 rounded-full bg-white/15 px-3.5 py-1.5 text-[12.5px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
               >
                 새 여행 시작
               </button>
@@ -242,13 +242,13 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 onClick={goToCourse}
-                className="inline-flex items-center gap-1 rounded-full bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-blue-900 transition-colors hover:bg-blue-50"
+                className="inline-flex min-h-11 items-center gap-1 rounded-full bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-blue-900 transition-colors hover:bg-blue-50"
               >
                 <Sparkles size={13} /> AI 코스 추천받기
               </button>
               <button
                 onClick={goToNewPlan}
-                className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3.5 py-1.5 text-[12.5px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+                className="inline-flex min-h-11 items-center gap-1 rounded-full bg-white/15 px-3.5 py-1.5 text-[12.5px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
               >
                 직접 계획 짜기 <ChevronRight size={14} />
               </button>
@@ -267,13 +267,13 @@ function HomeHero({ nickname }: { nickname?: string | null }) {
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 onClick={goToCourse}
-                className="inline-flex items-center gap-1 rounded-full bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-blue-900 transition-colors hover:bg-blue-50"
+                className="inline-flex min-h-11 items-center gap-1 rounded-full bg-white px-3.5 py-1.5 text-[12.5px] font-semibold text-blue-900 transition-colors hover:bg-blue-50"
               >
                 <Sparkles size={13} /> AI 코스 추천받기
               </button>
               <button
                 onClick={goToDiscover}
-                className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3.5 py-1.5 text-[12.5px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+                className="inline-flex min-h-11 items-center gap-1 rounded-full bg-white/15 px-3.5 py-1.5 text-[12.5px] font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
               >
                 직접 계획 짜기 <ChevronRight size={14} />
               </button>
@@ -408,8 +408,8 @@ function OnboardingStepper() {
       <div className="mb-2.5 flex items-center gap-2">
         <Sparkles size={15} className="shrink-0 text-brand-600" />
         <p className="text-[13px] font-bold text-slate-700 dark:text-slate-200">Tradule 처음이신가요?</p>
-        <p className="text-[12px] text-slate-400">4단계로 첫 여행 계획을 완성해요</p>
-        <button onClick={dismiss} aria-label="안내 닫기" className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+        <p className="text-[12px] text-slate-500">4단계로 첫 여행 계획을 완성해요</p>
+        <button onClick={dismiss} aria-label="안내 닫기" className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
           <X size={13} />
         </button>
       </div>
@@ -425,13 +425,13 @@ function OnboardingStepper() {
                   ? "bg-success-500 text-white"
                   : s.n === nextStep.n
                     ? "bg-gradient-to-br from-brand-600 to-brand-pink-600 text-white"
-                    : "bg-slate-100 text-slate-400 dark:bg-slate-800"
+                    : "bg-slate-100 text-slate-500 dark:bg-slate-800"
               }`}
             >
               {s.done ? <Check size={13} /> : s.n}
             </div>
             <p className="mt-2 text-[13px] font-bold tracking-tight text-slate-900 dark:text-slate-100">{s.title}</p>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">{s.desc}</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{s.desc}</p>
           </div>
         ))}
       </div>
@@ -600,7 +600,7 @@ function TripListSection() {
                   <CordixIcon name="suitcase" size={13} /> 저장된 계획 {savedPlans.length}개
                 </p>
                 {savedPlans.length > VISIBLE_PLANS && (
-                  <Link href="/scrapbook" className="text-[12px] font-semibold text-brand-600 hover:text-brand-800">
+                  <Link href="/scrapbook" className="inline-flex min-h-11 items-center text-[12px] font-semibold text-brand-600 hover:text-brand-800">
                     전체 보기
                   </Link>
                 )}
@@ -619,7 +619,7 @@ function TripListSection() {
                       </div>
                       <div className="px-2.5 py-2">
                         <p className="truncate text-[13px] font-bold text-slate-900 dark:text-slate-100">{plan.name}</p>
-                        <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                        <p className="mt-0.5 truncate text-[11px] text-slate-500">
                           {dates.length > 0 ? `${formatDateLabel(dates[0])} · ${plan.items.length}곳` : "일정 없음"}
                         </p>
                       </div>
@@ -673,7 +673,7 @@ function LatestFeedSection() {
           </span>
           <h2 className="text-xl font-bold tracking-tight">최신 여행 후기</h2>
         </div>
-        <Link href="/feed" className="flex shrink-0 items-center gap-0.5 text-[12.5px] font-semibold text-brand-600 hover:text-brand-800">
+        <Link href="/feed" className="flex min-h-11 shrink-0 items-center gap-0.5 text-[12.5px] font-semibold text-brand-600 hover:text-brand-800">
           더 보기 <ChevronRight size={14} />
         </Link>
       </div>
@@ -702,7 +702,7 @@ function LatestFeedSection() {
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-1.5 text-[11.5px] font-medium text-slate-400">
+                <p className="flex items-center gap-1.5 text-[11.5px] font-medium text-slate-500">
                   {post.authorImage ? (
                     // eslint-disable-next-line @next/next/no-img-element -- OAuth profile image URL
                     <img src={post.authorImage} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" />

@@ -41,7 +41,7 @@ function MenuRow({
       </span>
       <span className="min-w-0 flex-1 text-left">
         <span className="block text-[13.5px] font-medium text-slate-800 dark:text-slate-100">{label}</span>
-        {sublabel && <span className="block text-[11.5px] text-slate-400">{sublabel}</span>}
+        {sublabel && <span className="block text-[11.5px] text-slate-500">{sublabel}</span>}
       </span>
       {right ?? <ChevronRight size={16} className="shrink-0 text-slate-300 dark:text-slate-600" />}
     </>
@@ -65,7 +65,7 @@ function MenuRow({
 function Section({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
     <div className="mb-4 rounded-3xl border border-slate-200/70 bg-white p-1.5 dark:border-slate-800 dark:bg-slate-900">
-      {title && <p className="px-3 pb-1 pt-2 text-[11.5px] font-bold uppercase tracking-wide text-slate-400">{title}</p>}
+      {title && <p className="px-3 pb-1 pt-2 text-[11.5px] font-bold uppercase tracking-wide text-slate-500">{title}</p>}
       <div className="space-y-0.5">{children}</div>
     </div>
   );
@@ -139,11 +139,11 @@ export default function MyClient() {
         <div className="mx-auto max-w-lg px-4 pb-24 pt-8 sm:px-6">
           <h2 className="mb-6 text-2xl font-bold tracking-tight">MY</h2>
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center dark:border-slate-800 dark:bg-slate-900/40">
-            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 dark:bg-slate-800">
+            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 dark:bg-slate-800">
               <CordixIcon name="user" size={24} />
             </span>
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">로그인이 필요해요</p>
-            <p className="mt-1 text-[13px] text-slate-400">프로필, 메시지, 저장한 여행을 보려면 로그인해주세요.</p>
+            <p className="mt-1 text-[13px] text-slate-500">프로필, 메시지, 저장한 여행을 보려면 로그인해주세요.</p>
             <button
               onClick={() => setLoginOpen(true)}
               className="mt-5 rounded-full bg-brand-700 px-5 py-2 text-[13px] font-semibold text-white hover:bg-brand-800"
@@ -174,7 +174,7 @@ export default function MyClient() {
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[15px] font-bold text-slate-900 dark:text-slate-100">{session?.user?.nickname ?? "여행자"}</p>
-            {session?.user?.email && <p className="truncate text-[12px] text-slate-400">{session.user.email}</p>}
+            {session?.user?.email && <p className="truncate text-[12px] text-slate-500">{session.user.email}</p>}
           </div>
           <button
             onClick={() => setProfileOpen(true)}
@@ -192,9 +192,9 @@ export default function MyClient() {
             작성/수정 흐름을 그대로 쓰고, 여긴 훑어보기용 목록. */}
         <Section title="내 후기">
           {myPosts == null ? (
-            <p className="px-3 py-4 text-center text-[12.5px] text-slate-400">불러오는 중…</p>
+            <p className="px-3 py-4 text-center text-[12.5px] text-slate-500">불러오는 중…</p>
           ) : myPosts.length === 0 ? (
-            <p className="px-3 py-4 text-center text-[12.5px] text-slate-400">아직 작성한 후기가 없어요</p>
+            <p className="px-3 py-4 text-center text-[12.5px] text-slate-500">아직 작성한 후기가 없어요</p>
           ) : (
             myPosts.map((post) => (
               <Link
@@ -212,7 +212,7 @@ export default function MyClient() {
                 )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13.5px] font-medium text-slate-800 dark:text-slate-100">{post.title}</span>
-                  <span className="block text-[11px] text-slate-400">{formatDateLabel(post.createdAt.slice(0, 10))}</span>
+                  <span className="block text-[11px] text-slate-500">{formatDateLabel(post.createdAt.slice(0, 10))}</span>
                 </span>
                 <ChevronRight size={15} className="shrink-0 text-slate-300 dark:text-slate-600" />
               </Link>

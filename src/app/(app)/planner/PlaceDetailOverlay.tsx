@@ -163,7 +163,7 @@ export function PlaceDetailOverlay({ place, onClose, onSave, onSchedule, onEdit,
                   </span>
                 </button>
               ) : (
-                <div className="flex h-full items-center justify-center text-xs text-slate-400">지도 로딩 중…</div>
+                <div className="flex h-full items-center justify-center text-xs text-slate-500">지도 로딩 중…</div>
               )}
               <button
                 onClick={onClose}
@@ -333,7 +333,7 @@ function PlaceDetailForm({ place: basePlace, details, onSave, onSchedule, onEdit
                 <span className="flex items-center gap-1 font-semibold text-slate-700">
                   <CordixIcon name="star" size={12} stroke="#fbbf24" accent="#fbbf24" />
                   {place.rating.toFixed(1)}
-                  {place.reviewCount != null && <span className="font-normal text-slate-400">· 리뷰 {place.reviewCount.toLocaleString()}</span>}
+                  {place.reviewCount != null && <span className="font-normal text-slate-500">· 리뷰 {place.reviewCount.toLocaleString()}</span>}
                 </span>
               )}
               {details?.openNow != null && (
@@ -414,7 +414,7 @@ function PlaceDetailForm({ place: basePlace, details, onSave, onSchedule, onEdit
                       <span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-500">
                         {r.rating != null && <CordixIcon name="star" size={10} stroke="#fbbf24" accent="#fbbf24" />}
                         {r.rating != null && r.rating}
-                        {r.when && <span className="text-slate-400">· {r.when}</span>}
+                        {r.when && <span className="text-slate-500">· {r.when}</span>}
                       </span>
                     </div>
                     {r.text && (

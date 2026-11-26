@@ -84,7 +84,7 @@ export function LoginModal({ onClose, reason }: LoginModalProps) {
             ))}
           </div>
 
-          <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-400">
+          <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-500">
             로그인 후 첫 화면에서{" "}
             <a href="/terms" target="_blank" rel="noreferrer" className="underline underline-offset-2">
               이용약관

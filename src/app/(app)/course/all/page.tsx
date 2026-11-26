@@ -32,10 +32,10 @@ export default async function CourseHubPage() {
   const regionCount = groups.reduce((n, g) => n + g.regions.length, 0);
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-6">
+    <div className="mx-auto max-w-2xl px-4 py-6 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] md:pb-6">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(buildCourseHubJsonLd(confirmed)) }} />
       <TravelpayoutsDriveScript />
-      <nav aria-label="breadcrumb" className="text-[12px] text-slate-400">
+      <nav aria-label="breadcrumb" className="text-[12px] text-slate-500">
         <Link href="/" className="hover:underline">트레쥴</Link> › <span>여행 코스 모음</span>
       </nav>
       <h1 className="mt-3 text-2xl font-bold text-slate-900 dark:text-slate-100">여행 코스 모음</h1>
@@ -50,7 +50,7 @@ export default async function CourseHubPage() {
         <section key={`${group.scope}-${group.parent}`} aria-labelledby={`g-${group.scope}-${group.parent}`} className="mt-8">
           <h2 id={`g-${group.scope}-${group.parent}`} className="text-[15px] font-bold text-slate-900 dark:text-slate-100">
             {group.parent}
-            <span className="ml-2 text-[12px] font-normal text-slate-400">{group.scope === "domestic" ? "국내" : "해외"}</span>
+            <span className="ml-2 text-[12px] font-normal text-slate-500">{group.scope === "domestic" ? "국내" : "해외"}</span>
           </h2>
           <ul className="mt-3 space-y-3">
             {group.regions.map((r) => (
@@ -79,7 +79,7 @@ export default async function CourseHubPage() {
                           <ul className="mt-2 flex flex-wrap gap-1.5">{typical.map(chip)}</ul>
                           {others.length > 0 && (
                             <details className="mt-1.5">
-                              <summary className="cursor-pointer text-[11.5px] text-slate-400">다른 일수</summary>
+                              <summary className="cursor-pointer text-[11.5px] text-slate-500">다른 일수</summary>
                               <ul className="mt-1.5 flex flex-wrap gap-1.5">{others.map(chip)}</ul>
                             </details>
                           )}

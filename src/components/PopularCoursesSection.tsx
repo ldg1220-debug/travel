@@ -17,7 +17,7 @@ export async function PopularCoursesSection({ limit = 12 }: { limit?: number }) 
         <h2 id="popular-courses-heading" className="text-[15px] font-bold text-slate-900 dark:text-slate-100">
           인기 여행 코스
         </h2>
-        <Link href={COURSE_HUB_PATH} className="text-[12.5px] font-semibold text-brand-700 hover:underline dark:text-brand-400">
+        <Link href={COURSE_HUB_PATH} className="inline-flex min-h-11 items-center text-[12.5px] font-semibold text-brand-700 hover:underline dark:text-brand-400">
           전체 보기 →
         </Link>
       </div>
@@ -29,7 +29,7 @@ export async function PopularCoursesSection({ limit = 12 }: { limit?: number }) 
               className="block rounded-xl border border-slate-200 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <span className="font-semibold">{p.region}</span> {dayDisplayLabel(p.region, p.days)}
-              {p.info && p.info.reps.length > 0 && <span className="mt-0.5 block truncate text-[11.5px] text-slate-400">{p.info.reps.join(" · ")}</span>}
+              {p.info && p.info.reps.length > 0 && <span className="mt-0.5 block truncate text-[11.5px] text-slate-500">{p.info.reps.join(" · ")}</span>}
             </Link>
           </li>
         ))}

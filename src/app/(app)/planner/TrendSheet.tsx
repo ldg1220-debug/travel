@@ -102,7 +102,7 @@ export function TrendSheet({
           <SheetTitle>✨ {currentCity} 인기 스팟</SheetTitle>
         </SheetHeader>
         {hasAnchors && (
-          <p className="px-4 text-[11px] text-slate-400">오늘 일정 근처 순으로 정렬했어요</p>
+          <p className="px-4 text-[11px] text-slate-500">오늘 일정 근처 순으로 정렬했어요</p>
         )}
         <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 pb-6 pt-2">
           {rankedTrends.map(({ trend, distanceMeters }) => (

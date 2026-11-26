@@ -130,11 +130,11 @@ export function SavedPlacesPage() {
 
         {savedPlaces.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-white/60 py-20 text-center">
-            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+            <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
               <CordixIcon name="heart" size={24} />
             </span>
             <p className="text-sm font-semibold text-slate-700">아직 저장한 장소가 없어요</p>
-            <p className="mt-1 text-[13px] text-slate-400">탐색이나 계획 화면에서 마음에 드는 장소를 찜해보세요.</p>
+            <p className="mt-1 text-[13px] text-slate-500">탐색이나 계획 화면에서 마음에 드는 장소를 찜해보세요.</p>
           </div>
         ) : (
           <>
@@ -192,7 +192,7 @@ export function SavedPlacesPage() {
                     <button onClick={handleCreateFolder} aria-label="폴더 추가" className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-600 text-white hover:bg-brand-700">
                       <Check size={13} />
                     </button>
-                    <button onClick={() => setCreatingFolder(false)} aria-label="취소" className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+                    <button onClick={() => setCreatingFolder(false)} aria-label="취소" className="flex h-7 w-7 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
                       <X size={13} />
                     </button>
                   </span>
@@ -225,7 +225,7 @@ export function SavedPlacesPage() {
                       <button onClick={() => handleRenameFolder(folderFilter)} className="font-semibold text-brand-700">
                         저장
                       </button>
-                      <button onClick={() => setEditingFolderId(null)} className="text-slate-400">
+                      <button onClick={() => setEditingFolderId(null)} className="text-slate-500">
                         취소
                       </button>
                     </>
@@ -235,7 +235,7 @@ export function SavedPlacesPage() {
                       <button onClick={() => handleDeleteFolder(folderFilter)} className="font-semibold text-rose-500">
                         삭제
                       </button>
-                      <button onClick={() => setConfirmDeleteFolderId(null)} className="text-slate-400">
+                      <button onClick={() => setConfirmDeleteFolderId(null)} className="text-slate-500">
                         취소
                       </button>
                     </>
@@ -308,7 +308,7 @@ export function SavedPlacesPage() {
             </div>
 
             {visiblePlaces.length === 0 ? (
-              <p className="py-16 text-center text-[13px] text-slate-400">이 조건에는 저장된 장소가 없어요.</p>
+              <p className="py-16 text-center text-[13px] text-slate-500">이 조건에는 저장된 장소가 없어요.</p>
             ) : (
               <div className="space-y-2.5">
                 {visiblePlaces.map((place) => (
@@ -374,7 +374,7 @@ export function SavedPlacesPage() {
                         handleSharePlace(place);
                       }}
                       aria-label={`${place.name} 카카오톡 공유`}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-600"
                     >
                       <CordixIcon name="share" size={14} />
                     </button>
@@ -384,7 +384,7 @@ export function SavedPlacesPage() {
                         removeSavedPlace(place.id);
                       }}
                       aria-label={`${place.name} 저장 해제`}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-600"
                     >
                       <X size={14} />
                     </button>

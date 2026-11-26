@@ -77,7 +77,7 @@ export function ShareImageSheet({
             onClick={onClose}
             disabled={busy}
             aria-label="닫기"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800"
           >
             <X size={16} />
           </button>
@@ -104,7 +104,7 @@ export function ShareImageSheet({
               // eslint-disable-next-line @next/next/no-img-element -- ephemeral local data URL, not a static asset
               <img src={previewUrl} alt="공유 이미지 미리보기" className="h-full w-full object-contain" />
             ) : (
-              <div className="flex h-full items-center justify-center text-[12.5px] text-slate-400">이미지 만드는 중…</div>
+              <div className="flex h-full items-center justify-center text-[12.5px] text-slate-500">이미지 만드는 중…</div>
             )}
           </div>
 

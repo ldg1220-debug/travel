@@ -326,7 +326,7 @@ export function AppBar() {
         <div className="flex min-w-0 flex-col items-center">
           {isPlanner ? (
             <>
-              <span className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
+              <span className="text-[10px] font-medium uppercase tracking-widest text-slate-500">
                 {planHeaderDateLabel(activeDate, items, viewerContentPlan)}
                 {isShared && viewerModeActive && " · 공유됨"}
               </span>
@@ -447,11 +447,11 @@ export function AppBar() {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[12px] font-medium text-slate-600 dark:text-slate-300">{plan.name}</span>
                       {/* 2줄째 — 여행 날짜 · 지역 · 장소 수 · 수정일 (작업지시서 2026-10-30). 지난 여행은 흐리게 + 라벨. */}
-                      <span className="block truncate text-[10.5px] text-slate-400">
+                      <span className="block truncate text-[10.5px] text-slate-500">
                         {summary.past && <span className="mr-1 rounded bg-slate-100 px-1 text-[10px] text-slate-500 dark:bg-slate-800">지난 여행</span>}
                         {summary.dateText} · {summary.regionText} · {summary.placeCountText} · {summary.updatedText}
                       </span>
-                      {summary.createdText && expandedInfoId === plan.id && <span className="block text-[10.5px] text-slate-400">{summary.createdText}</span>}
+                      {summary.createdText && expandedInfoId === plan.id && <span className="block text-[10.5px] text-slate-500">{summary.createdText}</span>}
                     </span>
                   </button>
                   {summary.createdText && (
@@ -475,7 +475,7 @@ export function AppBar() {
                       >
                         삭제
                       </button>
-                      <button onClick={() => setConfirmDeleteId(null)} className="text-[11px] text-slate-400">
+                      <button onClick={() => setConfirmDeleteId(null)} className="text-[11px] text-slate-500">
                         취소
                       </button>
                     </div>
@@ -566,7 +566,7 @@ export function AppBar() {
               <button
                 onClick={() => setPreviewPlan(null)}
                 aria-label="닫기"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 <X size={16} />
               </button>

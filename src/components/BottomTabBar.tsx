@@ -85,7 +85,7 @@ export function BottomTabBar() {
               href={tab.href}
               onClick={(e) => navigateByDocumentIfNeeded(e, tab.href)}
               className={`flex h-14 flex-col items-center justify-center gap-0.5 text-[10.5px] font-medium ${
-                active ? "text-brand-700 dark:text-brand-400" : "text-slate-400 dark:text-slate-500"
+                active ? "text-brand-700 dark:text-brand-400" : "text-slate-500 dark:text-slate-500"
               }`}
               aria-current={active ? "page" : undefined}
             >

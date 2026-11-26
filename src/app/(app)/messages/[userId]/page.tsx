@@ -132,7 +132,7 @@ export default function MessageThreadPage() {
         <span className="truncate text-[14.5px] font-bold">{profile?.nickname ?? "여행자"}</span>
         <button
           onClick={() => setReportOpen(true)}
-          className="ml-auto shrink-0 text-[11px] text-slate-400 hover:text-slate-500 hover:underline"
+          className="ml-auto shrink-0 text-[11px] text-slate-500 hover:text-slate-700 hover:underline"
         >
           신고
         </button>
@@ -140,9 +140,9 @@ export default function MessageThreadPage() {
 
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-2 overflow-y-auto px-4 py-5">
         {messages == null ? (
-          <p className="py-16 text-center text-[13px] text-slate-400">불러오는 중…</p>
+          <p className="py-16 text-center text-[13px] text-slate-500">불러오는 중…</p>
         ) : messages.length === 0 ? (
-          <p className="py-16 text-center text-[13px] text-slate-400">
+          <p className="py-16 text-center text-[13px] text-slate-500">
             {profile?.nickname ?? "여행자"}님과의 첫 메시지를 보내보세요.
           </p>
         ) : (
@@ -153,7 +153,7 @@ export default function MessageThreadPage() {
               <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                 <div className={`flex max-w-[75%] items-end gap-1.5 ${mine ? "flex-row-reverse" : "flex-row"}`}>
                   {m.deleted ? (
-                    <p className="rounded-2xl bg-slate-100 px-3.5 py-2.5 text-[13px] italic text-slate-400 dark:bg-slate-900 dark:text-slate-500">
+                    <p className="rounded-2xl bg-slate-100 px-3.5 py-2.5 text-[13px] italic text-slate-500 dark:bg-slate-900 dark:text-slate-500">
                       삭제된 메시지예요
                     </p>
                   ) : (
@@ -169,14 +169,14 @@ export default function MessageThreadPage() {
                   )}
                   <div className="flex shrink-0 flex-col items-end gap-0.5 pb-0.5">
                     {unread && <span className="text-[10px] font-semibold leading-none text-amber-500">1</span>}
-                    <span className="text-[10px] leading-none text-slate-400">{formatTime(m.createdAt)}</span>
+                    <span className="text-[10px] leading-none text-slate-500">{formatTime(m.createdAt)}</span>
                     {mine && !m.deleted && (
                       confirmDeleteId === m.id ? (
                         <div className="mt-0.5 flex items-center gap-1">
                           <button onClick={() => handleDelete(m.id)} className="text-[10px] font-semibold text-rose-500">
                             삭제
                           </button>
-                          <button onClick={() => setConfirmDeleteId(null)} className="text-[10px] text-slate-400">
+                          <button onClick={() => setConfirmDeleteId(null)} className="text-[10px] text-slate-500">
                             취소
                           </button>
                         </div>
@@ -202,7 +202,7 @@ export default function MessageThreadPage() {
       <div className="sticky bottom-0 border-t border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-950">
         <div className="mx-auto flex w-full max-w-lg items-end gap-2">
           {profile && !profile.isFriend ? (
-            <p className="flex-1 py-2.5 text-center text-[12.5px] text-slate-400">트래블 메이트에게만 메시지를 보낼 수 있어요</p>
+            <p className="flex-1 py-2.5 text-center text-[12.5px] text-slate-500">트래블 메이트에게만 메시지를 보낼 수 있어요</p>
           ) : (
             <>
               <textarea
@@ -219,7 +219,7 @@ export default function MessageThreadPage() {
                 rows={1}
                 className="min-h-11 flex-1 resize-none rounded-2xl border border-slate-200 px-3.5 py-2.5 text-[13.5px] outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               />
-              <EmojiPickerButton onSelect={insertEmoji} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" />
+              <EmojiPickerButton onSelect={insertEmoji} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" />
               <button
                 onClick={handleSend}
                 disabled={!draft.trim() || sending}

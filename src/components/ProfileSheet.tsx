@@ -309,14 +309,14 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
             <button
               onClick={onClose}
               aria-label="닫기"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <X size={16} />
             </button>
           )}
         </div>
         {mandatory && (
-          <p className="mb-5 -mt-3 text-[12.5px] text-slate-400">
+          <p className="mb-5 -mt-3 text-[12.5px] text-slate-500">
             다른 사람에게는 실명 대신 닉네임이 표시돼요. 한 번 정하면 언제든 다시 바꿀 수 있어요.
           </p>
         )}
@@ -365,7 +365,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                   <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFile(e.target.files)} disabled={uploading} />
                 </label>
                 {image && (
-                  <button onClick={() => setImage(null)} className="text-[12px] font-semibold text-slate-400 hover:text-rose-500">
+                  <button onClick={() => setImage(null)} className="text-[12px] font-semibold text-slate-500 hover:text-rose-500">
                     사진 삭제
                   </button>
                 )}
@@ -378,7 +378,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                 placeholder="닉네임"
                 className="mb-1 w-full rounded-2xl border border-slate-200 px-3.5 py-3 text-[14px] outline-none focus:border-brand-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               />
-              <p className="mb-4 text-right text-[11px] text-slate-400">{nickname.length}/20</p>
+              <p className="mb-4 text-right text-[11px] text-slate-500">{nickname.length}/20</p>
 
               {session?.user?.email && (
                 <div className="mb-5 flex items-center justify-between rounded-2xl bg-slate-50 px-3.5 py-3 dark:bg-slate-800/60">
@@ -463,7 +463,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                       </ul>
                       <button
                         disabled
-                        className="h-10 w-full cursor-not-allowed rounded-xl bg-slate-100 text-[12.5px] font-semibold text-slate-400 dark:bg-slate-800 dark:text-slate-500"
+                        className="h-10 w-full cursor-not-allowed rounded-xl bg-slate-100 text-[12.5px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-500"
                       >
                         프리미엄으로 업그레이드 (준비중)
                       </button>
@@ -492,7 +492,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                           disabled={pushBusy}
                           onChange={handleTogglePush}
                         />
-                        <p className="mt-1 pl-0.5 text-[11px] text-slate-400">
+                        <p className="mt-1 pl-0.5 text-[11px] text-slate-500">
                           홈 화면에 설치한 앱에서 새 메시지·트래블 메이트·좋아요를 OS 알림으로 받아요. 위 알림 종류별 설정을 함께 켜야 도착해요.
                         </p>
                         {pushError && <p className="mt-1 text-[11.5px] text-rose-500">{pushError}</p>}
@@ -557,7 +557,7 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
                     ) : (
                       <button
                         onClick={() => setDeleteConfirming(true)}
-                        className="text-[12.5px] font-semibold text-slate-400 hover:text-rose-500"
+                        className="text-[12.5px] font-semibold text-slate-500 hover:text-rose-500"
                       >
                         회원 탈퇴
                       </button>
@@ -571,9 +571,9 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
               <div>
                 <p className="mb-1.5 text-[12.5px] font-bold text-slate-600 dark:text-slate-300">받은 신청</p>
                 {received == null ? (
-                  <p className="py-4 text-center text-[12.5px] text-slate-400">불러오는 중…</p>
+                  <p className="py-4 text-center text-[12.5px] text-slate-500">불러오는 중…</p>
                 ) : received.length === 0 ? (
-                  <p className="py-4 text-center text-[12.5px] text-slate-400">받은 트래블 메이트 신청이 없어요</p>
+                  <p className="py-4 text-center text-[12.5px] text-slate-500">받은 트래블 메이트 신청이 없어요</p>
                 ) : (
                   <div className="space-y-1">
                     {received.map((u) => (
@@ -614,9 +614,9 @@ export function ProfileSheet({ onClose, mandatory = false }: { onClose: () => vo
               <div>
                 <p className="mb-1.5 text-[12.5px] font-bold text-slate-600 dark:text-slate-300">보낸 신청</p>
                 {sent == null ? (
-                  <p className="py-4 text-center text-[12.5px] text-slate-400">불러오는 중…</p>
+                  <p className="py-4 text-center text-[12.5px] text-slate-500">불러오는 중…</p>
                 ) : sent.length === 0 ? (
-                  <p className="py-4 text-center text-[12.5px] text-slate-400">보낸 트래블 메이트 신청이 없어요</p>
+                  <p className="py-4 text-center text-[12.5px] text-slate-500">보낸 트래블 메이트 신청이 없어요</p>
                 ) : (
                   <div className="space-y-1">
                     {sent.map((u) => (
@@ -732,10 +732,10 @@ function FollowUserList({
 }) {
   const router = useRouter();
   if (users == null) {
-    return <p className="py-10 text-center text-[12.5px] text-slate-400">불러오는 중…</p>;
+    return <p className="py-10 text-center text-[12.5px] text-slate-500">불러오는 중…</p>;
   }
   if (users.length === 0) {
-    return <p className="py-10 text-center text-[12.5px] text-slate-400">{emptyText}</p>;
+    return <p className="py-10 text-center text-[12.5px] text-slate-500">{emptyText}</p>;
   }
   return (
     <div className="space-y-1">
@@ -759,7 +759,7 @@ function FollowUserList({
               <button
                 onClick={() => router.push(`/messages/${u.id}`)}
                 aria-label={`${u.name ?? "여행자"}님에게 메시지 보내기`}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 <CordixIcon name="message" size={15} />
               </button>

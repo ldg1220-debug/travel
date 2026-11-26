@@ -149,7 +149,7 @@ export function NotificationBell() {
           </div>
           {actionError && <p className="px-3.5 pb-2 text-[11.5px] text-rose-500">{actionError}</p>}
           {visibleNotifications.length === 0 ? (
-            <p className="px-3.5 py-6 text-center text-[12.5px] text-slate-400">
+            <p className="px-3.5 py-6 text-center text-[12.5px] text-slate-500">
               {filter === "announcement" ? "받은 공지가 없어요" : "아직 알림이 없어요"}
             </p>
           ) : (
@@ -199,7 +199,7 @@ export function NotificationBell() {
                       </>
                     )}
                   </span>
-                  <span className="mt-0.5 block text-[11px] text-slate-400">{relativeTime(n.createdAt)}</span>
+                  <span className="mt-0.5 block text-[11px] text-slate-500">{relativeTime(n.createdAt)}</span>
                   {n.type === "follow_request" && n.requestStatus === "pending" && (
                     <span className="mt-1.5 flex gap-1.5">
                       <span

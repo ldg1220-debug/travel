@@ -66,7 +66,7 @@ export function TimeBox({
           );
         })}
       </select>
-      <span className="shrink-0 text-slate-400">:</span>
+      <span className="shrink-0 text-slate-500">:</span>
       <select
         value={minute}
         onChange={(e) => onMinuteChange(Number(e.target.value))}
@@ -257,7 +257,7 @@ export function ScheduleModal({
               <PlaceGlyph icon={place.icon} size={20} color={place.color} />
             </span>
             <div className="min-w-0">
-              <p className="truncate text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              <p className="truncate text-[11px] font-medium uppercase tracking-wide text-slate-500">
                 {place.category || "장소"}
               </p>
               <p className="truncate text-[17px] font-semibold leading-tight text-slate-900">{place.name}</p>
@@ -353,7 +353,7 @@ export function ScheduleModal({
                           ))}
                         </select>
                         <div className="relative flex-1">
-                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">
                             {currencySymbol(currency)}
                           </span>
                           <Input

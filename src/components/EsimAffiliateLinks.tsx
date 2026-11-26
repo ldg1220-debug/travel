@@ -13,7 +13,7 @@ export function EsimAffiliateLinks({ region, links, surface = "course", classNam
   return (
     <section aria-label={`${region} 여행 eSIM`} className={className}>
       <p className="mb-1 text-[13px] font-semibold text-slate-700 dark:text-slate-200">{region} 여행 데이터 eSIM</p>
-      <AffiliateDisclosureNote className="mb-2 text-[11px] text-slate-400" />
+      <AffiliateDisclosureNote className="mb-2 text-[11px] text-slate-500" />
       <ul className="flex flex-wrap gap-2">
         {links.map((p) => (
           <li key={p.key}>
@@ -23,7 +23,7 @@ export function EsimAffiliateLinks({ region, links, surface = "course", classNam
               rel="sponsored nofollow noopener noreferrer"
               onClick={() => trackFeatureEvent("esim_click", surface, { provider: p.key, region })}
               style={{ color: p.brand, borderColor: `${p.brand}55` }}
-              className="inline-flex h-9 items-center rounded-full border bg-white px-3.5 text-[12.5px] font-semibold hover:bg-slate-50 dark:bg-slate-900"
+              className="inline-flex min-h-11 items-center rounded-full border bg-white px-3.5 text-[12.5px] font-semibold hover:bg-slate-50 dark:bg-slate-900"
             >
               {p.label}
             </a>

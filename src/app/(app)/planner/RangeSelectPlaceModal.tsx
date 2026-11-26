@@ -242,7 +242,7 @@ export function RangeSelectPlaceModal({
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13px] font-semibold text-slate-900">{selectedPlace.name}</p>
-                    {selectedPlace.address && <p className="truncate text-[11px] text-slate-400">{selectedPlace.address}</p>}
+                    {selectedPlace.address && <p className="truncate text-[11px] text-slate-500">{selectedPlace.address}</p>}
                   </div>
                   <button
                     onClick={() => setSelectedPlace(null)}
@@ -257,13 +257,13 @@ export function RangeSelectPlaceModal({
                   <div className="mt-1.5 flex justify-end gap-1.5 text-[11px]">
                     <button
                       onClick={() => onRegionChange("domestic")}
-                      className={`rounded-full px-2 py-0.5 font-semibold ${region === "domestic" ? "bg-slate-900 text-white" : "text-slate-400"}`}
+                      className={`rounded-full px-2 py-0.5 font-semibold ${region === "domestic" ? "bg-slate-900 text-white" : "text-slate-500"}`}
                     >
                       국내
                     </button>
                     <button
                       onClick={() => onRegionChange("international")}
-                      className={`rounded-full px-2 py-0.5 font-semibold ${region === "international" ? "bg-slate-900 text-white" : "text-slate-400"}`}
+                      className={`rounded-full px-2 py-0.5 font-semibold ${region === "international" ? "bg-slate-900 text-white" : "text-slate-500"}`}
                     >
                       해외
                     </button>

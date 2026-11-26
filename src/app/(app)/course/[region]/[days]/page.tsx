@@ -224,8 +224,8 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   if (loaded.kind === "preparing") {
     const label = dayDisplayLabel(loaded.region, loaded.days);
     return (
-      <div className="mx-auto max-w-2xl px-4 py-10">
-        <nav aria-label="breadcrumb" className="text-[12px] text-slate-400">
+      <div className="mx-auto max-w-2xl px-4 py-10 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] md:pb-6">
+        <nav aria-label="breadcrumb" className="text-[12px] text-slate-500">
           <Link href="/" className="hover:underline">트레쥴</Link> › <Link href={COURSE_HUB_PATH} className="hover:underline">여행 코스 모음</Link> › <span>{loaded.region} {label}</span>
         </nav>
         <h1 className="mt-3 text-2xl font-bold text-slate-900 dark:text-slate-100">{loaded.region} {label} 코스를 준비하고 있어요</h1>
@@ -261,14 +261,14 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
   const lodgingLinks = lodgingAffiliateProviders({ city: region, region: resolveScope(region) === "domestic" ? "domestic" : "international" });
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-6">
+    <div className="mx-auto max-w-2xl px-4 py-6 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] md:pb-6">
       {/* JSON-LD는 스크립트가 아니라 데이터라 XSS 경로가 아니다(작업지시서 §4 "JSON-LD ItemList + TouristTrip"). */}
       {indexed && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(touristTripJsonLd) }} />}
       {indexed && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />}
 
       {/* 작업지시서 2026-10-08 "#300 검증" §2 — /course/** 도 Drive 로드(공유 토큰이 URL에 없다). */}
       <TravelpayoutsDriveScript />
-      <nav aria-label="breadcrumb" className="text-[12px] text-slate-400">
+      <nav aria-label="breadcrumb" className="text-[12px] text-slate-500">
         <Link href="/" className="hover:underline">트레쥴</Link> › <Link href={COURSE_HUB_PATH} className="hover:underline">여행 코스 모음</Link> › <Link href={courseRegionHubPath(region)} className="hover:underline">{region}</Link> › <span>{daysLabel}</span>
       </nav>
       <p className="mt-3 text-[12px] font-semibold uppercase tracking-wide text-brand-600">{region}</p>
@@ -312,7 +312,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
             <ol className="mt-3 space-y-3">
               {group.spots.map((spot) => (
                 <li key={`${spot.day}-${spot.order}`} className="flex gap-3">
-                  <span className="mt-0.5 w-5 shrink-0 text-right text-[13px] tabular-nums text-slate-400">{spot.order}</span>
+                  <span className="mt-0.5 w-5 shrink-0 text-right text-[13px] tabular-nums text-slate-500">{spot.order}</span>
                   <div>
                     <p className="text-[14px] font-medium text-slate-800 dark:text-slate-100">{spot.name}</p>
                     <p className="text-[12.5px] text-slate-500 dark:text-slate-400">{buildSpotDescription(spot)}</p>
@@ -348,7 +348,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
               <ul className="flex flex-wrap gap-2">
                 {related.sameRegion.map((p) => (
                   <li key={`${p.region}-${p.days}`}>
-                    <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
+                    <Link href={courseCanonicalPath(p.region, p.days)} className="inline-flex min-h-11 items-center rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
                       {p.region} {dayDisplayLabel(p.region, p.days)}
                     </Link>
                   </li>
@@ -362,7 +362,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
               <ul className="flex flex-wrap gap-2">
                 {related.sameCountry.map((p) => (
                   <li key={`${p.region}-${p.days}`}>
-                    <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
+                    <Link href={courseCanonicalPath(p.region, p.days)} className="inline-flex min-h-11 items-center rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
                       {p.region} {dayDisplayLabel(p.region, p.days)}
                     </Link>
                   </li>
@@ -376,7 +376,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
               <ul className="flex flex-wrap gap-2">
                 {related.otherDestinations.map((p) => (
                   <li key={`${p.region}-${p.days}`}>
-                    <Link href={courseCanonicalPath(p.region, p.days)} className="rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
+                    <Link href={courseCanonicalPath(p.region, p.days)} className="inline-flex min-h-11 items-center rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
                       {p.region} {dayDisplayLabel(p.region, p.days)}
                     </Link>
                   </li>

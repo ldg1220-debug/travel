@@ -341,13 +341,13 @@ export function TripPostDetailPage() {
     return (
       <div className="flex min-h-full flex-col items-center justify-center bg-slate-50 px-6 text-center">
         <p className="text-sm font-semibold text-slate-700">후기를 찾을 수 없어요</p>
-        <p className="mt-1 text-[13px] text-slate-400">비공개 후기이거나 삭제되었을 수 있어요.</p>
+        <p className="mt-1 text-[13px] text-slate-500">비공개 후기이거나 삭제되었을 수 있어요.</p>
       </div>
     );
   }
 
   if (!post) {
-    return <div className="flex min-h-full items-center justify-center bg-slate-50 text-[13px] text-slate-400">불러오는 중…</div>;
+    return <div className="flex min-h-full items-center justify-center bg-slate-50 text-[13px] text-slate-500">불러오는 중…</div>;
   }
 
   // 작업지시서 2026-09-18 §4 "후기 페이지와 상호 링크하세요" — 제목에서
@@ -396,7 +396,7 @@ export function TripPostDetailPage() {
         )}
 
         <div className="mb-1 flex items-center justify-between gap-2">
-          <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">
+          <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-500">
             <button onClick={() => setProfileUserId(post.authorId)} className="font-semibold text-slate-600 hover:underline dark:text-slate-300">
               {post.authorName ?? "여행자"}
             </button>
@@ -422,7 +422,7 @@ export function TripPostDetailPage() {
             </button>
           )}
           {!isOwner && (
-            <button onClick={handleOpenReport} aria-label="신고하기" className="shrink-0 text-[11px] text-slate-400 hover:text-slate-500 hover:underline">
+            <button onClick={handleOpenReport} aria-label="신고하기" className="shrink-0 text-[11px] text-slate-500 hover:text-slate-700 hover:underline">
               신고
             </button>
           )}
@@ -439,7 +439,7 @@ export function TripPostDetailPage() {
                 visibleToUserIds={post.visibleToUserIds}
                 onVisibleToUserIdsChange={(ids) => handleChangeVisibility(post.visibility, ids)}
               />
-              {togglingVisibility && <p className="mt-1 text-[11px] text-slate-400">변경 중…</p>}
+              {togglingVisibility && <p className="mt-1 text-[11px] text-slate-500">변경 중…</p>}
             </div>
             {linkedPlan && (
               <button
@@ -746,7 +746,7 @@ function HashtagMention({ review }: { review: TripPostPlaceReview }) {
             type="button"
             onClick={() => setOpen(false)}
             aria-label="닫기"
-            className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-600"
           >
             <X className="h-3.5 w-3.5" strokeWidth={2} />
           </button>

@@ -125,7 +125,7 @@ export function CommunityPostComposer({
       <div className="relative flex max-h-[90%] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="truncate text-lg font-bold">{existing ? "글 수정" : "커뮤니티 글쓰기"}</h3>
-          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100">
+          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">
             <X size={16} />
           </button>
         </div>
@@ -167,7 +167,7 @@ export function CommunityPostComposer({
             </div>
           ))}
           {images.length < MAX_IMAGES && (
-            <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-500">
+            <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 text-slate-500 hover:border-brand-400 hover:text-brand-500">
               {uploading ? <Loader2 size={18} className="animate-spin" /> : <CordixIcon name="camera" size={18} />}
               <span className="text-[10px]">
                 {images.length}/{MAX_IMAGES}

@@ -10,7 +10,7 @@ export function TicketLink({ url, region, spot }: { url: string; region: string;
       target="_blank"
       rel="sponsored nofollow noopener noreferrer"
       onClick={() => trackFeatureEvent("ticket_click", "course", { provider: "klook", region, spot })}
-      className="mt-1 inline-block text-[12px] font-medium text-[#ff5b00] hover:underline"
+      className="mt-1 inline-flex min-h-11 items-center text-[12px] font-medium text-[#c2410c] hover:underline"
     >
       입장권 확인
     </a>

@@ -278,7 +278,7 @@ export default function PlannerGoogleMap({
                 </p>
               )}
               {/* 좌표는 사용자에게 보여줄 정보가 아니다 — 주소로 대체(작업지시서 §3 표). */}
-              {clickedPlace.place.address && <p className="truncate text-[10.5px] text-slate-400">{clickedPlace.place.address}</p>}
+              {clickedPlace.place.address && <p className="truncate text-[10.5px] text-slate-500">{clickedPlace.place.address}</p>}
             </button>
             <div className="mt-2 flex gap-1.5">
               <button

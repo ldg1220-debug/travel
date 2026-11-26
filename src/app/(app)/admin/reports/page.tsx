@@ -99,9 +99,9 @@ export default function AdminReportsPage() {
         </div>
 
         {reports == null ? (
-          <p className="py-16 text-center text-[13px] text-slate-400">불러오는 중…</p>
+          <p className="py-16 text-center text-[13px] text-slate-500">불러오는 중…</p>
         ) : visible.length === 0 ? (
-          <p className="py-16 text-center text-[13px] text-slate-400">해당하는 신고가 없어요.</p>
+          <p className="py-16 text-center text-[13px] text-slate-500">해당하는 신고가 없어요.</p>
         ) : (
           <div className="space-y-3">
             {visible.map((r) => (
@@ -111,7 +111,7 @@ export default function AdminReportsPage() {
                     <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
                       {r.reporterNickname ?? "탈퇴한 사용자"} → {r.reportedNickname ?? "탈퇴한 사용자"}
                     </p>
-                    <p className="mt-0.5 text-[11.5px] text-slate-400">
+                    <p className="mt-0.5 text-[11.5px] text-slate-500">
                       {TARGET_LABELS[r.targetType] ?? r.targetType} #{r.targetId} · {formatDate(r.createdAt)}
                     </p>
                   </div>
