@@ -51,6 +51,7 @@ import { LoginModal } from "@/components/LoginModal";
 import { catalogPlaceFor } from "@/lib/catalogPlace";
 import { formatPlanDay } from "@/lib/planDay";
 import { useItineraryStore, MAX_SAVED_PLANS } from "@/store/itineraryStore";
+import { useIsClient } from "@/lib/useIsClient";
 import { MapProvider, useGoogleMapsStatus, useKakaoMapsStatus } from "./MapProvider";
 import { PlaceGlyph } from "./icons";
 import { Pin } from "./MapMarkers";
@@ -335,6 +336,8 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
   // 일정(schedule) vs 관심 장소(saved) — governs both the lower panel's
   // content and which marker set the map above it renders.
   const [tab, setTab] = useState<PlannerTabKey>("schedule");
+  // 일정 탭은 "오늘" 날짜(서버 UTC ↔ 브라우저 시간대)·localStorage 값에 따라 글자가 달라져, 첫 렌더를 서버와 맞추려고 마운트 이후에 그린다(React #418).
+  const clientReady = useIsClient();
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
   // Map click-to-save: any coordinate or POI tap on the map opens this
   // popup — the ref (not the popup state itself) lets the async Places
@@ -2403,15 +2406,17 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
           </div>
           )}
 
-          {tab === "schedule" ? (
+          {tab === "schedule" && !clientReady ? (
+            <div className="min-h-[240px]" aria-hidden />
+          ) : tab === "schedule" ? (
             <>
               <div className="px-5 pb-2 pt-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
+                  <div className="flex shrink-0 items-center gap-2">
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900">
                       <Clock size={16} color="white" />
                     </span>
-                    <span className="text-[15px] font-bold text-slate-900">일정</span>
+                    <span className="shrink-0 whitespace-nowrap text-[15px] font-bold text-slate-900">일정</span>
                     {totalBudgetByCurrency.length > 0 && (
                       <button
                         onClick={() => setBudgetBreakdownScope("all")}
@@ -2441,7 +2446,7 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                     )}
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                     <button
                       onClick={() => setMonthViewOpen((v) => !v)}
                       aria-label={monthViewOpen ? "월간 달력 접기" : "월간 달력 보기"}
