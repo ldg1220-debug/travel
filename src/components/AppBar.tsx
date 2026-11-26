@@ -22,6 +22,7 @@ import { syncPlanToServer } from "@/lib/planSync";
 import { summarizePlanForList } from "@/lib/planSummary";
 import { formatDateLabel, todayISODate } from "@/lib/timeline";
 import { planHeaderDateLabel } from "@/lib/planDay";
+import { PlannerHeaderText } from "@/components/PlannerHeaderText";
 import { suppressStaleActiveDateCorrection } from "@/lib/plannerSession";
 import { NAV_TABS } from "@/lib/navTabs";
 import type { SavedPlan } from "@/lib/types";
@@ -326,11 +327,10 @@ export function AppBar() {
         <div className="flex min-w-0 flex-col items-center">
           {isPlanner ? (
             <>
-              <span className="text-[10px] font-medium uppercase tracking-widest text-slate-500">
-                {planHeaderDateLabel(activeDate, items, viewerContentPlan)}
-                {isShared && viewerModeActive && " · 공유됨"}
-              </span>
-              <span className="text-[15px] font-bold leading-tight text-slate-900 dark:text-slate-100">{plannerHeaderTitle}</span>
+              <PlannerHeaderText
+                dateLabel={`${planHeaderDateLabel(activeDate, items, viewerContentPlan)}${isShared && viewerModeActive ? " · 공유됨" : ""}`}
+                title={plannerHeaderTitle}
+              />
             </>
           ) : pathname === "/" || pathname === "/discover" ? (
             // 홈/탐색: page-title 대신 워드마크 + 슬로건 (워드마크 굵게, 슬로건 가늘게).
