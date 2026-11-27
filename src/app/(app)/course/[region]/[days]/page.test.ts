@@ -381,3 +381,36 @@ describe("코스 페이지 — 색인 대상 12개 외에는 요청 시 생성",
     expect(html).not.toContain("준비하고 있어요");
   });
 });
+
+// 작업지시서 2026-11-27 "코스 지도 LCP" — 첫 지도는 next/image(sizes·priority)로 휴대폰용 작은 파일을 받는다.
+describe("코스 페이지 첫 지도 이미지", () => {
+  it("next/image 로 sizes·로컬 경로를 갖고 alt 는 그대로이며 렌더하면 srcset 이 생긴다", async () => {
+    getCourseBriefMock.mockResolvedValue(
+      thickBrief({ imageUrl: "https://www.tradule.co.kr/api/content/course-map?region=%EA%B2%BD%EC%A3%BC&days=3&v=abc1234567" }),
+    );
+    const { default: CoursePage } = await import("./page");
+    const tree = await CoursePage({ params: Promise.resolve({ region: "경주", days: "2박3일" }) });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const found: any[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const walk = (n: any): void => {
+      if (!n || typeof n !== "object") return;
+      if (Array.isArray(n)) return n.forEach(walk);
+      if (n.props?.alt) found.push(n);
+      if (n.props?.children) walk(n.props.children);
+    };
+    walk(tree);
+    const img = found.find((e) => String(e.props.alt).endsWith("코스 동선 지도"));
+    expect(img).toBeTruthy();
+    expect(img.props.alt).toBe("경주 2박3일 코스 동선 지도");
+    expect(img.props.sizes).toBe("(max-width: 672px) 100vw, 672px");
+    expect(img.props.src).toBe("/api/content/course-map?region=%EA%B2%BD%EC%A3%BC&days=3&v=abc1234567");
+    expect(img.props.width).toBe(1200);
+    expect(img.props.height).toBe(630);
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const html = renderToStaticMarkup(img);
+    expect(html).toContain("srcSet=");
+    expect(html).toContain("sizes=");
+    expect(html).toContain("/_next/image?url="); // next/image 최적화 경로(WebP/AVIF 협상)
+  });
+});

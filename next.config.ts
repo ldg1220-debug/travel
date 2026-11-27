@@ -68,6 +68,10 @@ const APP_CSP = [
 const BLOB_CSP = "default-src 'none'; sandbox";
 
 const nextConfig: NextConfig = {
+  // 코스 페이지 LCP 지도(/api/content/course-map?region=&days=&v=)만 next/image 최적화 허용 — 작업지시서 2026-11-27.
+  images: {
+    localPatterns: [{ pathname: "/api/content/course-map" }],
+  },
   async headers() {
     return [
       {

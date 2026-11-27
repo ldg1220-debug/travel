@@ -17,7 +17,7 @@ import { resolveRegionAlias, styleForRegion } from "@/lib/discoverData";
  *
  * width/format 파라미터는 아직 안 받는다 — Blob 캐시가 (지역, 일수)
  * 하나당 이미지 하나인데, 커스텀 크기까지 캐시 키에 넣으면 그 재사용
- * 이점이 바로 깨진다. 지금은 800×500(scale=2, 실픽셀 1600×1000) PNG
+ * 이점이 바로 깨진다. 지금은 1200×630 PNG
  * 고정 — 필요해지면 그때 크기별 캐시 분리를 검토한다.
  */
 
