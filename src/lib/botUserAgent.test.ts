@@ -72,4 +72,10 @@ describe("classifyVisit", () => {
     const ua = "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36 TraduleAutoPipeline/cowork";
     expect(classifyVisit(ua, "ko-KR,ko;q=0.9", "page")).toBe("internal");
   });
+  it("Cowork 점검 표식 `TraduleCowork/1.0` 은 bot(internal 아님), 표식만 빼면 human", () => {
+    const base = "Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
+    expect(classifyVisit(`${base} TraduleCowork/1.0`, "ko-KR,ko;q=0.9", "page")).toBe("bot");
+    expect(isInternalUserAgent(`${base} TraduleCowork/1.0`)).toBe(false);
+    expect(classifyVisit(base, "ko-KR,ko;q=0.9", "page")).toBe("human");
+  });
 });
