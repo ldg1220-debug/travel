@@ -1,6 +1,7 @@
 "use client";
 
 import { signIn } from "next-auth/react";
+import { trackFeatureEvent } from "@/lib/trackFeatureEvent";
 import { Icon } from "./Icon";
 import { ThemedLogo } from "./BrandLogo";
 
@@ -8,6 +9,8 @@ interface LoginModalProps {
   onClose: () => void;
   /** Contextual reason the sheet appeared (e.g. "일정을 공유하려면 로그인해주세요."). Undefined = opened proactively, so a welcoming default is shown. */
   reason?: string;
+  /** 계측용 구분값(문구가 아님). 담아가기에서 연 창이면 "plan_copy", 없으면 "other". */
+  eventReason?: string;
 }
 
 /** Brand-mark logos so each button reads as the provider at a glance, not just text. */
@@ -47,7 +50,7 @@ const PROVIDERS = [
  * — browsing the trend list and drag-and-drop planning both work fully
  * signed-out, so this is never a hard gate on load.
  */
-export function LoginModal({ onClose, reason }: LoginModalProps) {
+export function LoginModal({ onClose, reason, eventReason }: LoginModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" onClick={onClose} />
@@ -74,7 +77,10 @@ export function LoginModal({ onClose, reason }: LoginModalProps) {
             {PROVIDERS.map((p) => (
               <button
                 key={p.id}
-                onClick={() => signIn(p.id)}
+                onClick={() => {
+                  trackFeatureEvent("login_provider_click", undefined, { provider: p.id, reason: eventReason ?? "other" });
+                  void signIn(p.id);
+                }}
                 className="flex w-full items-center justify-center gap-2.5 rounded-2xl border py-3 text-[14px] font-semibold shadow-sm transition-transform active:scale-[0.98]"
                 style={{ background: p.bg, color: p.color, borderColor: p.border }}
               >

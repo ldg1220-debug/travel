@@ -24,7 +24,15 @@ export interface AffiliateClickStats {
 }
 
 /** 저장 흐름 퍼널로 세는 feature_events 이벤트(순서 = 퍼널 순서). */
-export const SAVE_FUNNEL_EVENTS = ["course_page_cta_click", "plan_copy_click", "plan_copy_completed", "plan_save"] as const;
+export const SAVE_FUNNEL_EVENTS = [
+  "course_page_cta_click",
+  "plan_copy_click",
+  "plan_copy_choice",
+  "plan_copy_login_shown",
+  "login_provider_click",
+  "plan_copy_completed",
+  "plan_save",
+] as const;
 
 /** /api/health 용 — 읽기 전용 집계 1쿼리. 실패하면 null(health 자체는 막지 않는다). */
 export async function getAffiliateClickStats(): Promise<AffiliateClickStats | null> {

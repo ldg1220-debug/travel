@@ -171,6 +171,7 @@ export function TripPostDetailPage() {
       setCopying(false);
     }
   };
+  const COPY_LOGIN_REASON = "이 코스를 담아가려면 로그인해주세요.";
   const handleCopyToMyPlans = () => {
     if (!post) return;
     trackFeatureEvent("plan_copy_click", undefined, { source: "trip_post" });
@@ -181,7 +182,8 @@ export function TripPostDetailPage() {
         // 프라이빗 모드 등으로 sessionStorage를 못 쓰면 그냥 매번 다시
         // 눌러야 할 뿐 — 로그인 자체는 계속 진행한다.
       }
-      setLoginReason("이 코스를 담아가려면 로그인해주세요.");
+      trackFeatureEvent("plan_copy_login_shown", undefined, { source: "trip_post" });
+      setLoginReason(COPY_LOGIN_REASON);
       setLoginOpen(true);
       return;
     }
@@ -655,7 +657,7 @@ export function TripPostDetailPage() {
         />
       )}
 
-      {loginOpen && <LoginModal reason={loginReason} onClose={() => setLoginOpen(false)} />}
+      {loginOpen && <LoginModal reason={loginReason} eventReason={loginReason === COPY_LOGIN_REASON ? "plan_copy" : undefined} onClose={() => setLoginOpen(false)} />}
       {reportOpen && <ReportModal targetType="trip_post" targetId={post.id} onClose={() => setReportOpen(false)} />}
 
       {profileUserId != null && (
