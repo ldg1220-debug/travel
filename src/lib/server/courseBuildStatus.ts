@@ -1,5 +1,7 @@
 import { pool } from "./db";
 import { ptDateString } from "./mapsBudget";
+import { daysToLabel } from "@/lib/coursePages";
+import type { CourseDays } from "./courseBrief";
 
 /**
  * 코스 생성(재생성) 상태 — 작업지시서 2026-10-21 "긴급: 새 버전(v44) 코스가 만들어지지 않음" §2④⑤. Cowork 이 `/api/health` 의 `courseBuild` 만 보고 "재생성이 예약됐는지 ·
@@ -9,7 +11,7 @@ import { ptDateString } from "./mapsBudget";
 const STATUS_KEY = "course-build:status";
 
 /** human/bot=방문, stale=직전 버전 서빙, sync=직전 버전이 없어 사용자 요청이 동기로 새 버전을 만든 횟수, botRebuild=검색 로봇 요청이 재생성을 일으킨 횟수(설계상 항상 0). */
-export type CourseCounterKind = "human" | "bot" | "internal" | "api" | "stale" | "sync" | "botRebuild" | "blogLanding";
+export type CourseCounterKind = "human" | "bot" | "internal" | "api" | "stale" | "sync" | "botRebuild" | "blogLanding" | "blogLandingSync";
 export function courseCounterKey(kind: CourseCounterKind, now = new Date()): string {
   return `course-build-day:${kind}:${ptDateString(now)}`;
 }
@@ -65,10 +67,28 @@ export async function recordCoursePageVisit(path: string, now = new Date()): Pro
   }
 }
 
+export function blogLandingCourseKey(path: string, now = new Date()): string {
+  return `course-blog-page:${ptDateString(now)}:${path.trim().slice(0, 80)}`;
+}
+
+/** 오늘 블로그(utm_source=maeilg) 유입 사람 방문을 코스별("지역/일수 숫자")로 센다 — health courseBuild.blogLandingByCourseToday. */
+export async function recordBlogLandingCourse(path: string, now = new Date()): Promise<void> {
+  try {
+    await pool.query(
+      `insert into place_candidate_cache (cache_key, payload) values ($1, jsonb_build_object('count', 1))
+       on conflict (cache_key) do update
+         set payload = jsonb_build_object('count', coalesce((place_candidate_cache.payload->>'count')::int, 0) + 1), created_at = now()`,
+      [blogLandingCourseKey(path, now)],
+    );
+  } catch (err) {
+    console.error("[courseBuildStatus] blog landing course counter failed:", err);
+  }
+}
+
 /** 이틀 넘은 User-Agent·코스 페이지 방문 카운터를 지운다(워밍 크론이 부른다). */
 export async function purgeOldUserAgents(): Promise<void> {
   try {
-    await pool.query(`delete from place_candidate_cache where (cache_key like 'course-ua:%' or cache_key like 'course-page:%') and created_at < now() - interval '2 days'`);
+    await pool.query(`delete from place_candidate_cache where (cache_key like 'course-ua:%' or cache_key like 'course-page:%' or cache_key like 'course-blog-page:%') and created_at < now() - interval '2 days'`);
   } catch (err) {
     console.error("[courseBuildStatus] ua purge failed:", err);
   }
@@ -206,6 +226,12 @@ export interface CourseBuildHealth {
   visitsBySource: { human: number | null; bot: number | null; internal: number | null; api: number | null };
   /** 오늘 블로그(utm_source=maeilg) 링크로 코스 페이지에 들어온 사람 방문 수 — 사람 방문(human)의 일부. */
   blogLandingToday: number | null;
+  /** 최근 7일(오늘 포함, 카운터 날짜 기준) 블로그 유입 사람 방문 합계 — 일별 blogLanding 카운터 7개 합. 읽기 실패 시 null. */
+  blogLanding7d: number | null;
+  /** 오늘 블로그 유입 코스별 상위 10 — indexed = 색인 대상 코스 여부, kind = ok(색인 코스) | preparing(색인 밖 — 로봇에겐 준비 중 화면). */
+  blogLandingByCourseToday: Array<{ course: string; count: number; indexed: boolean; kind: "ok" | "preparing" }> | null;
+  /** 오늘 블로그 유입 중 그 자리 코스 생성(동기 빌드)으로 이어진 수 — syncBuildsToday 의 일부. */
+  blogLandingSyncBuildToday: number | null;
   /** 오늘 코스 페이지별 사람 방문 상위 10 (path = "지역/일수"). */
   topCoursePagesToday: Array<{ path: string; count: number }> | null;
   /** 오늘 User-Agent(앞 60자) 상위 10. */
@@ -248,7 +274,34 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
       return null;
     }
   };
-  const [status, stale, human, bot, sync, botRebuild, versionProgress, internal, api, blogLanding, topUserAgents, topCoursePagesToday] = await Promise.all([
+  const blogByCourse = async (): Promise<CourseBuildHealth["blogLandingByCourseToday"]> => {
+    try {
+      const prefix = `course-blog-page:${ptDateString(now)}:`;
+      const r = await pool.query<{ cache_key: string; n: number | null }>(
+        `select cache_key, (payload->>'count')::int as n from place_candidate_cache where cache_key like $1 order by n desc nulls last limit 10`,
+        [`${prefix}%`],
+      );
+      const indexedSet = new Set(indexed.map((c) => `${c.region}/${c.days}`));
+      return r.rows.map((row) => {
+        const path = row.cache_key.slice(prefix.length); // "지역/일수 숫자"
+        const slash = path.lastIndexOf("/");
+        const days = Number(path.slice(slash + 1));
+        const isIndexed = indexedSet.has(path);
+        const course = Number.isInteger(days) && days >= 1 && days <= 7 ? `${path.slice(0, slash)}/${daysToLabel(days as CourseDays)}` : path;
+        return { course, count: row.n ?? 0, indexed: isIndexed, kind: isIndexed ? ("ok" as const) : ("preparing" as const) };
+      });
+    } catch (err) {
+      console.error("[courseBuildStatus] blog by course failed:", err);
+      return null;
+    }
+  };
+  const blog7d = async (): Promise<number | null> => {
+    const dates = [...new Set(Array.from({ length: 7 }, (_, i) => ptDateString(new Date(now.getTime() - i * 24 * 3600_000))))];
+    const rows = await Promise.all(dates.map((d) => read(`course-build-day:blogLanding:${d}`)));
+    if (rows.some((p) => p == null)) return null;
+    return rows.reduce((sum, p) => sum + (typeof p?.count === "number" ? p.count : 0), 0);
+  };
+  const [status, stale, human, bot, sync, botRebuild, versionProgress, internal, api, blogLanding, topUserAgents, topCoursePagesToday, blogLanding7d, blogLandingByCourseToday, blogLandingSync] = await Promise.all([
     read(STATUS_KEY),
     read(courseCounterKey("stale", now)),
     read(courseCounterKey("human", now)),
@@ -261,6 +314,9 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     read(courseCounterKey("blogLanding", now)),
     topUa(),
     topPages(),
+    blog7d(),
+    blogByCourse(),
+    read(courseCounterKey("blogLandingSync", now)),
   ]);
   const str = (v: unknown) => (typeof v === "string" ? v : null);
   const count = (p: Record<string, unknown> | null) => (p == null ? null : typeof p.count === "number" ? p.count : 0);
@@ -284,6 +340,9 @@ export async function getCourseBuildStatus(currentVersion: number, now = new Dat
     indexed: versionProgress ? { total: versionProgress.total, fresh: versionProgress.onCurrent, missing: versionProgress.total - versionProgress.onCurrent } : null,
     visitsBySource: { human: count(human), bot: count(bot), internal: count(internal), api: count(api) },
     blogLandingToday: count(blogLanding),
+    blogLanding7d,
+    blogLandingByCourseToday,
+    blogLandingSyncBuildToday: count(blogLandingSync),
     topCoursePagesToday,
     topUserAgents,
   };

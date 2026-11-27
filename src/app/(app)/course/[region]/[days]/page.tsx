@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { classifyVisit } from "@/lib/botUserAgent";
 import { isIndexedCourse } from "@/lib/indexedCourses";
 import { recordCourseVisit } from "@/lib/server/courseVisits";
-import { bumpCourseCounter, recordCoursePageVisit } from "@/lib/server/courseBuildStatus";
+import { bumpCourseCounter, recordBlogLandingCourse, recordCoursePageVisit } from "@/lib/server/courseBuildStatus";
 import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -131,7 +131,12 @@ type LoadedCoursePage =
  * resolveCoursePageRoute(지원 지역 × 스타일별 일수 범위, 숫자 일수·별칭은 정본 주소로 리다이렉트)다.
  * 탈락하면 이유(region/days/brief 상태)를 한 줄로 남긴다.
  */
-const loadCoursePage = cache(async (region: string, daysSegment: string): Promise<LoadedCoursePage> => {
+function isBlogUtm(sp: Record<string, string | string[] | undefined> | undefined): boolean {
+  const v = sp?.utm_source;
+  return (Array.isArray(v) ? v[0] : v) === "maeilg";
+}
+
+const loadCoursePage = cache(async (region: string, daysSegment: string, fromBlog: boolean): Promise<LoadedCoursePage> => {
   const route = resolveCoursePageRoute(region, daysSegment);
   if (route.kind === "redirect") return route;
   if (route.kind === "reject") {
@@ -163,7 +168,7 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
       }
       brief = cached;
     } else {
-      brief = await getCourseBrief(route.region, route.days, undefined, { requestSource: visit === "human" ? "user" : visit, userAgent });
+      brief = await getCourseBrief(route.region, route.days, undefined, { requestSource: visit === "human" ? "user" : visit, userAgent, fromBlog: fromBlog && visit === "human" });
     }
   } catch (err) {
     console.error(`[course-page] getCourseBrief threw: region=${route.region} days=${route.days}`, err);
@@ -184,9 +189,9 @@ const loadCoursePage = cache(async (region: string, daysSegment: string): Promis
   return { kind: "ok", brief, region: route.region, days: route.days, indexed };
 });
 
-export async function generateMetadata({ params }: { params: Promise<CoursePageParams> }): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: { params: Promise<CoursePageParams>; searchParams?: Promise<Record<string, string | string[] | undefined>> }): Promise<Metadata> {
   const raw = await params;
-  const loaded = await loadCoursePage(normalizeParam(raw.region), normalizeParam(raw.days));
+  const loaded = await loadCoursePage(normalizeParam(raw.region), normalizeParam(raw.days), isBlogUtm(await searchParams));
   if (loaded.kind === "preparing") return { title: "코스를 준비하고 있어요 - 트레쥴", robots: { index: false, follow: true } };
   if (loaded.kind === "missing" && !loaded.permanent) return { title: "코스를 준비하고 있어요 - 트레쥴", robots: { index: false, follow: true } };
   if (loaded.kind !== "ok") return { title: "코스를 찾을 수 없어요 - 트레쥴", robots: { index: false, follow: true } };
@@ -218,15 +223,17 @@ export async function generateMetadata({ params }: { params: Promise<CoursePageP
 
 export default async function CoursePage({ params, searchParams }: { params: Promise<CoursePageParams>; searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const raw = await params;
-  const loaded = await loadCoursePage(normalizeParam(raw.region), normalizeParam(raw.days));
+  const loaded = await loadCoursePage(normalizeParam(raw.region), normalizeParam(raw.days), isBlogUtm(await searchParams));
   // DIRECTION.md 백로그 — 블로그(maeilg.com) CTA 의 utm_source=maeilg 로 들어온 사람 방문을 health courseBuild.blogLandingToday 로 센다.
   if (loaded.kind === "ok" || loaded.kind === "preparing") {
     try {
-      const utm = (await searchParams)?.utm_source;
       const h = await headers();
       if (classifyVisit(h.get("user-agent"), h.get("accept-language"), "page") === "human") {
         await recordCoursePageVisit(`${normalizeParam(raw.region)}/${normalizeParam(raw.days)}`); // health courseBuild.topCoursePagesToday
-        if ((Array.isArray(utm) ? utm[0] : utm) === "maeilg") await bumpCourseCounter("blogLanding");
+        if (isBlogUtm(await searchParams)) {
+          await bumpCourseCounter("blogLanding");
+          await recordBlogLandingCourse(`${loaded.region}/${loaded.days}`); // health courseBuild.blogLandingByCourseToday
+        }
       }
     } catch {
       // 집계 실패는 페이지를 막지 않는다

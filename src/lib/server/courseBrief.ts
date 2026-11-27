@@ -5120,7 +5120,7 @@ export async function getCourseBrief(
   rawRegion: string,
   days: CourseDays,
   enrichBudgetMs: number = DEFAULT_ENRICH_BUDGET_MS,
-  options: { refresh?: boolean; requestSource?: CourseRequestSource; userAgent?: string | null } = {},
+  options: { refresh?: boolean; requestSource?: CourseRequestSource; userAgent?: string | null; /** 블로그(utm_source=maeilg) 유입 사람 요청 — 동기 빌드가 나면 blogLandingSync 로 함께 센다(측정 전용). */ fromBlog?: boolean } = {},
 ): Promise<CourseBrief> {
   const region = resolveRegionAlias(rawRegion);
   // 작업지시서 2026-10-21 "#333 검증" §2 — 검색 로봇(User-Agent 이름 목록)은 캐시(직전 버전 포함)가 있으면 그대로 받고, 재생성·방문 기록·워밍 대상 선정에 쓰이지 않는다.
@@ -5184,6 +5184,7 @@ export async function getCourseBrief(
   }
   console.log(`[courseBrief] path=cache-miss key=${cacheKey} scope=${scope}`);
   if (!isBackgroundSource(currentMapsSource())) await bumpCourseCounter("sync"); // 직전 버전이 없어 사용자 요청이 동기로 새 버전을 만든다 — health courseBuild.syncBuildsToday
+  if (options.fromBlog && requestSource === "user" && !isBackgroundSource(currentMapsSource())) await bumpCourseCounter("blogLandingSync"); // health courseBuild.blogLandingSyncBuildToday
   // 작업지시서 2026-09-27 "Places API 비용 절감" A-6 — 실패 추적(tracker)과
   // 판단을 dedupeInFlight의 run() 클로저 안에서 전부 끝낸다. run()은
   // 같은 cacheKey로 동시에 들어온 요청 중 "처음 한 번"만 실행되고,
