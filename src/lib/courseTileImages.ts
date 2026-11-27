@@ -12,6 +12,11 @@ export const COURSE_SCOPE_TILE_IMAGE_IDS = { domestic: "d-f1", overseas: "o-fr1"
 const LABEL_TO_IMAGE_ID: Record<string, string> = {
   // 국내 광역
   서울: "d-f1", 인천: "d-t13", 부산: "d-t12", 제주: "d-f2",
+  // 전라=전주 한옥마을, 경상=경주 불국사 (경기·강원·충청은 맞는 이미지가 없어 제외)
+  전라: "d-t8", 경상: "d-f5",
+  // 해외 대륙 (아프리카·남미·오세아니아는 맞는 이미지가 없어 제외)
+  // 아시아=도쿄 시부야(1단계 해외 o-fr1 과 겹치지 않게), 유럽=로마 콜로세움, 북미=뉴욕 타임스스퀘어
+  아시아: "o-t5", 유럽: "o-it1", 북미: "o-us1",
   // 국내 시/군·동네
   송도: "d-t13", 전주: "d-t8", 통영: "d-t11", 경주: "d-f5", 광안리: "d-t12", 사하: "d-f4", 성산: "d-f2", 종로: "d-f1",
   // 해외 국가
@@ -19,7 +24,7 @@ const LABEL_TO_IMAGE_ID: Record<string, string> = {
   태국: "o-th1", 대만: "o-tw1", 캐나다: "o-ca1", 베트남: "o-t12",
   // 해외 도시
   파리: "o-fr1", 로마: "o-it1", 런던: "o-uk1", 도쿄: "o-t5", 교토: "o-t6", 오사카: "o-t1", 방콕: "o-th1",
-  타이베이: "o-tw1", 뉴욕: "o-us1", 샌프란시스코: "o-us4", 바르셀로나: "o-es1", 하노이: "o-f3", 다낭: "o-t9", 밴쿠버: "o-ca1",
+  타이베이: "o-tw1", 뉴욕: "o-us1", 샌프란시스코: "o-us4", 바르셀로나: "o-es1", 하노이: "o-f3", 다낭: "o-t9", 밴쿠버: "o-ca1", 하롱: "o-t12",
 };
 
 export function courseTileImage(label: string): DiscoverSpotImage | undefined {

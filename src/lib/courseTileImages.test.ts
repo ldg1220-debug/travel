@@ -30,6 +30,20 @@ describe("course tile images (#441)", () => {
     expect(courseTileImage("없는지역")).toBeUndefined();
   });
 
+  it("2단계 타일 매핑 수 — 해외 대륙 ≥3, 국내 광역 ≥6 (#443)", () => {
+    const count = (scope: "domestic" | "overseas") => {
+      const tiles = courseRegionTree(scope);
+      return tiles.filter((n) => courseTileImage(n.label)).length;
+    };
+    expect(count("overseas")).toBeGreaterThanOrEqual(3);
+    expect(count("domestic")).toBeGreaterThanOrEqual(6);
+    for (const l of ["아시아", "유럽", "북미", "전라", "경상"]) {
+      expect(courseTileImage(l)?.src.startsWith("/discover/spots/")).toBe(true);
+    }
+    // 1단계 해외 사진과 대륙 타일 사진이 겹치지 않는다
+    expect(courseTileImage("유럽")?.src).not.toBe(courseScopeTileImage("overseas")?.src);
+  });
+
   it("CourseClient 는 spot-photo 를 부르지 않는다", () => {
     const src = readFileSync(join(process.cwd(), "src/app/(app)/course/CourseClient.tsx"), "utf8");
     // 주석 언급은 허용 — 실제 요청 URL 조립(`/api/discover/spot-photo?q=`)만 금지
