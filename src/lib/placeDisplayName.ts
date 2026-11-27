@@ -13,11 +13,29 @@ export function hasHangul(name: string): boolean {
  * 앞부분이 2글자 미만이면 원래 이름을 둔다. 붙은 하이픈("Coca-Cola")·공백 없는 대시는 건드리지 않는다.
  */
 export function stripNameTail(name: string): string {
-  const sepped = stripNameSeparator(name);
+  const sepped = stripCjkTail(stripNameSeparator(name));
   const idx = sepped.search(/\s[-–—]\s/);
   if (idx < 0) return sepped;
   const head = sepped.slice(0, idx).trim();
   return head.length >= 2 ? head : sepped;
+}
+
+const CJK = String.raw`\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}`;
+const CJK_PAREN_TAIL = new RegExp(String.raw`\s*[(（]([^()（）]*[${CJK}][^()（）]*)[)）]\s*$`, "u");
+const CJK_SPACE_TAIL = new RegExp(String.raw`\s+[${CJK}].*$`, "u");
+
+/**
+ * 한글 이름 뒤 한자·가나 꼬리 정리 — 작업지시서 2026-11-28. 이름에 한글이 있을 때만:
+ * 한글 없는 괄호 꼬리 "탕롱황성(昇龍皇城)"·"한국요리 돈키호테 (韓国料理 豚キホーテ)", 공백 뒤 한자·가나로 시작하는 꼬리(영문 포함)를 뗀다.
+ * 괄호 안에 한글이 있거나("문묘(반미에우)") 한자·가나가 없으면("독도(dokdo)") 그대로. 결과가 2글자 미만이면 원래 이름.
+ */
+export function stripCjkTail(name: string): string {
+  if (!hasHangul(name)) return name;
+  let out = name;
+  const m = CJK_PAREN_TAIL.exec(out);
+  if (m && !hasHangul(m[1])) out = out.slice(0, m.index);
+  out = out.replace(CJK_SPACE_TAIL, "").trim();
+  return hasHangul(out) && out.length >= 2 ? out : name;
 }
 
 /** 검색어로 붙는 업종·지역 일반어(소문자). 이 단어들만으로 된 조각은 상호가 아니다. */

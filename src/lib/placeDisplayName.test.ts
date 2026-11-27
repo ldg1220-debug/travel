@@ -40,3 +40,26 @@ describe("표시 이름 (작업지시서 2026-11-22)", () => {
     expect(pickRepresentativeSpots(spots, 3)).toEqual(["산토니뇨 성당", "마젤란 크로스"]);
   });
 });
+
+describe("한글 이름 뒤 한자·가나 꼬리 (작업지시서 2026-11-28)", () => {
+  it("실제 이름 4건", () => {
+    expect(stripNameTail("탕롱황성(昇龍皇城)")).toBe("탕롱황성");
+    expect(stripNameTail("인성원 (鄰聖苑)")).toBe("인성원");
+    expect(stripNameTail("성수동석갈비 聖水洞韓式豬排 seongsudong stone grilled pork")).toBe("성수동석갈비");
+    expect(stripNameTail("한국요리 돈키호테 (韓国料理 豚キホーテ)")).toBe("한국요리 돈키호테");
+  });
+  it("건드리지 않는 이름", () => {
+    expect(stripNameTail("문묘(반미에우)")).toBe("문묘(반미에우)");
+    expect(stripNameTail("36거리(구시가지)")).toBe("36거리(구시가지)");
+    expect(stripNameTail("5·4광장 (五四广场)")).toBe("5·4광장");
+    expect(stripNameTail("Coca-Cola")).toBe("Coca-Cola");
+    expect(stripNameTail("Hoan Kiem Lake")).toBe("Hoan Kiem Lake");
+    expect(stripNameTail("鄰聖苑")).toBe("鄰聖苑");
+    expect(stripNameTail("豚キホーテ (Donki)")).toBe("豚キホーテ (Donki)");
+  });
+  it("정리 결과가 2글자 이상", () => {
+    expect(stripNameTail("오사카 (大阪)")).toBe("오사카");
+    expect(stripNameTail("가 (大阪)")).toBe("가 (大阪)");
+  });
+});
+
