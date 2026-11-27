@@ -42,8 +42,7 @@ import {
 import { CordixIcon } from "@/components/icons/CordixIcon";
 import { AffiliateDisclosureNote } from "@/components/AffiliateDisclosureNote";
 import { bookingProviders, hasAffiliateLink } from "@/lib/affiliates";
-import { EsimAffiliateLinks } from "@/components/EsimAffiliateLinks";
-import { esimAffiliateLinks } from "@/lib/travelpayoutsEsim";
+import { PlannerEsimSection } from "@/components/PlannerEsimSection";
 import { resolveLodgingCity, lodgingAffiliateProviders, mergeLodgingProviders, nextIsoDate, stayDatesFromItems } from "@/lib/lodgingAffiliate";
 import { Badge } from "@/components/ui/badge";
 import { MonthCalendar } from "@/components/MonthCalendar";
@@ -2633,6 +2632,9 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                 </div>
               )}
 
+              {/* 해외 계획만 — 숙소 CTA 아래 데이터 eSIM(각 사 홈페이지). 국내·도시 미정은 렌더 안 함. */}
+              {!monthViewOpen && <PlannerEsimSection city={lodgingCity} />}
+
               {monthViewOpen ? (
                 <div className="px-5 pb-6 pt-1">
                   <MonthCalendar
@@ -3168,10 +3170,6 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
                   </a>
                 ))}
               </div>
-              {/* 해외 계획만 — 숙소 다음 준비물인 데이터 eSIM. 각 사 홈페이지로만 보낸다(코스 페이지와 같은 링크·이벤트, surface 만 planner). */}
-              {!isDomestic && (
-                <EsimAffiliateLinks region={lodgingCity} links={esimAffiliateLinks("planner_esim")} surface="planner" className="mt-4 border-t border-slate-100 pt-3" />
-              )}
             </div>
           </div>
         )}
