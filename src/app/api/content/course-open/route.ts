@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withApiErrorHandling } from "@/lib/server/apiHandler";
 import { pool } from "@/lib/server/db";
 import { COURSE_ALGO_VERSION, courseBuilderUrlFor, getCourseBrief, isLiveGooglePlaceId, parseDays, peekBrief, resolveScope, TransientApiFailureError, UnsupportedRegionError, type CourseBriefSpot } from "@/lib/server/courseBrief";
+import { applyDisplayNamesReadOnly } from "@/lib/server/placeDisplayNames";
 import { DEFAULT_DURATION_MINUTES, formatTime, shiftISODate, todayISODate } from "@/lib/timeline";
 import type { ItineraryItem, Region } from "@/lib/types";
 
@@ -154,6 +155,7 @@ export function scheduleDay(spots: CourseBriefSpot[], date: string, idPrefix: st
       id: `${idPrefix}-${i}`,
       placeId: isLiveGooglePlaceId(spot.placeId) ? spot.placeId : `${idPrefix}-${i}`,
       name: spot.name,
+      ...(spot.originalName ? { originalName: spot.originalName } : {}),
       date,
       time: formatTime(hour, minute),
       durationMinutes: duration,
@@ -248,7 +250,9 @@ export const GET = withApiErrorHandling(async (request: NextRequest) => {
   }
   const ownerId = owner.rows[0].id;
 
-  const dayGroups = splitByDay(brief.spots);
+  // 코스 페이지와 같은 표시 이름 — 저장된 한글 표기만 읽는다(생성·LLM·Google 호출 없음). 실패하면 원문 그대로.
+  const displayBrief = await applyDisplayNamesReadOnly(brief).catch(() => brief);
+  const dayGroups = splitByDay(displayBrief.spots);
   const startDate = todayISODate();
   // 합성 id 는 계획마다 유일해야 한다 — 예전엔 `content-0-0` 이 모든 코스에서 같아서, 기기 카탈로그에 남은 다른 도시 코스의 같은 id 와 충돌했다.
   const planTag = randomUUID().slice(0, 8);

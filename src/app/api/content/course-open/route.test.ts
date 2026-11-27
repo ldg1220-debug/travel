@@ -157,3 +157,25 @@ describe("isStaleContentPlan", () => {
     expect(isStaleContentPlan(old, now)).toBe(true);
   });
 });
+
+describe("scheduleDay — 표시 이름 변환(applyDisplayNamesReadOnly 의 displaySpot 결과)", () => {
+  const base = (name: string) => ({ ...spot(1, 1, null), name });
+  it("저장분 있음 → 한글 (원문), 원문은 originalName", async () => {
+    const { displaySpot } = await import("@/lib/server/placeDisplayNames");
+    const [it] = scheduleDay([displaySpot(base("鄰聖苑"), "인성원")], "2026-12-01", "t");
+    expect(it.name).toBe("인성원 (鄰聖苑)");
+    expect(it.originalName).toBe("鄰聖苑");
+  });
+  it("저장분 없음 → 꼬리 정리만", async () => {
+    const { displaySpot } = await import("@/lib/server/placeDisplayNames");
+    const [it] = scheduleDay([displaySpot(base("Olive Kitchen - Khaosan"), undefined)], "2026-12-01", "t");
+    expect(it.name).toBe("Olive Kitchen");
+    expect(it.originalName).toBe("Olive Kitchen - Khaosan");
+  });
+  it("한글 이름은 그대로", async () => {
+    const { displaySpot } = await import("@/lib/server/placeDisplayNames");
+    const [it] = scheduleDay([displaySpot(base("경복궁"), undefined)], "2026-12-01", "t");
+    expect(it.name).toBe("경복궁");
+    expect(it.originalName).toBeUndefined();
+  });
+});
