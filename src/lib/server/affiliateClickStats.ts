@@ -6,8 +6,38 @@ export const AFFILIATE_CLICK_EVENTS = ["lodging_click", "esim_click", "ticket_cl
 export interface AffiliateClickRow {
   event: string;
   provider: string;
+  /** feature_events.surface (없으면 "unknown") — 코스 페이지 / 계획 화면 구분. */
+  surface: string;
   today: number;
   last7d: number;
+}
+
+export interface AffiliateSurfaceTotal {
+  surface: string;
+  today: number;
+  last7d: number;
+}
+
+/** 쿼리 원본 행 → rows(surface null → "unknown") + bySurface 요약. 합계는 rows 와 항상 일치. */
+export function buildAffiliateClickRows(
+  raw: { event: string; provider: string | null; surface: string | null; today: string | number; last7d: string | number }[],
+): { rows: AffiliateClickRow[]; bySurface: AffiliateSurfaceTotal[] } {
+  const rows = raw.map((x) => ({
+    event: x.event,
+    provider: x.provider ?? "unknown",
+    surface: x.surface ?? "unknown",
+    today: Number(x.today),
+    last7d: Number(x.last7d),
+  }));
+  const map = new Map<string, AffiliateSurfaceTotal>();
+  for (const x of rows) {
+    const t = map.get(x.surface) ?? { surface: x.surface, today: 0, last7d: 0 };
+    t.today += x.today;
+    t.last7d += x.last7d;
+    map.set(x.surface, t);
+  }
+  const bySurface = [...map.values()].sort((a, b) => a.surface.localeCompare(b.surface));
+  return { rows, bySurface };
 }
 
 export interface AffiliateClickStats {
@@ -15,6 +45,8 @@ export interface AffiliateClickStats {
   rows: AffiliateClickRow[];
   today: number;
   last7d: number;
+  /** 화면(surface) 별 오늘·7일 제휴 클릭 합 — 코스 페이지 vs 계획 화면 비교용. */
+  bySurface: AffiliateSurfaceTotal[];
   /** 코스 페이지 "내 일정 만들기" CTA(course_page_cta_click) placement(top/bottom) 별 오늘·7일 클릭 수 — 저장 흐름 진입 지표. */
   courseCta: { placement: string; today: number; last7d: number }[];
   /** course_page_cta_click 중 블로그 유입(props.fromBlog) 오늘·7일 클릭 수. */
@@ -37,15 +69,16 @@ export const SAVE_FUNNEL_EVENTS = [
 /** /api/health 용 — 읽기 전용 집계 1쿼리. 실패하면 null(health 자체는 막지 않는다). */
 export async function getAffiliateClickStats(): Promise<AffiliateClickStats | null> {
   try {
-    const r = await pool.query<{ event: string; provider: string | null; today: string; last7d: string }>(
+    const r = await pool.query<{ event: string; provider: string | null; surface: string | null; today: string; last7d: string }>(
       `select event,
               coalesce(props->>'provider', 'unknown') as provider,
+              coalesce(surface, 'unknown') as surface,
               count(*) filter (where (created_at at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date) as today,
               count(*) as last7d
          from feature_events
         where event = any($1) and created_at >= now() - interval '7 days'
-        group by 1, 2
-        order by 1, 2`,
+        group by 1, 2, 3
+        order by 1, 2, 3`,
       [[...AFFILIATE_CLICK_EVENTS]],
     );
     const c = await pool.query<{ placement: string | null; today: string; last7d: string }>(
@@ -78,8 +111,8 @@ export async function getAffiliateClickStats(): Promise<AffiliateClickStats | nu
       return { event, today: Number(x?.today ?? 0), last7d: Number(x?.last7d ?? 0) };
     });
     const courseCta = c.rows.map((x) => ({ placement: x.placement ?? "top", today: Number(x.today), last7d: Number(x.last7d) }));
-    const rows = r.rows.map((x) => ({ event: x.event, provider: x.provider ?? "unknown", today: Number(x.today), last7d: Number(x.last7d) }));
-    return { rows, today: rows.reduce((s, x) => s + x.today, 0), last7d: rows.reduce((s, x) => s + x.last7d, 0), courseCta, courseCtaFromBlog, saveFunnel };
+    const { rows, bySurface } = buildAffiliateClickRows(r.rows);
+    return { rows, bySurface, today: rows.reduce((s, x) => s + x.today, 0), last7d: rows.reduce((s, x) => s + x.last7d, 0), courseCta, courseCtaFromBlog, saveFunnel };
   } catch (err) {
     console.error("[affiliateClickStats] failed:", err);
     return null;
