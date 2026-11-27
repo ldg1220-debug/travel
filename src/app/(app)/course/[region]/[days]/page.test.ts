@@ -405,6 +405,7 @@ describe("코스 페이지 첫 지도 이미지", () => {
     expect(img.props.alt).toBe("경주 2박3일 코스 동선 지도");
     expect(img.props.sizes).toBe("(max-width: 672px) 100vw, 672px");
     expect(img.props.src).toBe("/api/content/course-map?region=%EA%B2%BD%EC%A3%BC&days=3&v=abc1234567");
+    expect(img.props.quality).toBe(60);
     expect(img.props.width).toBe(1200);
     expect(img.props.height).toBe(630);
     const { renderToStaticMarkup } = await import("react-dom/server");
@@ -412,5 +413,15 @@ describe("코스 페이지 첫 지도 이미지", () => {
     expect(html).toContain("srcSet=");
     expect(html).toContain("sizes=");
     expect(html).toContain("/_next/image?url="); // next/image 최적화 경로(WebP/AVIF 협상)
+  });
+});
+
+// 작업지시서 2026-11-27 course-map-avif — AVIF 우선 + 지도용 품질 60 허용(75 는 다른 이미지 기본값이라 유지).
+describe("next.config images 설정", () => {
+  it("formats 는 avif→webp 순, qualities 는 60·75 를 허용하고 로컬 패턴은 course-map 만", async () => {
+    const { default: config } = await import("../../../../../../next.config");
+    expect(config.images?.formats).toEqual(["image/avif", "image/webp"]);
+    expect(config.images?.qualities).toEqual([60, 75]);
+    expect(config.images?.localPatterns).toEqual([{ pathname: "/api/content/course-map" }]);
   });
 });
