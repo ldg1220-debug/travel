@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
-import { bumpCourseCounter, coursePageVisitKey, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordUserAgent, userAgentKey, warmSourceFrom, recordAnchorReport, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
+import { blogLandingCourseKey, recordBlogLandingCourse, bumpCourseCounter, coursePageVisitKey, courseCounterKey, getCourseBuildStatus, getVersionProgress, recordUserAgent, userAgentKey, warmSourceFrom, recordAnchorReport, recordRebuildEvent, recordWarmRun } from "./courseBuildStatus";
 
 const NOW = new Date("2026-10-21T12:00:00Z"); // 태평양 10/21
 
@@ -130,6 +130,34 @@ describe("courseBuildStatus", () => {
     });
     const s = await getCourseBuildStatus(45, NOW);
     expect(s.topCoursePagesToday).toEqual([{ path: "도쿄/3", count: 5 }]);
+  });
+
+  // 작업지시서 2026-11-27 "블로그 유입 코스별·7일" — blogLanding7d · blogLandingByCourseToday · blogLandingSyncBuildToday
+  it("블로그 유입: 7일 합계 · 코스별(정렬·indexed·kind) · 동기 빌드 수", async () => {
+    expect(blogLandingCourseKey("나고야/4", NOW)).toBe("course-blog-page:2026-10-21:나고야/4");
+    queryMock.mockImplementation(async (rawSql: unknown, params?: unknown[]) => {
+      const key = String(params?.[0] ?? "");
+      if (key === "course-build-day:blogLanding:2026-10-21") return { rows: [{ payload: { count: 4 } }] };
+      if (key === "course-build-day:blogLanding:2026-10-18") return { rows: [{ payload: { count: 6 } }] };
+      if (key === "course-build-day:blogLanding:2026-10-14") return { rows: [{ payload: { count: 99 } }] }; // 7일 밖
+      if (key === "course-build-day:blogLandingSync:2026-10-21") return { rows: [{ payload: { count: 2 } }] };
+      if (String(rawSql).includes("like $1") && key.startsWith("course-blog-page:"))
+        return { rows: [{ cache_key: "course-blog-page:2026-10-21:나고야/4", n: 3 }, { cache_key: "course-blog-page:2026-10-21:도쿄/3", n: 1 }] };
+      return { rows: [] };
+    });
+    const s = await getCourseBuildStatus(45, NOW, undefined, [{ region: "도쿄", days: 3, currentKey: "k" }]);
+    expect(s.blogLanding7d).toBe(10);
+    expect(s.blogLandingSyncBuildToday).toBe(2);
+    expect(s.blogLandingByCourseToday).toEqual([
+      { course: "나고야/3박4일", count: 3, indexed: false, kind: "preparing" },
+      { course: "도쿄/2박3일", count: 1, indexed: true, kind: "ok" },
+    ]);
+  });
+
+  it("블로그 유입 기록은 코스별 키로 upsert 한다", async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] });
+    await recordBlogLandingCourse("청주/2", NOW);
+    expect(queryMock.mock.calls[0][1]).toEqual(["course-blog-page:2026-10-21:청주/2"]);
   });
 
   // 작업지시서 2026-10-27 "워밍 하루 2회" §1② — 워밍 호출 출처
