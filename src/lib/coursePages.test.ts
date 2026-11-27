@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildRegionHubDescription,
   ENABLED_COURSE_PAGES,
   withSearchParams,
   ENABLED_COURSE_PAGE_REGIONS,
@@ -448,5 +449,18 @@ describe("withSearchParams", () => {
   });
   it("utm 을 유지한다", () => {
     expect(withSearchParams("/course/a/b", { utm_source: "maeilg", x: ["1", "2"], y: undefined })).toBe("/course/a/b?utm_source=maeilg&x=1&x=2");
+  });
+});
+
+describe("buildRegionHubDescription — 지역 허브 meta description", () => {
+  const rank = (d: number) => d;
+  it("대표 명소와 곳 수를 넣는다(대표 일수 코스 기준)", () => {
+    const pages = [{ days: 1 as const, info: { spotCount: 5, reps: ["가"] } }, { days: 2 as const, info: { spotCount: 9, reps: ["해운대해수욕장", "광안리해수욕장"] } }];
+    const d = buildRegionHubDescription("부산", pages, (x) => (x === 2 ? 0 : 1));
+    expect(d).toContain("해운대해수욕장·광안리해수욕장 등 9곳");
+    expect(d.startsWith("부산 ")).toBe(true);
+  });
+  it("대표 명소가 없으면 기존 문구를 유지한다", () => {
+    expect(buildRegionHubDescription("부산", [{ days: 2 as const }, { days: 3 as const, info: { spotCount: 8, reps: [] } }], rank)).toBe("부산 여행 코스 2개(1박2일·2박3일): 일자별 동선 지도 · 이동 시간 정리.");
   });
 });
