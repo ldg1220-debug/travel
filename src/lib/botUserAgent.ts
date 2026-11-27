@@ -17,6 +17,8 @@ const BOT_TOKENS = [
   "chrome-lighthouse", "lighthouse", "ptst", "gtmetrix", "pingdom", "uptimerobot", "webpagetest", "google-pagerenderer", "google-read-aloud",
   "playwright", "puppeteer", "phantomjs", "selenium", "cypress",
   "skypeuripreview", "embedly", "iframely", "cardyb", "mastodon", "bitlybot", "w3c_validator",
+  // 작업지시서 2026-11-27 "Cowork 점검 클릭 제외" — Cowork 브라우저 점검 표식(`TraduleCowork/1.0`). internal 이 아니라 bot: 코스 동기 빌드 없이 캐시만 보여주고 집계에서 빠진다.
+  "tradulecowork",
 ];
 const BOT_PATTERN = new RegExp(`\\b(?:${BOT_TOKENS.join("|")})\\b`, "i");
 // 일반 패턴 — 이름 목록에 없는 수집기·스크립트 클라이언트. (브라우저 토큰 `Claude/3.x` 는 해당 없음)

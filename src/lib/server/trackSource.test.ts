@@ -14,6 +14,10 @@ describe("shouldSkipTracking", () => {
   it("Cowork 점검 UA(… TraduleAutoPipeline/cowork) → 저장 안 함", () => {
     expect(shouldSkipTracking(`${CHROME} TraduleAutoPipeline/cowork`, LANG)).toBe(true);
   });
+  it("Cowork 점검 표식(… TraduleCowork/1.0) → 저장 안 함, 표식 없으면 저장", () => {
+    expect(shouldSkipTracking(`${CHROME} TraduleCowork/1.0`, LANG)).toBe(true);
+    expect(shouldSkipTracking(CHROME, LANG)).toBe(false);
+  });
   it("Request 헤더에서 읽는다", () => {
     const h = (ua: string) => ({ headers: new Headers({ "user-agent": ua, "accept-language": LANG }) });
     expect(shouldSkipTrackingRequest(h(CHROME))).toBe(false);
