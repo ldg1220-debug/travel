@@ -71,6 +71,9 @@ const nextConfig: NextConfig = {
   // 코스 페이지 LCP 지도(/api/content/course-map?region=&days=&v=)만 next/image 최적화 허용 — 작업지시서 2026-11-27.
   images: {
     localPatterns: [{ pathname: "/api/content/course-map" }],
+    // AVIF 우선·WebP 대체(작업지시서 2026-11-27 course-map-avif). 75 는 다른 next/image 의 기본 품질, 60 은 코스 지도 전용.
+    formats: ["image/avif", "image/webp"],
+    qualities: [60, 75],
   },
   async headers() {
     return [

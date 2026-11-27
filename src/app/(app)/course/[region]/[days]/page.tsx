@@ -298,6 +298,7 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
           width={1200}
           height={630}
           sizes="(max-width: 672px) 100vw, 672px"
+          quality={60}
           priority
           className="mt-4 w-full rounded-2xl border border-slate-200 dark:border-slate-700"
         />
