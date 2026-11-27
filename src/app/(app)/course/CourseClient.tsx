@@ -1,5 +1,7 @@
 "use client";
 
+import { courseScopeTileImage, courseTileImage } from "@/lib/courseTileImages";
+import type { DiscoverSpotImage } from "@/lib/discoverSpotImages";
 import { GoogleAttribution } from "@/components/GoogleAttribution";
 import { pushSafely } from "@/lib/documentNavigation";
 import { useMemo, useState } from "react";
@@ -92,9 +94,10 @@ const AI_RADIUS_OPTIONS: { minutes: CourseTravelRadius; label: string }[] = [
 // 검은 그라데이션(bg-gradient-to-t from-black/45~55)을 한 겹 더 얹어서,
 // 같은 40% 흰색이라도 SpotCard보다 실제로 훨씬 흐리게 보인다. 크기와
 // 불투명도를 올려 그 위에서도 눈에 띄게 했다. ──
-function TilePhoto({ query, className }: { query: string; className?: string }) {
+function TilePhoto({ image, className }: { image?: DiscoverSpotImage; className?: string }) {
   const [failed, setFailed] = useState(false);
-  if (failed) {
+  // #441: Google spot-photo 호출 없음 — 저장소 이미지가 없거나 로드 실패면 그라데이션+핀.
+  if (!image || failed) {
     return (
       <div className={`flex items-center justify-center bg-gradient-to-br from-brand-500 to-brand-pink-600 ${className ?? ""}`}>
         <MapPin size={36} className="text-white/80" />
@@ -102,14 +105,20 @@ function TilePhoto({ query, className }: { query: string; className?: string }) 
     );
   }
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- /api/discover/spot-photo proxy
-    <img
-      src={`/api/discover/spot-photo?q=${encodeURIComponent(query)}`}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-      className={`object-cover ${className ?? ""}`}
-    />
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element -- 저장소 정적 webp */}
+      <img src={image.src} alt="" loading="lazy" onError={() => setFailed(true)} className={`object-cover ${className ?? ""}`} />
+      <a
+        href={image.sourceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        title={`사진: ${image.credit} · ${image.license} (Wikimedia Commons)`}
+        className="absolute bottom-1 right-1 z-10 max-w-[70%] truncate rounded bg-black/40 px-1 py-px text-[8px] leading-tight text-white/90 backdrop-blur-sm"
+      >
+        {image.credit} · {image.license}
+      </a>
+    </>
   );
 }
 
@@ -528,8 +537,8 @@ export function CourseBuilderPage() {
           <div className="flex flex-1 items-center justify-center">
             <div className="grid w-full grid-cols-2 gap-5">
               {([
-                { key: "domestic" as const, label: "국내 여행", flag: "🇰🇷", desc: "카카오맵 기준 실제 장소", photoQuery: "경복궁 야경" },
-                { key: "overseas" as const, label: "해외 여행", flag: "🌐", desc: "구글맵 기준 실제 장소·평점", photoQuery: "파리 에펠탑 야경" },
+                { key: "domestic" as const, label: "국내 여행", flag: "🇰🇷", desc: "카카오맵 기준 실제 장소" },
+                { key: "overseas" as const, label: "해외 여행", flag: "🌐", desc: "구글맵 기준 실제 장소·평점" },
               ]).map((s) => (
                 <button
                   key={s.key}
@@ -537,7 +546,7 @@ export function CourseBuilderPage() {
                   className="group relative flex flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg"
                 >
                   <div className="relative h-48 w-full sm:h-72">
-                    <TilePhoto query={s.photoQuery} className="absolute inset-0 h-full w-full" />
+                    <TilePhoto image={courseScopeTileImage(s.key)} className="absolute inset-0 h-full w-full" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/5 to-transparent" />
                     <span className="absolute left-4 top-4 text-4xl drop-shadow-md">{s.flag}</span>
                   </div>
@@ -562,7 +571,7 @@ export function CourseBuilderPage() {
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md"
                 >
                   <div className="relative h-36 w-full sm:h-44">
-                    <TilePhoto query={`${r.label} 여행`} className="absolute inset-0 h-full w-full" />
+                    <TilePhoto image={courseTileImage(r.label)} className="absolute inset-0 h-full w-full" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
                     <span className="absolute left-3 top-3 text-2xl drop-shadow-md">{r.emoji ?? "📍"}</span>
                   </div>
@@ -579,7 +588,7 @@ export function CourseBuilderPage() {
                   className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-md"
                 >
                   <div className="relative h-20 w-full sm:h-24">
-                    <TilePhoto query={`${path[path.length - 1]} ${c.label}`} className="absolute inset-0 h-full w-full" />
+                    <TilePhoto image={courseTileImage(c.label)} className="absolute inset-0 h-full w-full" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/45 to-transparent" />
                     {/* 위 두 단계(scope/1차 드릴)는 큰 이모지 오버레이가 있는데
                         여기만 없어서, 사진 조회가 실패하면(짧은 지명은 Places
