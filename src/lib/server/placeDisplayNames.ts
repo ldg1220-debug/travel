@@ -101,3 +101,13 @@ export async function applyDisplayNames<T extends { spots: CourseBriefSpot[] }>(
   const ko = await resolveKoreanNames(items);
   return { ...brief, spots: brief.spots.map((s) => displaySpot(s, s.placeId ? ko.get(s.placeId) : undefined)) };
 }
+
+/**
+ * 생성 없이 읽기만 하는 표시 이름 — 저장된 한글 표기(place_display_names)가 있으면 병기하고, 없으면 꼬리 정리만 한다.
+ * LLM·Google 호출과 저장(insert)이 없다(작업지시서 2026-11-28 course-open 표시 이름).
+ */
+export async function applyDisplayNamesReadOnly<T extends { spots: CourseBriefSpot[] }>(brief: T): Promise<T> {
+  const ids = [...new Set(brief.spots.filter((s) => s.placeId && isLiveGooglePlaceId(s.placeId) && needsKoreanName(stripNameTail(s.name))).map((s) => s.placeId as string))];
+  const saved = await loadSaved(ids);
+  return { ...brief, spots: brief.spots.map((s) => displaySpot(s, s.placeId ? saved.get(s.placeId) : undefined)) };
+}
