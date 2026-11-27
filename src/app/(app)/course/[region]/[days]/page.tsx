@@ -7,6 +7,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { GoogleAttribution } from "@/components/GoogleAttribution";
 import { applyDisplayNames } from "@/lib/server/placeDisplayNames";
 import { getCourseBrief, peekBrief, resolveScope, UnsupportedRegionError, type CourseBrief, type CourseDays } from "@/lib/server/courseBrief";
@@ -70,6 +71,17 @@ interface CoursePageParams {
  * 디코딩 다음에 NFC 정규화한다 — 순서가 바뀌면 인코딩된 문자열을
  * 정규화하는 의미 없는 일이 된다.
  */
+/** imageUrl 은 절대 URL(https://www.tradule.co.kr/api/content/course-map?...) — 같은 사이트 로컬 경로로 바꿔야 localPatterns 로 최적화된다. 다른 형태면 그대로 둔다. */
+function courseMapImageSrc(imageUrl: string): string {
+  try {
+    const u = new URL(imageUrl);
+    if (u.pathname === "/api/content/course-map") return `${u.pathname}${u.search}`;
+  } catch {
+    // 파싱 불가면 원본 그대로
+  }
+  return imageUrl;
+}
+
 function normalizeParam(value: string): string {
   let decoded = value;
   try {
@@ -278,14 +290,15 @@ export default async function CoursePage({ params, searchParams }: { params: Pro
       <p className="mt-2 text-[13.5px] text-slate-600 dark:text-slate-300">{intro}</p>
 
       {brief.imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element -- Google Static Maps가 만드는 원격 PNG, next/image 최적화 대상이 아니다(course-brief의 다른 소비처와 같은 관례).
-        <img
-          src={brief.imageUrl}
+        // 첫 화면 LCP 지도 — next/image 로 휴대폰 폭에 맞는 WebP/AVIF 를 받는다(원본 1200×630 PNG 194KB → 359px 표시).
+        // 원본 /api/content/course-map 응답은 그대로이고(블로그·OG·course-brief 소비처), 최적화본은 Next 가 같은 원본을 한 번 받아 캐시한다 — Static Maps 호출은 늘지 않는다.
+        <Image
+          src={courseMapImageSrc(brief.imageUrl)}
           alt={`${region} ${daysLabel} 코스 동선 지도`}
           width={1200}
           height={630}
-          fetchPriority="high"
-          decoding="async"
+          sizes="(max-width: 672px) 100vw, 672px"
+          priority
           className="mt-4 w-full rounded-2xl border border-slate-200 dark:border-slate-700"
         />
       )}
