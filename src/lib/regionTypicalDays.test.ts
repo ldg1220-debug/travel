@@ -120,6 +120,19 @@ describe("허브·인기 코스 첫 칩", () => {
   });
 });
 
+describe("pickPopularCourses 대표 일수 폴백", () => {
+  const pick = (pages: ConfirmedCoursePage[]) => pickPopularCourses(pages, 12).map((p) => `${p.region}/${p.days}`);
+  it("경주 3일만 있어도 카드에 포함", () => {
+    expect(pick([page("경주", 3)])).toEqual(["경주/3"]);
+  });
+  it("1순위·3순위가 둘 다 있으면 1순위 선택", () => {
+    expect(pick([page("경주", 3), page("경주", 2)])).toEqual(["경주/2"]);
+  });
+  it("대표 일수 밖 일수만 있으면 제외", () => {
+    expect(pick([page("시드니", 2), page("우붓", 1)])).toEqual([]);
+  });
+});
+
 // 작업지시서 2026-10-13 "#309 검증" §2 — 인기 코스가 첫 나라(일본)로만 채워지지 않게.
 describe("pickPopularCourses 다양성", () => {
   const jp = ["고베", "교토", "나고야", "나라", "도쿄", "삿포로", "오사카", "오이타", "오키나와", "요코하마", "유후인", "후쿠오카"];
