@@ -428,3 +428,19 @@ export function withSearchParams(to: string, searchParams?: Record<string, strin
   if (!s) return to;
   return to + (to.includes("?") ? "&" : "?") + s;
 }
+
+/**
+ * 지역 허브 meta description — 대표 일수 코스의 대표 명소(reps)와 곳 수를 넣는다(작업지시서 2026-11-28 region-hub-links).
+ * 대표 명소가 없으면 기존 문구(코스 개수·일수 나열)를 유지한다. pages는 일수 오름차순.
+ */
+export function buildRegionHubDescription(
+  region: string,
+  pages: ReadonlyArray<{ days: CourseDays; info?: { spotCount: number; reps: string[] } }>,
+  rankOf: (days: CourseDays) => number,
+): string {
+  const rep = [...pages].filter((p) => p.info && p.info.reps.length > 0).sort((a, b) => rankOf(a.days) - rankOf(b.days))[0];
+  if (rep?.info) {
+    return `${region} ${dayDisplayLabel(region, rep.days)} 여행 코스: ${rep.info.reps.join("·")} 등 ${rep.info.spotCount}곳, 일자별 동선 지도 · 이동 시간 정리.`;
+  }
+  return `${region} 여행 코스 ${pages.length}개(${pages.map((p) => daysToLabel(p.days)).join("·")}): 일자별 동선 지도 · 이동 시간 정리.`;
+}

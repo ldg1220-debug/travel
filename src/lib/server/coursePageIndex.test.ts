@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const queryMock = vi.fn();
 vi.mock("./db", () => ({ pool: { query: (...args: unknown[]) => queryMock(...args) } }));
 
-import { fetchConfirmedCoursePages, pickRelatedCourseLinks, resetConfirmedCoursePagesMemo, type ConfirmedCoursePage } from "./coursePageIndex";
+import { fetchConfirmedCoursePages, pickRegionHubLinks, pickRelatedCourseLinks, resetConfirmedCoursePagesMemo, type ConfirmedCoursePage } from "./coursePageIndex";
 import { COURSE_ALGO_VERSION, courseSitemapKey, recordConfirmedCoursePage } from "./courseBrief";
 
 // 작업지시서 2026-10-08 "코스 페이지가 전부 404입니다" §2·§3 — 확인된 조합 목록과 내부 링크.
@@ -64,6 +64,29 @@ describe("pickRelatedCourseLinks", () => {
 
   it("확인된 조합이 없으면 링크도 없다(404가 될 수 있는 페이지로 걸지 않는다)", () => {
     expect(pickRelatedCourseLinks({ region: "오사카", days: 3 }, [], parent)).toEqual({ sameRegion: [], sameCountry: [], otherDestinations: [] });
+  });
+});
+
+describe("pickRegionHubLinks", () => {
+  const page = (region: string, days: number): ConfirmedCoursePage => ({ region, days: days as 1, lastModified: new Date() });
+  const parent = (r: string) => ({ 오사카: "일본", 도쿄: "일본", 후쿠오카: "일본", 부산: "부산", 경주: "경북", 시드니: "호주" })[r];
+
+  it("자기 지역을 빼고 같은 나라만 걸며, 같은 나라가 3개 미만이면 다른 여행지도 붙인다", () => {
+    const confirmed = [page("도쿄", 3), page("오사카", 3), page("후쿠오카", 2), page("시드니", 3)];
+    const links = pickRegionHubLinks("도쿄", confirmed, parent);
+    expect(links.sameCountry.map((p) => p.region)).toEqual(["오사카", "후쿠오카"]);
+    expect(links.otherDestinations.map((p) => p.region)).toEqual(["시드니"]);
+  });
+
+  it("국내는 같은 광역만 같은 묶음 — 다른 광역은 다른 여행지로", () => {
+    const links = pickRegionHubLinks("부산", [page("부산", 2), page("경주", 2)], parent);
+    expect(links.sameCountry).toEqual([]);
+    expect(links.otherDestinations.map((p) => p.region)).toEqual(["경주"]);
+  });
+
+  it("확인된 조합만 쓰고, 자기 지역 코스가 확인되지 않았으면 링크가 없다", () => {
+    expect(pickRegionHubLinks("도쿄", [page("오사카", 3)], parent)).toEqual({ sameCountry: [], otherDestinations: [] });
+    expect(pickRegionHubLinks("도쿄", [], parent)).toEqual({ sameCountry: [], otherDestinations: [] });
   });
 });
 

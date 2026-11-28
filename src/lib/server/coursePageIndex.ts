@@ -140,6 +140,21 @@ export function pickRelatedCourseLinks(
   return { sameRegion, sameCountry, otherDestinations };
 }
 
+/**
+ * 지역 허브용 링크 — 현재 지역의 대표 일수 코스를 기준으로 같은 나라(국내는 같은 광역) 다른 지역, 그 링크가 적으면(3개 미만) 다른 여행지.
+ * 같은 지역 다른 일수는 허브 카드가 이미 보여주므로 뺀다. 확인된 조합만.
+ */
+export function pickRegionHubLinks(
+  region: string,
+  confirmed: readonly ConfirmedCoursePage[],
+  parentOf: (region: string) => string | undefined,
+): { sameCountry: ConfirmedCoursePage[]; otherDestinations: ConfirmedCoursePage[] } {
+  const own = confirmed.filter((p) => p.region === region).sort((a, b) => typicalDayRank(region, a.days) - typicalDayRank(region, b.days));
+  if (own.length === 0) return { sameCountry: [], otherDestinations: [] };
+  const { sameCountry, otherDestinations } = pickRelatedCourseLinks({ region, days: own[0].days }, confirmed, parentOf);
+  return { sameCountry, otherDestinations: sameCountry.length < 3 ? otherDestinations : [] };
+}
+
 interface RegionMeta {
   parent: string;
   scope: "domestic" | "overseas";

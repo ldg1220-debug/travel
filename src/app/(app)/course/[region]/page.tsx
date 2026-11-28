@@ -3,9 +3,9 @@ import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import { isSupportedRegion } from "@/lib/server/courseBrief";
 import { resolveRegionAlias } from "@/lib/discoverData";
-import { splitTypicalPages } from "@/lib/regionTypicalDays";
-import { fetchConfirmedCoursePages } from "@/lib/server/coursePageIndex";
-import { buildRegionHubJsonLd, COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath, dayDisplayLabel, daysToLabel } from "@/lib/coursePages";
+import { splitTypicalPages, typicalDayRank } from "@/lib/regionTypicalDays";
+import { fetchConfirmedCoursePages, parentOfRegion, pickRegionHubLinks } from "@/lib/server/coursePageIndex";
+import { buildRegionHubDescription, buildRegionHubJsonLd, COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath, dayDisplayLabel, daysToLabel } from "@/lib/coursePages";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
 
 /**
@@ -37,7 +37,7 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   const first = daysToLabel(pages[0].days);
   const last = daysToLabel(pages[pages.length - 1].days);
   const title = `${region} 여행 코스 — ${pages.length === 1 ? first : `${first}~${last}`} 일자별 동선 | 트레쥴`;
-  const description = `${region} 여행 코스 ${pages.length}개(${pages.map((p) => daysToLabel(p.days)).join("·")}): 일자별 동선 지도 · 이동 시간 정리.`;
+  const description = buildRegionHubDescription(region, pages, (d) => typicalDayRank(region, d));
   return { title: { absolute: title }, description, alternates: { canonical: courseRegionHubPath(region) }, openGraph: { title, description, type: "website", url: courseRegionHubPath(region) } };
 }
 
@@ -46,7 +46,13 @@ export default async function RegionHubPage({ params }: { params: Promise<Params
   const region = resolveRegionAlias(raw);
   if (!isSupportedRegion(region)) notFound();
   if (region !== raw) permanentRedirect(courseRegionHubPath(region));
-  const pages = (await fetchConfirmedCoursePages()).filter((p) => p.region === region).sort((a, b) => a.days - b.days);
+  const confirmed = await fetchConfirmedCoursePages();
+  const pages = confirmed.filter((p) => p.region === region).sort((a, b) => a.days - b.days);
+  const related = pickRegionHubLinks(region, confirmed, parentOfRegion);
+  const linkGroups = [
+    { title: "같은 나라·지역의 다른 코스", items: related.sameCountry },
+    { title: "다른 여행지 코스", items: related.otherDestinations },
+  ].filter((g) => g.items.length > 0);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-6 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] md:pb-6">
@@ -88,6 +94,24 @@ export default async function RegionHubPage({ params }: { params: Promise<Params
             </>
           );
         })()
+      )}
+      {linkGroups.length > 0 && (
+        <nav aria-label="관련 코스" className="mt-8 border-t border-slate-100 pt-4 dark:border-slate-800">
+          {linkGroups.map((g, i) => (
+            <div key={g.title} className={i > 0 ? "mt-4" : undefined}>
+              <p className="mb-2 text-[13px] font-semibold text-slate-700 dark:text-slate-200">{g.title}</p>
+              <ul className="flex flex-wrap gap-2">
+                {g.items.map((p) => (
+                  <li key={`${p.region}-${p.days}`}>
+                    <Link href={courseCanonicalPath(p.region, p.days)} className="inline-flex min-h-11 items-center rounded-full border border-slate-200 px-3 py-1 text-[12.5px] text-brand-700 hover:bg-slate-50 dark:border-slate-700 dark:text-brand-400">
+                      {p.region} {dayDisplayLabel(p.region, p.days)}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </nav>
       )}
       <p className="mt-6 text-[12.5px]">
         <Link href={COURSE_HUB_PATH} className="font-semibold text-brand-700 hover:underline dark:text-brand-400">← 전체 코스 모음</Link>

@@ -94,7 +94,14 @@ describe("지역 허브 /course/{지역}", () => {
     const links = hrefs(html);
     expect(links).toContain("/course/오사카/1박2일");
     expect(links).toContain("/course/오사카/2박3일");
-    expect(links).not.toContain("/course/도쿄/2박3일");
+    // 관련 코스 <nav> 를 기준으로 분리: 카드 목록(바깥)에는 다른 지역 코스가 없고, nav 안에는 있다.
+    const navStart = html.indexOf('<nav aria-label="관련 코스"');
+    expect(navStart).toBeGreaterThan(-1);
+    const navEnd = html.indexOf("</nav>", navStart);
+    const outside = hrefs(html.slice(0, navStart) + html.slice(navEnd));
+    const inside = hrefs(html.slice(navStart, navEnd));
+    expect(outside).not.toContain("/course/도쿄/2박3일");
+    expect(inside).toContain("/course/도쿄/2박3일");
     expect(html).toContain("12곳 · 이동 22.9km");
     expect(links).toContain("/course/all");
     expect(titleOf(await regionMetadata({ params: Promise.resolve({ region: "오사카" }) }))).toBe("오사카 여행 코스 — 1박2일~2박3일 일자별 동선 | 트레쥴");
