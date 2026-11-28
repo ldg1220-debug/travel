@@ -3244,7 +3244,11 @@ function PlannerBoardInner({ shareToken }: PlannerBoardProps) {
             mode={dateSheet}
             days={dateSheet === "copy" ? sharedSpanDays : Math.max(1, new Set(items.map((i) => i.date)).size)}
             busy={copyingShared}
-            onClose={() => setDateSheet(null)}
+            onClose={() => {
+              // 고르지 않고 닫음(닫기·바깥 탭) — 담아가기 날짜 시트에서만 남긴다(측정만).
+              if (dateSheet === "copy") trackFeatureEvent("plan_copy_sheet_dismiss", "planner", { source: "itinerary" });
+              setDateSheet(null);
+            }}
             onConfirm={(startDate) => {
               if (dateSheet === "copy") {
                 handleCopyChoice({ startDate });

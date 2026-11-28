@@ -38,6 +38,8 @@ export const FEATURE_EVENT_NAMES = [
   // 작업지시서 2026-11-27 "담아가기 클릭 6 → 완료 0" — 담아가기 중간 단계 계측(측정만).
   // plan_copy_choice { source, undated }: 날짜 시트에서 고름.
   "plan_copy_choice",
+  // plan_copy_sheet_dismiss { source }: 날짜 시트를 고르지 않고 닫음(2026-11-28).
+  "plan_copy_sheet_dismiss",
   // plan_copy_login_shown { source }: 비로그인이라 로그인 창을 띄움.
   "plan_copy_login_shown",
   // login_provider_click { provider, reason }: 로그인 창에서 제공자 버튼 클릭(reason: "plan_copy" | "other").
