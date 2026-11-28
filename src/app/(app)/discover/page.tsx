@@ -8,6 +8,16 @@ export const metadata: Metadata = {
   title: "여행지 탐색 - 트레쥴",
   description: "인기 스팟과 실시간 맛집·명소를 검색하고, AI 추천 코스로 다음 여행지를 찾아보세요.",
   alternates: { canonical: "/discover" },
+  // openGraph 를 정의하면 layout 의 openGraph(이미지 포함)가 교체되므로 images 도 함께 명시한다.
+  openGraph: {
+    title: "여행지 탐색 - 트레쥴",
+    description: "인기 스팟과 실시간 맛집·명소를 검색하고, AI 추천 코스로 다음 여행지를 찾아보세요.",
+    url: "/discover",
+    siteName: "Tradule 트레쥴",
+    locale: "ko_KR",
+    type: "website",
+    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "Tradule 트레쥴" }],
+  },
 };
 
 export const dynamic = "force-dynamic"; // 인기 코스 섹션이 DB를 읽는다(홈 page.tsx 주석 참고)

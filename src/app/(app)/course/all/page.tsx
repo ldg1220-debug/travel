@@ -22,7 +22,8 @@ export async function generateMetadata(): Promise<Metadata> {
     title: { absolute: title },
     description,
     alternates: { canonical: COURSE_HUB_PATH },
-    openGraph: { title, description, type: "website", url: COURSE_HUB_PATH },
+    // openGraph 를 정의하면 layout.tsx 의 openGraph 가 통째로 교체되므로(얕은 병합) images 를 여기서도 명시한다.
+    openGraph: { title, description, type: "website", url: COURSE_HUB_PATH, locale: "ko_KR", images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "Tradule 트레쥴" }] },
   };
 }
 
