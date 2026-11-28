@@ -4,7 +4,7 @@ const queryMock = vi.fn();
 vi.mock("@/lib/server/db", () => ({ pool: { query: (...a: unknown[]) => queryMock(...a) } }));
 
 import { fetchPublicTripPostArticle } from "./postMetadata";
-import { buildTripPostJsonLd, clipContent, serializeJsonLd, summarizeDays, tripPostCanonical } from "../tripPostSeo";
+import { buildTripPostJsonLd, clipContent, matchIndexedCourseLink, regionLabel, serializeJsonLd, summarizeDays, tripPostCanonical } from "../tripPostSeo";
 
 const row = (visibility: string) => ({
   id: 5,
@@ -65,5 +65,21 @@ describe("tripPostSeo", () => {
   it("긴 본문은 잘리고 빈 스냅샷은 빈 배열", () => {
     expect(clipContent("가".repeat(2000)).length).toBe(1501);
     expect(summarizeDays(null)).toEqual([]);
+  });
+});
+
+describe("regionLabel / matchIndexedCourseLink", () => {
+  it("지역 코드를 한글로, 알 수 없는 값은 빈 값", () => {
+    expect(regionLabel("domestic")).toBe("국내");
+    expect(regionLabel("international")).toBe("해외");
+    expect(regionLabel("overseas")).toBe("해외");
+    expect(regionLabel("mars")).toBe("");
+    expect(regionLabel(null)).toBe("");
+  });
+  it("제목에 색인 여행지가 있으면 코스 링크, 없으면 null", () => {
+    expect(matchIndexedCourseLink("5월22일 ~ 26일 후쿠오카")?.href).toBe("/course/" + encodeURIComponent("후쿠오카") + "/" + encodeURIComponent("2박3일"));
+    expect(matchIndexedCourseLink("0711 오사카")?.region).toBe("오사카");
+    expect(matchIndexedCourseLink("7월18일 동래")).toBeNull();
+    expect(matchIndexedCourseLink(null)).toBeNull();
   });
 });
