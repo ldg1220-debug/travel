@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FEATURE_EVENT_NAMES } from "./featureEvents";
-import { SAVE_FUNNEL_EVENTS, buildAffiliateClickRows } from "./server/affiliateClickStats";
+import { SAVE_FUNNEL_EVENTS, buildAffiliateClickRows, buildSaveFunnelBySource } from "./server/affiliateClickStats";
 
 describe("담아가기 중간 단계 이벤트 (2026-11-27)", () => {
   it("새 이벤트 이름이 서버 허용 목록(FEATURE_EVENT_NAMES)에 있다", () => {
@@ -13,12 +13,34 @@ describe("담아가기 중간 단계 이벤트 (2026-11-27)", () => {
       "course_page_cta_click",
       "plan_copy_click",
       "plan_copy_choice",
+      "plan_copy_sheet_dismiss",
       "plan_copy_login_shown",
       "login_provider_click",
       "plan_copy_completed",
       "plan_save",
     ]);
     for (const e of SAVE_FUNNEL_EVENTS) expect(FEATURE_EVENT_NAMES).toContain(e);
+  });
+});
+
+describe("담아가기 시트 닫힘 · 출처별 퍼널 (2026-11-28)", () => {
+  it("plan_copy_sheet_dismiss 가 허용 목록에 있다", () => {
+    expect(FEATURE_EVENT_NAMES).toContain("plan_copy_sheet_dismiss");
+  });
+  it("bySource 행 조립: 퍼널 순서 → 출처 이름순, source null 은 unknown, 퍼널 밖 이벤트 제외", () => {
+    const rows = buildSaveFunnelBySource([
+      { event: "plan_copy_choice", source: "itinerary", today: "0", last7d: "1" },
+      { event: "plan_copy_click", source: null, today: 0, last7d: 1 },
+      { event: "plan_copy_click", source: "trip_post", today: "1", last7d: "3" },
+      { event: "plan_copy_click", source: "itinerary", today: "1", last7d: "4" },
+      { event: "lodging_click", source: "x", today: "9", last7d: "9" },
+    ]);
+    expect(rows).toEqual([
+      { event: "plan_copy_click", source: "itinerary", today: 1, last7d: 4 },
+      { event: "plan_copy_click", source: "trip_post", today: 1, last7d: 3 },
+      { event: "plan_copy_click", source: "unknown", today: 0, last7d: 1 },
+      { event: "plan_copy_choice", source: "itinerary", today: 0, last7d: 1 },
+    ]);
   });
 });
 

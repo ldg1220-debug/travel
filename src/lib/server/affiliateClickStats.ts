@@ -53,6 +53,26 @@ export interface AffiliateClickStats {
   courseCtaFromBlog: { today: number; last7d: number };
   /** 저장 흐름 단계별(코스 CTA → 복사 클릭 → 복사 완료 → 계획 저장) 오늘·7일 이벤트 수 — 어디서 막히는지 보는 지표. */
   saveFunnel: { event: string; today: number; last7d: number }[];
+  /** 같은 퍼널 이벤트를 props.source(없으면 "unknown") 별로 나눈 오늘·7일 수 — 출처별 이탈 구간 확인용. 실패 시 null. */
+  saveFunnelBySource: SaveFunnelSourceRow[] | null;
+}
+
+export interface SaveFunnelSourceRow {
+  event: string;
+  source: string;
+  today: number;
+  last7d: number;
+}
+
+/** 쿼리 원본 행 → 퍼널 순서 · 출처 이름순 행(source null → "unknown"). 퍼널 밖 이벤트는 버린다. */
+export function buildSaveFunnelBySource(
+  raw: { event: string; source: string | null; today: string | number; last7d: string | number }[],
+): SaveFunnelSourceRow[] {
+  const order = (e: string) => (SAVE_FUNNEL_EVENTS as readonly string[]).indexOf(e);
+  return raw
+    .filter((x) => order(x.event) >= 0)
+    .map((x) => ({ event: x.event, source: x.source ?? "unknown", today: Number(x.today), last7d: Number(x.last7d) }))
+    .sort((a, b) => order(a.event) - order(b.event) || a.source.localeCompare(b.source));
 }
 
 /** 저장 흐름 퍼널로 세는 feature_events 이벤트(순서 = 퍼널 순서). */
@@ -60,6 +80,7 @@ export const SAVE_FUNNEL_EVENTS = [
   "course_page_cta_click",
   "plan_copy_click",
   "plan_copy_choice",
+  "plan_copy_sheet_dismiss",
   "plan_copy_login_shown",
   "login_provider_click",
   "plan_copy_completed",
@@ -110,9 +131,25 @@ export async function getAffiliateClickStats(): Promise<AffiliateClickStats | nu
       const x = f.rows.find((r2) => r2.event === event);
       return { event, today: Number(x?.today ?? 0), last7d: Number(x?.last7d ?? 0) };
     });
+    let saveFunnelBySource: SaveFunnelSourceRow[] | null = null;
+    try {
+      const s = await pool.query<{ event: string; source: string | null; today: string; last7d: string }>(
+        `select event,
+                coalesce(props->>'source', 'unknown') as source,
+                count(*) filter (where (created_at at time zone 'Asia/Seoul')::date = (now() at time zone 'Asia/Seoul')::date) as today,
+                count(*) as last7d
+           from feature_events
+          where event = any($1) and created_at >= now() - interval '7 days'
+          group by 1, 2`,
+        [[...SAVE_FUNNEL_EVENTS]],
+      );
+      saveFunnelBySource = buildSaveFunnelBySource(s.rows);
+    } catch (err) {
+      console.error("[affiliateClickStats] saveFunnelBySource failed:", err);
+    }
     const courseCta = c.rows.map((x) => ({ placement: x.placement ?? "top", today: Number(x.today), last7d: Number(x.last7d) }));
     const { rows, bySurface } = buildAffiliateClickRows(r.rows);
-    return { rows, bySurface, today: rows.reduce((s, x) => s + x.today, 0), last7d: rows.reduce((s, x) => s + x.last7d, 0), courseCta, courseCtaFromBlog, saveFunnel };
+    return { rows, bySurface, today: rows.reduce((s, x) => s + x.today, 0), last7d: rows.reduce((s, x) => s + x.last7d, 0), courseCta, courseCtaFromBlog, saveFunnel, saveFunnelBySource };
   } catch (err) {
     console.error("[affiliateClickStats] failed:", err);
     return null;
