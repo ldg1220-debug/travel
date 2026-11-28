@@ -4,6 +4,9 @@
  * 입력은 반드시 visibility='public' 확인을 마친 데이터여야 한다(postMetadata.ts 가 보장).
  */
 import type { ItineraryItem } from "@/lib/types";
+import { INDEXED_COURSES } from "@/lib/indexedCourses";
+import { courseCanonicalPath } from "@/lib/coursePages";
+import type { CourseDays } from "@/lib/server/courseBrief";
 
 export const SITE_ORIGIN = "https://www.tradule.co.kr";
 
@@ -63,4 +66,28 @@ export function buildTripPostJsonLd(p: PublicTripPostArticle): Record<string, un
 /** <script type="application/ld+json"> 안에 안전하게 넣기 위해 `<` 를 이스케이프한다. */
 export function serializeJsonLd(data: Record<string, unknown>): string {
   return JSON.stringify(data).replace(/</g, "\\u003c");
+}
+
+/** 지역 코드값(domestic/international/overseas) → 한글 표기. 알 수 없는 값은 빈 문자열(표시하지 않는다). */
+export function regionLabel(region: string | null | undefined): string {
+  switch ((region ?? "").trim().toLowerCase()) {
+    case "domestic":
+      return "국내";
+    case "international":
+    case "overseas":
+      return "해외";
+    default:
+      return "";
+  }
+}
+
+/** 후기 제목에 색인 코스 여행지(홈 "인기 여행 코스"와 같은 INDEXED_COURSES) 이름이 있으면 그 코스 링크. 여러 곳이면 제목에서 먼저 나오는 곳. */
+export function matchIndexedCourseLink(title: string | null | undefined): { region: string; href: string } | null {
+  if (!title) return null;
+  let best: { region: string; days: number; index: number } | null = null;
+  for (const c of INDEXED_COURSES) {
+    const index = title.indexOf(c.region);
+    if (index !== -1 && (best == null || index < best.index)) best = { ...c, index };
+  }
+  return best ? { region: best.region, href: courseCanonicalPath(best.region, best.days as CourseDays) } : null;
 }

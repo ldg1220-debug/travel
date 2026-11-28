@@ -1,5 +1,6 @@
 import type { PublicTripPostArticle } from "@/lib/tripPostSeo";
-import { clipContent } from "@/lib/tripPostSeo";
+import Link from "next/link";
+import { clipContent, matchIndexedCourseLink, regionLabel } from "@/lib/tripPostSeo";
 
 /**
  * 작업지시서 2026-11-28 — 공개 후기만 서버에서 내보내는 본문 요약. TripPostDetailPage 가 글을 불러오기
@@ -8,7 +9,8 @@ import { clipContent } from "@/lib/tripPostSeo";
  */
 export function TripPostSsrSummary({ post }: { post: PublicTripPostArticle }) {
   const image = post.images[0];
-  const meta = [post.region, post.tripTitle].filter(Boolean).join(" · ");
+  const meta = [regionLabel(post.region), post.tripTitle].filter(Boolean).join(" · ");
+  const courseLink = matchIndexedCourseLink(post.tripTitle);
   return (
     <article className="mx-auto min-h-full max-w-2xl bg-slate-50 px-4 py-6 text-slate-800">
       <h1 className="text-lg font-bold">{post.title}</h1>
@@ -32,6 +34,13 @@ export function TripPostSsrSummary({ post }: { post: PublicTripPostArticle }) {
             ))}
           </ul>
         </section>
+      )}
+      {courseLink && (
+        <p className="mt-4 text-[13px]">
+          <Link href={courseLink.href} className="font-semibold text-brand-700 hover:underline">
+            {courseLink.region} 추천 코스 보기 →
+          </Link>
+        </p>
       )}
     </article>
   );
