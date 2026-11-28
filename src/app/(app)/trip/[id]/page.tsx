@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { fetchPublicTripPostMeta } from "@/lib/server/postMetadata";
+import { fetchPublicTripPostArticle, fetchPublicTripPostMeta } from "@/lib/server/postMetadata";
+import { buildTripPostJsonLd, serializeJsonLd, tripPostCanonical } from "@/lib/tripPostSeo";
+import { TripPostSsrSummary } from "./TripPostSsrSummary";
 import { TripPostDetailPage } from "./TripPostClient";
 
 // 작업지시서 2026-09-22 "sitemap에 올린 코스 페이지 20개가 전부
@@ -27,6 +29,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return {
     title: `${meta.title} - 트레쥴`,
     description: meta.description,
+    alternates: { canonical: tripPostCanonical(Number(id)) },
     openGraph: {
       title: meta.title,
       description: meta.description,
@@ -35,6 +38,15 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   };
 }
 
-export default function Page() {
-  return <TripPostDetailPage />;
+// 작업지시서 2026-11-28 — 공개 글만 서버에서 본문 요약 + JSON-LD 를 내보낸다. 그 외는 지금처럼 빈 껍데기.
+export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const article = await fetchPublicTripPostArticle(Number(id));
+  if (!article) return <TripPostDetailPage />;
+  return (
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(buildTripPostJsonLd(article)) }} />
+      <TripPostDetailPage initialView={<TripPostSsrSummary post={article} />} />
+    </>
+  );
 }
