@@ -52,7 +52,7 @@ const TripPostComposer = dynamic(() => import("@/components/TripPostComposer").t
 const PENDING_COPY_KEY = "tradule:pendingTripCopyPostId";
 
 /** Standalone public view of one 여행 후기 (blog/Instagram-style trip post) — what a 카카오톡 공유 link or "링크 복사" opens for anyone, logged in or not, if the post was published to the feed (or you're its author). */
-export function TripPostDetailPage() {
+export function TripPostDetailPage({ initialView }: { initialView?: React.ReactNode } = {}) {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { data: session } = useSession();
@@ -349,6 +349,7 @@ export function TripPostDetailPage() {
   }
 
   if (!post) {
+    if (initialView) return <>{initialView}</>;
     return <div className="flex min-h-full items-center justify-center bg-slate-50 text-[13px] text-slate-500">불러오는 중…</div>;
   }
 

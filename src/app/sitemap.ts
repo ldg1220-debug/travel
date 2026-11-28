@@ -49,19 +49,27 @@ const COURSE_PAGES_IN_SITEMAP = true;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = "https://www.tradule.co.kr";
-  const now = new Date();
-  const routes: { path: string; changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"]; priority: number }[] = [
+  // 작업지시서 2026-11-28 — 고정 페이지 lastModified 가 요청 시각(now)으로 나가던 것을 없앤다. 실제 바뀐 시점을
+  // 추적하지 않는 페이지는 lastModified 를 생략하고, privacy·terms 는 고정 날짜(내용 개정 시 이 값을 갱신).
+  const PRIVACY_LAST_MODIFIED = new Date("2026-07-29T00:00:00+09:00"); // PrivacyBody 시행일자
+  const TERMS_LAST_MODIFIED = new Date("2026-07-28T00:00:00+09:00"); // TermsBody 시행일자
+  const routes: {
+    path: string;
+    changeFrequency: MetadataRoute.Sitemap[number]["changeFrequency"];
+    priority: number;
+    lastModified?: Date;
+  }[] = [
     { path: "/", changeFrequency: "daily", priority: 1 },
     { path: "/discover", changeFrequency: "daily", priority: 0.9 },
     { path: "/course", changeFrequency: "weekly", priority: 0.8 },
     { path: "/community", changeFrequency: "daily", priority: 0.7 },
     { path: "/scrapbook", changeFrequency: "weekly", priority: 0.5 },
-    { path: "/privacy", changeFrequency: "yearly", priority: 0.2 },
-    { path: "/terms", changeFrequency: "yearly", priority: 0.2 },
+    { path: "/privacy", changeFrequency: "yearly", priority: 0.2, lastModified: PRIVACY_LAST_MODIFIED },
+    { path: "/terms", changeFrequency: "yearly", priority: 0.2, lastModified: TERMS_LAST_MODIFIED },
   ];
   const staticEntries: MetadataRoute.Sitemap = routes.map((r) => ({
     url: `${base}${r.path}`,
-    lastModified: now,
+    ...(r.lastModified ? { lastModified: r.lastModified } : {}),
     changeFrequency: r.changeFrequency,
     priority: r.priority,
   }));
