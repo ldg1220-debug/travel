@@ -74,6 +74,8 @@ const nextConfig: NextConfig = {
     // AVIF 우선·WebP 대체(작업지시서 2026-11-27 course-map-avif). 75 는 다른 next/image 의 기본 품질, 60 은 코스 지도 전용.
     formats: ["image/avif", "image/webp"],
     qualities: [60, 75],
+    // 최적화본 캐시 30일(작업지시서 2026-11-28 course-map-image-ttl). 지도 URL 에 내용 해시 v= 가 있어 낡은 지도 위험 없음. 원본 s-maxage 와 동일.
+    minimumCacheTTL: 2592000,
   },
   async headers() {
     return [
