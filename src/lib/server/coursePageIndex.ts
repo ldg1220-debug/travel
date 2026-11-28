@@ -194,6 +194,12 @@ export interface HubGroup {
   regions: HubRegion[];
 }
 
+/** 지역의 대표 일수 코스(지도가 있는 것 중 대표 순)의 지도 URL — 상세 페이지 og:image 와 같은 값. 없으면 null. */
+export function pickRegionImageUrl(pages: readonly ConfirmedCoursePage[]): string | null {
+  const withInfo = pages.filter((p) => p.info).sort((a, b) => typicalDayRank(a.region, a.days) - typicalDayRank(b.region, b.days));
+  return withInfo.find((p) => p.info!.imageUrl)?.info!.imageUrl ?? null;
+}
+
 /** 확인된 조합을 범위(국내 → 해외) → 나라·광역 → 지역으로 묶는다. 같은 지역은 일수 오름차순, 해외는 인기 순위 → 이름 순. */
 export function groupConfirmedForHub(confirmed: readonly ConfirmedCoursePage[]): HubGroup[] {
   const byRegion = new Map<string, ConfirmedCoursePage[]>();
@@ -208,7 +214,7 @@ export function groupConfirmedForHub(confirmed: readonly ConfirmedCoursePage[]):
       region,
       pages: sorted,
       reps: withInfo.find((p) => p.info!.reps.length > 0)?.info!.reps ?? [],
-      imageUrl: withInfo.find((p) => p.info!.imageUrl)?.info!.imageUrl ?? null,
+      imageUrl: pickRegionImageUrl(sorted),
     };
     const key = `${meta.scope}:${meta.parent}`;
     const group = groups.get(key) ?? { scope: meta.scope, parent: meta.parent, regions: [] };

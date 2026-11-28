@@ -4,7 +4,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { isSupportedRegion } from "@/lib/server/courseBrief";
 import { resolveRegionAlias } from "@/lib/discoverData";
 import { splitTypicalPages, typicalDayRank } from "@/lib/regionTypicalDays";
-import { fetchConfirmedCoursePages, parentOfRegion, pickRegionHubLinks } from "@/lib/server/coursePageIndex";
+import { fetchConfirmedCoursePages, parentOfRegion, pickRegionImageUrl, pickRegionHubLinks } from "@/lib/server/coursePageIndex";
 import { buildRegionHubDescription, buildRegionHubJsonLd, COURSE_HUB_PATH, courseCanonicalPath, courseRegionHubPath, dayDisplayLabel, daysToLabel } from "@/lib/coursePages";
 import { TravelpayoutsDriveScript } from "@/components/TravelpayoutsDriveScript";
 
@@ -38,7 +38,16 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   const last = daysToLabel(pages[pages.length - 1].days);
   const title = `${region} 여행 코스 — ${pages.length === 1 ? first : `${first}~${last}`} 일자별 동선 | 트레쥴`;
   const description = buildRegionHubDescription(region, pages, (d) => typicalDayRank(region, d));
-  return { title: { absolute: title }, description, alternates: { canonical: courseRegionHubPath(region) }, openGraph: { title, description, type: "website", url: courseRegionHubPath(region) } };
+  // openGraph 정의가 layout 의 것을 교체하므로 images 를 명시. 대표 코스 상세 페이지가 쓰는 course-map URL 을 그대로 재사용(새 지도 요청 없음), 없으면 기본 OG 이미지.
+  const mapUrl = pickRegionImageUrl(pages);
+  const ogImages = mapUrl ? [{ url: mapUrl, width: 1200, height: 630 }] : [{ url: "/opengraph-image", width: 1200, height: 630, alt: "Tradule 트레쥴" }];
+  return {
+    title: { absolute: title },
+    description,
+    alternates: { canonical: courseRegionHubPath(region) },
+    openGraph: { title, description, type: "website", url: courseRegionHubPath(region), locale: "ko_KR", images: ogImages },
+    twitter: { card: "summary_large_image", title, description, images: ogImages.map((i) => i.url) },
+  };
 }
 
 export default async function RegionHubPage({ params }: { params: Promise<Params> }) {

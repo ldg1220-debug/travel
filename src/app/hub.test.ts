@@ -11,6 +11,7 @@ vi.mock("@/lib/server/db", () => ({ pool: { query: vi.fn() } }));
 
 import { PopularCoursesSection } from "@/components/PopularCoursesSection";
 import CourseHubPage, { generateMetadata as hubMetadata } from "./(app)/course/all/page";
+import { metadata as discoverMetadata } from "./(app)/discover/page";
 import RegionHubPage, { generateMetadata as regionMetadata } from "./(app)/course/[region]/page";
 
 // 작업지시서 2026-10-12 "코스 페이지가 고아입니다" §2 — 코스 허브·지역 허브·인기 코스 섹션.
@@ -115,5 +116,40 @@ describe("지역 허브 /course/{지역}", () => {
     await expect(render("아틀란티스")).rejects.toThrow();
     const alias = await render("발리").catch((e) => e as { digest?: string });
     expect(String((alias as { digest?: string }).digest)).toContain(encodeURIComponent("우붓"));
+  });
+});
+
+// 작업지시서 2026-11-29 "허브 og:image 누락" — openGraph 정의가 layout 의 openGraph 를 교체하므로 images 를 직접 명시해야 한다.
+describe("허브 공유 미리보기 이미지(og:image)", () => {
+  const ogUrls = (m: { openGraph?: unknown }) => {
+    const imgs = (m.openGraph as { images?: unknown } | undefined)?.images;
+    return (Array.isArray(imgs) ? imgs : []).map((i) => (typeof i === "string" ? i : (i as { url: string }).url));
+  };
+
+  it("/course/all: 기본 /opengraph-image, locale ko_KR", async () => {
+    confirmedMock.mockResolvedValue(SAMPLE);
+    const meta = await hubMetadata();
+    expect(ogUrls(meta)).toEqual(["/opengraph-image"]);
+    expect((meta.openGraph as { locale?: string }).locale).toBe("ko_KR");
+  });
+
+  it("/course/{지역}: 대표 일수 코스의 지도 URL(상세 og:image 와 같은 값), twitter 도 동일", async () => {
+    const url = "https://www.tradule.co.kr/api/content/course-map?region=오사카&days=3&v=abc";
+    confirmedMock.mockResolvedValue([page("오사카", 2, { info: { spotCount: 8, totalDistanceKm: 10, imageUrl: "https://www.tradule.co.kr/api/content/course-map?region=오사카&days=2&v=zzz", reps: [] } }), page("오사카", 3, { info: { spotCount: 12, totalDistanceKm: 20, imageUrl: url, reps: [] } })]);
+    const meta = await regionMetadata({ params: Promise.resolve({ region: "오사카" }) });
+    expect(ogUrls(meta)).toEqual([url]);
+    expect((meta.twitter as { images?: string[] }).images).toEqual([url]);
+  });
+
+  it("/course/{지역}: 지도가 없으면 /opengraph-image 폴백", async () => {
+    confirmedMock.mockResolvedValue([page("오사카", 3, { info: undefined })]);
+    const meta = await regionMetadata({ params: Promise.resolve({ region: "오사카" }) });
+    expect(ogUrls(meta)).toEqual(["/opengraph-image"]);
+    expect((meta.twitter as { images?: string[] }).images).toEqual(["/opengraph-image"]);
+  });
+
+  it("/discover: og:url=/discover + images 비어 있지 않음", () => {
+    expect((discoverMetadata.openGraph as { url?: string }).url).toBe("/discover");
+    expect(ogUrls(discoverMetadata).length).toBeGreaterThan(0);
   });
 });
